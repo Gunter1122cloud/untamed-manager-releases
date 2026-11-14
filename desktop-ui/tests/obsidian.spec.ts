@@ -226,6 +226,14 @@ test.beforeEach(async ({ page }) => {
     let steamUpdateStarted = false;
     let steamBatchApplyCount=0;
     let steamBatchStarted=false;
+    let steamBatchHeld=false;
+    let steamBatchStatusFailsOnce=false;
+    (window as typeof window & {__UNTAMED_HOLD_STEAM_BATCH__?:()=>void})
+      .__UNTAMED_HOLD_STEAM_BATCH__=()=>{steamBatchHeld=true;};
+    (window as typeof window & {__UNTAMED_RELEASE_STEAM_BATCH__?:()=>void})
+      .__UNTAMED_RELEASE_STEAM_BATCH__=()=>{steamBatchHeld=false;};
+    (window as typeof window & {__UNTAMED_FAIL_STEAM_BATCH_STATUS__?:()=>void})
+      .__UNTAMED_FAIL_STEAM_BATCH_STATUS__=()=>{steamBatchStatusFailsOnce=true;};
     (window as typeof window & {__UNTAMED_STOPPED_ORIGINAL_STEAM__?:()=>void})
       .__UNTAMED_STOPPED_ORIGINAL_STEAM__=()=>{
         Object.assign(state.local.maps[1],{
@@ -2869,9 +2877,19 @@ test.beforeEach(async ({ page }) => {
             evidence:"REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"};
         }
         case "steam.batchCurrent": return {
-          activeJob:null,journalExists:false,journalPhase:null,
-          journalNextIndex:null,journalTotal:null,needsOperatorReview:false,
-          automaticRetry:false,remoteWritesAllowed:false
+          activeJob:steamBatchStarted&&steamBatchHeld?{
+            jobId:"00000000-0000-4000-8000-000000008881",
+            state:"running",stage:"SteamCMD",position:1,total:1,
+            activeMapName:"Astraeos",completedInstallations:0,
+            changedUtc:"2026-11-10T09:30:00Z",
+            serverStopRequested:false,remoteHostTouched:false,
+            storeWriterTouched:false,automaticRetry:false
+          }:null,
+          journalExists:steamBatchStarted,
+          journalPhase:steamBatchHeld?"MapInProgress":steamBatchStarted?"Completed":null,
+          journalNextIndex:steamBatchStarted?1:null,
+          journalTotal:steamBatchStarted?1:null,
+          needsOperatorReview:false,automaticRetry:false,remoteWritesAllowed:false
         };
         case "steam.batchPreview": {
           if(!Array.isArray(m.mapIds)||m.mapIds.length<1||
@@ -2902,9 +2920,14 @@ test.beforeEach(async ({ page }) => {
             evidence:"EXPLICIT_LOCAL_STOPPED_SERIAL_STEAM_BATCH_STARTED"};
         case "steam.batchStatus":
           if(!steamBatchStarted)throw new Error("UM-STEAM-BATCH-JOB-MISSING");
+          if(steamBatchStatusFailsOnce){
+            steamBatchStatusFailsOnce=false;
+            throw new Error("UM-TEST-TRANSIENT-BATCH-STATUS-LOSS");
+          }
           return {jobId:"00000000-0000-4000-8000-000000008881",
-            state:"completed",stage:"verified",position:1,total:1,
-            activeMapName:"Local Map 60",completedInstallations:1,
+            state:steamBatchHeld?"running":"completed",
+            stage:steamBatchHeld?"SteamCMD":"verified",position:1,total:1,
+            activeMapName:"Astraeos",completedInstallations:steamBatchHeld?0:1,
             changedUtc:"2026-11-10T09:30:00Z",
             serverStopRequested:false,remoteHostTouched:false,
             storeWriterTouched:false,automaticRetry:false};
@@ -6918,6 +6941,43 @@ test("SQL-free offline cluster archive requires four native folders and explicit
   await expect(panel).toContainText("20 konfigurációs állomány SHA-256-tal igazolva");
   await expect(panel).toContainText("nem élő többgépes pillanatkép");
   await expect(panel).not.toContainText("SQL mentés kész");
+});
+
+test("native serial SteamCMD batch reattaches after navigation and transient lost status without replay",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HOLD_STEAM_BATCH__?:()=>void
+  }).__UNTAMED_HOLD_STEAM_BATCH__?.());
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"Helyi mapok soros SteamCMD frissítése"});
+  const targets=panel.getByRole("group",{name:"Soros SteamCMD célmapok"});
+  await targets.getByRole("checkbox").check();
+  await panel.getByRole("button",{name:/map natív frissítési előellenőrzése/}).click();
+  const consent=panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"});
+  await consent.getByRole("textbox",{name:"Soros SteamCMD jóváhagyó szöveg"})
+    .fill("HELYI SOROS STEAMCMD");
+  await consent.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"}).click();
+  await expect(panel).toContainText("SteamCMD: running");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FAIL_STEAM_BATCH_STATUS__?:()=>void
+  }).__UNTAMED_FAIL_STEAM_BATCH_STATUS__?.());
+  await expect(panel).toContainText("állapota átmenetileg nem ellenőrizhető",{timeout:15000});
+  await expect(panel.getByRole("button",{name:/map natív frissítési előellenőrzése/})).toBeDisabled();
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const resumed=page.getByRole("region",{name:"Helyi mapok soros SteamCMD frissítése"});
+  await expect(resumed).toContainText("SteamCMD: running");
+  await expect(resumed.getByRole("button",{name:/map natív frissítési előellenőrzése/})).toBeDisabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RELEASE_STEAM_BATCH__?:()=>void
+  }).__UNTAMED_RELEASE_STEAM_BATCH__?.());
+  await expect(resumed).toContainText("SteamCMD: completed",{timeout:15000});
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STEAM_BATCH_APPLIES__?:()=>number
+  }).__UNTAMED_STEAM_BATCH_APPLIES__?.())).toBe(1);
 });
 
 test("stopped original Store-v1 ASA map participates in explicitly approved serial SteamCMD, never auto-stopped",async({page})=>{
