@@ -226,6 +226,14 @@ test.beforeEach(async ({ page }) => {
     let steamUpdateStarted = false;
     let steamBatchApplyCount=0;
     let steamBatchStarted=false;
+    (window as typeof window & {__UNTAMED_STOPPED_ORIGINAL_STEAM__?:()=>void})
+      .__UNTAMED_STOPPED_ORIGINAL_STEAM__=()=>{
+        Object.assign(state.local.maps[1],{
+          storeProtected:true,storeLifecycleState:"preflightRequired",
+          running:false,status:"Leállítva",maintenance:false,
+          observedReadOnlyImported:false,freshStoreEnrolled:false
+        });
+      };
 
     (window as typeof window & {__UNTAMED_STEAM_BATCH_APPLIES__?:()=>number})
       .__UNTAMED_STEAM_BATCH_APPLIES__=()=>steamBatchApplyCount;
@@ -2870,7 +2878,8 @@ test.beforeEach(async ({ page }) => {
              m.mapIds.length>25||new Set(m.mapIds).size!==m.mapIds.length)
             throw new Error("UM-STEAM-BATCH-INVALID-MAPS");
           const local=m.mapIds.map((id:string)=>
-            state.local.maps.find(x=>x.id===id&&!x.running&&!x.storeProtected));
+            state.local.maps.find(x=>x.id===id&&!x.running&&
+              !x.maintenance&&!x.observedReadOnlyImported&&!x.freshStoreEnrolled));
           if(local.some((x:any)=>!x))throw new Error("UM-STEAM-BATCH-PROTECTED-OR-REMOTE");
           return {token:"00000000-0000-4000-8000-000000008880",
             requestedMaps:local.length,installations:local.length,
@@ -6909,6 +6918,35 @@ test("SQL-free offline cluster archive requires four native folders and explicit
   await expect(panel).toContainText("20 konfigurációs állomány SHA-256-tal igazolva");
   await expect(panel).toContainText("nem élő többgépes pillanatkép");
   await expect(panel).not.toContainText("SQL mentés kész");
+});
+
+test("stopped original Store-v1 ASA map participates in explicitly approved serial SteamCMD, never auto-stopped",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STOPPED_ORIGINAL_STEAM__?:()=>void
+  }).__UNTAMED_STOPPED_ORIGINAL_STEAM__?.());
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"Helyi mapok soros SteamCMD frissítése"});
+  await expect(panel).toContainText("eredeti Store-v1 mapok");
+  const targets=panel.getByRole("group",{name:"Soros SteamCMD célmapok"});
+  await expect(targets).toContainText("Astraeos");
+  await targets.getByRole("checkbox").check();
+  await panel.getByRole("button",{name:/map natív frissítési előellenőrzése/}).click();
+  const proof=panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"});
+  await expect(proof).toContainText("Astraeos");
+  await expect(proof.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"})).toBeDisabled();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STEAM_BATCH_APPLIES__?:()=>number
+  }).__UNTAMED_STEAM_BATCH_APPLIES__?.())).toBe(0);
+  await proof.getByRole("textbox",{name:"Soros SteamCMD jóváhagyó szöveg"})
+    .fill("HELYI SOROS STEAMCMD");
+  await proof.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"}).click();
+  await expect(panel).toContainText("SteamCMD: completed");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STEAM_BATCH_APPLIES__?:()=>number
+  }).__UNTAMED_STEAM_BATCH_APPLIES__?.())).toBe(1);
+  await expect(panel).not.toContainText("automatikus újraindítás elindult");
 });
 
 test("HP/Ryzen portable mod profiles require native selection and per-host local approval",async ({page})=>{
