@@ -3352,6 +3352,7 @@ try
     {
         var target=cluster.Config.LocalMaps.Single(x=>x.Name=="Valguero");
         int executions=0;
+        bool failNextSyntheticUpdate=false;
         IProgress<SteamMaintenanceStage>? delayedSteamProgress=null;
         // Hold the fake native runner at an observable in-progress boundary;
         // UI reattachment must never schedule a second update.
@@ -3371,6 +3372,8 @@ try
                 progress.Report(SteamMaintenanceStage.Backup);
                 runnerEntered.TrySetResult(true);
                 await allowRunnerFinish.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                if(failNextSyntheticUpdate)
+                    throw new InvalidOperationException("SYNTHETIC-STEAM-FAILURE");
                 return new SteamStoppedMapUpdater.Receipt(m.Id,m.InstallationPath,
                     "123456","123457","fake-backup",
                     DateTimeOffset.UtcNow,true);
@@ -3544,6 +3547,40 @@ try
         IsOk(retained,"completed map-owned SteamCMD job receipt remains readable");
         Check(retained.GetProperty("data").GetProperty("mapId").GetGuid()==target.Id,
             "SteamCMD status cannot silently change to a sibling map");
+        // A failure receipt must likewise be immune to delayed progress.
+        // No real SteamCMD process is invoked in this negative fixture.
+        failNextSyntheticUpdate=true;
+        var failurePreview=await Call(updater.HandleAsync,
+            "steam.stoppedPreview",new{mapId=target.Id});
+        IsOk(failurePreview,"failed synthetic SteamCMD run has fresh explicit approval");
+        var failureToken=failurePreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        var failureStarted=await Call(updater.HandleAsync,
+            "steam.stoppedApply",new{token=failureToken,confirm=true});
+        IsOk(failureStarted,"synthetic failure is tracked as a native SteamCMD job");
+        string failedJobId=failureStarted.GetProperty("data")
+            .GetProperty("jobId").GetString()!;
+        JsonElement failedResult=default;
+        for(int i=0;i<60;i++)
+        {
+            failedResult=await Call(updater.HandleAsync,
+                "steam.stoppedStatus",new{jobId=failedJobId});
+            if(failedResult.GetProperty("data").GetProperty("state")
+               .GetString()=="needsOperator")break;
+            await Task.Delay(25);
+        }
+        IsOk(failedResult,"native Steam failure remains queryable");
+        Check(failedResult.GetProperty("data").GetProperty("state")
+              .GetString()=="needsOperator"&&executions==2,
+            "failed SteamCMD runner requires operator review without automatic replay");
+        delayedSteamProgress!.Report(SteamMaintenanceStage.VerifyBuild);
+        await Task.Delay(250);
+        var failedAfterLate=await Call(updater.HandleAsync,
+            "steam.stoppedStatus",new{jobId=failedJobId});
+        IsOk(failedAfterLate,"failed SteamCMD job remains readable after late progress");
+        Check(failedAfterLate.GetProperty("data").GetProperty("state")
+              .GetString()=="needsOperator"&&executions==2,
+            "late SteamCMD progress never hides an operator-required failure");
         var emptyJournal=await Call(updater.HandleAsync,"steam.stoppedCurrent");
         IsOk(emptyJournal,"first-run Steam queue journal status is readable");
         Check(!emptyJournal.GetProperty("data").GetProperty("exists").GetBoolean(),
