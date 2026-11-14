@@ -223,6 +223,9 @@ test.beforeEach(async ({ page }) => {
     let pluginEnabled = true;
     let pluginZipInstalled = false;
     let apiCoreRolledBack = false;
+    let apiCoreInstalls=0;
+    (window as typeof window & {__UNTAMED_API_CORE_INSTALLS__?:()=>number})
+      .__UNTAMED_API_CORE_INSTALLS__=()=>apiCoreInstalls;
     let steamUpdateStarted = false;
     let singleSteamHeld=false;
     let singleSteamStatusFailsOnce=false;
@@ -2619,6 +2622,40 @@ test.beforeEach(async ({ page }) => {
           evidence:"LOCAL_CONFIG_AND_QUARANTINED_ARCHIVE_METADATA_ONLY"
         };
         case "mods.configured": return {mapId: m.mapId, mapName: "The Island", pending: false, active: ["123456"], passive: ["789012"], disabled: [], evidence:"CONFIGURED_ONLY"};
+        // UI-only fake responses. Production requests still route through the
+        // existing native DesktopAsaApiCoreBridge and its file/process guards.
+        case "api.coreRelease": return {
+          tag:"2.03",publishedUtc:"2026-11-01T10:00:00Z",
+          htmlUrl:"https://github.com/ServersHub/ServerAPI/releases",
+          assets:[{name:"ArkServerApi-verified.zip",bytes:1048576,
+            publisherDigestAvailable:true}],
+          installationStarted:false,
+          evidence:"OFFICIAL_ASA_API_GITHUB_RELEASE_METADATA_ONLY"
+        };
+        case "api.corePreview":
+          if(m.mapId!==two||m.assetName!=="ArkServerApi-verified.zip")
+            throw new Error("UM-API-CORE-MAP-OR-ASSET-MISMATCH");
+          return {
+            token:"00000000-0000-4000-8000-000000007777",
+            mapId:two,mapName:"Astraeos",releaseTag:"2.03",
+            assetName:m.assetName,bytes:1048576,
+            officialSha256VerifiedInMetadata:true,approved:false,
+            serverStopped:true,storeProtected:false,
+            createsSelectiveRollback:true,restartsServer:false,
+            runtimeLoadCertified:false,
+            evidence:"VERIFIED_UPSTREAM_RELEASE_PREFLIGHT_NO_WRITE"
+          };
+        case "api.coreApply":
+          if(!m.confirm||m.token!=="00000000-0000-4000-8000-000000007777")
+            throw new Error("UM-API-CORE-APPROVAL-REQUIRED");
+          apiCoreInstalls++;
+          return {
+            mapId:two,releaseTag:"2.03",
+            transactionId:"11111111111141118111111111111111",binaries:4,
+            bytesVerified:true,rollbackSnapshot:true,
+            runtimeLoadedVerified:false,serverRestarted:false,
+            evidence:"OFFICIAL_SHA256_STOPPED_API_CORE_SELECTIVE_ROLLBACK_SNAPSHOT"
+          };
         case "api.coreRollbackCandidates": return {
           candidates:apiCoreRolledBack?[]:[{
             transactionId:"11111111111141118111111111111111",
@@ -4810,6 +4847,51 @@ test("configured mods enrich official provider titles only when API credential i
   await page.getByRole("button",{name:"Modok",exact:true}).click();
   await expect(page.locator(".premium-mod-list-panel").getByText("Featured Mod")).toBeVisible();
   await expect(page.locator(".premium-mod-list-panel")).not.toContainText("synthetic-mod-metadata-key");
+});
+
+test("native ASA API CORE installation and rollback are available only on eligible local maps",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Pluginok",exact:true}).click();
+  const selector=page.getByRole("combobox",{name:"Pluginok mapja"});
+  await expect(page.getByRole("region",
+    {name:"Hivatalos ASA API CORE telepítés"})).toHaveCount(0);
+  await expect(page.getByText(/ASA API CORE binárisfrissítés ezen a mapon nem/))
+    .toBeVisible();
+  await selector.selectOption(second);
+  const core=page.getByRole("region",{name:"Hivatalos ASA API CORE telepítés"});
+  await expect(core).toBeVisible();
+  await core.getByRole("button",
+    {name:"Hivatalos ASA API kiadás lekérdezése"}).click();
+  await expect(core.getByText("ArkServerApi · 2.03")).toBeVisible();
+  await core.getByRole("combobox",{name:"ASA API CORE ZIP"})
+    .selectOption("ArkServerApi-verified.zip");
+  await core.getByRole("button",
+    {name:"Leállítás, helyi tulajdonjog és ZIP előellenőrzése"}).click();
+  const approval=core.getByRole("region",
+    {name:"ASA API CORE telepítés jóváhagyása"});
+  await expect(approval).toContainText("Astraeos");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_API_CORE_INSTALLS__?:()=>number
+  }).__UNTAMED_API_CORE_INSTALLS__?.())).toBe(0);
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{name:"ASA API CORE telepítése"}).click();
+  await expect(core.getByText(/ellenőrzött ASA API CORE bináris telepítve/))
+    .toBeVisible();
+  const installs=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_API_CORE_INSTALLS__?:()=>number
+  }).__UNTAMED_API_CORE_INSTALLS__?.());
+  expect(installs).toBe(1);
+  await core.getByRole("button",
+    {name:"Korábbi API CORE telepítések lekérdezése"}).click();
+  await core.getByRole("button",
+    {name:"Visszaállítási jóváhagyás előkészítése"}).click();
+  const rollback=core.getByRole("region",
+    {name:"API CORE visszaállítás jóváhagyása"});
+  await rollback.getByRole("checkbox").check();
+  await rollback.getByRole("button",
+    {name:"Eredeti API CORE binárisok visszaállítása"}).click();
+  await expect(core.getByText(/API CORE visszaállítva/)).toBeVisible();
+  await expect(core.getByRole("button",{name:"Plugin reload"})).toHaveCount(0);
 });
 
 test("P0 every local map has a real per-map ASA API checkbox in Plugin Center",async({page})=>{
