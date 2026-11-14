@@ -32,7 +32,9 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     private readonly object sync=new();
     private readonly Func<int,int,bool> ownsPort;
     private readonly Func<Guid,ProcessIdentity,Action<string>,Task<AsaGracefulStopReceipt>> stop;
-    private Approval? pending;
+    // One pending one-time approval per map; another map's preflight
+    // must not silently invalidate a still-current local approval.
+    private readonly Dictionary<Guid,Approval> approvalsByMap=new();
     // Retain a separate Stop receipt for every registered local ASA map.
     private readonly Dictionary<Guid,Job> jobsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -178,25 +180,28 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                     if(owned==null)return Error(id,"UM-MAP-NOT-OWNED");
                     if(HasActive(mapId))return Error(id,"UM-ASA-STOP-BUSY");
                     var process=Require(owned);
-                    pending=new(Guid.NewGuid(),owned.Id,process.Pid,
+                    var permit=new Approval(Guid.NewGuid(),owned.Id,process.Pid,
                         process.StartedUtc,owned.InstallationPath,owned.RconPort,
                         DateTimeOffset.UtcNow);
+                    approvalsByMap[owned.Id]=permit;
                     return Ok(id,new{
-                        token=pending.Token,mapId=owned.Id,mapName=owned.Name,
+                        token=permit.Token,mapId=owned.Id,mapName=owned.Name,
                         pid=process.Pid,usesSaveWorld=true,usesDoExit=true,
                         killPermitted=false,autoRestart=false,
                         evidence="REAL_LOCAL_GRACEFUL_STOP_PREVIEW_NO_DISPATCH"
                     });
                 }
-                if(!GuidProperty(request,"token",out var token)||pending==null||
-                   pending.Token!=token||
-                   DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(3))
+                if(!GuidProperty(request,"token",out var token))
+                    return Error(id,"UM-ASA-STOP-TOKEN-EXPIRED");
+                var approved=approvalsByMap.Values.SingleOrDefault(
+                    item=>item.Token==token);
+                if(approved==null||
+                   DateTimeOffset.UtcNow-approved.Created>TimeSpan.FromMinutes(3))
                     return Error(id,"UM-ASA-STOP-TOKEN-EXPIRED");
                 if(!request.TryGetProperty("confirm",out var yes)||
                    yes.ValueKind!=JsonValueKind.True)
                     return Error(id,"UM-ASA-STOP-APPROVAL");
-                var approved=pending;
-                pending=null; // one shot even if stop or confirmation fails
+                approvalsByMap.Remove(approved.MapId); // one shot per map
                 var map=Owned(approved.MapId);
                 if(map==null || map.InstallationPath!=approved.Root ||
                    map.RconPort!=approved.RconPort)

@@ -45,7 +45,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         Task<(AsaGracefulStopReceipt Stop,ProcessIdentity Started)>> execute;
     private readonly SemaphoreSlim gate=new(1,1);
     private readonly object sync=new();
-    private Approval? pending;
+    private readonly Dictionary<Guid,Approval> approvalsByMap=new();
     private ReviewApproval? reviewPending;
     private readonly Dictionary<Guid,Job> jobsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -325,35 +325,39 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                 }
                 if(method=="servers.restartPreview")
                 {
-                    pending=null;
                     if(!ReadGuid(args,"mapId",out var mapId))
                         return Fail(id,"UM-ASA-RESTART-MAP");
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
                     if(HasActive(mapId))return Fail(id,"UM-ASA-RESTART-BUSY");
+                    approvalsByMap.Remove(mapId);
                     var original=Eligible(map);
-                    pending=new(Guid.NewGuid(),map.Id,original.Pid,
+                    var permit=new Approval(Guid.NewGuid(),map.Id,original.Pid,
                         original.StartedUtc,map.InstallationPath,
                         map.Arguments,map.RconPort,JsonSerializer.Serialize(map),
                         DesktopFreshAsaStartBridge.IniFingerprint(map),
                         AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map),
                         DateTimeOffset.UtcNow);
+                    approvalsByMap[map.Id]=permit;
                     return Ok(id,new{
-                        token=pending.Token,mapId=map.Id,mapName=map.Name,
+                        token=permit.Token,mapId=map.Id,mapName=map.Name,
                         currentPid=original.Pid,saveWorldBeforeExit=true,
                         verifiesOldProcessExit=true,autoRetry=false,
                         killPerformed=false,storeTouched=false,
                         evidence="REAL_LOCAL_NONSTORE_RESTART_PREVIEW_NO_WRITES"
                     });
                 }
-                if(!ReadGuid(args,"token",out var token) ||
-                   pending==null||pending.Token!=token ||
-                   DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(3))
+                if(!ReadGuid(args,"token",out var token))
+                    return Fail(id,"UM-ASA-RESTART-TOKEN-EXPIRED");
+                var approved=approvalsByMap.Values.SingleOrDefault(
+                    item=>item.Token==token);
+                if(approved==null||
+                   DateTimeOffset.UtcNow-approved.Created>TimeSpan.FromMinutes(3))
                     return Fail(id,"UM-ASA-RESTART-TOKEN-EXPIRED");
                 if(!args.TryGetProperty("confirm",out var confirmation)||
                    confirmation.ValueKind!=JsonValueKind.True)
                     return Fail(id,"UM-ASA-RESTART-APPROVAL");
-                var approved=pending;pending=null;
+                approvalsByMap.Remove(approved.MapId);
                 var currentMap=Owned(approved.MapId);
                 if(currentMap==null ||
                    currentMap.InstallationPath!=approved.Root ||
