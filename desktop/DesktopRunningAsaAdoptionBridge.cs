@@ -114,15 +114,9 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
            facts.ActiveModsState is "conflict" or "unverified"||
            facts.PassiveModsState is "conflict" or "unverified")
             throw new InvalidDataException("UM-ADOPT-PORTS-STORE-OR-MODS-UNVERIFIED");
-        // Classify actual native launch switches, not harmless words inside
-        // a quoted SessionName such as "Store Celebration".
-        if(AsaStoreArgumentSwitches.ContainsProtectedSwitch(launchFlags))
-            throw new InvalidDataException("UM-ADOPT-SENSITIVE-LAUNCH");
-        string[] forbidden={"-password","-serveradminpassword","-secret",
-            "-token","-auth","-credential","-key","-rconpassword"};
-        if(launchFlags.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries)
-            .Any(token=>forbidden.Any(prefix=>token.StartsWith(prefix,
-                StringComparison.OrdinalIgnoreCase))))
+        // The last Core WMI adoption boundary calls the identical shared
+        // switch classifier. Never silently disagree about Store or secrets.
+        if(AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(launchFlags))
             throw new InvalidDataException("UM-ADOPT-SENSITIVE-LAUNCH");
         if(!AsaReadyProbe.IsRegisteredServerBinary(map) ||
            KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
