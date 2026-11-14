@@ -529,6 +529,10 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
             var progress=new SynchronousProgress(item=>{
                 lock(stateGate)
                 {
+                    // A delayed progress callback must not replace a verified,
+                    // registered, canceled or failed SteamCMD result. Only the
+                    // approved running installer may update transient stages.
+                    if(job.Completed||job.Registered||job.ErrorCode!=null)return;
                     job.Stage=item.Stage;
                     job.Detail=item.Detail.Length>200?item.Detail[..200]:item.Detail;
                     job.Percent=item.Percent is >=0 and <=100?item.Percent:null;
