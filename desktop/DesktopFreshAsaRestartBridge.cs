@@ -431,7 +431,11 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                                 "ASA API Loader indult; gyermek PID és RCON ellenőrzése",
                                 receipt.Started.Pid);
                             bool childVerified=false;
-                            var limit=DateTimeOffset.UtcNow.AddMinutes(2);
+                            // Large modded ASA worlds can need the full
+                            // native ten-minute Loader-child startup window.
+                            // This is observation only, never an auto-restart.
+                            var limit=DateTimeOffset.UtcNow+
+                                FreshStoreApiPairObserver.StartupObservationWindow;
                             while(DateTimeOffset.UtcNow<limit)
                             {
                                 closingToken.ThrowIfCancellationRequested();
