@@ -446,6 +446,33 @@ internal static class FreshStoreEnrollmentTests
             Check(modApplied.Count==1&&enrolled.ModChangesPending,
                 "stopped enrolled Store map persists new mod only in local Manager profile");
             FreshStoreEnrollmentPolicy.DemandEnrolled(manager,enrolled);
+            // The ordinary Mod Center draft uses a cloned in-memory map.
+            // That clone must retain Store identity, otherwise the first
+            // actual edit fails even though the direct Core preview works.
+            var draft=new ModDraftSession(enrolled);
+            draft.Stage("100126",ModMode.Passive);
+            Check(draft.IsDirty&&draft.Projected().FreshStoreClusterId==
+                      enrolled.FreshStoreClusterId&&
+                  draft.Projected().FreshStoreTransferFileId==
+                      transferBeforeMods&&
+                  ModStateController.Read(draft.Projected()).Passive
+                      .Contains("100126"),
+                "Mod Center draft stage retains complete enrolled Store identity");
+            var draftApplied=draft.Save(manager);
+            Check(draftApplied.Count==1&&enrolled.Arguments.EndsWith(" -usestore",
+                    StringComparison.Ordinal)&&
+                  ModStateController.Read(enrolled).Passive.Contains("100126"),
+                "native Mod Center draft commit works on stopped enrolled Store without moving transfer data");
+            var staleDraft=new ModDraftSession(enrolled);
+            string originalIdentity=enrolled.FreshStoreTransferFileId;
+            try
+            {
+                enrolled.FreshStoreTransferFileId=new string('C',64);
+                Check(!staleDraft.MatchesLive(enrolled),
+                    "Mod Center draft refuses changed transfer physical ID before save");
+            }
+            finally { enrolled.FreshStoreTransferFileId=originalIdentity; }
+            FreshStoreEnrollmentPolicy.DemandEnrolled(manager,enrolled);
             var nativeModCopy=LocalModCopyPlanner.Preview(manager,mapId,
                 new[]{secondMapId},LocalModCopyMode.Replace);
             Check(nativeModCopy.Changed&&
