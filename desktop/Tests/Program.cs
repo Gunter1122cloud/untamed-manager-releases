@@ -3162,6 +3162,21 @@ try
                 Check(changedLaunchDenied,
                     "source-pinned original Store ASA refuses unapproved launch-profile mutation");
                 isolatedOriginal.Arguments="";
+                isolatedOriginal.HistoricalLaunchModeNeedsApproval=true;
+                bool pendingModeDenied=false;
+                try{SteamStoppedMapUpdater.DemandSafeLocalInstallation(
+                    cluster,isolatedOriginal,safelyStopped);}
+                catch(UnauthorizedAccessException){pendingModeDenied=true;}
+                Check(pendingModeDenied,
+                    "original Store batch refuses ASA API/direct launch mode awaiting approval");
+                isolatedOriginal.HistoricalLaunchModeNeedsApproval=false;
+                bool runningObserverDenied=false;
+                try{SteamStoppedMapUpdater.DemandSafeLocalInstallation(
+                    cluster,isolatedOriginal,_=>new ProcessCheck(true,
+                        "Synthetic original ASA still runs",null,false));}
+                catch(InvalidOperationException){runningObserverDenied=true;}
+                Check(runningObserverDenied,
+                    "original Store batch cannot update a running ASA family");
             }
             finally
             {

@@ -68,7 +68,8 @@ public static class SteamStoppedMapUpdater
             {
                 if(originalStoppedObserver==null||
                    !map.HistoricalStoreProtected||
-                   sibling.ObservedReadOnlyImported||sibling.Maintenance||
+                   sibling.ObservedReadOnlyImported||
+                   sibling.HistoricalLaunchModeNeedsApproval||sibling.Maintenance||
                    string.IsNullOrWhiteSpace(sibling.HistoricalMapKey)||
                    sibling.HistoricalArchiveSha256?.Length!=64||
                    !sibling.HistoricalArchiveSha256.All(Uri.IsHexDigit)||
