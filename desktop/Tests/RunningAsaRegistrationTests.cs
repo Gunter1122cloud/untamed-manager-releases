@@ -28,7 +28,7 @@ internal static class RunningAsaRegistrationTests
         LocalRunningAsaDiscovery.Sample[] observations={sample};
         IReadOnlyList<LocalRunningAsaDiscovery.Sample> Observe()=>observations;
         string namedLaunch="\""+exe+"\" "+
-            "Ragnarok_WP?listen?SessionName=\"Untamed Kingdom PvE\""+
+            "Ragnarok_WP?listen?SessionName=\"Store and Password Celebration\""+
             " -Port=7817 -QueryPort=27037 -mods=100001,100002";
 
         static void Check(bool yes,string caseName)
@@ -219,7 +219,15 @@ internal static class RunningAsaRegistrationTests
                       quotedPreview.GetProperty("data").GetProperty("mapKey")
                         .GetString()=="Ragnarok_WP"&&
                       cluster.Config.LocalMaps.Single().ObservedReadOnlyImported,
-                    "named ASA session is eligible for real non-Store adoption preview without write");
+                    "harmless Store/Password title permits non-Store native adoption preview without write");
+                observations=new[]{namedSample with{
+                    CommandLine=namedLaunch+" -ServerAdminPassword=untrusted"
+                }};
+                var secretPreview=await AdoptCall(takeover,
+                    "servers.runningAdoptPreview",new{mapId=map.Id});
+                Check(!secretPreview.GetProperty("ok").GetBoolean()&&
+                      cluster.Config.LocalMaps.Single().ObservedReadOnlyImported,
+                    "sensitive ASA RCON password switch cannot enter adopted Manager profile");
                 observations=new[]{sample};
                 var adoptPreview=await AdoptCall(takeover,
                     "servers.runningAdoptPreview",new{mapId=map.Id});
