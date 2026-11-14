@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -44,8 +45,14 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly object sync=new();
     private Approval? pending;
-    private Job? current;
+    // Preserve the in-memory Restart identity of every local ASA map.
+    private readonly Dictionary<Guid,Job> jobsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
+    private bool HasActive(Guid mapId)
+    {
+        lock(sync)return jobsByMap.TryGetValue(mapId,out var existing)&&
+            existing.State is ("queued" or "running");
+    }
 
     public DesktopHistoricalRestartBridge(ClusterService service):
         this(service,null,null,null){}
@@ -139,8 +146,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         var entry=new AsaManualRestartJournal(map.InstallationPath).Observe();
         Job? running;
         lock(sync)
-            running=current!=null&&current.MapId==mapId&&
-                current.State is "queued" or "running"?current:null;
+            running=jobsByMap.TryGetValue(mapId,out var tracked)&&
+                tracked.State is ("queued" or "running")?tracked:null;
         bool pendingRestart=entry!=null&&entry.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
         var operation=cluster.Operations.Observe(map.InstallationPath);
         bool pendingOperation=operation?.Phase is UntamedOperationPhase.Prepared or
@@ -191,16 +198,13 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                 }
                 if(method=="historical.restartStatus")
                 {
-                    if(!ReadId(request,"jobId",out var jobId)||
-                       current==null||current.Id!=jobId)
+                    if(!ReadId(request,"jobId",out var jobId))
                         return Fail(id,"UM-ORIGINAL-RESTART-JOB-MISSING");
-                    return Ok(id,Snapshot(current));
-                }
-                if(current!=null)
-                {
-                    lock(sync)
-                        if(current.State is "queued" or "running")
-                            return Fail(id,"UM-ORIGINAL-RESTART-BUSY");
+                    Job? tracked;
+                    lock(sync)tracked=jobsByMap.Values.FirstOrDefault(
+                        item=>item.Id==jobId);
+                    if(tracked==null)return Fail(id,"UM-ORIGINAL-RESTART-JOB-MISSING");
+                    return Ok(id,Snapshot(tracked));
                 }
                 if(method=="historical.restartPreview")
                 {
@@ -210,6 +214,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     var map=Owned(mapId);
                     if(map==null||!map.HistoricalStoreProtected||map.Maintenance)
                         return Fail(id,"UM-ORIGINAL-RESTART-LOCAL-ONLY");
+                    if(HasActive(mapId))return Fail(id,"UM-ORIGINAL-RESTART-BUSY");
                     // Preserve the exact per-map launch mode. A Loader-based
                     // restart is permitted only when the verified ASA CHILD
                     // owns RCON; never send DoExit to the Loader parent.
@@ -258,6 +263,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                    JsonSerializer.Serialize(original)!=approved.Profile||
                    original.RconPort!=approved.RconPort)
                     return Fail(id,"UM-ORIGINAL-RESTART-MAP-CHANGED");
+                if(HasActive(original.Id))return Fail(id,"UM-ORIGINAL-RESTART-BUSY");
                 var rechecked=await Task.Run(()=>preview(approved.MapId));
                 if(!Same(rechecked,original,approved))
                     return Fail(id,"UM-ORIGINAL-RESTART-SOURCE-CHANGED");
@@ -282,7 +288,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                 }
                 var job=new Job{MapId=original.Id,OldPid=approved.Pid,
                     UseApi=original.StartWithAsaApi};
-                current=job;
+                lock(sync)jobsByMap[original.Id]=job;
                 _=Task.Run(async()=>{
                     Update(job,"running","SaveWorld → stabil világfájl → DoExit");
                     try
