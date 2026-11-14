@@ -24,6 +24,9 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  const [reconnecting,setReconnecting]=useState(true);
+  const [reconnectFailed,setReconnectFailed]=useState(false);
+  const [reconnectNonce,setReconnectNonce]=useState(0);
   const candidates=useMemo(()=>maps.filter(m=>
     !m.freshStoreEnrolled&&!m.observedReadOnlyImported&&
     !m.maintenance&&!m.running),
@@ -40,37 +43,54 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
 
   useEffect(()=>{
     let active=true;
+    setReconnecting(true);setReconnectFailed(false);
     managerBridge.steamBatchCurrent().then(value=>{
       if(!active)return;
       setCurrent(value);
       if(value.activeJob&&
          (value.activeJob.state==="queued"||value.activeJob.state==="running")){
+        if(!value.activeJob.jobId)
+          throw new Error("UM-STEAM-BATCH-CURRENT-MISSING-ID");
         setJob(value.activeJob);setJobId(value.activeJob.jobId);
       }
-    }).catch(()=>{/* Pre-batch isolated UI hosts may not expose this route. */});
+    }).catch(()=>{
+      if(!active)return;
+      setReconnectFailed(true);
+      setError("A natív SteamCMD soros művelet állapota nem ellenőrizhető. Új frissítés nem indítható, amíg nem sikerül az újracsatlakozás.");
+    }).finally(()=>{if(active)setReconnecting(false);});
     return ()=>{active=false;};
-  },[]);
+  },[reconnectNonce]);
 
   useEffect(()=>{
     if(!jobId)return;
-    let active=true;
+    let active=true,inFlight=false;
     const poll=async()=>{
+      if(!active||inFlight)return;
+      inFlight=true;
       try{
-        const status=await managerBridge.steamBatchStatus(jobId);
+        const state=await managerBridge.steamBatchStatus(jobId);
         if(!active)return;
-        setJob(status);
-        if(status.state==="completed"||status.state==="needsOperator"){
+        if(state.jobId!==jobId||state.serverStopRequested||
+           state.remoteHostTouched||state.storeWriterTouched||
+           state.automaticRetry)
+          throw new Error("UM-STEAM-BATCH-STATUS-OTHER-JOB");
+        setReconnectFailed(false);setError("");
+        setJob(state);
+        if(state.state==="completed"||state.state==="needsOperator"){
           setJobId("");
           managerBridge.steamBatchCurrent().then(value=>{
             if(active)setCurrent(value);
-          }).catch(()=>{});
+          }).catch(()=>{
+            if(active)setError("A kész SteamCMD-feladat naplója nem olvasható.");
+          });
         }
       }catch{
         if(active){
-          setError("A natív soros SteamCMD feladat állapota nem ellenőrizhető. Új futtatás előtt nézd meg a helyi műveleti naplót.");
-          setJobId("");
+          // A lost status response is NOT evidence that SteamCMD stopped.
+          // Keep the exact job ID, keep polling, never dispatch a second batch.
+          setError("A natív SteamCMD-feladat állapota átmenetileg nem ellenőrizhető. Az elindított feladatot nem ismételjük meg.");
         }
-      }
+      }finally{inFlight=false;}
     };
     void poll();
     const timer=window.setInterval(()=>{void poll();},3000);
@@ -88,7 +108,7 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
       old.filter(x=>x!==mapId));
   };
   const check=async()=>{
-    if(busy||running||selected.length===0)return;
+    if(unavailable||selected.length===0||blocked)return;
     setBusy(true);invalidate();
     try{
       setPreview(await managerBridge.steamBatchPreview(selected));
@@ -98,11 +118,14 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
     }finally{setBusy(false);}
   };
   const start=async()=>{
-    if(busy||running||!preview||approval!==approvalPhrase)return;
+    if(unavailable||!preview||approval!==approvalPhrase||blocked)return;
     const token=preview.token;
     setBusy(true);setPreview(null);setApproval("");setError("");setNotice("");
     try{
       const started=await managerBridge.steamBatchApply(token,approvalPhrase);
+      if(!started.started||!started.jobId||started.serverStopRequested||
+         started.remoteHostTouched||started.storeWriterTouched||started.automaticRetry)
+        throw new Error("UM-STEAM-BATCH-START-RECEIPT-INVALID");
       setJob({jobId:started.jobId,state:"queued",stage:"preflight",
         position:0,total:preview.installations,activeMapName:"",
         completedInstallations:0,changedUtc:new Date().toISOString(),
@@ -111,16 +134,23 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
       setJobId(started.jobId);
       setNotice("A helyi, soros SteamCMD-feladat elindult. A következő telepítés kizárólag az előző igazolt lezárása után indulhat.");
     }catch(e){
-      setError("A jóváhagyott előnézet lejárt vagy a natív körülmények megváltoztak ("+
+      // A one-shot approval might already have launched SteamCMD on the
+      // Windows host when its response was interrupted. Reconcile first.
+      setReconnectFailed(true);
+      setError("A soros SteamCMD indítás eredménye nem igazolt ("+
         (e instanceof Error?e.message:"UM-STEAM-BATCH-FAILED")+
-        "). Új jóváhagyás szükséges.");
+        "). Ne ismételd meg a jóváhagyást; ellenőrizd a natív feladatot.");
     }finally{setBusy(false);}
   };
   const blocked=Boolean(current?.needsOperatorReview);
+  const unavailable=busy||running||reconnecting||reconnectFailed;
   return <section className="glass panel cluster-registry-panel"
     aria-label="Helyi mapok soros SteamCMD frissítése">
     <div className="panel-head"><h2>Helyi mapok soros SteamCMD frissítése</h2></div>
     <div className="panel-inner">
+      {reconnecting&&<p role="status" className="muted small">Natív SteamCMD-feladat ellenőrzése…</p>}
+      {reconnectFailed&&<button type="button" className="secondary"
+        onClick={()=>setReconnectNonce(n=>n+1)}>Soros SteamCMD állapotának újraellenőrzése</button>}
       <p className="muted small">Csak az ezen a Windows gépen regisztrált, bizonyítottan
         leállított ASA mapok, köztük az átvett eredeti Store-v1 mapok.
         Azonos ASA telepítés csak egyszer frissül,
@@ -128,20 +158,20 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
         sikertelen vagy félbeszakadt műveletet nem ismétel automatikusan.</p>
       <label>Helyi célmapok keresése
         <input aria-label="Soros SteamCMD célmap keresése" type="search"
-          disabled={busy||running} value={query} placeholder="Mapnév vagy azonosító"
+          disabled={unavailable} value={query} placeholder="Mapnév vagy azonosító"
           onChange={e=>{setQuery(e.target.value);setPage(0);invalidate();}}/>
       </label>
       <div className="draft-actions">
-        <button type="button" className="secondary" disabled={busy||running||visible.length===0}
+        <button type="button" className="secondary" disabled={unavailable||visible.length===0}
           onClick={()=>{
             setSelected(old=>[...new Set([...old,...visible.map(m=>m.id)])].slice(0,25));
             invalidate();
           }}>Látható mapok kijelölése (max. 25)</button>
         <button type="button" className="quiet"
-          disabled={busy||running||safePage===0}
+          disabled={unavailable||safePage===0}
           onClick={()=>setPage(p=>Math.max(0,p-1))}>Előző SteamCMD-oldal</button>
         <button type="button" className="quiet"
-          disabled={busy||running||safePage>=pages-1}
+          disabled={unavailable||safePage>=pages-1}
           onClick={()=>setPage(p=>Math.min(pages-1,p+1))}>Következő SteamCMD-oldal</button>
         <span className="muted small">{safePage+1}. / {pages} oldal ·
           {filtered.length} helyi jelölt · {selected.length} kijelölt</span>
@@ -151,13 +181,13 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
         {visible.length===0?<p className="muted small">Nincs a keresésnek megfelelő, leállított helyi map.</p>:
         visible.map(map=><label className="plugin-row" key={map.id}>
           <input type="checkbox" checked={selected.includes(map.id)}
-            disabled={busy||running}
+            disabled={unavailable}
             onChange={e=>toggle(map.id,e.target.checked)}/>
           <span>{map.name}</span><small>{map.steamBuildId??"ismeretlen build"}</small>
         </label>)}
       </div>
       <button type="button" className="secondary"
-        disabled={busy||running||blocked||selected.length===0}
+        disabled={unavailable||blocked||selected.length===0}
         onClick={()=>{void check();}}>
         <RefreshCw size={16}/> {selected.length} map natív frissítési előellenőrzése
       </button>
@@ -175,7 +205,7 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
             onChange={e=>setApproval(e.target.value)}/>
         </label>
         <button type="button" className="primary"
-          disabled={busy||running||approval!==approvalPhrase}
+          disabled={unavailable||approval!==approvalPhrase}
           onClick={()=>{void start();}}>Helyi soros SteamCMD frissítés indítása</button>
         <p className="muted small">A jóváhagyás a meglévő natív Core-frissítőt
           indítja, nem a szerverleállítást vagy az automatikus újraindítást.</p>
