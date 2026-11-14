@@ -141,12 +141,13 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                        !root.TryGetProperty("message",out var m)||
                        m.ValueKind!=JsonValueKind.String)
                         return Fail(id,"UM-ORIGINAL-ADMIN-INVALID-SELECTION");
-                    pendingByMap.Remove(mapId);
                     string action=a.GetString()??"";
                     string command=Command(action,m.GetString()??"");
                     var proof=await Task.Run(()=>Require(mapId));
                     // Capacity must fail closed without revoking approvals belonging to other maps.
-                    if(pendingByMap.Count>=25)
+                    // Failed previews leave the prior short-lived token intact;
+                    // a valid same-map replacement reuses its existing slot.
+                    if(!pendingByMap.ContainsKey(mapId)&&pendingByMap.Count>=25)
                         return Fail(id,"UM-ORIGINAL-ADMIN-PREVIEW-CAPACITY");
                     var approval=new Approval(Guid.NewGuid(),mapId,action,command,
                         proof.Process.Pid,proof.Process.StartedUtc,
