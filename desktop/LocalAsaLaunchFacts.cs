@@ -26,11 +26,6 @@ public static class LocalAsaLaunchFacts
         Array.Empty<string>(),"unverified","unverified",
         false,false,false,false,false);
 
-    private static readonly Regex MapToken=new(
-        @"\A[A-Za-z0-9_]{1,100}\?listen\z",
-        RegexOptions.IgnoreCase|RegexOptions.CultureInvariant,
-        TimeSpan.FromMilliseconds(100));
-
     private static int? ReadPort(string[] tokens,string prefix)
     {
         var fields=tokens.Where(x=>x.StartsWith(prefix,StringComparison.OrdinalIgnoreCase))
@@ -68,11 +63,12 @@ public static class LocalAsaLaunchFacts
         string? arguments=LocalRunningAsaDiscovery.CommandArguments(
             observedCommand,processExecutable);
         if(string.IsNullOrWhiteSpace(arguments))return Unverified();
-        string[] tokens=arguments.Split((char[]?)null,
-            StringSplitOptions.RemoveEmptyEntries);
-        if(tokens.Length<1||!MapToken.IsMatch(tokens[0]))
-            return Unverified();
-        var fields=tokens.Skip(1).ToArray();
+        // The map URL is a single Windows argument even if its quoted
+        // SessionName contains spaces. Share the exact discovery grammar.
+        if(!LocalRunningAsaDiscovery.TryReadLaunchArguments(
+            arguments,out _,out var flags))return Unverified();
+        string[] fields=flags.Length==0?Array.Empty<string>():
+            flags.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries);
         var active=ReadMods(fields,"-mods=");
         var passive=ReadMods(fields,"-passivemods=");
         bool One(string prefix,bool strict=false)=>
