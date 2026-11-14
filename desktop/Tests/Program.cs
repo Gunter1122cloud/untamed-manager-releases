@@ -1169,6 +1169,14 @@ try
             Arguments="TheIsland_WP?SessionName=Fixture"
         };
         host.AddMap(target);
+        Check(!new ManagerConfig().AutoSteamUpdatesEnabled &&
+              !new ManagerConfig().SteamRestartAfterUpdate,
+            "new Manager profiles default to manual SteamCMD with no automatic ASA restart");
+        // An older serialized profile may still contain both legacy true
+        // preferences. Loading them must not reactivate the retired scheduler
+        // or dispatch a Store/ASA process update without manual approval.
+        host.Config.AutoSteamUpdatesEnabled=true;
+        host.Config.SteamRestartAfterUpdate=true;
         int autoRuns=0;
         using var supervisor=new DesktopScheduledStoppedSteamSupervisor(host,
             (_,_)=>{
