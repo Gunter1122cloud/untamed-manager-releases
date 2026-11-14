@@ -1014,6 +1014,13 @@ try
             Arguments="TheIsland_WP?SessionName=Fixture"
         };
         host.AddMap(target);
+        Check(!new ManagerConfig().AutoSteamUpdatesEnabled&&
+              !new ManagerConfig().SteamRestartAfterUpdate,
+            "new Manager profile defaults to manual-only SteamCMD and no automatic ASA restart");
+        // Legacy persisted preferences may have both flags true. They are
+        // compatibility metadata, not authority to launch an updater.
+        host.Config.AutoSteamUpdatesEnabled=true;
+        host.Config.SteamRestartAfterUpdate=true;
         int autoRuns=0;
         using var supervisor=new DesktopScheduledStoppedSteamSupervisor(host,
             (_,_)=>{
