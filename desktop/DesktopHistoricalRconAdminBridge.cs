@@ -145,7 +145,9 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                     string action=a.GetString()??"";
                     string command=Command(action,m.GetString()??"");
                     var proof=await Task.Run(()=>Require(mapId));
-                    if(pendingByMap.Count>=25)pendingByMap.Clear();
+                    // Capacity must fail closed without revoking approvals belonging to other maps.
+                    if(pendingByMap.Count>=25)
+                        return Fail(id,"UM-ORIGINAL-ADMIN-PREVIEW-CAPACITY");
                     var approval=new Approval(Guid.NewGuid(),mapId,action,command,
                         proof.Process.Pid,proof.Process.StartedUtc,
                         proof.SourceSha,JsonSerializer.Serialize(proof.Map),
