@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -28,7 +29,8 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
     private readonly bool nativeLauncher;
     private readonly CancellationTokenSource closing=new();
     private readonly SemaphoreSlim gate=new(1,1);
-    private Approval? pending;
+    // Each registered ASA map has its own one-time approved Start plan.
+    private readonly Dictionary<Guid,Approval> approvalsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopFreshAsaStartBridge(ClusterService service,
@@ -215,7 +217,8 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                     var map=Owned(mapId);
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
                     if(!Eligible(map))return Error(id,"UM-FRESH-START-NOT-READY");
-                    pending=new Approval(Guid.NewGuid(),map.Id,map.InstallationPath,
+                    approvalsByMap.Remove(mapId);
+                    var permit=new Approval(Guid.NewGuid(),map.Id,map.InstallationPath,
                         map.ExecutablePath,map.Arguments,map.GamePort,map.QueryPort,
                         map.RconPort,AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath),
                         map.StartWithAsaApi,map.ApiLoaderPath,map.ApiLoaderArguments,
@@ -224,25 +227,30 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                         IniFingerprint(map),
                         AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map),
                         DateTimeOffset.UtcNow);
+                    approvalsByMap[map.Id]=permit;
                     return Ok(id,new {
-                        token=pending.Token,mapId=map.Id,mapName=map.Name,
-                        steamBuild=pending.Build,gamePort=map.GamePort,
+                        token=permit.Token,mapId=map.Id,mapName=map.Name,
+                        steamBuild=permit.Build,gamePort=map.GamePort,
                         queryPort=map.QueryPort,rconConfigured=map.RconPort>0 &&
                             !string.IsNullOrWhiteSpace(map.RconPasswordProtected),
                         confirmedStopped=true,serverStarted=false,
-                        launchMode=pending.UseApi?"asaApiLoader":"directAsa",
+                        launchMode=permit.UseApi?"asaApiLoader":"directAsa",
                         evidence="FRESH_LOCAL_ASA_START_PREVIEW_NO_WRITE"
                     });
                 }
-                if(!ReadGuid(item,"token",out var token) || pending==null ||
-                   pending.Token!=token ||
-                   DateTimeOffset.UtcNow-pending.CreatedUtc>TimeSpan.FromMinutes(5))
+                if(!ReadGuid(item,"token",out var token))
+                    return Error(id,"UM-FRESH-START-TOKEN-EXPIRED");
+                var permit=approvalsByMap.Values.SingleOrDefault(
+                    approval=>approval.Token==token);
+                if(permit==null||
+                   DateTimeOffset.UtcNow-permit.CreatedUtc>TimeSpan.FromMinutes(5))
                     return Error(id,"UM-FRESH-START-TOKEN-EXPIRED");
                 if(!item.TryGetProperty("confirm",out var confirmation) ||
                    confirmation.ValueKind!=JsonValueKind.True)
                     return Error(id,"UM-FRESH-START-APPROVAL");
-                var permit=pending;
-                pending=null; // a start is never replayed, even after an error
+                approvalsByMap.Remove(permit.Map);
+                // A Start token is consumed once even if the process has
+                // changed; a sibling map's approval is not affected.
                 var current=Owned(permit.Map);
                 if(current==null || !Eligible(current) ||
                    !string.Equals(current.InstallationPath,permit.Root,
