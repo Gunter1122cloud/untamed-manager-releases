@@ -5629,7 +5629,7 @@ try
                     "RCON command is fixed allowlist and secret never reaches WebView");
                 dispatched++;return Task.FromResult(command switch {
                     "SaveWorld"=>"World save queued",
-                    "GetGameLog"=>"Synthetic world log line",
+                    "GetGameLog"=>"Synthetic world log line\nServerAdminPassword=test-only-passphrase",
                     "GetChat"=>"Synthetic chat message",
                     _=>"Player 1: Synthetic Survivor"
                 });
@@ -5875,7 +5875,8 @@ try
                     "admin dispatch is local and obtains DPAPI secret only inside native host");
                 lastAdminCommand=command;
                 adminDispatches++;
-                return Task.FromResult("Admin command accepted");
+                return Task.FromResult(
+                    "Admin command accepted; ServerAdminPassword=test-only-passphrase");
             });
         var announcement=await Call(admin.HandleAsync,"rcon.adminPreview",
             new{mapId=fakeMap.Id,action="broadcast",message="Hello Untamed!"});
@@ -5894,7 +5895,9 @@ try
         Check(adminDispatches==1&&lastAdminCommand=="Broadcast Hello Untamed!"&&
               sent.GetProperty("data").GetProperty("oneShot").GetBoolean()&&
               !sent.GetProperty("data").GetProperty("saveCompleteProven").GetBoolean()&&
-              !sent.GetRawText().Contains("test-only-passphrase",StringComparison.Ordinal),
+              !sent.GetRawText().Contains("test-only-passphrase",StringComparison.Ordinal)&&
+              sent.GetProperty("data").GetProperty("response").GetString()!
+                  .Contains("[REDACTED]",StringComparison.Ordinal),
             "broadcast dispatch is one-shot and does not disclose native credentials");
         var repeated=await Call(admin.HandleAsync,"rcon.adminSend",
             new{token=adminToken,confirm=true,typedApproval=""});
@@ -5950,7 +5953,9 @@ try
               gameLog.GetProperty("data").GetProperty("command").GetString()=="GetGameLog" &&
               gameLog.GetProperty("data").GetProperty("readOnly").GetBoolean() &&
               gameLog.GetProperty("data").GetProperty("response")
-                  .GetString()=="Synthetic world log line",
+                  .GetString()!.Contains("Synthetic world log line") &&
+              !gameLog.GetRawText().Contains("test-only-passphrase",
+                  StringComparison.Ordinal),
             "GetGameLog sends only fixed read-only RCON to owned local map");
         var chatLog=await Call(rcon.HandleAsync,"rcon.chatLog",new{mapId=fakeMap.Id});
         IsOk(chatLog,"actual native GetChat reads local ASA chat");
