@@ -5775,7 +5775,7 @@ try
             // Both map cards can hold independent short-lived RCON approvals.
             // A global single Pending token used to revoke the first one.
             int mutatingAdminSends=0;
-            using var otherMapAdmin=new DesktopRconAdminBridge(parallelCluster,
+            var otherMapAdmin=new DesktopRconAdminBridge(parallelCluster,
                 (port,pid)=>pid==identity.Pid&&
                     (port==parallelA.RconPort||port==parallelB.RconPort),
                 (host,port,password,command,ct)=>{
