@@ -40,7 +40,12 @@ export function AsaApiCoreInstaller({mapId,onInstalled}:{
   const prepare=async()=>{
     if(!mapId||!asset||busy)return;
     setBusy(true);setPreview(null);setApproved(false);setError("");setMessage("");
-    try{setPreview(await managerBridge.apiCorePreview(mapId,asset));}
+    try{
+      const result=await managerBridge.apiCorePreview(mapId,asset);
+      if(result.mapId.toLowerCase()!==mapId.toLowerCase())
+        throw new Error("UM-API-CORE-PREVIEW-MAP-MISMATCH");
+      setPreview(result);
+    }
     catch{
       setError("A hivatalos ZIP SHA-256 azonosítója, vagy a leállított, saját non-Store szerver nem igazolható.");
     }finally{setBusy(false);}
@@ -51,6 +56,10 @@ export function AsaApiCoreInstaller({mapId,onInstalled}:{
     setBusy(true);setPreview(null);setApproved(false);setError("");setMessage("");
     try{
       const result=await managerBridge.apiCoreApply(id);
+      if(result.mapId.toLowerCase()!==mapId.toLowerCase()){
+        setError("Az API CORE telepítési válaszának mapazonosítója eltér a kijelölt mapétól. A művelet kimenete külön ellenőrzendő; ne indítsd újra automatikusan.");
+        return;
+      }
       setMessage(result.releaseTag+" · "+result.binaries+
         " ellenőrzött ASA API CORE bináris telepítve; a korábbi fájlok célzott védőmentésben maradtak. Szerverindítás és automatikus újrapróbálás nem történt.");
       onInstalled();
@@ -80,7 +89,11 @@ export function AsaApiCoreInstaller({mapId,onInstalled}:{
     setBusy(true);setError("");setMessage("");setRollbackPreview(null);
     setRollbackApproved(false);
     try{
-      setRollbackPreview(await managerBridge.apiCoreRollbackPreview(mapId,rollbackId));
+      const result=await managerBridge.apiCoreRollbackPreview(mapId,rollbackId);
+      if(result.mapId.toLowerCase()!==mapId.toLowerCase()||
+         result.transactionId!==rollbackId)
+        throw new Error("UM-API-CORE-ROLLBACK-MAP-MISMATCH");
+      setRollbackPreview(result);
     }catch{
       setError("A visszaállítás előfeltételei vagy a kiválasztott, befejezett tranzakció már nem igazolhatók.");
     }finally{setBusy(false);}
@@ -92,6 +105,11 @@ export function AsaApiCoreInstaller({mapId,onInstalled}:{
     setMessage("");setError("");
     try{
       const result=await managerBridge.apiCoreRollbackApply(token);
+      if(result.mapId.toLowerCase()!==mapId.toLowerCase()||
+         result.transactionId!==rollbackPreview.transactionId){
+        setError("Az API CORE visszaállítási válaszának map- vagy tranzakcióazonosítója eltér. Ellenőrizd a natív naplót; nincs automatikus ismétlés.");
+        return;
+      }
       setMessage("API CORE visszaállítva: "+result.filesRestored+
         " eredeti bináris visszaállítva, "+result.filesRemoved+
         " csak e telepítés által létrehozott bináris eltávolítva. SHA-256 ellenőrizve; szerverindítás nem történt.");
