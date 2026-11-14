@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -25,7 +26,9 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
     private readonly Func<Guid,LegacyStoreV1GracefulStop.Owned> inspect;
     private readonly Func<string,int,string,string,Action,CancellationToken,Task<string>> send;
     private readonly SemaphoreSlim gate=new(1,1);
-    private Approval? pending;
+    // Independent original Store map previews must not revoke each other;
+    // each map still has a single, short-lived, one-shot approval.
+    private readonly Dictionary<Guid,Approval> pendingByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private static readonly Regex ForbiddenLifecycle=new(
         @"\A\s*(?:(?:cheat|admincheat)\s+)*(?:doexit|exit|quit|stop|restart|saveworld)\b",
@@ -128,27 +131,31 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
             await gate.WaitAsync();
             try
             {
+                foreach(var stale in pendingByMap.Where(p=>p.Value.Expires<DateTimeOffset.UtcNow)
+                    .Select(p=>p.Key).ToArray())pendingByMap.Remove(stale);
                 if(method=="historical.adminPreview")
                 {
-                    pending=null;
                     if(!Id(root,"mapId",out var mapId)||
                        !root.TryGetProperty("action",out var a)||
                        a.ValueKind!=JsonValueKind.String||
                        !root.TryGetProperty("message",out var m)||
                        m.ValueKind!=JsonValueKind.String)
                         return Fail(id,"UM-ORIGINAL-ADMIN-INVALID-SELECTION");
+                    pendingByMap.Remove(mapId);
                     string action=a.GetString()??"";
                     string command=Command(action,m.GetString()??"");
                     var proof=await Task.Run(()=>Require(mapId));
-                    pending=new Approval(Guid.NewGuid(),mapId,action,command,
+                    if(pendingByMap.Count>=25)pendingByMap.Clear();
+                    var approval=new Approval(Guid.NewGuid(),mapId,action,command,
                         proof.Process.Pid,proof.Process.StartedUtc,
                         proof.SourceSha,JsonSerializer.Serialize(proof.Map),
                         DateTimeOffset.UtcNow.AddMinutes(3));
+                    pendingByMap[mapId]=approval;
                     return Ok(id,new{
-                        token=pending.Token,mapId,mapName=proof.Map.Name,
+                        token=approval.Token,mapId,mapName=proof.Map.Name,
                         action,command,approvalWord=ApprovalWord(action),
                         dangerous=action is "wildWipe" or "custom",
-                        expiresUtc=pending.Expires,
+                        expiresUtc=approval.Expires,
                         originalStoreActive=true,dispatched=false,
                         gameClientVerified=false,originalStoreMetadataWritten=false,
                         evidence="ORIGINAL_STORE_ACTIVE_ADMIN_RCON_PREVIEW"
@@ -157,10 +164,10 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                 if(!Id(root,"token",out var token)||
                    !root.TryGetProperty("confirm",out var confirmed)||
                    confirmed.ValueKind!=JsonValueKind.True||
-                   pending==null||pending.Token!=token)
+                   !pendingByMap.Values.Any(p=>p.Token==token))
                     return Fail(id,"UM-ORIGINAL-ADMIN-APPROVAL");
-                var approved=pending;
-                pending=null; // Never send twice, even on bad typed confirmation.
+                var approved=pendingByMap.Values.Single(p=>p.Token==token);
+                pendingByMap.Remove(approved.MapId); // No replay on wrong typed approval.
                 if(approved.Expires<DateTimeOffset.UtcNow||
                    !root.TryGetProperty("typedApproval",out var typed)||
                    typed.ValueKind!=JsonValueKind.String||
