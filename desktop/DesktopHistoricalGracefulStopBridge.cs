@@ -368,7 +368,8 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                     bool saveWorldOnly=method=="historical.saveWorldPreview";
                     if(!GuidValue(request,"mapId",out var mapId))
                         return Fail(id,"UM-ORIGINAL-STOP-MAP");
-                    approvalsByMap.Remove(mapId);
+                    // Only a successful preview replaces this map's previous
+                    // approval. A rejected preflight leaves it untouched.
                     var original=Owned(mapId);
                     if(original==null||!original.HistoricalStoreProtected||
                        original.Maintenance)
