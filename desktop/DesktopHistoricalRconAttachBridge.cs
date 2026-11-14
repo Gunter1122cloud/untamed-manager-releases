@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -27,7 +28,8 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
     private readonly Func<LocalMap,ProcessCheck> apiProcessObserver;
     private readonly Func<int,int,bool> ownsRconListener;
     private readonly SemaphoreSlim gate=new(1,1);
-    private Approval? pending;
+    // Separate source-pinned RCON attachment approvals per original local map.
+    private readonly Dictionary<Guid,Approval> pendingByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopHistoricalRconAttachBridge(ClusterService service,
@@ -37,11 +39,19 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
         Func<int,int,bool>? listenerOwner=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
-        originalGuard=sourceGuard??(map=>
-            LegacyStoreV1LiveReadGate.InspectOriginalActive(map,
-                Path.Combine(Environment.GetFolderPath(
-                    Environment.SpecialFolder.ApplicationData),"Kova"))
-                .CompletedOriginalSourceGuard);
+        originalGuard=sourceGuard??(map=>{
+            string legacy=Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.ApplicationData),"Kova");
+            string profile=LegacyStoreV1PinnedSource.Resolve(
+                cluster.Store.Root,legacy,map);
+            if(!string.Equals(profile,legacy,StringComparison.OrdinalIgnoreCase))
+                return LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                    cluster.Store.Root,legacy,map).Length==64;
+            // Unmigrated old profiles retain the old read-only Kova gate.
+            // An approved Obsidian import never depends on those old markers.
+            return LegacyStoreV1LiveReadGate.InspectOriginalActive(
+                map,legacy).CompletedOriginalSourceGuard;
+        });
         rconProof=iniEvidence??AsaRconConfigurationEvidence.Matches;
         apiProcessObserver=apiObserver??(map=>
             LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps));
@@ -131,6 +141,59 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
         catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
             InvalidDataException or ArgumentException or NotSupportedException)
         {return 0;}
+    }
+
+    // Existing ASA credentials are read in the Windows host only, never
+    // sent through WebView2. The original INI is strictly read-only.
+    private static (int Port,string Password) ReadExistingOriginalRcon(LocalMap map)
+    {
+        string path=AsaInitialRconSettings.NewIniPath(map.InstallationPath);
+        for(DirectoryInfo? cursor=new(Path.GetDirectoryName(path)!);
+            cursor!=null;cursor=cursor.Parent)
+            if(cursor.Exists&&(cursor.Attributes&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("UM-HISTORICAL-RCON-INI-LINKED");
+        _=IniHash(map);
+        int sections=0,enabled=0,ports=0,secrets=0,port=0;
+        bool inside=false;
+        string password="";
+        foreach(string line in File.ReadLines(path))
+        {
+            string trim=line.Trim();
+            if(trim.StartsWith("[",StringComparison.Ordinal))
+            {
+                inside=trim.Equals("[ServerSettings]",StringComparison.OrdinalIgnoreCase);
+                if(inside)sections++;
+                continue;
+            }
+            if(!inside||trim.Length==0||trim[0] is ';' or '#')continue;
+            int equals=line.IndexOf('=');
+            if(equals<1)continue;
+            string key=line[..equals].Trim();
+            string raw=line[(equals+1)..];
+            if(key.Equals("RCONEnabled",StringComparison.OrdinalIgnoreCase))
+            {
+                enabled++;
+                if(!raw.Trim().Equals("True",StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("UM-HISTORICAL-RCON-INI-DISABLED");
+            }
+            else if(key.Equals("RCONPort",StringComparison.OrdinalIgnoreCase))
+            {
+                ports++;
+                if(!int.TryParse(raw.Trim(),System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture,out port))
+                    throw new InvalidDataException("UM-HISTORICAL-RCON-INI-PORT");
+            }
+            else if(key.Equals("ServerAdminPassword",StringComparison.OrdinalIgnoreCase))
+            {
+                secrets++;
+                password=raw;
+            }
+        }
+        if(sections!=1||enabled!=1||ports!=1||secrets!=1||
+           port is <1024 or >65535)
+            throw new InvalidDataException("UM-HISTORICAL-RCON-INI-AMBIGUOUS");
+        AsaInitialRconSettings.ValidateExistingAdminPassword(password);
+        return(port,password);
     }
 
     private static LocalMap WithRcon(LocalMap original,int port,string protectedPassword)
@@ -233,11 +296,15 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
             id=requestId.ToString("D");
             string? action=method.GetString();
             if(action is not ("historical.rconStatus" or
-                "historical.rconPreview" or "historical.rconApply"))
+                "historical.rconPreview" or "historical.rconExistingPreview" or
+                "historical.rconApply"))
                 return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
             {
+                foreach(var expired in pendingByMap.Where(x=>
+                    DateTimeOffset.UtcNow-x.Value.Created>TimeSpan.FromMinutes(3))
+                    .Select(x=>x.Key).ToArray())pendingByMap.Remove(expired);
                 if(action=="historical.rconStatus")
                 {
                     if(!GuidValue(item,"mapId",out var mapId))
@@ -256,18 +323,27 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
                         evidence="HISTORICAL_RCON_MANAGER_PROFILE_STATUS_ONLY"
                     });
                 }
-                if(action=="historical.rconPreview")
+                if(action is "historical.rconPreview" or "historical.rconExistingPreview")
                 {
-                    pending=null;
-                    if(!GuidValue(item,"mapId",out var mapId)||
-                       !item.TryGetProperty("rconPort",out var portField)||
-                       !portField.TryGetInt32(out int port)||
-                       !item.TryGetProperty("password",out var passField)||
-                       passField.ValueKind!=JsonValueKind.String)
+                    if(!GuidValue(item,"mapId",out var mapId))
                         return Fail(id,"UM-HISTORICAL-RCON-PREVIEW-FIELDS");
                     var map=Owned(mapId);
                     if(!Historical(map))return Fail(id,"UM-HISTORICAL-RCON-ALREADY-CONFIGURED");
-                    string password=passField.GetString()??"";
+                    int port;
+                    string password;
+                    if(action=="historical.rconExistingPreview")
+                    {
+                        (port,password)=ReadExistingOriginalRcon(map!);
+                    }
+                    else
+                    {
+                        if(!item.TryGetProperty("rconPort",out var portField)||
+                           !portField.TryGetInt32(out port)||
+                           !item.TryGetProperty("password",out var passField)||
+                           passField.ValueKind!=JsonValueKind.String)
+                            return Fail(id,"UM-HISTORICAL-RCON-PREVIEW-FIELDS");
+                        password=passField.GetString()??"";
+                    }
                     // The existing ASA secret is never regenerated or
                     // written into the original INI. Unlike fresh-server
                     // creation, short/legacy-symbol values are valid here if
@@ -280,29 +356,40 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
                     string protectedPassword=SecureStore.Protect(password);
                     string hash=IniHash(map!);
                     Demand(map!,port,protectedPassword,hash);
+                    // A locally pinned Obsidian source replaces old Kova
+                    // ACTIVE/DONE handoff for an already approved import.
+                    // Do not claim that legacy peer markers were checked on
+                    // this independent local RCON attachment.
+                    bool pinned=LegacyStoreV1PinnedSource.HasApprovedLocalSource(
+                        cluster.Store.Root,map!);
                     var permit=new Approval(Guid.NewGuid(),map!.Id,
                         JsonSerializer.Serialize(map),map.HistoricalMapKey,
                         map.InstallationPath,map.ExecutablePath,
                         map.HistoricalArchiveSha256,map.GamePort,map.QueryPort,
                         port,protectedPassword,hash,DateTimeOffset.UtcNow);
-                    pending=permit;
+                    if(!pendingByMap.ContainsKey(map.Id)&&pendingByMap.Count>=25)
+                        return Fail(id,"UM-HISTORICAL-RCON-PREVIEW-CAPACITY");
+                    pendingByMap[map.Id]=permit;
                     return Ok(id,new{
                         token=permit.Token,mapId=map.Id,mapName=map.Name,
                         rconPort=port,existingIniVerified=true,
-                        originalActiveDoneVerified=true,
+                        originalActiveDoneVerified=!pinned,
+                        approvedObsidianSourcePinned=pinned,
+                        legacyPeerCheckRequiredForLocalAttach=!pinned,
+                        existingCredentialsReadLocally=action=="historical.rconExistingPreview",
                         originalStoreTouched=false,serverStarted=false,
                         evidence="HISTORICAL_RCON_EXISTING_INI_PREVIEW_ONLY"
                     });
                 }
-                if(!GuidValue(item,"token",out var token)||pending==null||
-                   pending.Token!=token||
-                   DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(3))
+                if(!GuidValue(item,"token",out var token))
+                    return Fail(id,"UM-HISTORICAL-RCON-TOKEN-EXPIRED");
+                var approved=pendingByMap.Values.SingleOrDefault(x=>x.Token==token);
+                if(approved==null)
                     return Fail(id,"UM-HISTORICAL-RCON-TOKEN-EXPIRED");
                 if(!item.TryGetProperty("confirm",out var yes)||
                    yes.ValueKind!=JsonValueKind.True)
                     return Fail(id,"UM-HISTORICAL-RCON-APPROVAL");
-                Approval approved=pending;
-                pending=null; // Never replay an attach approval.
+                pendingByMap.Remove(approved.MapId); // One-shot per original map.
                 var original=Owned(approved.MapId);
                 if(original==null||JsonSerializer.Serialize(original)!=approved.Profile||
                    original.HistoricalMapKey!=approved.OriginalMapKey||

@@ -115,12 +115,46 @@ internal static class NativeWebViewDispatchContractTests
             "all original Kova native methods are forwarded, including live 5-map preview/apply: "+
             string.Join(", ",unroutedHistorical));
         Check(ObsidianWindow.IsHistoricalStoreMethod(
+            "historical.operationJournalInventory")&&
+              !ObsidianWindow.RequiresGlobalBridgeGate(
+            "historical.operationJournalInventory")&&
+              ObsidianWindow.IsHistoricalStoreMethod(
             "historical.originalLiveBatchPreview")&&
               ObsidianWindow.IsHistoricalStoreMethod(
             "historical.originalLiveBatchApply")&&
               !ObsidianWindow.IsHistoricalStoreMethod(
             "historical.unsafeOperation"),
             "real dispatcher includes both live 5-map methods and denies unknown methods");
+
+        // The previous plugin JSON, ZIP installer and runtime-toggle routes
+        // remain parseable by older UI clients but MUST fail closed at the
+        // actual WebView2 dispatcher. Only folder-open/inventory is allowed.
+        string[] forbiddenPlugins={
+            "plugins.togglePreview","plugins.toggleApply",
+            "plugins.zipSelect","plugins.zipApply",
+            "plugins.zipRollbackSelect","plugins.zipRollbackApply",
+            "plugins.jsonOpen","plugins.jsonPreview",
+            "plugins.jsonSave","plugins.jsonClose"
+        };
+        Check(forbiddenPlugins.All(ObsidianWindow.IsManualOnlyDeniedPluginMethod)&&
+              !ObsidianWindow.IsManualOnlyDeniedPluginMethod("plugins.openFolder")&&
+              !ObsidianWindow.IsManualOnlyDeniedPluginMethod("plugins.inventory")&&
+              !ObsidianWindow.IsManualOnlyDeniedPluginMethod("plugins.state"),
+            "shipping WebView2 accepts manual plugin folder/inventory but denies retired writes");
+        var pluginRequestId=Guid.NewGuid();
+        using(var refused=System.Text.Json.JsonDocument.Parse(
+            ObsidianWindow.NativeErrorResponse(
+                System.Text.Json.JsonSerializer.Serialize(
+                    new{id=pluginRequestId.ToString("D")}),
+                "UM-PLUGIN-MANUAL-FOLDER-ONLY")))
+        {
+            Check(refused.RootElement.GetProperty("id").GetString()==
+                    pluginRequestId.ToString("D")&&
+                  !refused.RootElement.GetProperty("ok").GetBoolean()&&
+                  refused.RootElement.GetProperty("error").GetString()==
+                    "UM-PLUGIN-MANUAL-FOLDER-ONLY",
+                "refused plugin mutation yields correlated, explicit error without file changes");
+        }
 
         // Ensure each named routing group points to an actual compiled
         // handler AND that the target handler contains its requested method.
@@ -173,16 +207,84 @@ internal static class NativeWebViewDispatchContractTests
             string.Join("; ",handlerIssues.Take(20)));
         Check(requested.SetEquals(everyRouted),
             "all "+requested.Count+" production React methods have one eligible host dispatcher route");
+
+        // The signed ASA API CORE binary updater already has a native handler.
+        // Regression: it must actually be reachable from the shipped React
+        // Plugin Center for eligible local maps, not only exist as a dead
+        // standalone source file. Plugin DLL installation stays manual-only.
+        string pluginCenter=Read("desktop-ui/src/App.tsx");
+        string apiCoreUi=Read("desktop-ui/src/AsaApiCoreInstaller.tsx");
+        Check(pluginCenter.Contains(
+                "import { AsaApiCoreInstaller } from \"./AsaApiCoreInstaller\";",
+                StringComparison.Ordinal)&&
+              pluginCenter.Contains("<AsaApiCoreInstaller key={selected}",
+                StringComparison.Ordinal)&&
+              pluginCenter.Contains("(!owned.storeProtected||owned.freshStoreEnrolled)",
+                StringComparison.Ordinal)&&
+              pluginCenter.Contains("!owned.observedReadOnlyImported",
+                StringComparison.Ordinal),
+            "ASA API CORE install/rollback component is mounted for eligible local maps only");
+        foreach(string operation in new[]{
+            "apiCoreRelease","apiCorePreview","apiCoreApply",
+            "apiCoreRollbackCandidates","apiCoreRollbackPreview",
+            "apiCoreRollbackApply"})
+            Check(apiCoreUi.Contains("managerBridge."+operation+"(",
+                    StringComparison.Ordinal),
+                "ASA API CORE UI calls production native method: "+operation);
+        string apiCoreNative=Read("desktop/DesktopAsaApiCoreBridge.cs");
+        Check(apiCoreNative.Contains(
+                "Dictionary<Guid,Approval> pendingByMap",
+                StringComparison.Ordinal)&&
+              apiCoreNative.Contains(
+                "Dictionary<Guid,RollbackApproval> rollbackByMap",
+                StringComparison.Ordinal)&&
+              !apiCoreNative.Contains("private Approval? pending;",
+                StringComparison.Ordinal)&&
+              !apiCoreNative.Contains("private RollbackApproval? pendingRollback;",
+                StringComparison.Ordinal),
+            "ASA API CORE install/rollback approvals are isolated by map rather than global slots");
+        Check(apiCoreNative.Contains(
+                "AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed",
+                StringComparison.Ordinal),
+            "completed operator review is not mistaken for an unresolved CORE update blocker");
+        Check(pluginCenter.Contains("Pluginmappa megnyitása",
+                StringComparison.Ordinal)&&
+              !pluginCenter.Contains("<PluginZipInstaller",
+                StringComparison.Ordinal),
+            "CORE binary installer does not reintroduce automated plugin ZIP installation");
+
+        string originalRconAttach=Read("desktop/DesktopHistoricalRconAttachBridge.cs");
+        Check(originalRconAttach.Contains(
+                "Dictionary<Guid,Approval> pendingByMap",
+                StringComparison.Ordinal)&&
+              !originalRconAttach.Contains("private Approval? pending;",
+                StringComparison.Ordinal),
+            "each source-pinned original Store map retains its own RCON attach token");
+        string freshStoreLoaderMode=Read("desktop/DesktopFreshStoreLoaderModeBridge.cs");
+        Check(!freshStoreLoaderMode.Contains(
+                "if(pendingByMap.Count>=25)pendingByMap.Clear();",
+                StringComparison.Ordinal)&&
+              freshStoreLoaderMode.Contains(
+                "UM-FRESH-STORE-API-PREVIEW-CAPACITY",
+                StringComparison.Ordinal),
+            "new Store per-map Loader approvals fail closed instead of clearing sibling maps");
+
+        // Three independent native Loader lifecycle paths must not impose
+        // older 2–3-minute false-failure windows on large modded ASA worlds.
+        // All use the same bounded read-only family/RCON verification period;
+        // nothing here permits background Process.Start or command replay.
         Check(FreshStoreApiPairObserver.StartupObservationWindow==
                 TimeSpan.FromMinutes(10),
-            "native ASA Loader-child observation permits modded world startup");
+            "production ASA Loader-child observation window is ten minutes");
         foreach(var path in new[]{
             "desktop/DesktopFreshAsaRestartBridge.cs",
             "desktop/DesktopHistoricalRestartBridge.cs",
             "desktop/DesktopHistoricalActiveStartBridge.cs"})
+        {
             Check(Read(path).Contains(
                     "FreshStoreApiPairObserver.StartupObservationWindow",
                     StringComparison.Ordinal),
-                "Loader lifecycle uses shared bounded readiness period: "+path);
+                "native Loader lifecycle uses shared bounded readiness interval: "+path);
+        }
     }
 }

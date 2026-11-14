@@ -17,7 +17,8 @@ namespace UntamedManager.Core;
 internal sealed record LegacyStoreV1NativeStartPlan(string Arguments,
     string Fingerprint,int GamePort,int QueryPort,int RconPort,
     string SourceEvidence,bool UseApi=false,
-    string ApiCacheState="UM-API-CACHE-NOT-APPLICABLE");
+    string ApiCacheState="UM-API-CACHE-NOT-APPLICABLE",
+    bool OriginalTwoPeersVerified=false);
 
 internal static class LegacyStoreV1NativeStartPlanner
 {
@@ -71,7 +72,19 @@ internal static class LegacyStoreV1NativeStartPlanner
         if(stopped.Running||!stopped.ConfirmedStopped||
            stopped.Identity!=null||stopped.LoaderIdentity!=null)
             throw new InvalidOperationException("UM-STORE-NATIVE-PROCESS-NOT-PROVEN-STOPPED");
-        var original=LegacyStoreV1LiveReadGate.InspectOriginalActive(map,LocalOriginal);
+        // Once the owner explicitly approved importing the verified source,
+        // a Manager-owned immutable copy replaces the *local* Kova profile
+        // dependency. The obsolete Kova ACTIVE/DONE markers are checked only
+        // in the fallback legacy handoff, NOT for a pinned independent start.
+        var sourceProfile=LegacyStoreV1PinnedSource.Resolve(
+            cluster.Store.Root,LocalOriginal,map);
+        if(!string.Equals(sourceProfile,LocalOriginal,
+               StringComparison.OrdinalIgnoreCase))
+            return PreparePinnedRuntime(cluster,map,sourceProfile);
+        // Compatibility path for legacy profiles that have not yet been
+        // explicitly imported/pinned. Historical Kova ACTIVE/DONE applies
+        // to this legacy handoff only, not to independent Obsidian startup.
+        var original=LegacyStoreV1LiveReadGate.InspectOriginalActive(map,sourceProfile);
         if(!original.CompletedOriginalSourceGuard||!original.BothPeersDone||
            !original.SharedSessionMatches||!original.NoPendingConversion||
            !original.NoMutationMarker||!original.LocalMapBindingMatches||
@@ -86,11 +99,21 @@ internal static class LegacyStoreV1NativeStartPlanner
         byte[] ini=held.Read(AsaInitialRconSettings.NewIniPath(map.InstallationPath),131072);
         if(!AsaRconConfigurationEvidence.Matches(map))
             throw new InvalidDataException("UM-STORE-NATIVE-RCON-CHANGED");
+        // The in-memory Obsidian registration must still match the CURRENT
+        // original Kova launch-profiles-v1.json on this specific host.
+        // The four-file Store hash and the launch profile hash are both
+        // pinned; no alternative transfer directory is generated.
+        var currentSource=LegacyStoreV1OriginalImport.Inspect(sourceProfile);
+        var originalMap=LegacyStoreV1SourceLaunchParity.RequireOriginalMap(
+            map,currentSource);
         var plan=LegacyStoreV1ActiveLaunch.Build(new(
-            map.HistoricalMapKey,map.GamePort,map.QueryPort,
-            map.HistoricalEnabledMods,map.HistoricalPassiveMods,
+            originalMap.MapKey,originalMap.GamePort,originalMap.QueryPort,
+            originalMap.EnabledMods,originalMap.PassiveMods,
             VaultProtocol.ClusterId,original.VerifiedOriginalSharedPath,
-            "active",Encoding.UTF8.GetString(ini)));
+            "active",LegacyStoreV1ActiveLaunch.DecodeOriginalIni(ini)));
+        LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
+            map,currentSource,original.VerifiedOriginalSharedPath,
+            LegacyStoreV1ActiveLaunch.DecodeOriginalIni(ini),plan.Arguments);
         if(plan.ConversionRequested||plan.StoreMode!="active"||
            plan.Arguments.Count(x=>x.Equals("-usestore",
                StringComparison.OrdinalIgnoreCase))!=1)
@@ -138,10 +161,23 @@ internal static class LegacyStoreV1NativeStartPlanner
                 ":"+cfgHash+":"+cacheState;
         }
         string originalIniSha=Convert.ToHexString(SHA256.HashData(ini));
+        // Preserve source Game.ini transfer/upload/download rules exactly.
+        // Hash the existing file's bytes along with GUS, without rewriting
+        // either config or inventing another ASA transfer mechanism.
+        string gameIniPath=Path.Combine(map.InstallationPath,"ShooterGame",
+            "Saved","Config","WindowsServer","Game.ini");
+        string gameIniSha="ABSENT";
+        if(File.Exists(gameIniPath))
+        {
+            byte[] gameIni=held.Read(gameIniPath,4_000_000);
+            gameIniSha=Convert.ToHexString(SHA256.HashData(gameIni));
+        }
+        string directBinarySha=AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map);
         string evidence=string.Join("\n",map.Id.ToString("D"),
             Path.GetFullPath(map.InstallationPath),Path.GetFullPath(map.ExecutablePath),
-            map.HistoricalArchiveSha256,original.SourceStateSha256,
-            originalIniSha,args,launchMode,map.RconPort.ToString(
+            directBinarySha,map.HistoricalArchiveSha256,currentSource.LaunchProfileSha256,
+            original.SourceStateSha256,originalIniSha,gameIniSha,
+            args,launchMode,map.RconPort.ToString(
                 System.Globalization.CultureInfo.InvariantCulture));
         string fingerprint=Convert.ToHexString(SHA256.HashData(
             Encoding.UTF8.GetBytes(evidence)));
@@ -149,6 +185,92 @@ internal static class LegacyStoreV1NativeStartPlanner
             map.StartWithAsaApi?
                 "ORIGINAL_STORE_V1_API_LOADER_NATIVE_PREFLIGHT_NOT_RUNTIME_CERTIFIED":
                 "ORIGINAL_TWO_PEER_ACTIVE_DONE_AND_EXACT_ASA_RCON_NATIVE_START_PREPARED",
+            map.StartWithAsaApi,cacheState,OriginalTwoPeersVerified:true);
+    }
+
+    // Manager-owned, original-source-pinned Store-v1 startup. This does NOT
+    // probe Kova runtime, old ACTIVE/DONE peer markers or remote host uptime.
+    // Transfer readiness is separately verified by travel/cluster operations,
+    // not a blanket prerequisite for a local, explicitly approved Start.
+    private static LegacyStoreV1NativeStartPlan PreparePinnedRuntime(
+        ClusterService cluster,LocalMap map,string pinnedProfile)
+    {
+        var source=LegacyStoreV1OriginalImport.Inspect(pinnedProfile);
+        LegacyStoreV1PinnedSource.RequireImmutableIdentity(map,source);
+        var original=LegacyStoreV1PinnedSource.ReadOriginalCluster(pinnedProfile);
+        string clusterId=string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)?
+            original.RuntimeClusterId:map.HistoricalRuntimeClusterId;
+        string transfer=string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory)?
+            original.TransferRoot:map.HistoricalRuntimeTransferDirectory;
+        if(string.IsNullOrWhiteSpace(clusterId)||string.IsNullOrWhiteSpace(transfer)||
+           (string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)!=
+            string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory)))
+            throw new InvalidDataException("UM-STORE-RUNTIME-CLUSTER-INCOMPLETE");
+
+        var currentMods=ModStateController.Read(map);
+        using var held=new VaultReadSnapshot();
+        byte[] ini=held.Read(AsaInitialRconSettings.NewIniPath(map.InstallationPath),131072);
+        if(!AsaRconConfigurationEvidence.Matches(map))
+            throw new InvalidDataException("UM-STORE-RUNTIME-RCON-INI-MISMATCH");
+        string iniText=LegacyStoreV1ActiveLaunch.DecodeOriginalIni(ini);
+        var built=LegacyStoreV1ActiveLaunch.Build(new(
+            map.HistoricalMapKey,map.GamePort,map.QueryPort,
+            currentMods.EnabledOrder.ToArray(),currentMods.Passive.ToArray(),
+            clusterId,transfer,"active",iniText,SourcePinnedClusterOnly:false));
+        if(built.ConversionRequested||built.StoreMode!="active"||
+           built.Arguments.Count(a=>a.Equals("-usestore",
+               StringComparison.OrdinalIgnoreCase))!=1)
+            throw new InvalidDataException("UM-STORE-RUNTIME-CONVERSION-DENIED");
+        string args=string.Join(" ",built.Arguments);
+        if(args.Length>8192)
+            throw new InvalidDataException("UM-STORE-RUNTIME-ARGUMENTS-TOO-LONG");
+
+        string launchMode="DIRECT_ASA";
+        string cacheState="UM-API-CACHE-NOT-APPLICABLE";
+        if(map.StartWithAsaApi)
+        {
+            var exact=JsonSerializer.Deserialize<LocalMap>(JsonSerializer.Serialize(map))
+                ??throw new InvalidDataException("UM-STORE-LOADER-CLONE");
+            exact.Arguments=args;
+            exact.ApiLoaderArguments=args;
+            var launch=AsaApiLaunchPolicy.Resolve(exact);
+            if(!launch.UseApi||
+               !string.Equals(Path.GetFullPath(launch.ExecutablePath),
+                   Path.GetFullPath(map.ApiLoaderPath),
+                   StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("UM-STORE-LOADER-EXE-IDENTITY");
+            var inspection=AsaApiInspector.Inspect(map.InstallationPath);
+            if(!inspection.Complete||inspection.Binaries.Any(x=>x.Sha256==null))
+                throw new InvalidDataException("UM-STORE-LOADER-BINARIES-UNVERIFIED");
+            using var configRead=File.OpenRead(Path.Combine(map.InstallationPath,
+                "ShooterGame","Binaries","Win64","config.json"));
+            string cfgHash=Convert.ToHexString(SHA256.HashData(configRead));
+            var localCache=AsaApiCacheProbe.Inspect(map.InstallationPath,map.ExecutablePath);
+            cacheState=localCache.State;
+            launchMode="ASA_API:"+localCache.ExecutableSha256+":"+
+                string.Join(":",inspection.Binaries.Select(x=>x.Sha256))+
+                ":"+cfgHash+":"+cacheState;
+        }
+        string gameIniPath=Path.Combine(map.InstallationPath,
+            "ShooterGame","Saved","Config","WindowsServer","Game.ini");
+        string gameIniSha="ABSENT";
+        if(File.Exists(gameIniPath))
+            gameIniSha=Convert.ToHexString(SHA256.HashData(
+                held.Read(gameIniPath,4_000_000)));
+        string directBinarySha=AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map);
+        string evidence=string.Join("\n",map.Id.ToString("D"),
+            Path.GetFullPath(map.InstallationPath),
+            Path.GetFullPath(map.ExecutablePath),
+            directBinarySha,source.FourFilesSha256,source.LaunchProfileSha256,
+            Convert.ToHexString(SHA256.HashData(ini)),gameIniSha,
+            args,launchMode,map.RconPort.ToString(
+                System.Globalization.CultureInfo.InvariantCulture));
+        string fingerprint=Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(evidence)));
+        return new(args,fingerprint,map.GamePort,map.QueryPort,map.RconPort,
+            map.StartWithAsaApi?
+                "OBSIDIAN_PINNED_API_LOADER_PREFLIGHT_NOT_RUNTIME_CERTIFIED":
+                "OBSIDIAN_LOCAL_STORE_V1_START_SOURCE_PINNED_PEER_NOT_REQUIRED",
             map.StartWithAsaApi,cacheState);
     }
 }

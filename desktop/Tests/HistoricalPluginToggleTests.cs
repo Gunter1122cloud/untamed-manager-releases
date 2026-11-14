@@ -60,6 +60,30 @@ internal static class HistoricalPluginToggleTests
             GamePort=7777,QueryPort=27015
         };
         cluster.AddMap(map);
+        string? openedPath=null;int explorerCount=0;
+        using(var folderBridge=new DesktopPluginStateBridge(cluster,
+            path=>{openedPath=path;explorerCount++;return true;}))
+        {
+            var folderResult=await Call(folderBridge,"plugins.openFolder",
+                new{mapId=map.Id});
+            Check(folderResult.GetProperty("ok").GetBoolean()&&
+                  !folderResult.GetProperty("data").GetProperty(
+                      "runtimeLoadedVerified").GetBoolean()&&
+                  !folderResult.GetProperty("data").GetProperty(
+                      "serverOperation").GetBoolean()&&
+                  !folderResult.GetProperty("data").GetProperty(
+                      "rconSent").GetBoolean()&&
+                  openedPath==Path.Combine(installation,"ShooterGame",
+                      "Binaries","Win64","ArkApi","Plugins")&&
+                  explorerCount==1,
+                "per-map Explorer opens exact local ArkApi folder with no ASA/RCON or runtime load claim");
+            var invalid=await Call(folderBridge,"plugins.openFolder",
+                new{mapId=Guid.NewGuid()});
+            Check(!invalid.GetProperty("ok").GetBoolean()&&
+                  invalid.GetProperty("error").GetString()=="UM-MAP-NOT-OWNED"&&
+                  explorerCount==1,
+                "unknown map may not open arbitrary folder");
+        }
         using var bridge=new DesktopPluginStateBridge(cluster);
         var preview=await Call(bridge,"plugins.togglePreview",new{
             mapId=map.Id,plugin="ExampleOriginalPlugin",enabled=false

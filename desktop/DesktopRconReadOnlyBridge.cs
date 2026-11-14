@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -20,12 +21,14 @@ public sealed class DesktopRconReadOnlyBridge
     private readonly ClusterService cluster;
     private readonly Func<int,int,bool> ownsPort;
     private readonly Func<string,int,string,string,Action,CancellationToken,Task<string>> send;
-    private readonly SemaphoreSlim serial=new(1,1);
+    // One stalled ASA must not hold the RCON lane of any other local map.
+    // SaveWorld and its evidence checks stay serialized within their own map.
+    private readonly ConcurrentDictionary<Guid,SemaphoreSlim> mapSerial=new();
     private sealed record SaveCheck(Guid Token,Guid MapId,int Pid,
         DateTimeOffset StartedUtc,AsaWorldSaveEvidence.Boundary Bookmark,
         DateTimeOffset Expires,bool Completed=false);
     // One map cannot invalidate another map's SaveWorld evidence.
-    private readonly Dictionary<Guid,SaveCheck> pendingSaves=new();
+    private readonly ConcurrentDictionary<Guid,SaveCheck> pendingSaves=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopRconReadOnlyBridge(ClusterService cluster,
@@ -76,6 +79,7 @@ public sealed class DesktopRconReadOnlyBridge
                !Guid.TryParse(mapValue.GetString(),out var mapId) || mapId==Guid.Empty)
                 return Deny(id,"UM-RCON-INVALID-MAP");
 
+            var serial=mapSerial.GetOrAdd(mapId,static _=>new SemaphoreSlim(1,1));
             await serial.WaitAsync();
             try
             {
@@ -169,7 +173,7 @@ public sealed class DesktopRconReadOnlyBridge
                     if(pendingSaves.TryGetValue(map.Id,out var previous)&&
                        !previous.Completed&&previous.Expires>DateTimeOffset.UtcNow)
                         return Deny(id,"UM-RCON-SAVE-ALREADY-PENDING");
-                    pendingSaves.Remove(map.Id);
+                    pendingSaves.TryRemove(map.Id,out _);
                     if(!root.TryGetProperty("confirm",out var approve) ||
                        approve.ValueKind!=JsonValueKind.True)
                         return Deny(id,"UM-RCON-SAVE-EXPLICIT-CONFIRMATION-REQUIRED");
@@ -200,12 +204,40 @@ public sealed class DesktopRconReadOnlyBridge
                         throw new InvalidOperationException(
                             "UM-RCON-POST-AUTH-OWNER-CHANGED");
                 }
+                // SaveWorld is a mutating command. Serialize it against
+                // SteamCMD, Backup, Restart and INI on the same physical
+                // installation across all Manager instances. Read-only
+                // ListPlayers/chat/log never takes this operation lease.
+                using var lease=method=="rcon.saveWorld"?
+                    cluster.Operations.Acquire(map.InstallationPath,
+                        UntamedOperationKind.Configuration):null;
+                string? approvedProfile=lease==null?null:JsonSerializer.Serialize(map);
+                if(lease!=null)
+                {
+                    VerifyOwned();
+                    new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+                    if(JsonSerializer.Serialize(map)!=approvedProfile)
+                        throw new InvalidOperationException(
+                            "UM-RCON-SAVE-PROFILE-CHANGED");
+                }
                 // Capture log and world-file boundary BEFORE SaveWorld bytes;
                 // RCON success alone can never be a SaveComplete signal.
                 AsaWorldSaveEvidence.Boundary? bookmark=null;
                 if(method=="rcon.saveWorld")
                 {
                     bookmark=AsaWorldSaveEvidence.Begin(map,identity);
+                }
+                if(lease!=null)
+                {
+                    VerifyOwned();
+                    new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+                    if(JsonSerializer.Serialize(map)!=approvedProfile)
+                        throw new InvalidOperationException(
+                            "UM-RCON-SAVE-PROFILE-CHANGED");
+                    // Mark before possible network dispatch; an uncertain
+                    // timed-out SaveWorld is never reported as successful or
+                    // automatically sent again after Manager restart.
+                    lease.MarkMutationStarted();
                 }
                 string answer=await send("127.0.0.1",map.RconPort,password,command,
                     VerifyOwned,timeout.Token);
@@ -215,10 +247,18 @@ public sealed class DesktopRconReadOnlyBridge
                    after.Identity.StartedUtc!=identity.StartedUtc ||
                    !ownsPort(map.RconPort,after.Identity.Pid))
                     return Deny(id,"UM-RCON-PROCESS-CHANGED");
-                if(answer.Length>32000)return Deny(id,"UM-RCON-OVERSIZED-REPLY");
-                // Some ASA commands echo ServerAdminPassword in log/reply
-                // text. Protect the exact DPAPI-unwrapped credential as a
-                // last defense even when the generic redactor misses it.
+                if(answer==null||answer.Length>32000)
+                    return Deny(id,"UM-RCON-OVERSIZED-REPLY");
+                if(lease!=null)
+                {
+                    VerifyOwned();
+                    if(JsonSerializer.Serialize(map)!=approvedProfile)
+                        return Deny(id,"UM-RCON-SAVE-PROFILE-CHANGED");
+                    lease.Complete();
+                }
+                // The ASA response can echo its own currently configured
+                // ServerAdminPassword. Redact that exact DPAPI-unwrapped secret
+                // even if future log formatting evades generic redaction.
                 string sanitized=UntamedPresentation.Redact(answer)
                     .Replace(password,"[REDACTED]",StringComparison.Ordinal);
                 if(method=="rcon.saveWorld")
@@ -249,6 +289,10 @@ public sealed class DesktopRconReadOnlyBridge
                 });
             }
             finally{serial.Release();}
+        }
+        catch(IOException ex) when(ex.Message=="UNTAMED_OPERATION_BUSY")
+        {
+            return Deny(id,"UM-RCON-SAVE-INSTALLATION-BUSY");
         }
         catch(Exception ex) when(ex is ArgumentException or InvalidDataException or
             IOException or UnauthorizedAccessException or InvalidOperationException or

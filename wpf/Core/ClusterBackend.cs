@@ -59,6 +59,12 @@ public sealed class LocalMap
     public string HistoricalMapKey { get; set; } = "";
     public List<string> HistoricalEnabledMods { get; set; } = new();
     public List<string> HistoricalPassiveMods { get; set; } = new();
+    // Empty values preserve the original approved Store-v1 cluster settings.
+    // Nonempty values are editable Obsidian runtime settings and must come
+    // from an explicitly previewed, confirmed-stopped configuration change.
+    // The immutable source pin remains separate and is never rewritten.
+    public string HistoricalRuntimeClusterId { get; set; } = "";
+    public string HistoricalRuntimeTransferDirectory { get; set; } = "";
     public int GamePort { get; set; }
     public int QueryPort { get; set; }
     public int RconPort { get; set; }
@@ -104,8 +110,10 @@ public sealed class ManagerConfig
     public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
     public string PublisherCertificateThumbprint { get; set; } = "";
     public bool TelemetryHistoryEnabled { get; set; } = false;
-    // SteamCMD preferences are metadata only; auto-update remains opt-in
-    // and the independent production SaveComplete/Stop capability gate applies.
+    // SteamCMD execution is strictly operator-approved and manual-only.
+    // Retain the historical preference fields for compatible profile reads,
+    // but neither their values nor a deserialized legacy schedule authorize
+    // any background SteamCMD update or post-update ASA restart.
     public string SteamCmdExecutable { get; set; } = "";
     public bool AutoSteamUpdatesEnabled { get; set; } = false;
     public int SteamCheckIntervalMinutes { get; set; } = 180;
@@ -113,8 +121,6 @@ public sealed class ManagerConfig
     public string SteamMaintenanceEnd { get; set; } = "05:00";
     public bool SteamWarnPlayers { get; set; } = true;
     public int SteamWaitPlayersMinutes { get; set; } = 30;
-    // This historical preference is retained for deserialization, but
-    // fresh Manager profiles must never suggest an automatic ASA restart.
     public bool SteamRestartAfterUpdate { get; set; } = false;
     public int SteamPostUpdateProbeMinutes { get; set; } = 10;
     public List<ScheduledTask> ScheduledTasks { get; set; } = new();
@@ -291,7 +297,38 @@ public sealed record ProcessCheck(bool Running, string Status, ProcessIdentity? 
 
 public sealed partial class WindowsProcessInspector
 {
-    public ProcessCheck Inspect(LocalMap map)
+    // A host may own several map instances from a shared ASA installation.
+    // An exactly registered sibling command is not an ambiguous process
+    // belonging to the selected map. Unknown/changed arguments still block.
+    internal static bool MatchesOtherRegisteredMap(LocalMap selected,
+        string observedExecutable,string observedCommand,
+        IReadOnlyList<LocalMap>? registered)
+    {
+        if(registered==null||selected==null||
+           string.IsNullOrWhiteSpace(observedExecutable)||
+           string.IsNullOrWhiteSpace(observedCommand))return false;
+        int matches=0;
+        foreach(var other in registered)
+        {
+            if(other==null||other.Id==Guid.Empty||other.Id==selected.Id||
+               other.HistoricalStoreProtected||other.ObservedReadOnlyImported)
+                continue;
+            bool server= !string.IsNullOrWhiteSpace(other.Arguments) &&
+                string.Equals(other.ExecutablePath,observedExecutable,
+                    StringComparison.OrdinalIgnoreCase) &&
+                CommandMatches(observedCommand,observedExecutable,other.Arguments);
+            bool loader=other.StartWithAsaApi &&
+                !string.IsNullOrWhiteSpace(other.ApiLoaderArguments) &&
+                string.Equals(other.ApiLoaderPath,observedExecutable,
+                    StringComparison.OrdinalIgnoreCase) &&
+                CommandMatches(observedCommand,observedExecutable,other.ApiLoaderArguments);
+            if(server||loader)matches++;
+            if(matches>1)return false; // duplicate map ownership is ambiguous
+        }
+        return matches==1;
+    }
+
+    public ProcessCheck Inspect(LocalMap map,IReadOnlyList<LocalMap>? registered=null)
     {
         if (string.IsNullOrWhiteSpace(map.ExecutablePath) || !File.Exists(map.ExecutablePath))
             return new ProcessCheck(false, "Nincs érvényes helyi végrehajtható fájl", null);
@@ -316,7 +353,12 @@ public sealed partial class WindowsProcessInspector
                     if (!StringComparer.OrdinalIgnoreCase.Equals(Path.GetFullPath(path), exe)) continue;
                     string command = Convert.ToString(entry["CommandLine"]) ?? "";
                     // An installation with changed or unreadable arguments is not proven stopped.
-                    if (!CommandMatches(command, exe, map.Arguments)) { uncertain = true; continue; }
+                    if (!CommandMatches(command, exe, map.Arguments))
+                    {
+                        if(MatchesOtherRegisteredMap(map,exe,command,registered))
+                            continue;
+                        uncertain = true; continue;
+                    }
                     int id = Convert.ToInt32(entry["ProcessId"]);
                     using var p = Process.GetProcessById(id);
                     if (p.HasExited) continue;
@@ -354,7 +396,12 @@ public sealed partial class WindowsProcessInspector
             int i = prefix.IndexOf('"',1);
             if (i < 0) return false;
             string actualExe = prefix.Substring(1,i-1);
-            if (!StringComparer.OrdinalIgnoreCase.Equals(Path.GetFullPath(actualExe), exe)) return false;
+            // WMI may retain redundant separators in a quoted process command
+            // while a registered profile uses the canonical absolute path.
+            // Compare canonical paths on BOTH sides; never infer that a
+            // known sibling ASA process is an unknown process.
+            if (!StringComparer.OrdinalIgnoreCase.Equals(
+                Path.GetFullPath(actualExe), Path.GetFullPath(exe))) return false;
             prefix=prefix.Substring(i+1).Trim();
         }
         else
@@ -663,7 +710,7 @@ public sealed partial class ClusterService : IAsyncDisposable
         // source guard. Isolated test profiles must explicitly inject a
         // synthetic epoch provider and can never probe current-user Kova.
         _historicalSaveSourceProbe=historicalSaveSourceProbe??(rootOverride==null
-            ?LegacyStoreV1GracefulStop.OriginalSource
+            ?map=>LegacyStoreV1GracefulStop.OriginalSource(this,map)
             :_=>throw new UnauthorizedAccessException(
                 "UM-STORE-SAVE-PAIR-SYNTHETIC-SOURCE-NOT-PROVIDED"));
         _legacyStoreProof=legacyStoreProof??(rootOverride==null
@@ -702,7 +749,7 @@ public sealed partial class ClusterService : IAsyncDisposable
         if(ClusterRegistrySchema.PrepareForSave(Config))Store.Save(Config);
         Registry=new ClusterRegistryService(this);
         _customInspector=inspect!=null;
-        _inspect=inspect ?? _inspector.Inspect;
+        _inspect=inspect ?? (map=>_inspector.Inspect(map,Config.LocalMaps));
     }
     public LegacyStoreV1PhysicalTransferWitness InspectLocalPhysicalTransferWitness()
     {
@@ -1434,17 +1481,11 @@ public sealed partial class ClusterService : IAsyncDisposable
         if(expected==null || expected.Pid<=0 || expected.StartedUtc.Year<2020 ||
            string.IsNullOrWhiteSpace(exactArguments) || exactArguments.Length>2048 ||
            exactArguments.Any(char.IsControl) ||
-           exactArguments.Contains("store",StringComparison.OrdinalIgnoreCase) ||
-           exactArguments.Contains("cluster",StringComparison.OrdinalIgnoreCase) ||
-           exactArguments.Contains("convert",StringComparison.OrdinalIgnoreCase) ||
-           exactArguments.Contains("password",StringComparison.OrdinalIgnoreCase) ||
-           exactArguments.Contains("secret",StringComparison.OrdinalIgnoreCase) ||
-           exactArguments.Contains("token",StringComparison.OrdinalIgnoreCase) ||
-           exactArguments.Contains("auth",StringComparison.OrdinalIgnoreCase))
+           !AsaObservedLaunchArguments.TryRead(exactArguments,
+               out string observedMapKey,out string launchFlags) ||
+           AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(launchFlags))
             throw new UnauthorizedAccessException("UM-ADOPT-ARGUMENTS-UNSAFE");
-        string first=exactArguments.Split((char[]?)null,
-            StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()??"";
-        if(!first.Equals(original.ObservedMapKey+"?listen",
+        if(!observedMapKey.Equals(original.ObservedMapKey,
             StringComparison.OrdinalIgnoreCase) ||
            original.GamePort is <1024 or >65535 ||
            original.QueryPort is <1024 or >65535 ||
@@ -1544,7 +1585,7 @@ public sealed partial class ClusterService : IAsyncDisposable
                 LegacyStoreV1ProcessObserver.Observe(map,Config.LocalMaps);
         }
         if(map.StartWithAsaApi || !string.IsNullOrWhiteSpace(map.ApiLoaderPath))
-            return _inspector.InspectFamily(map);
+            return _inspector.InspectFamily(map,Config.LocalMaps);
         return _inspect(map);
     }
 
@@ -1555,7 +1596,8 @@ public sealed partial class ClusterService : IAsyncDisposable
             return new(false,"UM-LIVE-OBSERVATION-ONLY-STOP-UNVERIFIED",null,false);
         if(map.HistoricalStoreProtected)
             return new(false,"Történeti Store-v1 map: indítás tiltva a teljes eredeti launch/szinkron validációjáig",null);
-        if((map.Arguments+" "+map.ApiLoaderArguments).Contains("converttostore",StringComparison.OrdinalIgnoreCase))
+        if(AsaStoreArgumentSwitches.ContainsConversion(map.Arguments)||
+           AsaStoreArgumentSwitches.ContainsConversion(map.ApiLoaderArguments))
             return new(false,"Store conversion is forbidden",null);
         if(FreshStoreEnrollmentPolicy.IsEnrolled(map))
         {
@@ -1563,7 +1605,7 @@ public sealed partial class ClusterService : IAsyncDisposable
             catch(Exception ex) when(ex is InvalidDataException or InvalidOperationException or IOException)
             {return new(false,"Új Store-map előfeltétele nem igazolt: "+ex.Message,null);}
         }
-        else if(map.Arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase))
+        else if(AsaStoreArgumentSwitches.ContainsStoreWriter(map.Arguments))
         {
             var store=LocalStoreProbe.Inspect(map.StoreTestRoot,VaultProtocol.ClusterId,map.Arguments);
             if(!store.Safe)return new(false,store.Reason,null);
@@ -1583,7 +1625,7 @@ public sealed partial class ClusterService : IAsyncDisposable
         {
             // Even after opting out, a previous loader child may still be alive.
             // A direct start must not bypass the old family observation.
-            var family=_inspector.InspectFamily(map);
+            var family=_inspector.InspectFamily(map,Config.LocalMaps);
             if(map.StartWithAsaApi || family.Running || !family.ConfirmedStopped)
                 return family;
         }
@@ -1647,8 +1689,8 @@ public sealed partial class ClusterService : IAsyncDisposable
             FreshStoreEnrollmentPolicy.DemandEnrolled(this,map);
         else if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
                 !string.IsNullOrWhiteSpace(map.StoreTestRoot) ||
-                (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
-                    StringComparison.OrdinalIgnoreCase))
+                AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments) ||
+                AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments))
             throw new InvalidOperationException("Store-v1/historical launch remains locked");
         if(map.Maintenance)
             throw new InvalidOperationException("UM-ASA-START-MAINTENANCE");

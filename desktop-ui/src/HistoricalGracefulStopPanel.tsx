@@ -22,13 +22,18 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const notified=useRef(false);
+  const currentMap=useRef(mapId);
+  currentMap.current=mapId;
+  const belongs=(requested:string)=>currentMap.current===requested;
   useEffect(()=>{
     let active=true;
     setPreview(null);setPhrase("");setJob(null);setJobId("");
     setRecovery(null);setRecoveryChecked(false);
     setError("");setNotice("");notified.current=false;
     managerBridge.historicalGracefulStopRecovery(mapId).then(result=>{
-      if(!active)return;
+      if(!active||!belongs(mapId))return;
+      if(result.mapId.toLowerCase()!==mapId.toLowerCase())
+        throw new Error("UM-STORE-STOP-RECOVERY-WRONG-MAP");
       setRecovery(result);setRecoveryChecked(true);
       if(result.inMemoryRunning&&result.jobId&&result.activeJobKind==="Stop")
         setJobId(result.jobId); // only reattach to the original Stop job
@@ -39,7 +44,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
           "Ne indíts új SaveWorld/DoExit vagy Start műveletet. "+
           "Ellenőrizd az eredeti ASA PID-et, mentésnaplót és a helyi művelet állapotát.");
     }).catch(()=>{
-      if(active){
+      if(active&&belongs(mapId)){
         setRecoveryChecked(true);
         setError("A tartós Store-v1 műveleti napló nem ellenőrizhető. "+
           "Biztonsági okból az új leállítás tiltott.");
@@ -56,7 +61,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
       polling=true;
       try{
         const result=await managerBridge.historicalGracefulStopStatus(jobId);
-        if(!alive)return;
+        if(!alive||!belongs(mapId))return;
         setJob(result);
         if(result.state==="completed"&&!notified.current){
           notified.current=true;
@@ -66,7 +71,10 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
           try{
             setRecovery(await managerBridge.historicalGracefulStopRecovery(mapId));
           }catch{/* Keep original job receipt; never infer unlock from a failed read. */}
-          await onStopped();
+          try{await onStopped();}
+          catch{
+            if(alive&&belongs(mapId))setError("A Stop natív visszaigazolása megvan, de a szerverlista frissítése sikertelen. Nem küldünk új DoExit parancsot.");
+          }
         }
         if(result.state==="needsOperator"&&!notified.current){
           notified.current=true;
@@ -74,7 +82,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
             "ellenőrizd a valódi PID-et és a tartós ASA műveleti naplót.");
         }
       }catch{
-        if(alive)setError("A natív Stop-folyamat állapota átmenetileg nem olvasható; "+
+        if(alive&&belongs(mapId))setError("A Stop-folyamat állapota átmenetileg nem olvasható; "+
           "ne indíts új Stop/Restart műveletet.");
       }finally{polling=false;}
     };
@@ -87,28 +95,34 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
   const inspect=async()=>{
     if(busy||jobId||!running||!recoveryChecked||
        !recovery||recovery.blocked||recovery.inMemoryRunning)return;
+    const requested=mapId;
     setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
-    try{setPreview(await managerBridge.historicalGracefulStopPreview(mapId));}
-    catch{
-      setError("Az eredeti Store-v1 kétpeer-es ACTIVE/DONE session, a "+
-        "Windows ASA PID vagy a hozzá tartozó RCON TCP-port nem igazolható. "+
-        "Nem küldtünk SaveWorld parancsot.");
-    }finally{setBusy(false);}
+    try{
+      const response=await managerBridge.historicalGracefulStopPreview(requested);
+      if(!belongs(requested))return;
+      if(response.mapId.toLowerCase()!==requested.toLowerCase())
+        throw new Error("UM-STORE-STOP-PREVIEW-MAP-MISMATCH");
+      setPreview(response);
+    }catch{
+      if(belongs(requested))setError("A helyi Store-v1 map forrásprofilja, ASA PID-je vagy RCON-portja nem igazolható. Nem küldtünk SaveWorld parancsot.");
+    }finally{if(belongs(requested))setBusy(false);}
   };
   const stop=async()=>{
-    if(!preview||busy||phrase!=="STORE-V1 SAVEWORLD DOEXIT")return;
-    setBusy(true);setError("");setNotice("");
-    const token=preview.token;setPreview(null);setPhrase("");
+    if(!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
+       busy||phrase!=="STORE-V1 SAVEWORLD DOEXIT")return;
+    const requested=mapId,token=preview.token;
+    setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
     try{
       const receipt=await managerBridge.historicalGracefulStopApply(
         token,"STORE-V1 SAVEWORLD DOEXIT");
+      if(!belongs(requested))return;
+      if(!receipt.jobId)throw new Error("UM-STORE-STOP-JOB-MISSING");
       setJobId(receipt.jobId);
-      setNotice("A natív SaveWorld/DoExit feladat elindult. "+
-        "Új mentésigazolás nélkül a DoExit nem kerül elküldésre.");
+      setNotice("A SaveWorld/DoExit feladat elindult. Új mentésigazolás nélkül a DoExit nem kerül elküldésre.");
     }catch{
-      setError("A jóváhagyás előtt az eredeti session/PID/port megváltozott. "+
-        "A natív leállítás nem engedélyezett.");
-    }finally{setBusy(false);}
+      if(belongs(requested))
+        setError("A leállítás eredménye nem igazolható; a háttérfeladat már elindulhatott. Ellenőrizd a natív Stop naplót, mielőtt új műveletet kérsz.");
+    }finally{if(belongs(requested))setBusy(false);}
   };
   return <section className="glass panel historical-graceful-stop"
     aria-label="Eredeti Store-v1 SaveWorld és DoExit">
@@ -149,6 +163,9 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
         <AlertTriangle size={18}/>
         <div>
           <b>{preview.mapName} · PID {preview.pid} · TCP {preview.rconPort}</b>
+          <p>{preview.originalPeerCheckRequiredForLocalOperation?
+            "A még át nem vett eredeti profil régi ACTIVE/DONE ellenőrzése szükséges.":
+            "A jóváhagyott helyi Obsidian-profil leállítása nem függ a másik host régi korábbi Manager-jelölőjétől."}</p>
           <p>A program a jelenlegi mentést SaveWorld paranccsal kezdi, és
             csak új mentésjelzés után küld DoExit-et. Írd be a biztonsági
             jóváhagyást pontosan: STORE-V1 SAVEWORLD DOEXIT</p>

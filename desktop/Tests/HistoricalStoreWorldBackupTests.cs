@@ -67,6 +67,21 @@ internal static class HistoricalStoreWorldBackupTests
               preview.GetProperty("data").GetProperty("confirmedStopped").GetBoolean(),
             "dedicated historical PID observer authorizes only confirmed stopped map");
         string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+        string budgetFile=Path.Combine(cluster.Store.Root,
+            BackupResourcePolicy.FileName);
+        File.WriteAllText(budgetFile,
+            "{\"schema\":1,\"maxFiles\":100000,\"maxTotalBytes\":1048576}");
+        var staleBudget=await Call(bridge,"backup.create",
+            new{token,confirm=true});
+        Check(!staleBudget.GetProperty("ok").GetBoolean()&&
+              staleBudget.GetProperty("error").GetString()==
+                  "UM-BACKUP-RESOURCE-POLICY-CHANGED",
+            "per-map approval cannot be reused after Manager backup policy changed");
+        File.Delete(budgetFile);
+        var nextPreview=await Call(bridge,"backup.preview",new{mapId=map.Id});
+        Check(nextPreview.GetProperty("ok").GetBoolean(),
+            "operator can re-preview a verified stopped map after correcting budget");
+        token=nextPreview.GetProperty("data").GetProperty("token").GetString()!;
         var result=await Call(bridge,"backup.create",
             new{token,confirm=true});
         Check(result.GetProperty("ok").GetBoolean()&&

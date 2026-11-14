@@ -63,7 +63,9 @@ public static class LegacyStoreV1OriginalImport
                     System.Globalization.CultureInfo.InvariantCulture),
                 _=>""
             };
-            if(text.Length is <5 or >12||!text.All(char.IsAsciiDigit)||
+            // Kova 1.8.3 profileLaunch permits 1–12 ASCII decimal digits.
+            // Do not reject valid short original IDs during Store-v1 import.
+            if(text.Length is <1 or >12||!text.All(char.IsAsciiDigit)||
                mods.Contains(text,StringComparer.Ordinal))
                 throw new InvalidDataException("UM-STORE-DIRECT-MOD-ORDER-INVALID");
             mods.Add(text);

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -18,14 +19,57 @@ namespace UntamedDesktop;
 public sealed class DesktopPluginStateBridge : IDisposable
 {
     private readonly ClusterService cluster;
+    private readonly Func<string,bool> openWindowsFolder;
     private readonly SemaphoreSlim gate=new(1,1);
     private readonly Dictionary<Guid,Pending> approvals=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private sealed record Pending(Guid MapId,string Plugin,bool TargetEnabled,
         string OriginalInstallation,Guid[] InstallationMembers,DateTimeOffset ExpiresUtc);
 
-    public DesktopPluginStateBridge(ClusterService service)=>
+    public DesktopPluginStateBridge(ClusterService service,
+        Func<string,bool>? folderOpener=null)
+    {
         cluster=service??throw new ArgumentNullException(nameof(service));
+        openWindowsFolder=folderOpener??OpenInExplorer;
+    }
+
+    private static bool OpenInExplorer(string path)
+    {
+        string explorer=Path.Combine(Environment.GetFolderPath(
+            Environment.SpecialFolder.Windows),"explorer.exe");
+        if(!File.Exists(explorer))
+            throw new FileNotFoundException("Windows Explorer not found");
+        var start=new ProcessStartInfo(explorer){UseShellExecute=false};
+        start.ArgumentList.Add(path);
+        using var launched=Process.Start(start);
+        return launched!=null;
+    }
+
+    private static string VerifiedPluginFolder(LocalMap map)
+    {
+        if(map.ObservedReadOnlyImported||
+           string.IsNullOrWhiteSpace(map.InstallationPath)||
+           !Path.IsPathFullyQualified(map.InstallationPath)||
+           map.InstallationPath.StartsWith(@"\\",StringComparison.Ordinal)||
+           map.InstallationPath.StartsWith("//",StringComparison.Ordinal)||
+           map.InstallationPath.Contains('~'))
+            throw new UnauthorizedAccessException("UM-PLUGIN-FOLDER-NONLOCAL");
+        string root=Path.GetFullPath(map.InstallationPath);
+        if(new DriveInfo(Path.GetPathRoot(root)!).DriveType!=DriveType.Fixed)
+            throw new UnauthorizedAccessException("UM-PLUGIN-FOLDER-NONLOCAL");
+        string binaries=Path.Combine(root,"ShooterGame","Binaries","Win64");
+        if(!File.Exists(Path.Combine(binaries,"ArkAscendedServer.exe")))
+            throw new FileNotFoundException("UM-PLUGIN-FOLDER-ASA-MISSING");
+        string folder=Path.Combine(binaries,"ArkApi","Plugins");
+        for(var ancestor=new DirectoryInfo(folder);
+            ancestor!=null;ancestor=ancestor.Parent)
+            if(ancestor.Exists&&
+                (ancestor.Attributes&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("UM-PLUGIN-FOLDER-LINK");
+        if(!Directory.Exists(folder))
+            throw new DirectoryNotFoundException("UM-PLUGIN-FOLDER-MISSING");
+        return folder;
+    }
 
     public async Task<string> HandleAsync(string raw)
     {
@@ -42,7 +86,8 @@ public sealed class DesktopPluginStateBridge : IDisposable
                 return Error(null,"UM-INVALID-MESSAGE");
             id=requestId.ToString("D");
             string? method=methodValue.GetString();
-            if(method is not ("plugins.state" or "plugins.togglePreview" or "plugins.toggleApply"))
+            if(method is not ("plugins.state" or "plugins.openFolder" or
+                "plugins.togglePreview" or "plugins.toggleApply"))
                 return Error(id,"UM-METHOD-DENIED");
 
             await gate.WaitAsync();
@@ -65,6 +110,32 @@ public sealed class DesktopPluginStateBridge : IDisposable
                             name=p.Name,enabled=p.Enabled,runtimeLoadedVerified=false
                         }).ToArray(),
                         evidence="LOCAL_PLUGIN_DISK_STATE_ONLY"
+                    });
+                }
+
+                if(method=="plugins.openFolder")
+                {
+                    if(!GuidField(request,"mapId",out var mapId))
+                        return Error(id,"UM-INVALID-MAP");
+                    var map=Own(mapId);
+                    if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
+                    string folder;
+                    try{folder=VerifiedPluginFolder(map);}
+                    catch(DirectoryNotFoundException){
+                        return Error(id,"UM-PLUGIN-FOLDER-MISSING");}
+                    catch(FileNotFoundException){
+                        return Error(id,"UM-PLUGIN-FOLDER-ASA-MISSING");}
+                    catch(UnauthorizedAccessException){
+                        return Error(id,"UM-PLUGIN-FOLDER-NONLOCAL");}
+                    catch(InvalidDataException){
+                        return Error(id,"UM-PLUGIN-FOLDER-UNSAFE");}
+                    if(!openWindowsFolder(folder))
+                        return Error(id,"UM-PLUGIN-FOLDER-EXPLORER-FAILED");
+                    return Success(id,new{
+                        mapId=map.Id,opened=true,
+                        runtimeLoadedVerified=false,filesChanged=false,
+                        serverOperation=false,rconSent=false,
+                        evidence="LOCAL_ARKAPI_PLUGIN_FOLDER_OPENED_IN_EXPLORER"
                     });
                 }
 

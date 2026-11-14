@@ -22,7 +22,9 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private sealed record Prepared(Guid Token,Guid MapId,string Session,int Game,int Query,
         string BaselineMapName,string Level,string BaselineArguments,int BaselineGame,int BaselineQuery,
-        string BaselineExe,DateTimeOffset CreatedUtc);
+        string BaselineExe,string BaselineRoot,string BaselineInstalledLevel,
+        bool BaselineUseApi,string BaselineLoaderPath,string BaselineLoaderArguments,
+        string BaselineRconSecret,DateTimeOffset CreatedUtc);
 
     public DesktopInitialMapSetupBridge(ClusterService service) =>
         cluster=service ?? throw new ArgumentNullException(nameof(service));
@@ -152,10 +154,22 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     LocalMapPortPolicy.RequireNoConflicts(new LocalMap{
                         Id=map.Id,Name=map.Name,GamePort=game,QueryPort=query
                     },cluster.Config.LocalMaps);
+                    // Profile-level suggestions do not check the operating
+                    // system. An unrelated process can already own the UDP
+                    // listener even when no Manager map is registered.
+                    var previewPorts=AsaLocalPortPreflight.Inspect(new LocalMap{
+                        GamePort=game,QueryPort=query,RconPort=0
+                    });
+                    if(previewPorts!=AsaLocalPortAvailability.Available)
+                        return Fail(id,previewPorts==AsaLocalPortAvailability.InUse?
+                            "UM-INITIAL-PORT-IN-USE":"UM-INITIAL-PORT-UNVERIFIED");
                     if(pending.Count>=6)pending.Clear();
                     var token=Guid.NewGuid();
                     pending[token]=new(token,map.Id,session,game,query,map.Name,level,
-                        map.Arguments,map.GamePort,map.QueryPort,map.ExecutablePath,DateTimeOffset.UtcNow);
+                        map.Arguments,map.GamePort,map.QueryPort,map.ExecutablePath,
+                        map.InstallationPath,map.FreshInstallMapLevel,map.StartWithAsaApi,
+                        map.ApiLoaderPath,map.ApiLoaderArguments,map.RconPasswordProtected,
+                        DateTimeOffset.UtcNow);
                     return Success(id,new{
                         token,mapId=map.Id,mapName=map.Name,sessionName=session,
                         mapLevel=level,requiresCustomLevel=!official,
@@ -183,14 +197,35 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                    owned.GamePort!=saved.BaselineGame ||
                    owned.QueryPort!=saved.BaselineQuery ||
                    !string.Equals(owned.ExecutablePath,saved.BaselineExe,
-                       StringComparison.OrdinalIgnoreCase))
+                       StringComparison.OrdinalIgnoreCase) ||
+                   !string.Equals(owned.InstallationPath,saved.BaselineRoot,
+                       StringComparison.OrdinalIgnoreCase) ||
+                   owned.FreshInstallMapLevel!=saved.BaselineInstalledLevel ||
+                   owned.StartWithAsaApi!=saved.BaselineUseApi ||
+                   owned.ApiLoaderPath!=saved.BaselineLoaderPath ||
+                   owned.ApiLoaderArguments!=saved.BaselineLoaderArguments ||
+                   owned.RconPasswordProtected!=saved.BaselineRconSecret)
+                {
+                    // A stale preview must not authorize a different installed
+                    // level, API launch mode or credential profile. Require a
+                    // fresh operator preview even if the values later revert.
+                    pending.Remove(approvalToken);
                     return Fail(id,"UM-INITIAL-CONFLICT");
+                }
                 var final=cluster.Check(owned);
                 if(!final.ConfirmedStopped || final.Running || owned.Maintenance)
                     return Fail(id,"UM-INITIAL-STOP-REQUIRED");
                 LocalMapPortPolicy.RequireNoConflicts(new LocalMap{
                     Id=owned.Id,Name=owned.Name,GamePort=saved.Game,QueryPort=saved.Query
                 },cluster.Config.LocalMaps);
+                // A free port during preview can be occupied by another
+                // process before approval; no partial profile write is allowed.
+                var availability=AsaLocalPortPreflight.Inspect(new LocalMap{
+                    GamePort=saved.Game,QueryPort=saved.Query,RconPort=0
+                });
+                if(availability!=AsaLocalPortAvailability.Available)
+                    return Fail(id,availability==AsaLocalPortAvailability.InUse?
+                        "UM-INITIAL-PORT-IN-USE":"UM-INITIAL-PORT-UNVERIFIED");
                 var copy=JsonSerializer.Deserialize<LocalMap>(JsonSerializer.Serialize(owned))
                     ?? throw new InvalidDataException("Could not prepare local map profile");
                 copy.GamePort=saved.Game;

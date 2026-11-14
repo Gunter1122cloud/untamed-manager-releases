@@ -28,7 +28,7 @@ The catalog is UTF-8 JSON with schema version `1`, a nonempty `BatchId`, the com
 
 Every map needs one nonempty world (`MapWorld`, `.ark`), one `GameUserSettingsIni`, one mod configuration, one ASA API plugin configuration, and one plugin persistent-data snapshot. `GameIni` is optional and may occur once. Player profiles, tribes, and other saved files are preserved as their corresponding map payload kinds. Each host needs a host configuration file. Each nonempty cluster needs cluster Store-v1 files and exactly one transfer manifest, plus a host Store-v1 snapshot for every host that owns a map in that cluster.
 
-The catalog can be prepared from an already isolated copy. It must not point at a registered installation, Store, transfer, or backup directory. The app does not create an online snapshot or copy from a live ASA/Kova path.
+The catalog can be prepared from an already isolated copy. It must not point at a registered installation, Store, transfer, or backup directory. The app does not create an online snapshot or copy from a live ASA/Legacy path.
 
 ## Archive and interruption behavior
 
@@ -41,4 +41,4 @@ Restore verifies the complete archive and current registry ownership. A new sand
 - `npm run build` and `npm run test:ui -- --workers=1` — React/TypeScript and single-worker browser regressions.
 - `.github/workflows/build-obsidian-desktop.yml` runs `desktop/Tests/ObsidianSetupPathE2E.ps1` on Windows: invalid target rejection, quoted special/long install path, installed WebView2 smoke, and uninstall in the isolated runner temp directory.
 
-All test data is synthetic. The replacement transaction is limited to generated TEMP sandboxes; tests do not start ASA/Kova, bind configured ASA ports, or issue live RCON. These results do not establish real ASA server, Store-v1 writer, character travel, SaveComplete, or live restore behavior.
+All test data is synthetic. The replacement transaction is limited to generated TEMP sandboxes; tests do not start ASA/Legacy, bind configured ASA ports, or issue live RCON. These results do not establish real ASA server, Store-v1 writer, character travel, SaveComplete, or live restore behavior.

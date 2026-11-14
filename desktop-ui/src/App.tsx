@@ -11,7 +11,7 @@ import {
   type IniFile, type IniDocument, type IniPreview, type IniGameCreatePreview, type LocalImportPreview,
   type SteamInstallations, type SuggestedPorts,
   type CurseForgeCategory, type CurseForgeFeatured, type CurseForgeProject, type CurseForgeFile,
-  type PluginInventory, type PluginState, type PluginTogglePreview, type SharedModInventory, type DashboardSnapshot,
+  type PluginInventory, type SharedModInventory, type DashboardSnapshot,
   type PublicMap
 } from "./bridge";
 import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
@@ -19,6 +19,7 @@ import { InitialMapSetup } from "./InitialMapSetup";
 import { FreshStoreEnrollmentPanel } from "./FreshStoreEnrollmentPanel";
 import { FreshStoreLoaderModePanel } from "./FreshStoreLoaderModePanel";
 import { AsaApiLaunchModeSwitch } from "./AsaApiLaunchModeSwitch";
+import { AsaApiCoreInstaller } from "./AsaApiCoreInstaller";
 import { HistoricalStoreImport } from "./HistoricalStoreImport";
 import { HistoricalRconAttach } from "./HistoricalRconAttach";
 import { HistoricalActiveStartPanel } from "./HistoricalActiveStartPanel";
@@ -41,14 +42,11 @@ import { FreshAsaRestartPanel } from "./FreshAsaRestartPanel";
 import { LocalMapLifecycleBar } from "./LocalMapLifecycleBar";
 import { OriginalStoreJournalRecoveryPanel } from "./OriginalStoreJournalRecoveryPanel";
 import type { AsaLifecycleJournal, AsaRestartJournalStatus } from "./bridge";
-import { PluginZipInstaller } from "./PluginZipInstaller";
-import { AsaApiCoreInstaller } from "./AsaApiCoreInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { LocalModCopyPanel } from "./LocalModCopyPanel";
 import { PortableModProfilePanel } from "./PortableModProfilePanel";
 import { OfflineAsaArchivePanel } from "./OfflineAsaArchivePanel";
 import { OfflineAsaRestorePanel } from "./OfflineAsaRestorePanel";
-import { PluginJsonEditor } from "./PluginJsonEditor";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
 import { OperationsCenter } from "./OperationsCenter";
@@ -608,7 +606,8 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
     </div>
     {/* Show the requested import action immediately below its toolbar.
         The process observation list can be many screens tall on API Loader hosts. */}
-    {importMode==="new" && <FreshAsaSteamWizard onRegistered={onImported} initialMapName={installMap} onImport={()=>setImportMode("existing")}/>}
+    {importMode==="new" && <FreshAsaSteamWizard onRegistered={onImported} initialMapName={installMap}
+      onImport={()=>setImportMode("existing")} onOpenMap={onSelect}/>}
     {importMode==="existing" && <LocalAsaImport onImported={onImported}/>}
     {importMode==="store" && <HistoricalStoreImport onImported={onImported}/>}
     <LocalRunningAsaPanel onRegistered={onImported}/>
@@ -960,147 +959,126 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
   snapshot: DashboardSnapshot; selected: string; setSelected: (v: string) => void;
   mapLocked?:boolean;onLaunchModeSaved?:()=>Promise<void>
 }) {
-  const [info, setInfo] = useState<PluginInventory | null>(null);
-  const [error, setError] = useState("");
-  const [pluginStates,setPluginStates]=useState<PluginState|null>(null);
-  const [preview,setPreview]=useState<PluginTogglePreview|null>(null);
-  const [approved,setApproved]=useState(false);
-  const [working,setWorking]=useState(false);
+  const [info,setInfo]=useState<PluginInventory|null>(null);
+  const currentPluginMap=useRef(selected);
+  currentPluginMap.current=selected;
+  const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  const [opening,setOpening]=useState(false);
   const [revision,setRevision]=useState(0);
-  const [jsonPlugin,setJsonPlugin]=useState("");
-  const actionEpoch=useRef(0);
-  useEffect(()=>{setJsonPlugin("");},[selected]);
-  useEffect(() => {
-    let active = true;
-    setInfo(null); setError("");
-    if (!selected) return;
-    managerBridge.pluginInventory(selected).then(data => { if (active) setInfo(data); })
-      .catch(e => { if (active) setError(e instanceof Error ? e.message : "UM-READ-UNAVAILABLE"); });
-    return () => { active = false; };
-  }, [selected,revision]);
   useEffect(()=>{
     let active=true;
-    setPluginStates(null);
-    if(!selected)return;
-    managerBridge.pluginStates(selected)
-      .then(data=>{if(active)setPluginStates(data);})
-      .catch(()=>{if(active)setNotice("A pluginmappák állapota nem ellenőrizhető.");});
+    setInfo(null);setError("");setNotice("");
+    if(selected)managerBridge.pluginInventory(selected)
+      .then(result=>{
+        if(!active)return;
+        if(result.mapId.toLowerCase()!==selected.toLowerCase()||
+           result.evidence!=="READ_ONLY_LOCAL_FILE_INVENTORY")
+          throw new Error("UM-PLUGIN-INVENTORY-MAP-MISMATCH");
+        setInfo(result);
+      })
+      .catch(e=>{
+        if(active)setError(e instanceof Error?e.message:"UM-READ-UNAVAILABLE");
+      });
     return ()=>{active=false;};
   },[selected,revision]);
-  const inspectToggle=async(plugin:string,enabled:boolean)=>{
-    if(!selected || working)return;
-    const epoch=++actionEpoch.current;
-    setWorking(true);setPreview(null);setApproved(false);setNotice("");
+  const openFolder=async()=>{
+    if(!selected||opening)return;
+    const requested=selected;
+    setOpening(true);setNotice("");setError("");
     try{
-      const result=await managerBridge.pluginTogglePreview(selected,plugin,enabled);
-      if(epoch===actionEpoch.current)setPreview(result);
-    }catch{
-      if(epoch===actionEpoch.current)setNotice("A plugin előellenőrzése sikertelen. Nem történt módosítás.");
-    }finally{if(epoch===actionEpoch.current)setWorking(false);}
+      const result=await managerBridge.pluginOpenFolder(requested);
+      if(currentPluginMap.current!==requested)return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase()||
+         !result.opened||result.filesChanged||result.serverOperation||
+         result.rconSent||result.runtimeLoadedVerified)
+        throw new Error("UM-PLUGIN-FOLDER-RECEIPT-MAP-MISMATCH");
+      setNotice("A map saját ASA API Plugins mappája megnyílt a Windows Intézőben. A fájlok jelenléte nem igazolja az ASA-beli betöltést.");
+    }catch(e){
+      if(currentPluginMap.current!==requested)return;
+      const code=e instanceof Error?e.message:"UM-PLUGIN-FOLDER-EXPLORER-FAILED";
+      setError(code==="UM-PLUGIN-FOLDER-MISSING"
+        ?"Az ASA API Plugins mappája még nem található. Ellenőrizd a map saját ASA API telepítését; a Manager nem hoz létre üres helyettesítő mappát."
+        :code==="UM-PLUGIN-FOLDER-ASA-MISSING"
+        ?"A map tényleges ASA szerverfájljai hiányoznak a regisztrált helyről."
+        :"A helyi pluginmappa nem nyitható meg biztonságosan ("+code+").");
+    }finally{setOpening(false);}
   };
-  const applyToggle=async()=>{
-    if(!preview?.allowed || !preview.token || !approved || working)return;
-    setWorking(true);setNotice("");
-    try{
-      const result=await managerBridge.pluginToggleApply(preview.token);
-      setPreview(null);setApproved(false);
-      setNotice(result.plugin+" · "+(result.enabled?"engedélyezve":"letiltva")+
-        ". A teljes könyvtár mentése elkészült; a változás a következő ASA-indításkor lép érvénybe.");
-      setRevision(n=>n+1);
-    }catch{
-      setPreview(null);setApproved(false);
-      setNotice("A pluginművelet nem igazolható. Ellenőrizd a fájlokat és a helyi mapok állapotát, majd készíts új előnézetet.");
-    }finally{setWorking(false);}
-  };
+  const owned=snapshot.local.maps.find(m=>m.id===selected);
   return <div className="premium-plugin-page">
-    <div className="page-intro"><span className="eyebrow">ASA API / LOCAL INSTALLATION</span><h1>Plugin Center</h1>
-      <p>Helyi pluginleltár és ellenőrzött engedélyezés/tiltás. A módosítás csak leállított szervereken, előnézet és jóváhagyás után történik.</p></div>
+    <div className="page-intro"><span className="eyebrow">ASA API / LOCAL FILES</span>
+      <h1>Plugin Center</h1>
+      <p>A pluginok másolása és konfigurálása kézzel történik a Windows Intézőben.
+        Az Obsidian csak a tényleges helyi mappát nyitja meg, és leltározza
+        az ott található fájlokat. Nem telepít, nem tölt újra plugint,
+        és nem indít vagy vezérel ASA-szervert.</p>
+    </div>
     <div className="premium-mod-map-picker"><Plug size={19}/>
       {mapLocked
-        ?<strong aria-label="Pluginok forrásmapja">{snapshot.local.maps.find(m=>m.id===selected)?.name??"Nem található"}</strong>
+        ?<strong aria-label="Pluginok forrásmapja">{owned?.name??"Nem található"}</strong>
         :<select aria-label="Pluginok mapja" value={selected}
-          disabled={working} onChange={e=>{
-            actionEpoch.current++;setPreview(null);setApproved(false);
-            setNotice("");setSelected(e.target.value);
-          }}>
-          {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          onChange={e=>setSelected(e.target.value)}>
+          {snapshot.local.maps.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
         </select>}
     </div>
-    {snapshot.local.maps.find(m=>m.id===selected)&&
-      <AsaApiLaunchModeSwitch key={selected}
-        map={snapshot.local.maps.find(m=>m.id===selected)!}
+    {owned&&<AsaApiLaunchModeSwitch key={selected} map={owned}
         onSaved={onLaunchModeSaved}/>}
-    <div className="premium-plugin-grid">
-    <Panel className="premium-plugin-inventory" title={info ? `Helyi pluginok · ${info.mapName}` : "Pluginok"}>
-      {error && <div className="error-inline"><AlertTriangle size={17}/>{error}</div>}
-      {!error && !selected && <div className="empty">Nincs kiválasztható helyi map.</div>}
-      {!error && selected && !info && <div className="empty">Helyi telepítés vizsgálata...</div>}
-      {info?.plugins.length === 0 && <div className="empty">Nem található plugin a regisztrált map telepítési helyén.</div>}
-      {info?.plugins.map((plugin,i) => <div className="plugin-row" key={plugin.name + i}>
-        <span className="plugin-symbol"><Plug size={21}/></span>
-        <div className="plugin-copy"><b>{plugin.name}</b><small>{plugin.binaries.map(b => b.name + " · " + (b.version || "verzió nélkül")).join(", ") || "Nincs DLL-adat"}</small></div>
-        <span className={plugin.protectedData ? "mod-tag amber" : "mod-tag green"}>{plugin.protectedData ? "Védett" : "Helyi leltár"}</span>
-        <button type="button" className="secondary" disabled={working||
-          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.running)||
-          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.observedReadOnlyImported)}
-          onClick={()=>setJsonPlugin(plugin.name)}>
-          config.json szerkesztése
+    {owned&&(!owned.storeProtected||owned.freshStoreEnrolled)&&
+      !owned.observedReadOnlyImported&&<AsaApiCoreInstaller key={selected}
+        mapId={selected} mapName={owned.name} onInstalled={()=>{
+          // The CORE binaries are separate from manually copied plugins.
+          // Refresh only read-only native inventory; never trigger a restart.
+          setRevision(n=>n+1);
+          if(onLaunchModeSaved)void onLaunchModeSaved().catch(()=>{});
+        }}/>}
+    {owned&&((owned.storeProtected&&!owned.freshStoreEnrolled)||
+      owned.observedReadOnlyImported)&&<div className="warning-inline" role="status">
+      <Shield size={17}/> ASA API CORE binárisfrissítés ezen a mapon nem
+      támogatott a jelenlegi védett telepítési útvonalon. A pluginmappa
+      kézi megnyitása és a meglévő Loader-indítási mód külön működik.
+    </div>}
+    <Panel className="premium-plugin-inventory"
+      title={info?"Helyi pluginfájlok · "+info.mapName:"Helyi pluginfájlok"}>
+      <div className="ini-actions">
+        <button type="button" className="primary" disabled={!owned||opening}
+          onClick={()=>{void openFolder();}}>
+          <Plug size={17}/> Pluginmappa megnyitása
         </button>
-      </div>)}
-      <div className="warning-inline"><Shield size={17}/> Csak fájlleltár. Nem bizonyítja, hogy a futó ASA betöltötte a plugint.</div>
-    </Panel>
-    <Panel className="premium-plugin-actions" title="Pluginállapot · biztonságos műveletek" action={<button type="button"
-      className="quiet" disabled={working} onClick={()=>{
-        actionEpoch.current++;setPreview(null);setApproved(false);
-        setNotice("");setRevision(n=>n+1);
-      }}><RefreshCw size={15}/> Mappák frissítése</button>}>
-      <p className="muted small">Az eredeti C# PluginStateManager az egész pluginmappát mozgatja; beállítások, licencfájlok és helyi adatállományok ellenőrzött mentésben megmaradnak. Az API futás közbeni betöltöttsége nem következtethető ki a lemezállapotból.</p>
-      {pluginStates?.historicalProtected && <div className="warning-inline">
-        <Shield size={17}/> Eredeti Store-v1 pluginművelet: csak igazoltan
-        leállított ASA/Loader mellett, az eredeti fájlok mentése és
-        natív jóváhagyás után hajtható végre.
-      </div>}
-      {!pluginStates && selected && <div className="empty">Pluginmappák állapotának olvasása...</div>}
-      {pluginStates && pluginStates.plugins.length===0 && <div className="empty">
-        Nincs engedélyezett vagy letiltott pluginmappa.
-      </div>}
-      {pluginStates?.plugins.map(plugin=><div className="plugin-row" key={plugin.name}>
+        <button type="button" className="secondary" disabled={opening}
+          onClick={()=>setRevision(n=>n+1)}>
+          <RefreshCw size={16}/> Fájlleltár frissítése
+        </button>
+      </div>
+      <p className="muted small">Az adott map tényleges
+        ShooterGame/Binaries/Win64/ArkApi/Plugins mappája nyílik meg.
+        Működő szervernél sem indít, állít le, indít újra vagy küld RCON-parancsot.</p>
+      {info?.plugins.map(plugin=><div className="plugin-row" key={plugin.name}>
         <span className="plugin-symbol"><Plug size={19}/></span>
-        <div className="plugin-copy"><b>{plugin.name}</b>
-          <small>{plugin.enabled?"Engedélyezett mappa":"Letiltott mappa"} · ASA futásidőben nem igazolt</small>
+        <div className="plugin-copy">
+          <b>{plugin.name}</b>
+          <small>{plugin.binaries.map(b=>b.name+
+            (b.version?" · "+b.version:"")).join(", ")||"Nincs DLL-adat"}</small>
         </div>
-        <button type="button" className="secondary" disabled={working||
-          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.observedReadOnlyImported)}
-          onClick={()=>{void inspectToggle(plugin.name,!plugin.enabled);}}>
-          {plugin.enabled?"Letiltás előnézete":"Engedélyezés előnézete"}
-        </button>
+        <span className="mod-tag amber">Pluginmappa megtalálva · betöltés nem igazolt</span>
       </div>)}
-      {preview && <div className="historical-preview" role="status">
-        <h3>{preview.plugin} · {preview.targetEnabled?"Engedélyezés":"Letiltás"}</h3>
-        <p className="muted small">{preview.reason}</p>
-        <div className="details-line"><span>Megvizsgált helyi mapok</span>
-          <b>{preview.checkedLocalMaps}</b></div>
-        <div className="details-line"><span>Éles API-runtime betöltés</span><b>Nem igazolt</b></div>
-        {preview.allowed && preview.token ? <>
-          <label className="historical-approval"><input type="checkbox" checked={approved}
-            disabled={working} onChange={e=>setApproved(e.target.checked)}/>
-            Jóváhagyom a helyi pluginmappa áthelyezését, teljes ellenőrzött biztonsági mentéssel.
-          </label>
-          <button type="button" className="primary" disabled={!approved||working}
-            onClick={()=>{void applyToggle();}}>Pluginállapot módosításának jóváhagyása</button>
-        </> : <div className="warning-inline"><Shield size={17}/> A módosítás zárolva marad.</div>}
+      {info&&info.plugins.length===0&&<div className="empty">
+        Nem található plugin a map helyi ASA API mappájában.
       </div>}
-      {notice && <div role="status" className="warning-inline"><AlertTriangle size={17}/>{notice}</div>}
+      {!info&&!error&&selected&&<div className="empty">A helyi fájlleltár olvasása...</div>}
+      {notice&&<div className="success-inline" role="status">
+        <CheckCircle2 size={16}/>{notice}
+      </div>}
+      {error&&<div className="error-inline" role="alert">
+        <AlertTriangle size={16}/>{error}
+      </div>}
+      <div className="warning-inline"><Shield size={17}/>
+        A plugin DLL-ek jelenléte nem bizonyítja az ASA API futásidejű betöltést.
+        A Manager nem másol, nem konfigurál és nem reloadol pluginokat.
+      </div>
     </Panel>
-    </div>
-    <AsaApiCoreInstaller mapId={selected} onInstalled={()=>setRevision(n=>n+1)}/>
-    <PluginZipInstaller mapId={selected} onInstalled={()=>setRevision(n=>n+1)}/>
-    {jsonPlugin&&<PluginJsonEditor key={selected+"-"+jsonPlugin} mapId={selected}
-      plugin={jsonPlugin} onClose={()=>setJsonPlugin("")}
-      onSaved={()=>setRevision(n=>n+1)}/>} 
   </div>;
 }
+
 function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot}) {
   const [info,setInfo]=useState<BackupOverview|null>(null);
   const [error,setError]=useState("");
@@ -1209,9 +1187,9 @@ function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot
     </div>
   </div>;
 }
-function SteamCenter({ snapshot, onRegistered, initialMapName }: {
+function SteamCenter({ snapshot, onRegistered, initialMapName, onOpenMap }: {
   snapshot: DashboardSnapshot; onRegistered:()=>Promise<void>;
-  initialMapName:string
+  initialMapName:string; onOpenMap:(mapId:string)=>void
 }) {
   const [inventory, setInventory] = useState<SteamInstallations | null>(null);
   const [ports, setPorts] = useState<SuggestedPorts | null>(null);
@@ -1252,7 +1230,8 @@ function SteamCenter({ snapshot, onRegistered, initialMapName }: {
         <span className="mod-tag amber">Kézi előellenőrzés</span>
       </div>)}
     </Panel>
-    <FreshAsaSteamWizard onRegistered={onRegistered} initialMapName={initialMapName}/>
+    <FreshAsaSteamWizard onRegistered={onRegistered} initialMapName={initialMapName}
+      onOpenMap={onOpenMap}/>
     <Panel title="Új map · konfigurációs előkészítés">
       <p className="muted small">Az új telepítés után a szerver nevének és portjainak ellenőrzött beállítása a map Áttekintés oldalán érhető el. A javaslat önmagában nem indít SteamCMD-műveletet.</p>
       {ports && <div className="port-strip">
@@ -1278,8 +1257,16 @@ function LogsCenter({ snapshot, selected, setSelected, mapLocked=false }: {
     setResult(null); setError("");
     if (!selected) return;
     managerBridge.logTail(selected)
-      .then(data => { if (active) setResult(data); })
-      .catch(() => { if (active) setError("A regisztrált helyi ASA napló nem olvasható vagy nincs konfigurálva."); });
+      .then(data=>{
+        if(!active)return;
+        if(data.mapId.toLowerCase()!==selected.toLowerCase()||
+           data.evidence!=="SANITIZED_LOCAL_LOG_TAIL_NOT_SERVER_HEALTH")
+          throw new Error("UM-LOG-OTHER-MAP");
+        setResult(data);
+      })
+      .catch(()=>{
+        if(active)setError("A helyi ASA napló nem olvasható, vagy a válasz másik maphoz tartozik. Más szerver naplóját nem jelenítjük meg.");
+      });
     return () => { active = false; };
   }, [selected, generation]);
   const filtered = useMemo(() => (result?.lines ?? []).filter(row =>
@@ -1345,7 +1332,7 @@ function LogsCenter({ snapshot, selected, setSelected, mapLocked=false }: {
 
 const iniCreateErrorMessages:Record<string,string>={
   "UM-INI-CREATE-FRESH-ONLY":"A kiválasztott map nem igazoltan új, helyi és Store-v1-től független ASA-telepítés. A történeti adatokhoz nem nyúltunk.",
-  "UM-INI-CREATE-SHARED-STORE":"A telepítést egy történeti Kova/Store-v1 map is használja. Új Game.ini nem hozható létre itt.",
+  "UM-INI-CREATE-SHARED-STORE":"A telepítést egy történeti korábbi kezelőalkalmazás/Store-v1 map is használja. Új Game.ini nem hozható létre itt.",
   "UM-INI-CREATE-ALL-MAPS-STOPPED":"A közös telepítés valamelyik mapja fut vagy leállítása nem igazolt. Előbb ellenőrizd az összes helyi folyamatot.",
   "UM-INI-GAME-ALREADY-EXISTS":"A Game.ini már létezik. Nyisd meg a meglévő fájlt; a létrehozás nem írta felül.",
   "UM-INI-CREATE-LINKED-PATH":"A célmappa junction/link útvonalon található. A művelet tiltott.",
@@ -1370,9 +1357,25 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
   mapLocked?:boolean
 }) {
   const [file, setFile] = useState<IniFile>("Game.ini");
+  // Bind async INI snapshots, previews and approvals to the exact map/file.
+  // A late response after map navigation cannot populate another map's editor.
+  const currentMap=useRef(selected);
+  const currentFile=useRef(file);
+  currentMap.current=selected;
+  currentFile.current=file;
+  const operationEpoch=useRef(0);
+  const mounted=useRef(true);
+  useEffect(()=>{
+    mounted.current=true;
+    return ()=>{mounted.current=false;++operationEpoch.current;};
+  },[]);
+  const belongs=(mapId:string,name:IniFile,epoch:number)=>
+    mounted.current&&operationEpoch.current===epoch&&
+    currentMap.current===mapId&&currentFile.current===name;
   const [opened, setOpened] = useState<IniDocument | null>(null);
   const [content, setContent] = useState("");
   const [preview, setPreview] = useState<IniPreview | null>(null);
+  const [mergeAvailable,setMergeAvailable]=useState(false);
   const [createPreview,setCreatePreview]=useState<IniGameCreatePreview|null>(null);
   const [createApproved,setCreateApproved]=useState(false);
   const [missingGame,setMissingGame]=useState(false);
@@ -1380,19 +1383,26 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
-    setOpened(null); setContent(""); setPreview(null);
+    ++operationEpoch.current;
+    setOpened(null);setContent("");setPreview(null);setMergeAvailable(false);
     setCreatePreview(null);setCreateApproved(false);setMissingGame(false);
-    setNotice(""); setError("");
+    setNotice("");setError("");setBusy(false);
+    return ()=>{++operationEpoch.current;};
   }, [selected, file]);
   const load = async () => {
-    if (!selected) return;
-    setBusy(true); setError(""); setNotice(""); setPreview(null);
+    if(!selected||busy)return;
+    const requested=selected,name=file,epoch=operationEpoch.current;
+    setBusy(true);setError("");setNotice("");setPreview(null);setMergeAvailable(false);
     setCreatePreview(null);setCreateApproved(false);setMissingGame(false);
     try {
-      const fresh = await managerBridge.iniOpen(selected, file);
-      setOpened(fresh); setContent(fresh.content);
-    } catch(e) {
-      const code = e instanceof Error ? e.message : "UM-INI-OPERATION-FAILED";
+      const fresh=await managerBridge.iniOpen(requested,name);
+      if(!belongs(requested,name,epoch))return;
+      if(fresh.mapId.toLowerCase()!==requested.toLowerCase()||fresh.file!==name)
+        throw new Error("UM-INI-OPEN-OTHER-MAP");
+      setOpened(fresh);setContent(fresh.content);
+    }catch(e){
+      if(!belongs(requested,name,epoch))return;
+      const code=e instanceof Error?e.message:"UM-INI-OPERATION-FAILED";
       setMissingGame(file==="Game.ini"&&
         ["UM-INI-GAME-MISSING","UM-INI-CONFIG-DIRECTORY-MISSING"].includes(code));
       const message:Record<string,string>={
@@ -1406,65 +1416,142 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
         "UM-INI-PATH-OR-CONTENT-UNSAFE":"Az INI útvonala, linkje vagy tartalma nem felelt meg a biztonsági ellenőrzésnek.",
         "UM-INI-ETAG-MISMATCH":"Az INI fájl az előnézet óta megváltozott. A frissebb fájlt nem írtuk felül. Nyisd meg újra, és ellenőrizd az eltéréseket.",
         "UM-INI-CONFLICT-OR-IO-ERROR":"Az INI fájl zárolt, megváltozott vagy nem olvasható biztonságosan.",
-        "UM-HISTORICAL-STORE-LOCKED":"A történeti Store-v1 map konfigurációja védett."
+        "UM-HISTORICAL-STORE-LOCKED":"A történeti Store-v1 map konfigurációja védett.",
+        "UM-INI-OPEN-OTHER-MAP":"Az INI natív válasza másik maphoz vagy fájlhoz tartozik; a tartalom és a mentési jóváhagyás elutasítva."
       };
       setError(message[code]??"A natív INI-ellenőrzés megtagadta a megnyitást ("+code+").");
-    } finally { setBusy(false); }
+    }finally{if(belongs(requested,name,epoch))setBusy(false);}
   };
   const prepareMissingGame=async()=>{
     if(!selected||file!=="Game.ini"||busy)return;
+    const requested=selected,name=file,epoch=operationEpoch.current;
     setBusy(true);setError("");setCreatePreview(null);setCreateApproved(false);
-    try{setCreatePreview(await managerBridge.iniCreateGamePreview(selected));}
-    catch(e){
-      const code=e instanceof Error?e.message:"UM-INI-CREATE-DENIED";
-      setError(describeIniCreateFailure(code));
-    }finally{setBusy(false);}
+    try{
+      const result=await managerBridge.iniCreateGamePreview(requested);
+      if(!belongs(requested,name,epoch))return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase()||result.file!==name||
+         result.originalStoreTouched||result.createsFile)
+        throw new Error("UM-INI-CREATE-PREVIEW-OTHER-MAP");
+      setCreatePreview(result);
+    }catch(e){
+      if(belongs(requested,name,epoch)){
+        const code=e instanceof Error?e.message:"UM-INI-CREATE-DENIED";
+        setError(describeIniCreateFailure(code));
+      }
+    }finally{if(belongs(requested,name,epoch))setBusy(false);}
   };
   const applyMissingGame=async()=>{
     if(!createPreview||!createApproved||createPreview.mapId!==selected||
        file!=="Game.ini"||busy)return;
-    const token=createPreview.token;
+    const token=createPreview.token,requested=selected,name=file,
+      epoch=operationEpoch.current;
     setBusy(true);setError("");setCreatePreview(null);setCreateApproved(false);
+    let committed=false;
     try{
       const receipt=await managerBridge.iniCreateGameApply(token);
-      if(!receipt.created||receipt.originalStoreTouched)
+      if(!belongs(requested,name,epoch))return;
+      if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||
+         receipt.file!==name||!receipt.created||receipt.originalStoreTouched)
         throw new Error("UM-INI-CREATE-RECEIPT-INVALID");
-      const fresh=await managerBridge.iniOpen(selected,"Game.ini");
-      setOpened(fresh);setContent(fresh.content);setMissingGame(false);
-      setNotice("A hiányzó Game.ini kizárólag ezen az igazoltan leállított új mapon jött létre. A fájlt az ETag-védett szerkesztő már megnyitotta.");
+      committed=true;
+      setMissingGame(false);
+      setNotice("A hiányzó Game.ini ezen az igazoltan leállított mapon létrejött.");
+      try{
+        const fresh=await managerBridge.iniOpen(requested,name);
+        if(!belongs(requested,name,epoch))return;
+        if(fresh.mapId.toLowerCase()!==requested.toLowerCase()||fresh.file!==name)
+          throw new Error("UM-INI-OPEN-OTHER-MAP");
+        setOpened(fresh);setContent(fresh.content);
+        setNotice("A hiányzó Game.ini kizárólag ezen az igazoltan leállított új mapon jött létre. A fájlt az ETag-védett szerkesztő már megnyitotta.");
+      }catch{
+        if(belongs(requested,name,epoch))
+          setError("A Game.ini létrejött, de az újraolvasása sikertelen. Ne ismételd meg a létrehozást; csak nyisd meg a fájlt.");
+      }
     }catch(e){
-      const code=e instanceof Error?e.message:"UM-INI-CREATE-FAILED";
-      setError(describeIniCreateFailure(code));
-    }finally{setBusy(false);}
+      if(belongs(requested,name,epoch)&&!committed){
+        const code=e instanceof Error?e.message:"UM-INI-CREATE-FAILED";
+        setError(describeIniCreateFailure(code));
+      }
+    }finally{if(belongs(requested,name,epoch))setBusy(false);}
   };
   const showPreview = async () => {
-    if (!opened) return;
-    setBusy(true); setError(""); setNotice("");
-    try { setPreview(await managerBridge.iniPreview(opened.token, content)); }
-    catch { setPreview(null); setError("Az INI előnézet érvénytelen vagy lejárt. Nem írtunk fájlba."); }
-    finally { setBusy(false); }
+    if(!opened||busy||opened.mapId.toLowerCase()!==selected.toLowerCase()||
+       opened.file!==file)return;
+    const requested=selected,name=file,epoch=operationEpoch.current;
+    setBusy(true);setError("");setNotice("");
+    try{
+      const result=await managerBridge.iniPreview(opened.token,content);
+      if(!belongs(requested,name,epoch))return;
+      if(result.originalSha256.toLowerCase()!==opened.sha256.toLowerCase())
+        throw new Error("UM-INI-PREVIEW-BASE-HASH-MISMATCH");
+      setPreview(result);
+    }catch{
+      if(belongs(requested,name,epoch)){
+        setPreview(null);
+        setError("Az INI előnézet érvénytelen, másik alapverzióhoz tartozik vagy lejárt. Nem írtunk fájlba.");
+      }
+    }finally{if(belongs(requested,name,epoch))setBusy(false);}
+  };
+  const rebaseIni = async () => {
+    if(!opened||busy||opened.mapId.toLowerCase()!==selected.toLowerCase()||
+       opened.file!==file)return;
+    const requested=selected,name=file,epoch=operationEpoch.current;
+    setBusy(true);setError("");setNotice("");setPreview(null);
+    try{
+      const merge=await managerBridge.iniRebasePreview(opened.token,content);
+      if(!belongs(requested,name,epoch))return;
+      setOpened({...opened,sha256:merge.freshSha256,content:merge.diskContent});
+      setContent(merge.content);
+      setMergeAvailable(false);
+      setNotice("A nem ütköző INI-kulcsváltozások egyeztetve, lemezírás nélkül. Kérj új hash-előnézetet, majd külön hagyd jóvá a mentést.");
+    }catch(e){
+      if(!belongs(requested,name,epoch))return;
+      const code=e instanceof Error?e.message:"UM-INI-MERGE-FAILED";
+      setError(code==="UM-INI-MERGE-CONFLICT"
+        ?"Az INI ugyanazon kulcsán vagy a sorstruktúrában versengő módosítás történt. Automatikus egyeztetés tiltva; a meglévő fájl változatlan. Ellenőrizd kézzel a különbségeket."
+        :"Nem sikerült az INI újraegyeztetése ("+code+"). A lemezen nem írtunk fájlt.");
+    }finally{if(belongs(requested,name,epoch))setBusy(false);}
   };
   const save = async () => {
-    if (!opened || !preview?.changed) return;
-    setBusy(true); setError(""); setNotice("");
-    try {
-      const result = await managerBridge.iniSave(opened.token);
-      setOpened(null); setPreview(null); setContent("");
+    if(!opened||!preview?.changed||busy||
+       opened.mapId.toLowerCase()!==selected.toLowerCase()||opened.file!==file||
+       preview.originalSha256.toLowerCase()!==opened.sha256.toLowerCase())return;
+    const requested=selected,name=file,epoch=operationEpoch.current;
+    setBusy(true);setError("");setNotice("");
+    try{
+      const result=await managerBridge.iniSave(opened.token);
+      if(!belongs(requested,name,epoch))return;
+      if(!result.saved||result.sha256.toLowerCase()!==preview.nextSha256.toLowerCase())
+        throw new Error("UM-INI-SAVE-RECEIPT-MISMATCH");
+      setOpened(null);setPreview(null);setContent("");setMergeAvailable(false);
       setNotice(result.backupCreated
-        ? "Az INI mentése atomikusan befejeződött, visszaállítási .bak másolattal."
-        : "Az INI mentése befejeződött.");
-    } catch(e) {
-      const code = e instanceof Error ? e.message : "UM-INI-OPERATION-FAILED";
-      setError("Az INI-mentést a natív biztonsági ellenőrzés elutasította ("+code+"). Ellenőrizd, hogy a map leállt-e, és nem változott-e közben a fájl.");
+        ?"Az INI mentése atomikusan befejeződött, visszaállítási .bak másolattal."
+        :"Az INI mentése befejeződött.");
+    }catch(e){
+      if(!belongs(requested,name,epoch))return;
+      const code=e instanceof Error?e.message:"UM-INI-OPERATION-FAILED";
+      setError(code==="UM-INI-ETAG-MISMATCH"
+        ?"Az INI időközben megváltozott. Az eredeti fájlt nem írtuk felül. A háromutas egyeztetéssel ellenőrizheted a független kulcsmódosításokat."
+        :code==="UM-INI-SAVE-RECEIPT-MISMATCH"
+        ?"Az INI-mentésre visszakapott SHA-256 nem egyezik az elfogadott előnézettel. A mentés megtörténhetett; ne ismételd meg ellenőrzés nélkül."
+        :"Az INI-mentést a natív biztonsági ellenőrzés elutasította ("+code+"). Ellenőrizd, hogy a map leállt-e, és nem változott-e közben a fájl.");
+      setMergeAvailable(code==="UM-INI-ETAG-MISMATCH");
       setPreview(null);
-    } finally { setBusy(false); }
+    }finally{if(belongs(requested,name,epoch))setBusy(false);}
   };
   const close = async () => {
-    if (!opened) return;
+    if(!opened||busy||opened.mapId.toLowerCase()!==selected.toLowerCase()||
+       opened.file!==file)return;
+    const requested=selected,name=file,epoch=operationEpoch.current;
     setBusy(true);setError("");
-    try { await managerBridge.iniClose(opened.token); }
-    catch { /* Local draft expires; discarding UI text never writes a file. */ }
-    finally { setOpened(null); setContent(""); setPreview(null); setBusy(false); }
+    try{await managerBridge.iniClose(opened.token);}
+    catch{/* Local draft expires; discarding UI text never writes a file. */}
+    finally{
+      if(belongs(requested,name,epoch)){
+        setOpened(null);setContent("");setPreview(null);
+        setMergeAvailable(false);setBusy(false);
+      }
+    }
   };
   return <>
     <div className="page-intro"><span className="eyebrow">LOCAL CONFIGURATION / ETAG PROTECTION</span><h1>INI szerkesztő</h1>
@@ -1512,6 +1599,10 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
           <button className="secondary" disabled={busy} onClick={() => { void close(); }}>Mégse · piszkozat elvetése</button>
           <button className="primary" disabled={busy || content===opened.content} onClick={() => { void showPreview(); }}>Hash és változások előnézete</button>
           <button className="primary" disabled={busy || !preview?.changed} onClick={() => { void save(); }}>Jóváhagyás és atomikus mentés</button>
+          {mergeAvailable&&<button className="secondary" disabled={busy}
+            onClick={()=>{void rebaseIni();}}>
+            Háromutas INI-egyeztetés előnézete (nem ment)
+          </button>}
         </div>
         {preview && <div className="ini-preview">
           <span>Változás: <b>{preview.changed ? "Igen" : "Nincs"}</b></span>
@@ -1706,8 +1797,8 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
         aria-expanded={openOriginalStoreEnrollment}
         onClick={()=>setOpenOriginalStoreEnrollment(v=>!v)}>
         {openOriginalStoreEnrollment?
-          "Kova Store-v1 átvételi varázsló bezárása":
-          "Kova Store-v1 mapok átvételi varázslója"}
+          "eredeti Store-v1 átvételi varázsló bezárása":
+          "eredeti Store-v1 mapok átvételi varázslója"}
       </button>
     </div>
     {openOriginalStoreEnrollment&&
@@ -1812,7 +1903,18 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       {historical&&<HistoricalStoreRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured}/>}
       {map.gamePort>0 && fresh && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} onOpenRcon={()=>setSection("rcon")} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && fresh && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={lifecycleBlocked}/>}
-      {map.gamePort>0 && fresh && <FreshAsaRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
+      {map.gamePort>0 && fresh && <FreshAsaRestartPanel mapId={mapId} running={map.running}
+        onRestarted={async()=>{
+          // A successful native Restart-v1 review changes the durable
+          // journal, not the dashboard snapshot. Re-read BOTH journals
+          // before unlocking any lifecycle button; a stale parent
+          // needsOperatorReview flag must not strand an audited server.
+          // The same recheck after a normal Restart ensures that
+          // independently pending operations still fail closed.
+          setJournalsVerifiedFor("");
+          setJournalRevision(n=>n+1);
+          await onConfigured();
+        }} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && (!map.storeProtected||map.freshStoreEnrolled) &&
         <FreshStoreEnrollmentPanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>}
       {map.freshStoreEnrolled &&
@@ -1834,13 +1936,13 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       <NativeMapScheduler mapId={mapId}/>
       <OperationsCenter selectedMapId={mapId} showScheduler onOpenMap={()=>setSection("overview")}/>
     </>}
-    {section==="steam" && (map.storeProtected&&map.freshStoreEnrolled
-      ?<div className="warning-inline" role="alert"><Shield size={17}/> Új Store-map: a SteamCMD-frissítés ehhez a telepítési típushoz még nem engedélyezett.</div>
-      :<div>
-        {map.storeProtected&&!map.freshStoreEnrolled&&
-          <div className="warning-inline"><Shield size={17}/> Eredeti Kova Store-v1: a natív SteamCMD-frissítés csak teljesen leállított helyi ASA/Loader folyamatokkal, előzetes védőmentéssel és jóváhagyással hajtható végre. A közös Store és a másik gép nem módosul.</div>}
-        <StoppedSteamUpdate maps={[map]} fixedMapId={mapId}/>
-      </div>)}
+    {section==="steam" && <div>
+      {map.storeProtected&&!map.freshStoreEnrolled&&
+        <div className="warning-inline"><Shield size={17}/> Eredeti Store-v1: a natív SteamCMD-frissítés csak teljesen leállított helyi ASA/Loader folyamatokkal, előzetes védőmentéssel és jóváhagyással hajtható végre. A közös Store és a másik gép nem módosul.</div>}
+      {map.freshStoreEnrolled&&
+        <div className="warning-inline"><Shield size={17}/> Új Store-map: csak az egyedül birtokolt, igazoltan leállított helyi ASA-telepítés frissíthető, a ClusterRegistry- és transzfer-fájlazonosság újraellenőrzésével. A közös transzferadatokat nem módosítjuk, és nincs automatikus újraindítás.</div>}
+      <StoppedSteamUpdate maps={[map]} fixedMapId={mapId}/>
+    </div>}
     {section==="mods" && <Mods key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>} 
     {section==="plugins" && <PluginCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked onLaunchModeSaved={onConfigured}/>} 
     {section==="ini" && <IniCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
@@ -1953,7 +2055,8 @@ export function App() {
           {page === "backups" && <BackupCenter snapshot={snapshot}/>}
           {page === "operations" && <OperationsCenter onOpenMap={selectMap}/>}
           {page === "updates" && <UpdateCenterPage/>}
-          {page === "steam" && <SteamCenter snapshot={snapshot} onRegistered={refresh} initialMapName={steamMap}/>}
+          {page === "steam" && <SteamCenter snapshot={snapshot} onRegistered={refresh}
+            initialMapName={steamMap} onOpenMap={selectMap}/>}
           {page === "logs" && <LogsCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "settings" && <SettingsCenter/>}
           {page === "ini" && <IniCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>} 

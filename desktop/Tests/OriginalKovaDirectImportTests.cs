@@ -114,6 +114,299 @@ internal static class OriginalKovaDirectImportTests
               discovered.LaunchProfileSha256==launchHash,
             "five original GUIDs, map keys and installation paths remain byte-bound");
 
+        // Kova 1.8.3 explicitly accepts mod IDs of 1–12 digits. An
+        // original five-map source with a short numeric ID is valid and
+        // must not be refused by Obsidian solely for ID length.
+        try
+        {
+            File.WriteAllText(launchProfilePath,launchBytes.Replace(
+                "123456789","7",StringComparison.Ordinal));
+            var shortIdSource=LegacyStoreV1OriginalImport.Inspect(local);
+            Check(shortIdSource.Maps.Length==5&&
+                  shortIdSource.Maps.All(m=>m.EnabledMods.SequenceEqual(
+                      new[]{"7","987654321"})&&
+                      m.PassiveMods.SequenceEqual(new[]{"7"})),
+                "original Kova source accepts one-digit mod ID with exact passive order");
+        }
+        finally { File.WriteAllText(launchProfilePath,launchBytes); }
+        Check(LegacyStoreV1OriginalImport.Inspect(local)
+                .LaunchProfileSha256==launchHash,
+            "synthetic original launch source restored byte-for-byte after short-ID test");
+
+        // Migration of a PREVIOUSLY imported Manager profile is separate
+        // from the first-time import, with explicit one-use native approval.
+        // All files below are synthetic TEMP fixtures, not production Kova.
+        await using(var existingManager=new ClusterService(
+            "existing-pre-pin",Path.Combine(baseRoot,"existing-pre-pin")))
+        {
+            var firstSource=discovered.Maps[0];
+            existingManager.AddMap(new LocalMap{
+                Id=firstSource.MapId,Name="Previously imported map",
+                HistoricalStoreProtected=true,
+                HistoricalArchiveSha256=discovered.FourFilesSha256,
+                HistoricalMapKey=firstSource.MapKey,
+                InstallationPath=firstSource.OriginalInstallationRoot,
+                HistoricalEnabledMods=firstSource.EnabledMods.ToList(),
+                HistoricalPassiveMods=firstSource.PassiveMods.ToList(),
+                GamePort=firstSource.GamePort,QueryPort=firstSource.QueryPort
+            });
+            using var originalBridge=new DesktopHistoricalStoreImportBridge(
+                existingManager,localLegacyDataDirectory:local);
+            var sourcePreview=await Call(originalBridge,"historical.sourcePinPreview");
+            Check(sourcePreview.GetProperty("ok").GetBoolean()&&
+                sourcePreview.GetProperty("data").GetProperty(
+                    "verifiedLocalMaps").GetInt32()==1,
+                "existing pre-pin Manager offers a non-mutating migration preview");
+            string sourceToken=sourcePreview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            var sourceRejected=await Call(originalBridge,
+                "historical.sourcePinApply",
+                new{token=sourceToken,confirm=true,typedApproval="INVALID"});
+            Check(!sourceRejected.GetProperty("ok").GetBoolean(),
+                "source migration requires the exact typed native approval");
+            var sourceApplied=await Call(originalBridge,
+                "historical.sourcePinApply",
+                new{token=sourceToken,confirm=true,
+                    typedApproval="OBSIDIAN FORRÁS ÁTVÉTEL"});
+            Check(sourceApplied.GetProperty("ok").GetBoolean()&&
+                sourceApplied.GetProperty("data").GetProperty(
+                    "originalKovaRequiredAfterPin").GetBoolean()==false,
+                "approved legacy migration writes only the Obsidian Manager source");
+            string hidden=local+"-independent-pin-test";
+            Directory.Move(local,hidden);
+            try
+            {
+                var afterKova=await Call(originalBridge,"historical.originalList");
+                Check(afterKova.GetProperty("ok").GetBoolean(),
+                    "migrated original map list remains readable with missing Kova");
+                using var registry=new DesktopClusterRegistryBridge(
+                    existingManager,originalLegacyProfile:local);
+                var expansion=await Call(registry.HandleAsync,
+                    "cluster.historicalExpansionInspect",
+                    new{mapId=firstSource.MapId,clusterId=VaultProtocol.ClusterId});
+                Check(expansion.GetProperty("ok").GetBoolean()&&
+                      expansion.GetProperty("data")
+                        .GetProperty("originalSourceVerified").GetBoolean()&&
+                      !expansion.GetProperty("data")
+                        .GetProperty("newMapStoreEnrollmentAllowed").GetBoolean(),
+                    "read-only historical expansion can verify the approved Obsidian-owned source while Kova is absent, without granting Store writer permissions");
+            }
+            finally{Directory.Move(hidden,local);}
+        }
+
+        // A stopped or running original Kova map must NOT receive newly
+        // synthesized cluster or transfer settings. Verify the exact ASA
+        // launch arguments before any real Process.Start could occur.
+        var firstOriginal=discovered.Maps[0];
+        var parityMap=new LocalMap{
+            Id=firstOriginal.MapId,Name="The Island",
+            InstallationPath=firstOriginal.OriginalInstallationRoot,
+            HistoricalStoreProtected=true,
+            HistoricalArchiveSha256=discovered.FourFilesSha256,
+            HistoricalMapKey=firstOriginal.MapKey,
+            HistoricalEnabledMods=firstOriginal.EnabledMods.ToList(),
+            HistoricalPassiveMods=firstOriginal.PassiveMods.ToList(),
+            GamePort=firstOriginal.GamePort,QueryPort=firstOriginal.QueryPort
+        };
+        string originalIni="[ServerSettings]"+Environment.NewLine+
+            "Port="+firstOriginal.GamePort+Environment.NewLine+
+            "QueryPort="+firstOriginal.QueryPort+Environment.NewLine;
+        var launch=LegacyStoreV1ActiveLaunch.Build(new(
+            firstOriginal.MapKey,firstOriginal.GamePort,firstOriginal.QueryPort,
+            firstOriginal.EnabledMods,firstOriginal.PassiveMods,
+            VaultProtocol.ClusterId,originalCluster.path,"active",originalIni));
+        LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
+            parityMap,discovered,originalCluster.path,originalIni,launch.Arguments);
+        // Approved original source is copied to an independent, bounded
+        // Manager-owned profile. Disabling the synthetic Kova source must not
+        // break source parity or silently invent a new transfer directory.
+        string pinnedManager=Path.Combine(baseRoot,"standalone-source-profile");
+        LegacyStoreV1PinnedSource.Capture(local,pinnedManager,
+            discovered.FourFilesSha256,discovered.LaunchProfileSha256);
+        LegacyStoreV1PinnedSource.Capture(local,pinnedManager,
+            discovered.FourFilesSha256,discovered.LaunchProfileSha256);
+        Check(LegacyStoreV1PinnedSource.HasApprovedLocalSource(pinnedManager,parityMap),
+            "approved local Store source remains valid without another Kova DONE peer");
+        string hiddenLocal=local+"-temporarily-offline";
+        Directory.Move(local,hiddenLocal);
+        try
+        {
+            string pinned=LegacyStoreV1PinnedSource.Resolve(pinnedManager,local,parityMap);
+            var frozen=LegacyStoreV1OriginalImport.Inspect(pinned);
+            Check(!string.Equals(pinned,local,StringComparison.OrdinalIgnoreCase)&&
+                  frozen.FourFilesSha256==discovered.FourFilesSha256&&
+                  frozen.LaunchProfileSha256==discovered.LaunchProfileSha256,
+                "approved standalone Store source preserves five IDs and mod/port order without original local Kova directory");
+            string oldEpoch=LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                pinnedManager,local,parityMap);
+            Check(oldEpoch.Length==64&&oldEpoch.All(Uri.IsHexDigit),
+                "original local Store source has a valid Obsidian epoch with Kova absent");
+            string existingGus=AsaInitialRconSettings.NewIniPath(
+                parityMap.InstallationPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(existingGus)!);
+            File.WriteAllText(existingGus,"[ServerSettings]\\nRCONEnabled=True\\n");
+            string iniEpoch=LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                pinnedManager,local,parityMap);
+            Check(iniEpoch.Length==64&&iniEpoch!=oldEpoch,
+                "new ASA INI bytes invalidate an earlier local RCON/SaveWorld epoch");
+            File.AppendAllText(existingGus,"SessionName=Changed\\n");
+            string changedIniEpoch=LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                pinnedManager,local,parityMap);
+            Check(changedIniEpoch!=iniEpoch,
+                "editing ASA GameUserSettings.ini cannot reuse old local approval");
+            File.Delete(existingGus);
+            Check(LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                    pinnedManager,local,parityMap)==oldEpoch,
+                "temporary INI test leaves imported map's source epoch unchanged");
+            var edited=JsonSerializer.Deserialize<LocalMap>(
+                JsonSerializer.Serialize(parityMap))!;
+            edited.GamePort=7781;edited.QueryPort=27019;
+            edited.HistoricalEnabledMods=new(){"987654321","123456789"};
+            edited.HistoricalPassiveMods=new(){"123456789"};
+            edited.HistoricalRuntimeClusterId="ObsidianCluster";
+            edited.HistoricalRuntimeTransferDirectory=
+                @"\\synthetic-nonexistent\obsidian-transfer";
+            LegacyStoreV1PinnedSource.RequireImmutableIdentity(edited,frozen);
+            string nextEpoch=LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                pinnedManager,local,edited);
+            Check(nextEpoch.Length==64&&nextEpoch!=oldEpoch,
+                "approved runtime configuration changes advance the local RCON/SaveWorld epoch");
+            var editableMods=ModStateController.Read(edited);
+            var editedLaunch=LegacyStoreV1ActiveLaunch.Build(new(
+                edited.HistoricalMapKey,edited.GamePort,edited.QueryPort,
+                editableMods.EnabledOrder.ToArray(),editableMods.Passive.ToArray(),
+                edited.HistoricalRuntimeClusterId,
+                edited.HistoricalRuntimeTransferDirectory,"active","",
+                SourcePinnedClusterOnly:false));
+            string exe=Path.Combine(edited.InstallationPath,
+                "ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+            string observedCommand="\""+exe+"\" "+string.Join(" ",editedLaunch.Arguments);
+            Check(editedLaunch.ModOrder.SequenceEqual(
+                    new[]{"987654321","123456789"})&&
+                  editedLaunch.Arguments.Contains("-clusterid=ObsidianCluster")&&
+                  LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
+                    observedCommand,exe,edited),
+                "confirmed runtime port/mod/cluster edits retain original GUID but reattach against Obsidian settings without Kova");
+            edited.HistoricalRuntimeTransferDirectory=
+                @"\\synthetic-nonexistent\other-transfer";
+            Check(!LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
+                    observedCommand,exe,edited),
+                "a changed approved transfer directory rejects stale ASA process attribution");
+        }
+        finally{Directory.Move(hiddenLocal,local);}
+        string pinnedLaunch=Path.Combine(pinnedManager,"original-store-v1-source",
+            "launch-profiles-v1.json");
+        File.AppendAllText(pinnedLaunch,"\\nTAMPER");
+        bool pinTamperDenied=false;
+        try{LegacyStoreV1PinnedSource.Resolve(pinnedManager,local,parityMap);}
+        catch(InvalidDataException){pinTamperDenied=true;}
+        Check(pinTamperDenied,
+            "tampered Manager-owned source pin fails closed rather than falling back to Kova");
+        Check(launch.Arguments.Contains("-clusterid="+VaultProtocol.ClusterId)&&
+              launch.Arguments.Contains("-ClusterDirOverride="+originalCluster.path)&&
+              launch.Arguments.Count(x=>x=="-usestore")==1&&
+              !launch.Arguments.Any(x=>x.Contains("converttostore")),
+            "registered original map inherits exactly the KovaCluster identity, physical transfer UNC and once-only active Store flag");
+        bool RefusesChanged(Action apply)
+        {
+            try{apply();return false;}
+            catch(InvalidDataException){return true;}
+        }
+        Check(RefusesChanged(()=>{
+              parityMap.QueryPort++;
+              try{LegacyStoreV1SourceLaunchParity.RequireOriginalMap(parityMap,discovered);}
+              finally{parityMap.QueryPort--;}
+            })&&
+            RefusesChanged(()=>{
+              parityMap.HistoricalEnabledMods.Reverse();
+              try{LegacyStoreV1SourceLaunchParity.RequireOriginalMap(parityMap,discovered);}
+              finally{parityMap.HistoricalEnabledMods.Reverse();}
+            })&&
+            RefusesChanged(()=>LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
+              parityMap,discovered,originalCluster.path,originalIni,
+              launch.Arguments.Where(x=>!x.StartsWith("-ClusterDirOverride=")).ToArray())),
+            "changed query port, mod order or missing transfer override refuse Obsidian launch parity");
+        // Other original peer carries five OTHER GUIDs but must produce
+        // the identical cluster ID and the SAME original transfer directory.
+        var peerIds=Enumerable.Range(0,5).Select(_=>Guid.NewGuid()).ToArray();
+        string[] ryzenMaps={"ScorchedEarth_WP","LostColony_WP",
+            "Ragnarok_WP","TheCenter_WP","Aberration_WP"};
+        var peerMaps=peerIds.Select((id,i)=>new LegacyStoreV1OriginalMap(
+            id,ryzenMaps[i],Path.Combine(baseRoot,"synthetic-peer-"+i),
+            7827+i*10,27215+i*10,firstOriginal.EnabledMods,
+            firstOriginal.PassiveMods)).ToArray();
+        // Peer Kova metadata is local to its host, so hashes need not be the
+        // same even though both original launchers share KovaCluster/UNC.
+        string peerOriginalFourHash=new string('D',64);
+        var secondSource=new LegacyStoreV1OriginalLocalSelection(
+            peerOriginalFourHash,new string('E',64),peerMaps);
+        var second=new LocalMap{
+            Id=peerMaps[0].MapId,Name="Scorched Earth",
+            InstallationPath=peerMaps[0].OriginalInstallationRoot,
+            HistoricalStoreProtected=true,
+            HistoricalArchiveSha256=peerOriginalFourHash,
+            HistoricalMapKey=peerMaps[0].MapKey,
+            HistoricalEnabledMods=peerMaps[0].EnabledMods.ToList(),
+            HistoricalPassiveMods=peerMaps[0].PassiveMods.ToList(),
+            GamePort=peerMaps[0].GamePort,QueryPort=peerMaps[0].QueryPort
+        };
+        var peerLaunch=LegacyStoreV1ActiveLaunch.Build(new(
+            peerMaps[0].MapKey,peerMaps[0].GamePort,peerMaps[0].QueryPort,
+            peerMaps[0].EnabledMods,peerMaps[0].PassiveMods,
+            VaultProtocol.ClusterId,originalCluster.path,"active",""));
+        LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
+            second,secondSource,originalCluster.path,"",peerLaunch.Arguments);
+        Check(peerLaunch.Arguments.Contains("-clusterid="+VaultProtocol.ClusterId)&&
+              peerLaunch.Arguments.Contains("-ClusterDirOverride="+originalCluster.path),
+            "both isolated original host launch profiles preserve one KovaCluster and transfer share, without character-movement code");
+
+        // Every map on BOTH original hosts gets exactly the source launcher
+        // grammar; this test never moves a profile or copies world files.
+        var sourceByHost=new[]{discovered,secondSource};
+        var launchCount=0;
+        foreach(var verifiedSource in sourceByHost)
+        {
+            foreach(var mapOriginal in verifiedSource.Maps)
+            {
+                var registered=new LocalMap{
+                    Id=mapOriginal.MapId,
+                    Name=mapOriginal.MapKey,
+                    InstallationPath=mapOriginal.OriginalInstallationRoot,
+                    HistoricalStoreProtected=true,
+                    HistoricalArchiveSha256=verifiedSource.FourFilesSha256,
+                    HistoricalMapKey=mapOriginal.MapKey,
+                    HistoricalEnabledMods=mapOriginal.EnabledMods.ToList(),
+                    HistoricalPassiveMods=mapOriginal.PassiveMods.ToList(),
+                    GamePort=mapOriginal.GamePort,QueryPort=mapOriginal.QueryPort
+                };
+                var sourceArgs=LegacyStoreV1ActiveLaunch.Build(new(
+                    mapOriginal.MapKey,mapOriginal.GamePort,mapOriginal.QueryPort,
+                    mapOriginal.EnabledMods,mapOriginal.PassiveMods,
+                    VaultProtocol.ClusterId,originalCluster.path,"active",""));
+                LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
+                    registered,verifiedSource,originalCluster.path,"",sourceArgs.Arguments);
+                Check(sourceArgs.Arguments.Count(a=>a.StartsWith(
+                          "-ClusterDirOverride=",StringComparison.OrdinalIgnoreCase))==1&&
+                      sourceArgs.Arguments.Count(a=>a.StartsWith(
+                          "-clusterid=",StringComparison.OrdinalIgnoreCase))==1&&
+                      sourceArgs.Arguments.Count(a=>a.Equals(
+                          "-usestore",StringComparison.OrdinalIgnoreCase))==1,
+                    "ASA native argument parity for "+mapOriginal.MapKey);
+                launchCount++;
+            }
+        }
+        Check(launchCount==10,
+            "all ten original maps receive the same Kova cluster/transfer identity on their respective hosts");
+        Check(RefusesChanged(()=>LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
+                parityMap,discovered,originalCluster.path,originalIni,
+                launch.Arguments.Concat(new[]{"-usestore"}).ToArray()))&&
+              RefusesChanged(()=>LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
+                parityMap,discovered,originalCluster.path,originalIni,
+                launch.Arguments.Select(a=>a.StartsWith("-clusterid=",
+                    StringComparison.OrdinalIgnoreCase)?
+                    "-clusterid=ObsidianCluster":a).ToArray())),
+            "duplicate Store flag and renamed cluster identity are rejected before process launch");
+
         await using var cluster=new ClusterService(
             "direct-kova-test",manager,
             _=>new ProcessCheck(false,"isolated synthetic stopped",null,true));
@@ -266,13 +559,14 @@ internal static class OriginalKovaDirectImportTests
         Check(preview.GetProperty("ok").GetBoolean(),
             "second local map may be staged independently");
         string secondToken=preview.GetProperty("data").GetProperty("token").GetString()!;
-        File.WriteAllText(Path.Combine(local,names[3]),source[3]+" ");
+        string managerPinRoot=Path.Combine(manager,"original-store-v1-source");
+        File.WriteAllText(Path.Combine(managerPinRoot,names[3]),source[3]+" ");
         var tampered=await Call(bridge,"historical.originalRegister",
             new{token=secondToken,confirm=true});
         Check(!tampered.GetProperty("ok").GetBoolean()&&
               cluster.Config.LocalMaps.Count==1,
-            "changed original lock source rejects registration after preview");
-        File.WriteAllText(Path.Combine(local,names[3]),source[3]);
+            "changed Obsidian-owned pinned source rejects registration after preview");
+        File.WriteAllText(Path.Combine(managerPinRoot,names[3]),source[3]);
 
         var launchPreview=await Call(bridge,"historical.originalPreview",
             new{mapId=ids[1],gamePort=7787,queryPort=27025});
@@ -280,7 +574,8 @@ internal static class OriginalKovaDirectImportTests
             "launch profile and original metadata both verified at preview");
         string changedLaunch=launchBytes.Replace("987654321","555555555",
             StringComparison.Ordinal);
-        File.WriteAllText(launchProfilePath,changedLaunch);
+        File.WriteAllText(Path.Combine(managerPinRoot,"launch-profiles-v1.json"),
+            changedLaunch);
         var deniedLaunch=await Call(bridge,"historical.originalRegister",
             new{
                 token=launchPreview.GetProperty("data").GetProperty("token").GetString(),
@@ -288,8 +583,19 @@ internal static class OriginalKovaDirectImportTests
             });
         Check(!deniedLaunch.GetProperty("ok").GetBoolean()&&
               cluster.Config.LocalMaps.Count==1,
-            "changed original mod load-order bytes after preview deny registration");
-        File.WriteAllText(launchProfilePath,launchBytes);
+            "changed pinned mod load-order bytes after preview deny registration");
+        File.WriteAllText(Path.Combine(managerPinRoot,"launch-profiles-v1.json"),
+            launchBytes);
+
+        // The retired Kova profile is no longer the running authority.
+        // Mutating it after an explicit pinned import must NOT change the
+        // registered immutable Obsidian source or block the next local map.
+        File.WriteAllText(Path.Combine(local,names[3]),source[3]+" ");
+        var independent=await Call(bridge,"historical.originalPreview",
+            new{mapId=ids[1],gamePort=7787,queryPort=27025});
+        Check(independent.GetProperty("ok").GetBoolean(),
+            "retired local Kova source changes do not invalidate verified Obsidian source");
+        File.WriteAllText(Path.Combine(local,names[3]),source[3]);
 
         for(int i=1;i<5;i++)
         {
@@ -314,6 +620,19 @@ internal static class OriginalKovaDirectImportTests
               Convert.ToHexString(SHA256.HashData(
                   File.ReadAllBytes(launchProfilePath)))==launchHash,
             "original four Store metadata and launch order remain byte-identical after imports");
+
+        // The same native historical bridge must keep read-only parity
+        // available after Kova's synthetic local directory disappears.
+        string temporarilyMissingKova=local+"-bridge-offline";
+        Directory.Move(local,temporarilyMissingKova);
+        try
+        {
+            var withoutKova=await Call(bridge,"historical.originalList");
+            Check(withoutKova.GetProperty("ok").GetBoolean()&&
+                  withoutKova.GetProperty("data").GetProperty("maps").GetArrayLength()==5,
+                "imported original map roster remains readable with Obsidian source pin and no Kova profile");
+        }
+        finally{Directory.Move(temporarilyMissingKova,local);}
 
         // A second empty Manager profile imports all five original maps in ONE
         // ConfigStore write, without ever calling original Kova/ASA mutation.

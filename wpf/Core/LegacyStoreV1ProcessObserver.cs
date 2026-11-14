@@ -70,11 +70,27 @@ public static class LegacyStoreV1ProcessObserver
                 "-ClusterDirOverride=",StringComparison.OrdinalIgnoreCase)).ToArray();
             if(paths.Length!=1)return false;
             string sharedPath=paths[0]["-ClusterDirOverride=".Length..];
+            if(!string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory)&&
+               !sharedPath.Equals(map.HistoricalRuntimeTransferDirectory,
+                   StringComparison.OrdinalIgnoreCase))
+                return false;
+            if(string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)!=
+               string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory))
+                return false;
+            // After an approved Obsidian runtime edit, the saved map profile
+            // (not the old Kova peer marker) determines the exact expected
+            // cluster and mod order for local PID reattachment.
+            string runtimeCluster=string.IsNullOrWhiteSpace(
+                map.HistoricalRuntimeClusterId)?
+                VaultProtocol.ClusterId:map.HistoricalRuntimeClusterId;
+            var mods=ModStateController.Read(map);
             var canonical=LegacyStoreV1ActiveLaunch.Build(
                 new LegacyStoreV1ActiveLaunch.Input(
                     map.HistoricalMapKey,map.GamePort,map.QueryPort,
-                    map.HistoricalEnabledMods,map.HistoricalPassiveMods,
-                    VaultProtocol.ClusterId,sharedPath,"active",string.Empty));
+                    mods.EnabledOrder,mods.Passive,
+                    runtimeCluster,sharedPath,"active",string.Empty,
+                    SourcePinnedClusterOnly:string.IsNullOrWhiteSpace(
+                        map.HistoricalRuntimeClusterId)));
             return supplied.Length==canonical.Arguments.Length &&
                    supplied.SequenceEqual(canonical.Arguments,
                        StringComparer.OrdinalIgnoreCase) &&

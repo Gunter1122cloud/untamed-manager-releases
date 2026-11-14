@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -43,9 +44,15 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
     private readonly bool nativeLauncher;
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly object sync=new();
-    private Approval? pending;
-    private Job? current;
+    private readonly Dictionary<Guid,Approval> approvalsByMap=new();
+    // Preserve the in-memory Restart identity of every local ASA map.
+    private readonly Dictionary<Guid,Job> jobsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
+    private bool HasActive(Guid mapId)
+    {
+        lock(sync)return jobsByMap.TryGetValue(mapId,out var existing)&&
+            existing.State is ("queued" or "running");
+    }
 
     public DesktopHistoricalRestartBridge(ClusterService service):
         this(service,null,null,null){}
@@ -106,6 +113,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
     {
         lock(sync)
         {
+            // Async ASA/RCON progress belongs only to an active Restart;
+            // a committed terminal Store-v1 receipt is immutable.
+            if(job.State is "completed" or "needsOperator")return;
             job.State=state;job.Step=step;
             job.ChangedUtc=DateTimeOffset.UtcNow;
             if(oldStopped.HasValue)job.OldProcessStopped=oldStopped.Value;
@@ -139,9 +149,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         var entry=new AsaManualRestartJournal(map.InstallationPath).Observe();
         Job? running;
         lock(sync)
-            running=current!=null&&current.MapId==mapId&&
-                current.State is "queued" or "running"?current:null;
-        bool pendingRestart=entry!=null&&entry.Phase!=AsaRestartPhase.Completed;
+            running=jobsByMap.TryGetValue(mapId,out var tracked)&&
+                tracked.State is ("queued" or "running")?tracked:null;
+        bool pendingRestart=entry!=null&&entry.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
         var operation=cluster.Operations.Observe(map.InstallationPath);
         bool pendingOperation=operation?.Phase is UntamedOperationPhase.Prepared or
             UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator;
@@ -191,25 +201,23 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                 }
                 if(method=="historical.restartStatus")
                 {
-                    if(!ReadId(request,"jobId",out var jobId)||
-                       current==null||current.Id!=jobId)
+                    if(!ReadId(request,"jobId",out var jobId))
                         return Fail(id,"UM-ORIGINAL-RESTART-JOB-MISSING");
-                    return Ok(id,Snapshot(current));
-                }
-                if(current!=null)
-                {
-                    lock(sync)
-                        if(current.State is "queued" or "running")
-                            return Fail(id,"UM-ORIGINAL-RESTART-BUSY");
+                    Job? tracked;
+                    lock(sync)tracked=jobsByMap.Values.FirstOrDefault(
+                        item=>item.Id==jobId);
+                    if(tracked==null)return Fail(id,"UM-ORIGINAL-RESTART-JOB-MISSING");
+                    return Ok(id,Snapshot(tracked));
                 }
                 if(method=="historical.restartPreview")
                 {
-                    pending=null;
                     if(!ReadId(request,"mapId",out var mapId))
                         return Fail(id,"UM-ORIGINAL-RESTART-MAP");
+                    approvalsByMap.Remove(mapId);
                     var map=Owned(mapId);
                     if(map==null||!map.HistoricalStoreProtected||map.Maintenance)
                         return Fail(id,"UM-ORIGINAL-RESTART-LOCAL-ONLY");
+                    if(HasActive(mapId))return Fail(id,"UM-ORIGINAL-RESTART-BUSY");
                     // Preserve the exact per-map launch mode. A Loader-based
                     // restart is permitted only when the verified ASA CHILD
                     // owns RCON; never send DoExit to the Loader parent.
@@ -225,11 +233,12 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     if(!ReferenceEquals(owned.Map,map)||owned.Process.Pid<=0||
                        owned.Process.StartedUtc==default||owned.SourceSha.Length!=64)
                         return Fail(id,"UM-ORIGINAL-RESTART-SOURCE-INVALID");
-                    pending=new Approval(Guid.NewGuid(),mapId,owned.Process.Pid,
+                    var permit=new Approval(Guid.NewGuid(),mapId,owned.Process.Pid,
                         owned.Process.StartedUtc,JsonSerializer.Serialize(map),
                         owned.SourceSha,map.RconPort,DateTimeOffset.UtcNow);
+                    approvalsByMap[mapId]=permit;
                     return Ok(id,new{
-                        token=pending.Token,mapId,mapName=map.Name,
+                        token=permit.Token,mapId,mapName=map.Name,
                         pid=owned.Process.Pid,rconPort=map.RconPort,
                         launchMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",
                         usesSaveWorld=true,usesDoExit=true,launchesOriginalActive=true,
@@ -238,9 +247,12 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         evidence="ORIGINAL_STORE_V1_RESTART_TWO_STAGE_PREFLIGHT"
                     });
                 }
-                if(!ReadId(request,"token",out var token)||pending==null||
-                   pending.Token!=token||
-                   DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(3))
+                if(!ReadId(request,"token",out var token))
+                    return Fail(id,"UM-ORIGINAL-RESTART-TOKEN-EXPIRED");
+                var approved=approvalsByMap.Values.SingleOrDefault(
+                    item=>item.Token==token);
+                if(approved==null||
+                   DateTimeOffset.UtcNow-approved.Created>TimeSpan.FromMinutes(3))
                     return Fail(id,"UM-ORIGINAL-RESTART-TOKEN-EXPIRED");
                 if(!request.TryGetProperty("confirm",out var confirm)||
                    confirm.ValueKind!=JsonValueKind.True||
@@ -248,7 +260,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                    phrase.ValueKind!=JsonValueKind.String||
                    phrase.GetString()!="STORE-V1 SAVEWORLD DOEXIT START")
                     return Fail(id,"UM-ORIGINAL-RESTART-TYPED-APPROVAL");
-                var approved=pending;pending=null;
+                approvalsByMap.Remove(approved.MapId);
                 var original=Owned(approved.MapId);
                 if(original==null||!original.HistoricalStoreProtected||
                    original.Maintenance||
@@ -258,6 +270,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                    JsonSerializer.Serialize(original)!=approved.Profile||
                    original.RconPort!=approved.RconPort)
                     return Fail(id,"UM-ORIGINAL-RESTART-MAP-CHANGED");
+                if(HasActive(original.Id))return Fail(id,"UM-ORIGINAL-RESTART-BUSY");
                 var rechecked=await Task.Run(()=>preview(approved.MapId));
                 if(!Same(rechecked,original,approved))
                     return Fail(id,"UM-ORIGINAL-RESTART-SOURCE-CHANGED");
@@ -272,13 +285,17 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         return Fail(id,"UM-ORIGINAL-RESTART-LEASE-OWNER-CHANGED");
                     // Establish durable restart boundary before a single RCON
                     // byte can be sent; interruptions require operator review.
-                    lease.MarkMutationStarted();
+                    // Establish the durable Restart-v1 boundary BEFORE
+                    // marking the generic operation mutating. A rejected
+                    // Begin() sends no ASA/RCON bytes and must not create a
+                    // second false NeedsOperator Launch journal.
                     record=restart.Begin(original.Id,approved.Pid);
+                    lease.MarkMutationStarted();
                     lease.Complete();
                 }
                 var job=new Job{MapId=original.Id,OldPid=approved.Pid,
                     UseApi=original.StartWithAsaApi};
-                current=job;
+                lock(sync)jobsByMap[original.Id]=job;
                 _=Task.Run(async()=>{
                     Update(job,"running","SaveWorld → stabil világfájl → DoExit");
                     try
@@ -315,6 +332,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             Update(job,"running",
                                 "ASA API Loader elindult; ASA gyermek PID és RCON ellenőrzése");
                             bool verified=false;
+                            // Original Store-v1 Loader/ASA readiness must
+                            // use the same ten-minute observer window as fresh
+                            // ASA; timeout still requires manual review.
                             var limit=DateTimeOffset.UtcNow+
                                 FreshStoreApiPairObserver.StartupObservationWindow;
                             while(DateTimeOffset.UtcNow<limit)

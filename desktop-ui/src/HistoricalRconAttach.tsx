@@ -1,4 +1,4 @@
-import {useEffect,useState,type FormEvent} from "react";
+import {useEffect,useRef,useState,type FormEvent} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,Shield,RadioTower} from "lucide-react";
 import {managerBridge,type HistoricalRconPreview,type HistoricalRconStatus} from "./bridge";
 
@@ -11,6 +11,7 @@ import {managerBridge,type HistoricalRconPreview,type HistoricalRconStatus} from
 export function HistoricalRconAttach({mapId,onConfigured}:{
   mapId:string;onConfigured:()=>Promise<void>
 }){
+  const mapGeneration=useRef(0);
   const [status,setStatus]=useState<HistoricalRconStatus|null>(null);
   const [port,setPort]=useState("");
   const [password,setPassword]=useState("");
@@ -21,11 +22,12 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
   const [error,setError]=useState("");
   useEffect(()=>{
     let active=true;
-    setStatus(null);setPort("");setPreview(null);setPassword("");setError("");setNotice("");
+    ++mapGeneration.current;
+    setStatus(null);setPort("");setPreview(null);setPassword("");setConfirm(false);setBusy(false);setError("");setNotice("");
     managerBridge.historicalRconStatus(mapId).then(v=>{
       if(active){setStatus(v);setPort(v.suggestedPort>0?String(v.suggestedPort):"");}
     }).catch(()=>{if(active)setError("Az eredeti Store-v1 RCON-beállítás állapota nem olvasható.");});
-    return ()=>{active=false;};
+    return ()=>{active=false;++mapGeneration.current;};
   },[mapId]);
   const edit=()=>{setPreview(null);setConfirm(false);setNotice("");setError("");};
   const inspect=async(event:FormEvent)=>{
@@ -35,11 +37,17 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
       setError("Adj meg érvényes RCON-portot és az eredeti GameUserSettings.ini jelszavát.");
       return;
     }
+    const generation=mapGeneration.current;
     setBusy(true);setError("");setNotice("");setPreview(null);setConfirm(false);
     try{
       const result=await managerBridge.historicalRconPreview(mapId,parsed,password);
+      if(mapGeneration.current!==generation)return;
+      if(result.mapId.toLowerCase()!==mapId.toLowerCase()||
+         !result.existingIniVerified||result.originalStoreTouched||result.serverStarted)
+        throw new Error("UM-HISTORICAL-RCON-PREVIEW-MAP-MISMATCH");
       setPassword("");setPreview(result);
     }catch(cause){
+      if(mapGeneration.current!==generation)return;
       setPassword("");
       const code=cause instanceof Error?cause.message:"";
       setError(code==="UM-HISTORICAL-RCON-EXISTING-PASSWORD-INVALID"
@@ -47,49 +55,81 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
         :code==="UM-HISTORICAL-RCON-INI-CHANGED"
         ?"A megadott RCON-port vagy jelszó nem egyezik a meglévő ASA GameUserSettings.ini beállításával, vagy az RCON nincs engedélyezve. A jelszót nem módosítottuk."
         :code==="UM-HISTORICAL-RCON-ORIGINAL-STORE-INVALID"
-        ?"Az eredeti Kova ACTIVE/DONE vagy Store-v1 azonosítás nem egyezik. A szerverhez és a jelszóhoz nem nyúltunk."
+        ?"A jóváhagyott helyi Store-v1 forrásazonosság vagy a még át nem vett korábbi Manager ACTIVE/DONE állapota nem egyezik. A szerverhez és a jelszóhoz nem nyúltunk."
         :code==="UM-HISTORICAL-RCON-API-CHILD-UNVERIFIED"
         ?"Az ASA API Loader mögötti eredeti szerverfolyamat vagy a TCP-port tulajdonosa nem igazolható. Nem történt RCON-csatolás."
-        :"A natív RCON-ellenőrzés nem sikerült. Az eredeti ASA/Kova-fájlok érintetlenek; ellenőrizd a maphoz tartozó futó ASA-folyamatot és RCON-beállítást.");
-    }finally{setBusy(false);}
+        :"A natív RCON-ellenőrzés nem sikerült. Az eredeti ASA/korábbi Manager-fájlok érintetlenek; ellenőrizd a maphoz tartozó futó ASA-folyamatot és RCON-beállítást.");
+    }finally{if(mapGeneration.current===generation)setBusy(false);}
+  };
+  const inspectExisting=async()=>{
+    if(busy||preview||status?.configured)return;
+    const requested=mapId,generation=mapGeneration.current;
+    setBusy(true);setError("");setNotice("");setPreview(null);setConfirm(false);
+    setPassword("");
+    try{
+      const result=await managerBridge.historicalRconExistingPreview(requested);
+      if(mapGeneration.current!==generation)return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase()||
+         !result.existingIniVerified||result.originalStoreTouched||
+         result.serverStarted||!result.existingCredentialsReadLocally)
+        throw new Error("UM-HISTORICAL-RCON-EXISTING-MAP-MISMATCH");
+      setPort(String(result.rconPort));
+      setPreview(result);
+      setNotice("A meglévő ASA RCON-port és jelszó a Windows hostban azonosítva. "+
+        "A jelszó nem került a felületre; kizárólag jóváhagyás után tároljuk DPAPI-val.");
+    }catch{
+      if(mapGeneration.current===generation)
+        setError("A meglévő ASA INI-ből az automatikus RCON-átvétel nem igazolható. "+
+          "Ellenőrizd a helyi ServerSettings szekciót, vagy használd a kézi megadást.");
+    }finally{if(mapGeneration.current===generation)setBusy(false);}
   };
   const attach=async()=>{
     if(!preview||!confirm||busy)return;
+    const generation=mapGeneration.current;
     setBusy(true);setError("");setNotice("");
     const token=preview.token;setPreview(null);setConfirm(false);
     let committed=false;
     try{
       const receipt=await managerBridge.historicalRconApply(token);
       committed=true;
+      if(mapGeneration.current!==generation)return;
+      if(receipt.mapId.toLowerCase()!==mapId.toLowerCase()||
+         !receipt.configured||receipt.originalStoreTouched||
+         receipt.iniModified||receipt.serverStarted)
+        throw new Error("UM-HISTORICAL-RCON-ATTACH-RECEIPT-MISMATCH");
       // The native DPAPI profile is already committed. A failed subsequent
       // status/refresh MUST NOT disguise that commit as a failed attach and
       // tempt the operator to repeat a single-use mutation.
       setNotice("Az eredeti RCON-profil a helyi Managerbe elmentve (TCP "+
         receipt.rconPort+"). Az ASA és a Store-fájlok nem módosultak.");
       try{
-        setStatus(await managerBridge.historicalRconStatus(mapId));
+        const current=await managerBridge.historicalRconStatus(mapId);
+        if(mapGeneration.current!==generation)return;
+        setStatus(current);
         await onConfigured();
       }catch{
+        if(mapGeneration.current!==generation)return;
         setNotice("Az eredeti RCON-profil elmentve (TCP "+receipt.rconPort+
           "), de a felület frissítése sikertelen. Újraküldés helyett "+
           "frissítsd a maplistát. Az ASA és a Store-fájlok nem módosultak.");
       }
     }catch{
-      if(!committed)setError("Az eredeti RCON-kapcsolat átvétele nem fejezhető be, vagy a profil közben megváltozott. Ellenőrizd az aktuális állapotot.");
-    }finally{setBusy(false);}
+      if(mapGeneration.current===generation && !committed)setError("Az eredeti RCON-kapcsolat átvétele nem fejezhető be, vagy a profil közben megváltozott. Ellenőrizd az aktuális állapotot.");
+    }finally{if(mapGeneration.current===generation)setBusy(false);}
   };
   return <section className="glass panel historical-rcon-attach"
       aria-label="Történeti Store-v1 RCON csatlakoztatás">
     <div className="panel-head"><h2><RadioTower size={18}/> Eredeti Store-v1 RCON átvétele</h2>
       <span className="mod-tag amber"><LockKeyhole size={13}/> Eredeti fájlok érintetlenek</span></div>
     <div className="panel-inner">
-      <p className="muted small">A kétgépes, már aktív Store-v1 szerver meglévő RCON-portját kapcsolja
+      <p className="muted small">Az eredeti Store-v1 map meglévő RCON-portját kapcsolja
         az új Managerhez, <b>új INI, új session, Store-konverzió és szerverindítás nélkül</b>.
-        A jelszót a natív Windows DPAPI védi.</p>
+        Az Obsidianba jóváhagyottan átvett forrás helyi használatához nem szükséges
+        a másik gép régi korábbi Manager ACTIVE/DONE-jelölője. A jelszót a natív Windows DPAPI védi.</p>
       {status&&!status.configured&&status.suggestedPort>0&&
         <p className="muted small" role="status">
           Az eredeti ASA INI alapján felismert TCP RCON-port: {status.suggestedPort}.
-          A jelszót biztonsági okból külön kell megadni; az ASA INI-hez nem nyúlunk.
+          A jelszó helyben, a Windows hostban is beolvasható; nem jelenik meg a felületen.
         </p>}
       {status?.configured?<div className="success-inline" role="status">
         <CheckCircle2 size={17}/> RCON-port: {status.port} ·
@@ -106,14 +146,20 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
           placeholder="A meglévő GameUserSettings.ini jelszava"/>
         <button className="secondary" type="submit" disabled={busy||!!preview||
           !password||!port}><Shield size={16}/> Eredeti RCON előellenőrzése</button>
+        <button className="secondary" type="button" disabled={busy||!!preview}
+          onClick={()=>{void inspectExisting();}}>
+          <LockKeyhole size={16}/> Meglévő RCON átvétele az ASA INI-ből
+        </button>
       </form>}
       {preview&&<div className="warning-inline" role="region"
           aria-label="Store-v1 RCON jóváhagyása">
         <Shield size={17}/>
         <div>
           <b>{preview.mapName} · TCP {preview.rconPort}</b>
-          <p>Az eredeti kétpeer-es Store-v1 állapotot és a meglévő RCON INI-t ellenőriztük.
-            Jóváhagyáskor kizárólag a saját Manager-profil titkosított beállítása változik.</p>
+          <p>{preview.approvedObsidianSourcePinned?
+            "A jóváhagyott Obsidian-forrás és a meglévő ASA RCON INI ellenőrzött. A régi kétpeer-es korábbi Manager ACTIVE/DONE-jelölő nem szükséges ehhez a helyi csatoláshoz.":
+            "A még át nem vett eredeti eredeti forrás és a kétpeer-es ACTIVE/DONE állapot, valamint az ASA RCON INI ellenőrzött."}
+            {" "}Jóváhagyáskor kizárólag a saját Manager-profil titkosított beállítása változik.</p>
           <label><input type="checkbox" checked={confirm}
             onChange={e=>setConfirm(e.target.checked)}/>
             Jóváhagyom az eredeti RCON-kapcsolat helyi átvételét.</label>

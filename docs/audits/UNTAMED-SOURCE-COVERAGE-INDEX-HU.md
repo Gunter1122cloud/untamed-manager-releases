@@ -23,10 +23,10 @@ Az üres lexikális találatot nem állítjuk automatikusan „nincs hívó”-n
 | EventJournal.cs | 15: public void Append(string host,Guid? map,string severity,string code); 31: public MonitorEvent[] Read(string? host=null,Guid? map=null,string? severity=null,DateTimeOffset? since=null) | wpf/MainWindow.Supervision.cs:21; wpf/MainWindow.Supervision.cs:111 | wpf/Supervisor/Worker.cs:18 | wpf/Testing/Integration/Program.cs:676; wpf/Testing/Integration/Program.cs:679 |
 | HistoricalLaunchProfileReader.cs | 23: public static HistoricalLaunchBundle Inspect(string copiedZip) | wpf/MainWindow.ManagerMigration.cs:31 | Nincs fájlnév-alapú találat | wpf/Testing/Integration/ManagerMigrationArchiveTests.cs:187 |
 | IsolatedFakeAsaSession.cs | 27: public IsolatedFakeAsaSession(string executable,string root,bool denySaveProof=false); 51: public ProcessCheck Check(); 68: public void Start(); 85: public async Task Command(string command,CancellationToken ct); 122: public Task<bool> SaveCompleted(CancellationToken ct); 131: public void Dispose() | Nincs fájlnév-alapú találat | Nincs fájlnév-alapú találat | wpf/Testing/Integration/ProfessionalOperationsTests.cs:247; wpf/Testing/Integration/ProfessionalOperationsTests.cs:262; wpf/Testing/Integration/ProfessionalOperationsTests.cs:272 |
-| KovaAuditBridge.cs | 26: public static KovaAuditSnapshot InspectCopy(string file,KovaAuditHost host); 156: public static KovaAuditPair Evaluate(KovaAuditSnapshot hp,KovaAuditSnapshot ryzen) | wpf/MainWindow.KovaAudit.cs:38; wpf/MainWindow.KovaAudit.cs:39; wpf/MainWindow.KovaAudit.cs:40 | Nincs fájlnév-alapú találat | wpf/Testing/Integration/ProfessionalOperationsTests.cs:130; wpf/Testing/Integration/ProfessionalOperationsTests.cs:131; wpf/Testing/Integration/ProfessionalOperationsTests.cs:132; wpf/Testing/Integration/ProfessionalOperationsTests.cs:146; wpf/Testing/Integration/ProfessionalOperationsTests.cs:148; wpf/Testing/Integration/ProfessionalOperationsTests.cs:151 |
-| KovaFixtureAudit.cs | 14: public static KovaFixtureReport Inspect(string testRoot,Guid testOwner); 35: public static string Snapshot(string fixtureRoot,Guid testOwner,string destination) | Nincs fájlnév-alapú találat | Nincs fájlnév-alapú találat | wpf/Testing/Integration/Program.cs:160; wpf/Testing/Integration/Program.cs:164; wpf/Testing/Integration/Program.cs:170 |
-| KovaProfileImporter.cs | 25: public static KovaProfileReport InspectCopy(string profileJson,string? storeJson=null); 97: public static ManagerConfig BuildInertLocalDraft(KovaProfileReport report,string localHostId) | wpf/MainWindow.OperationalCalendar.cs:226; wpf/MainWindow.OperationalCalendar.cs:249 | Nincs fájlnév-alapú találat | wpf/Testing/Integration/OperationalFeaturesTests.cs:306; wpf/Testing/Integration/OperationalFeaturesTests.cs:307; wpf/Testing/Integration/OperationalFeaturesTests.cs:319 |
-| KovaStoreV1CopyReader.cs | 19: public static KovaStoreV1CopyObservation Inspect( | wpf/MainWindow.KovaStoreV1.cs:40 | Nincs fájlnév-alapú találat | wpf/Testing/Integration/ProfessionalOperationsTests.cs:216; wpf/Testing/Integration/ProfessionalOperationsTests.cs:227; wpf/Testing/Integration/ProfessionalOperationsTests.cs:233; wpf/Testing/Integration/ProfessionalOperationsTests.cs:241; wpf/Testing/StoreV1/Program.cs:204; wpf/Testing/StoreV1/Program.cs:206 |
+| LegacyAuditBridge.cs | 26: public static LegacyAuditSnapshot InspectCopy(string file,LegacyAuditHost host); 156: public static LegacyAuditPair Evaluate(LegacyAuditSnapshot hp,LegacyAuditSnapshot ryzen) | wpf/MainWindow.LegacyAudit.cs:38; wpf/MainWindow.LegacyAudit.cs:39; wpf/MainWindow.LegacyAudit.cs:40 | Nincs fájlnév-alapú találat | wpf/Testing/Integration/ProfessionalOperationsTests.cs:130; wpf/Testing/Integration/ProfessionalOperationsTests.cs:131; wpf/Testing/Integration/ProfessionalOperationsTests.cs:132; wpf/Testing/Integration/ProfessionalOperationsTests.cs:146; wpf/Testing/Integration/ProfessionalOperationsTests.cs:148; wpf/Testing/Integration/ProfessionalOperationsTests.cs:151 |
+| LegacyFixtureAudit.cs | 14: public static LegacyFixtureReport Inspect(string testRoot,Guid testOwner); 35: public static string Snapshot(string fixtureRoot,Guid testOwner,string destination) | Nincs fájlnév-alapú találat | Nincs fájlnév-alapú találat | wpf/Testing/Integration/Program.cs:160; wpf/Testing/Integration/Program.cs:164; wpf/Testing/Integration/Program.cs:170 |
+| LegacyProfileImporter.cs | 25: public static LegacyProfileReport InspectCopy(string profileJson,string? storeJson=null); 97: public static ManagerConfig BuildInertLocalDraft(LegacyProfileReport report,string localHostId) | wpf/MainWindow.OperationalCalendar.cs:226; wpf/MainWindow.OperationalCalendar.cs:249 | Nincs fájlnév-alapú találat | wpf/Testing/Integration/OperationalFeaturesTests.cs:306; wpf/Testing/Integration/OperationalFeaturesTests.cs:307; wpf/Testing/Integration/OperationalFeaturesTests.cs:319 |
+| LegacyStoreV1CopyReader.cs | 19: public static LegacyStoreV1CopyObservation Inspect( | wpf/MainWindow.LegacyStoreV1.cs:40 | Nincs fájlnév-alapú találat | wpf/Testing/Integration/ProfessionalOperationsTests.cs:216; wpf/Testing/Integration/ProfessionalOperationsTests.cs:227; wpf/Testing/Integration/ProfessionalOperationsTests.cs:233; wpf/Testing/Integration/ProfessionalOperationsTests.cs:241; wpf/Testing/StoreV1/Program.cs:204; wpf/Testing/StoreV1/Program.cs:206 |
 | LocalBackupCatalog.cs | 15: public static IReadOnlyList<LocalBackupHistoryEntry> Inspect(string localRoot,Guid mapId, | wpf/MainWindow.Backup.cs:73 | Nincs fájlnév-alapú találat | wpf/Testing/Integration/Program.cs:311; wpf/Testing/Integration/Program.cs:315; wpf/Testing/Integration/Program.cs:319 |
 | LocalBackupOverview.cs | 16: public static IReadOnlyList<LocalBackupMapSummary> Inspect( | wpf/MainWindow.BackupOverview.cs:25 | Nincs fájlnév-alapú találat | wpf/Testing/Integration/Program.cs:328; wpf/Testing/Integration/Program.cs:335; wpf/Testing/Integration/Program.cs:340 |
 | LocalBackupWorkflow.cs | 18: public static LocalBackupResult Create(LocalMap map,ProcessCheck check,string destination, | wpf/MainWindow.Backup.cs:44 | Nincs fájlnév-alapú találat | wpf/Testing/Integration/Program.cs:299; wpf/Testing/Integration/Program.cs:344; wpf/Testing/Integration/Program.cs:348 |
@@ -98,8 +98,8 @@ Nem állítjuk, hogy a teljes program minden lehetséges kódútját futással a
 | wpf/MainWindow.ConfigEditor.cs | 118 | FINAL_NEWLINE_ONLY |
 | wpf/MainWindow.CurseForge.cs | 136 | FINAL_NEWLINE_ONLY |
 | wpf/MainWindow.Discord.cs | 134 | FINAL_NEWLINE_ONLY |
-| wpf/MainWindow.KovaAudit.cs | 60 | FINAL_NEWLINE_ONLY |
-| wpf/MainWindow.KovaStoreV1.cs | 51 | EXACT |
+| wpf/MainWindow.LegacyAudit.cs | 60 | FINAL_NEWLINE_ONLY |
+| wpf/MainWindow.LegacyStoreV1.cs | 51 | EXACT |
 | wpf/MainWindow.ManagerMigration.cs | 92 | FINAL_NEWLINE_ONLY |
 | wpf/MainWindow.ModInventory.cs | 43 | FINAL_NEWLINE_ONLY |
 | wpf/MainWindow.ModState.cs | 122 | FINAL_NEWLINE_ONLY |
@@ -146,10 +146,10 @@ Nem állítjuk, hogy a teljes program minden lehetséges kódútját futással a
 | wpf/Core/EventJournal.cs | 48 | FINAL_NEWLINE_ONLY |
 | wpf/Core/HistoricalLaunchProfileReader.cs | 124 | EXACT |
 | wpf/Core/IsolatedFakeAsaSession.cs | 148 | FINAL_NEWLINE_ONLY |
-| wpf/Core/KovaAuditBridge.cs | 196 | FINAL_NEWLINE_ONLY |
-| wpf/Core/KovaFixtureAudit.cs | 45 | FINAL_NEWLINE_ONLY |
-| wpf/Core/KovaProfileImporter.cs | 187 | FINAL_NEWLINE_ONLY |
-| wpf/Core/KovaStoreV1CopyReader.cs | 80 | EXACT |
+| wpf/Core/LegacyAuditBridge.cs | 196 | FINAL_NEWLINE_ONLY |
+| wpf/Core/LegacyFixtureAudit.cs | 45 | FINAL_NEWLINE_ONLY |
+| wpf/Core/LegacyProfileImporter.cs | 187 | FINAL_NEWLINE_ONLY |
+| wpf/Core/LegacyStoreV1CopyReader.cs | 80 | EXACT |
 | wpf/Core/LocalBackupCatalog.cs | 61 | FINAL_NEWLINE_ONLY |
 | wpf/Core/LocalBackupOverview.cs | 42 | FINAL_NEWLINE_ONLY |
 | wpf/Core/LocalBackupWorkflow.cs | 137 | FINAL_NEWLINE_ONLY |

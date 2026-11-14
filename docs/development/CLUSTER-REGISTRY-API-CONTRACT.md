@@ -19,7 +19,7 @@ by the current WinForms/WebView2 app through
   recovery. A map ID cannot be registered under another host.
 - Schema-0 profiles migrate additively. The migration preserves existing
   host/map IDs and names, creates no directories and does not open or rewrite
-  Kova Store-v1 worlds, transfer files, backups or locks.
+  Legacy Store-v1 worlds, transfer files, backups or locks.
 - `revision` increases whenever host, map, cluster or assignment metadata
   changes. Consumers use it to reject stale approval previews.
 

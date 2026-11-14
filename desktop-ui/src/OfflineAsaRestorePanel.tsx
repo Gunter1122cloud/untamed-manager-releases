@@ -1,4 +1,4 @@
-import {useEffect,useState} from "react";
+import {useCallback,useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,FolderOpen,HardDriveDownload,RefreshCw,Shield} from "lucide-react";
 import {managerBridge,type OfflineAsaRestorePreview,type OfflineAsaRestoreStatus} from "./bridge";
 
@@ -12,14 +12,35 @@ export function OfflineAsaRestorePanel(){
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  const currentJob=useRef(job);
+  currentJob.current=job;
+  const inspect=useCallback(async(id:string)=>{
+    if(currentJob.current!==id)return;
+    try{
+      const next=await managerBridge.offlineRestoreLabStatus(id);
+      if(currentJob.current!==id)return;
+      if(next.jobId!==id){
+        setError("A próba-visszaállítás státusza másik feladathoz tartozik. Nem igazolt.");
+        return;
+      }
+      setStatus(next);
+    }catch{
+      if(currentJob.current===id)
+        setError("A próba-visszaállítás státusza nem elérhető. A labor nem tekinthető igazoltnak.");
+    }
+  },[]);
   useEffect(()=>{
     if(!job||status?.state==="completed"||status?.state==="needsOperator")return;
-    const interval=window.setInterval(()=>{
-      managerBridge.offlineRestoreLabStatus(job).then(setStatus).catch(()=>
-        setError("A próba-visszaállítás státusza nem elérhető. A labor nem tekinthető igazoltnak."));
-    },1500);
-    return ()=>window.clearInterval(interval);
-  },[job,status?.state]);
+    let active=true,inFlight=false;
+    const poll=()=>{
+      if(!active||inFlight||currentJob.current!==job)return;
+      inFlight=true;
+      void inspect(job).finally(()=>{inFlight=false;});
+    };
+    poll();
+    const interval=window.setInterval(poll,1500);
+    return ()=>{active=false;window.clearInterval(interval);};
+  },[job,status?.state,inspect]);
   async function prepare(){
     if(busy||job)return;
     setBusy(true);setError("");setNotice("");setPreview(null);setApproved(false);
@@ -33,6 +54,9 @@ export function OfflineAsaRestorePanel(){
     const token=preview.token;setPreview(null);setApproved(false);
     try{
       const started=await managerBridge.offlineRestoreLabApply(token);
+      if(!started.started||!started.jobId||started.productionRestoreAllowed||
+         started.sqlUsed)
+        throw new Error("UM-OFFLINE-RESTORE-START-RECEIPT-MISMATCH");
       setJob(started.jobId);
       setNotice("A próba-visszaállítás külön TEMP laborba indult. A sikerhez minden fájl lenyomatának egyeznie kell.");
     }catch{setError("A próba-visszaállítást a natív Manager visszautasította.");}
@@ -76,8 +100,7 @@ export function OfflineAsaRestorePanel(){
       {status?.state==="needsOperator"&&<p><AlertTriangle size={16}/>
         A helyreállítás nem igazolt. A félbemaradt .incomplete labor kézi ellenőrzést igényel.</p>}
       <button className="secondary" type="button"
-        onClick={()=>{void managerBridge.offlineRestoreLabStatus(job).then(setStatus).catch(()=>
-          setError("A próba-visszaállítás státusza nem elérhető."));}}>
+        onClick={()=>{void inspect(job);}}>
         <RefreshCw size={16}/> Státusz frissítése
       </button>
       {finished&&<button className="secondary" type="button"

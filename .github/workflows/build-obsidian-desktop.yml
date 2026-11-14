@@ -41,6 +41,16 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+      # Temporary, restricted branch snapshot for full-source compatibility audit.
+      - name: Prepare checked-out Obsidian source snapshot
+        shell: pwsh
+        run: git archive --format=zip -o obsidian-source-audit.zip HEAD
+      - name: Upload Obsidian source audit snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: Obsidian-Source-Audit-Temporary
+          path: obsidian-source-audit.zip
+          retention-days: 1
       - name: Guard against retired WPF SQL GUI and accidental Core deletion
         shell: pwsh
         run: |

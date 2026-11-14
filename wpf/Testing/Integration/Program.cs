@@ -40,6 +40,15 @@ if(args.Length==0||!File.Exists(args[0]))
 string fake=Path.GetFullPath(args[0]);
 string root=Path.Combine(Path.GetTempPath(),"Untamed-Integration-"+Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
+// Legacy WPF integration tests share the production Core, but must NEVER
+// create default Operations-v1/Restart-v1 journals in machine ProgramData.
+// Keep the isolation scope active across awaited tests and ClusterService
+// construction; dedicated --coordinator-hold children use their explicit root.
+string isolatedOperations=Path.Combine(root,"operation-journals");
+using var journalScope=UntamedOperationCoordinator.UseIsolatedRootForTests(
+    isolatedOperations);
+Assert(UntamedOperationCoordinator.DefaultRoot==Path.GetFullPath(isolatedOperations),
+    "WPF integration runner routes all default operation journals to TEMP");
 string aRoot=Path.Combine(root,"HP");
 string bRoot=Path.Combine(root,"Ryzen");
 Process? p=null;

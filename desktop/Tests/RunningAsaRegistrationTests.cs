@@ -27,6 +27,9 @@ internal static class RunningAsaRegistrationTests
             "ArkAscendedServer.exe",exe,command);
         LocalRunningAsaDiscovery.Sample[] observations={sample};
         IReadOnlyList<LocalRunningAsaDiscovery.Sample> Observe()=>observations;
+        string namedLaunch="\""+exe+"\" "+
+            "Ragnarok_WP?listen?SessionName=\"Store and Password Celebration\""+
+            " -Port=7817 -QueryPort=27037 -mods=100001,100002";
 
         static void Check(bool yes,string caseName)
         {
@@ -48,11 +51,59 @@ internal static class RunningAsaRegistrationTests
             return result.RootElement.Clone();
         }
 
+        var namedSample=sample with{CommandLine=namedLaunch};
+        var namedFacts=LocalAsaLaunchFacts.Parse(namedLaunch,exe);
+        Check(namedFacts.ArgumentsValidated&&namedFacts.GamePort==7817&&
+              namedFacts.QueryPort==27037&&
+              namedFacts.ActiveModsState=="parsed"&&
+              LocalRunningAsaDiscovery.Classify(
+                  new[]{namedSample},Array.Empty<LocalMap>())
+                  .Single() is {MapKey:"Ragnarok_WP",MatchState:"unregistered"},
+            "real ASA quoted SessionName with spaces keeps native WMI and mod/port discovery");
+        string namedArgs=LocalRunningAsaDiscovery.CommandArguments(namedLaunch,exe)!;
+        Check(AsaObservedLaunchArguments.TryRead(namedArgs,
+                  out var coreMapKey,out var coreFlags)&&
+              coreMapKey=="Ragnarok_WP"&&
+              !AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(coreFlags),
+            "final Core physical adoption shares the exact native named-map grammar");
+        Check(AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(
+                  coreFlags+" -usestore")&&
+              AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(
+                  coreFlags+" -ClusterDirOverride=C:\\Unsafe")&&
+              AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(
+                  coreFlags+" -ServerAdminPassword=secret"),
+            "Core refuses protected Store, transfer and password switches before WMI takeover");
+        string unexpectedUrl="\""+exe+"\" "+
+            "Ragnarok_WP?listen?SessionName=\"Untamed\"?ServerPassword=secret"+
+            " -Port=7817 -QueryPort=27037";
+        Check(!LocalAsaLaunchFacts.Parse(unexpectedUrl,exe).ArgumentsValidated&&
+              LocalRunningAsaDiscovery.Classify(
+                  new[]{sample with{CommandLine=unexpectedUrl}},
+                  Array.Empty<LocalMap>()).Single().MapKey=="unknown",
+            "unrecognized or sensitive map-URL options never grant discovery authority");
+
         string profile=Path.Combine(root,"p0-running-profile");
         await using(var cluster=new ClusterService("p0-running",profile,
             _=>new ProcessCheck(false,"synthetic unowned process",null,true)))
         using(var bridge=new DesktopRunningAsaRegistrationBridge(cluster,Observe))
         {
+            observations=new[]{namedSample};
+            var safeTitle=await Call(bridge,"servers.runningPreview",
+                new{pid=71221,startedUtc=started.ToString("O"),name="Ragnarok",
+                    gamePort=7817,queryPort=27037});
+            Check(safeTitle.GetProperty("ok").GetBoolean()&&
+                  cluster.Config.LocalMaps.Count==0,
+                "read-only import accepts quoted Store/Password title without interpreting title words as Store switches");
+            observations=new[]{namedSample with{
+                CommandLine=namedLaunch+" -usestore -usestore"
+            }};
+            var duplicateStoreNamed=await Call(bridge,"servers.runningPreview",
+                new{pid=71221,startedUtc=started.ToString("O"),name="Ragnarok",
+                    gamePort=7817,queryPort=27037});
+            Check(!duplicateStoreNamed.GetProperty("ok").GetBoolean()&&
+                  cluster.Config.LocalMaps.Count==0,
+                "duplicate real Store flags remain denied even inside a named ASA process");
+            observations=new[]{sample};
             var invalid=await Call(bridge,"servers.runningPreview",
                 new{pid=71221,startedUtc=started.ToString("O"),name="Ragnarok",
                     gamePort=7900,queryPort=27037});
@@ -191,6 +242,23 @@ internal static class RunningAsaRegistrationTests
                         await bridge.HandleAsync(JsonSerializer.Serialize(props)));
                     return response.RootElement.Clone();
                 }
+                observations=new[]{namedSample};
+                var quotedPreview=await AdoptCall(takeover,
+                    "servers.runningAdoptPreview",new{mapId=map.Id});
+                Check(quotedPreview.GetProperty("ok").GetBoolean()&&
+                      quotedPreview.GetProperty("data").GetProperty("mapKey")
+                        .GetString()=="Ragnarok_WP"&&
+                      cluster.Config.LocalMaps.Single().ObservedReadOnlyImported,
+                    "harmless Store/Password title permits non-Store native adoption preview without write");
+                observations=new[]{namedSample with{
+                    CommandLine=namedLaunch+" -ServerAdminPassword=untrusted"
+                }};
+                var secretPreview=await AdoptCall(takeover,
+                    "servers.runningAdoptPreview",new{mapId=map.Id});
+                Check(!secretPreview.GetProperty("ok").GetBoolean()&&
+                      cluster.Config.LocalMaps.Single().ObservedReadOnlyImported,
+                    "sensitive ASA RCON password switch cannot enter adopted Manager profile");
+                observations=new[]{sample};
                 var adoptPreview=await AdoptCall(takeover,
                     "servers.runningAdoptPreview",new{mapId=map.Id});
                 Check(adoptPreview.GetProperty("ok").GetBoolean() &&
@@ -256,6 +324,76 @@ internal static class RunningAsaRegistrationTests
             Check(!duplicate.GetProperty("ok").GetBoolean(),
                 "same running map cannot be registered under a different label");
         }
+        // Full native batch import: one CAS, with zero process or Store writes.
+        string nextCommand=command.Replace("Ragnarok_WP","TheCenter_WP",
+            StringComparison.Ordinal).Replace("-Port=7817","-Port=7827",
+            StringComparison.Ordinal).Replace("-QueryPort=27037","-QueryPort=27047",
+            StringComparison.Ordinal);
+        var secondSample=new LocalRunningAsaDiscovery.Sample(
+            71223,200,started.AddSeconds(4),
+            "ArkAscendedServer.exe",exe,nextCommand);
+        observations=new[]{sample,secondSample};
+        await using(var batchCluster=new ClusterService("p0-batch-running",
+            Path.Combine(root,"p0-batch-profile"),
+            _=>new ProcessCheck(false,"synthetic unowned ASA",null,true)))
+        using(var batchBridge=new DesktopRunningAsaRegistrationBridge(batchCluster,Observe))
+        {
+            // An active Store map is displayed separately but must NOT enter
+            // this non-Store registration path. No original metadata is read
+            // or modified by the batch.
+            var storeSample=sample with{
+                Pid=71225,StartedUtc=started.AddSeconds(9),
+                CommandLine=command.Replace("Ragnarok_WP","Aberration_WP",
+                    StringComparison.Ordinal)+" -usestore"
+            };
+            observations=new[]{sample,secondSample,storeSample};
+            var batchPreview=await Call(batchBridge,"servers.runningBatchPreview",new{});
+            Check(batchPreview.GetProperty("ok").GetBoolean() &&
+                  batchPreview.GetProperty("data").GetProperty("count").GetInt32()==2 &&
+                  batchPreview.GetProperty("data").GetProperty("storeOrCluster").GetInt32()==1 &&
+                  batchCluster.Config.LocalMaps.Count==0,
+                "batch includes both non-Store maps and excludes an active Store process");
+            var collisions=new[]{
+                sample,secondSample with{CommandLine=command.Replace(
+                    "Ragnarok_WP","TheCenter_WP",StringComparison.Ordinal)}
+            };
+            observations=collisions;
+            var conflictingPorts=await Call(batchBridge,"servers.runningBatchPreview",new{});
+            Check(!conflictingPorts.GetProperty("ok").GetBoolean() &&
+                  batchCluster.Config.LocalMaps.Count==0,
+                "two running maps sharing game/query ports cannot gain partial registrations");
+            observations=new[]{sample,secondSample,storeSample};
+            batchPreview=await Call(batchBridge,"servers.runningBatchPreview",new{});
+            Check(batchPreview.GetProperty("ok").GetBoolean() &&
+                  batchPreview.GetProperty("data").GetProperty("count").GetInt32()==2,
+                "collision recheck requires a new native one-shot batch preview");
+            string approved=batchPreview.GetProperty("data").GetProperty("token").GetString()!;
+            observations=new[]{sample,secondSample with{
+                StartedUtc=secondSample.StartedUtc!.Value.AddSeconds(1)}};
+            var stale=await Call(batchBridge,"servers.runningBatchRegister",
+                new{token=approved,confirm=true});
+            Check(!stale.GetProperty("ok").GetBoolean() &&
+                  batchCluster.Config.LocalMaps.Count==0,
+                "one changed PID start timestamp prevents the entire batch ConfigStore commit");
+            observations=new[]{sample,secondSample};
+            batchPreview=await Call(batchBridge,"servers.runningBatchPreview",new{});
+            approved=batchPreview.GetProperty("data").GetProperty("token").GetString()!;
+            var bulk=await Call(batchBridge,"servers.runningBatchRegister",
+                new{token=approved,confirm=true});
+            Check(bulk.GetProperty("ok").GetBoolean()&&
+                  bulk.GetProperty("data").GetProperty("imported").GetInt32()==2&&
+                  batchCluster.Config.LocalMaps.Count==2&&
+                  batchCluster.Config.LocalMaps.All(x=>x.ObservedReadOnlyImported&&
+                      x.RconPort==0&&!x.AutoStart&&!x.HistoricalStoreProtected&&
+                      x.LastProcess==null&&x.Arguments==""),
+                "two WMI-verified maps persist in one CAS without granting lifecycle or Store writer");
+            var replayBatch=await Call(batchBridge,"servers.runningBatchRegister",
+                new{token=approved,confirm=true});
+            Check(!replayBatch.GetProperty("ok").GetBoolean()&&
+                  batchCluster.Config.LocalMaps.Count==2,
+                "native running ASA bulk approval cannot be replayed");
+        }
+        observations=new[]{sample};
         await using(var reloaded=new ClusterService("p0-running",profile,
             _=>new ProcessCheck(false,"synthetic unowned process",null,true)))
         {
