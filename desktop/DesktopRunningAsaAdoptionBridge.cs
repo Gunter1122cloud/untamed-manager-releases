@@ -98,7 +98,7 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
         if(string.IsNullOrWhiteSpace(args)||args.Length>2048 ||
            args.Any(char.IsControl) ||
            !LocalRunningAsaDiscovery.TryReadLaunchArguments(
-               args,out var observedKey,out _) ||
+               args,out var observedKey,out var launchFlags) ||
            !observedKey.Equals(map.ObservedMapKey,
                StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("UM-ADOPT-LAUNCH-UNVERIFIED");
@@ -114,12 +114,15 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
            facts.ActiveModsState is "conflict" or "unverified"||
            facts.PassiveModsState is "conflict" or "unverified")
             throw new InvalidDataException("UM-ADOPT-PORTS-STORE-OR-MODS-UNVERIFIED");
-        // Never persist secrets recovered from a foreign process command line.
-        // No arbitrary renderer-provided launch strings are ever accepted.
-        string[] forbidden={"store","cluster","convert","password",
-            "secret","token","auth","credential","key="};
-        if(forbidden.Any(s=>args.Contains(s,
-            StringComparison.OrdinalIgnoreCase)))
+        // Classify actual native launch switches, not harmless words inside
+        // a quoted SessionName such as "Store Celebration".
+        if(AsaStoreArgumentSwitches.ContainsProtectedSwitch(launchFlags))
+            throw new InvalidDataException("UM-ADOPT-SENSITIVE-LAUNCH");
+        string[] forbidden={"-password","-serveradminpassword","-secret",
+            "-token","-auth","-credential","-key","-rconpassword"};
+        if(launchFlags.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries)
+            .Any(token=>forbidden.Any(prefix=>token.StartsWith(prefix,
+                StringComparison.OrdinalIgnoreCase))))
             throw new InvalidDataException("UM-ADOPT-SENSITIVE-LAUNCH");
         if(!AsaReadyProbe.IsRegisteredServerBinary(map) ||
            KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
