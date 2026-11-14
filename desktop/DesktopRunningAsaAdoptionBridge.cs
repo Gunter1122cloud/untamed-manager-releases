@@ -97,9 +97,10 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
             server.CommandLine,server.ExecutablePath);
         if(string.IsNullOrWhiteSpace(args)||args.Length>2048 ||
            args.Any(char.IsControl) ||
-           !args.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries)
-               .First().Equals(map.ObservedMapKey+"?listen",
-                   StringComparison.OrdinalIgnoreCase))
+           !LocalRunningAsaDiscovery.TryReadLaunchArguments(
+               args,out var observedKey,out _) ||
+           !observedKey.Equals(map.ObservedMapKey,
+               StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("UM-ADOPT-LAUNCH-UNVERIFIED");
         var facts=LocalAsaLaunchFacts.Parse(server.CommandLine,
             server.ExecutablePath);
