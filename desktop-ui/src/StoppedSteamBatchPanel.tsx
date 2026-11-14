@@ -27,8 +27,10 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
   const [reconnecting,setReconnecting]=useState(true);
   const [reconnectFailed,setReconnectFailed]=useState(false);
   const [reconnectNonce,setReconnectNonce]=useState(0);
+  // Enrolled local Store maps are eligible for strict native preflight, not
+  // for bypassing enrollment, transfer identity or stopped-owner proof.
   const candidates=useMemo(()=>maps.filter(m=>
-    !m.freshStoreEnrolled&&!m.observedReadOnlyImported&&
+    !m.observedReadOnlyImported&&
     !m.maintenance&&!m.running),
     [maps]);
   const filtered=useMemo(()=>candidates.filter(m=>
