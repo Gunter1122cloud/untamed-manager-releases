@@ -285,6 +285,90 @@ internal static class MapScopedNativeLifecycleJobsTests
         lock(saved)Check(saved.Count==2&&
             saved.Contains(maps[0].Id)&&saved.Contains(maps[1].Id),
             "exactly one synthetic SaveWorld action per original Store map");
+
+        // The same original Store bridge must not cancel map A's Start
+        // approval just because the administrator previews map B.
+        var launches=new List<Guid>();
+        using(var starts=new DesktopHistoricalActiveStartBridge(cluster,
+            preparation:map=>new LegacyStoreV1NativeStartPlan(
+                (map.Id==maps[0].Id?"TheIsland_WP":"Ragnarok_WP")+
+                    "?listen -Port="+map.GamePort+" -usestore -log",
+                new string('B',64),map.GamePort,map.QueryPort,map.RconPort,
+                "ISOLATED_ORIGINAL_STORE_START_SOURCE",false),
+            launcher:(mapId,fingerprint,confirmed)=>{
+                Check(confirmed&&fingerprint==new string('B',64),
+                    "Store Start uses the approved pinned fingerprint only");
+                lock(launches)launches.Add(mapId);
+                int idx=mapId==maps[0].Id?0:1;
+                return new ProcessIdentity{
+                    Pid=45101+idx,StartedUtc=DateTimeOffset.UtcNow,
+                    ExecutablePath=maps[idx].ExecutablePath,
+                    Arguments="SYNTHETIC_ORIGINAL_STORE_START_ONLY"
+                };
+            }))
+        {
+            var startTokens=new string[2];
+            for(int i=0;i<2;i++)
+            {
+                var plan=Data(await Call(starts.HandleAsync,
+                    "historical.activeStartPreview",new{mapId=maps[i].Id}),
+                    "original Store Start preview for map "+i);
+                Check(plan.GetProperty("mapId").GetGuid()==maps[i].Id,
+                    "native Store Start approval is map-specific");
+                startTokens[i]=plan.GetProperty("token").GetString()!;
+            }
+            for(int i=0;i<2;i++)
+            {
+                var result=Data(await Call(starts.HandleAsync,
+                    "historical.activeStartApply",
+                    new{token=startTokens[i],confirm=true,
+                        typedApproval="STORE-V1 ACTIVE START"}),
+                    "original Store Start token survives sibling preview");
+                Check(result.GetProperty("mapId").GetGuid()==maps[i].Id,
+                    "each exact original Store map Start returns its own PID receipt");
+                var repeated=await Call(starts.HandleAsync,
+                    "historical.activeStartApply",
+                    new{token=startTokens[i],confirm=true,
+                        typedApproval="STORE-V1 ACTIVE START"});
+                Check(!repeated.GetProperty("ok").GetBoolean(),
+                    "both Store Start tokens are consumed exactly once");
+            }
+        }
+        lock(launches)Check(launches.Count==2&&
+            launches.Contains(maps[0].Id)&&launches.Contains(maps[1].Id),
+            "both original Store maps independently reached the injected launcher once");
+
+        // Changing the NEXT Loader preference never launches the ASA server.
+        // The two map approvals must coexist even when both initially use
+        // the same direct-ASA mode and need their first explicit sign-off.
+        foreach(var map in maps)map.HistoricalLaunchModeNeedsApproval=true;
+        using(var modes=new DesktopHistoricalActiveStartBridge(cluster,
+            preparation:null,launcher:null,
+            loaderModePreflight:(map,useApi)=>true))
+        {
+            var tokens=new string[2];
+            for(int i=0;i<2;i++)
+            {
+                var preview=Data(await Call(modes.HandleAsync,
+                    "historical.loaderModePreview",
+                    new{mapId=maps[i].Id,useApi=false}),
+                    "historical Loader preference can be reviewed for each map");
+                tokens[i]=preview.GetProperty("token").GetString()!;
+            }
+            for(int i=0;i<2;i++)
+            {
+                var applied=Data(await Call(modes.HandleAsync,
+                    "historical.loaderModeApply",
+                    new{token=tokens[i],confirm=true}),
+                    "original Loader preference remains approved after sibling preview");
+                Check(applied.GetProperty("mapId").GetGuid()==maps[i].Id&&
+                      !applied.GetProperty("serverStarted").GetBoolean()&&
+                      !applied.GetProperty("originalStoreTouched").GetBoolean(),
+                    "Loader mode selection writes only its own local Manager profile");
+            }
+        }
+        Check(maps.All(map=>!map.HistoricalLaunchModeNeedsApproval),
+            "Loader mode approvals are separate and consumed per original ASA map");
     }
 
     private static async Task VerifyFreshRestartJobs(string baseRoot)
