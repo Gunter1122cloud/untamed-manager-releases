@@ -427,6 +427,42 @@ internal static class FreshStoreEnrollmentTests
             Check(!SteamStoppedMapUpdater.PreUpdateBackupScope(manager,enrolled)
                       .HasFlag(LocalBackupScope.WorldAndProfiles),
                 "removing isolated synthetic placeholder restores untouched first-world eligibility");
+            // Mod Center and Copy To must remain useful AFTER a new Store
+            // map has enrolled. Only source-pinned launch switches change,
+            // the ASA stays stopped and transfer/tribe/character files are
+            // never touched by Manager code.
+            string transferBeforeMods=enrolled.FreshStoreTransferFileId;
+            var individualMod=ModStateController.Preview(enrolled,
+                new ModEdit(mapId,"100125",ModMode.Active));
+            Check(individualMod.Changed&&
+                  individualMod.NewArguments.Contains(
+                      "-mods=100123,100124,100125 -passivemods=100124 -clusterid=",
+                      StringComparison.Ordinal)&&
+                  individualMod.NewArguments.EndsWith(" -usestore",
+                      StringComparison.Ordinal),
+                "native single-map mod edit retains enrolled Store suffix and global passive order");
+            var modApplied=ModStateController.ApplyLocalBatch(manager,
+                new[]{new ModEdit(mapId,"100125",ModMode.Active)});
+            Check(modApplied.Count==1&&enrolled.ModChangesPending,
+                "stopped enrolled Store map persists new mod only in local Manager profile");
+            FreshStoreEnrollmentPolicy.DemandEnrolled(manager,enrolled);
+            var nativeModCopy=LocalModCopyPlanner.Preview(manager,mapId,
+                new[]{secondMapId},LocalModCopyMode.Replace);
+            Check(nativeModCopy.Changed&&
+                  nativeModCopy.Targets.Single().After.EnabledOrder
+                      .SequenceEqual(ModStateController.Read(enrolled).EnabledOrder),
+                "Copy To previews full mod ordering for another local enrolled Store map");
+            var appliedCopy=LocalModCopyPlanner.Apply(manager,nativeModCopy);
+            var secondEnrolled=manager.Config.LocalMaps.Single(x=>x.Id==secondMapId);
+            FreshStoreEnrollmentPolicy.DemandEnrolled(manager,secondEnrolled);
+            Check(appliedCopy.Count>0&&secondEnrolled.ModChangesPending&&
+                  ModStateController.Read(secondEnrolled).EnabledOrder
+                      .SequenceEqual(ModStateController.Read(enrolled).EnabledOrder)&&
+                  secondEnrolled.Arguments.EndsWith(" -usestore",
+                      StringComparison.Ordinal)&&
+                  secondEnrolled.FreshStoreTransferFileId.Length==64&&
+                  enrolled.FreshStoreTransferFileId==transferBeforeMods,
+                "atomic mod copy changes only next-launch mod flags, preserving both transfer identities");
             // The exact installed Store profile can use natural ASA
             // SessionName text containing "ConvertToStore". Only actual
             // startup flags may cause a native conversion denial.
