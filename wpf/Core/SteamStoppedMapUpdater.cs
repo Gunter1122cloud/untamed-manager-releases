@@ -119,6 +119,70 @@ public static class SteamStoppedMapUpdater
             throw new InvalidDataException("UM-STEAM-INSTALL-OWNER-MISSING");
     }
 
+    // A brand-new enrolled Store map has not created its first SavedArks
+    // world yet. Requiring a nonexistent world backup makes the first
+    // explicitly approved offline SteamCMD update unusable. Only such
+    // positively untouched maps may back up their already configured INI
+    // without inventing or rewriting a world/character file.
+    private static bool HasWorldMaterial(string root)
+    {
+        string saved=Path.Combine(root,"ShooterGame","Saved");
+        if(!Directory.Exists(saved))return false;
+        foreach(var folder in new DirectoryInfo(saved).GetDirectories())
+        {
+            if(!folder.Name.StartsWith("SavedArks",
+                    StringComparison.OrdinalIgnoreCase)&&
+               !folder.Name.Equals("SaveGames",
+                    StringComparison.OrdinalIgnoreCase))continue;
+            // Treat links, zero-byte files and even nested directories as
+            // material. An incomplete world is never an empty-map waiver.
+            if((folder.Attributes&FileAttributes.ReparsePoint)!=0 ||
+               Directory.EnumerateFileSystemEntries(folder.FullName).Any())
+                return true;
+        }
+        return false;
+    }
+
+    private static bool IsUntouchedEnrolledStore(ClusterService cluster,LocalMap map)
+    {
+        if(!FreshStoreEnrollmentPolicy.IsEnrolled(map) ||
+           map.HistoricalStoreProtected||map.ObservedReadOnlyImported||
+           map.AutoStart||map.Maintenance||
+           map.LastProcess!=null||map.LastLoader!=null)
+            return false;
+        FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+        return AsaRconConfigurationEvidence.Matches(map)&&
+            !HasWorldMaterial(Path.GetFullPath(map.InstallationPath));
+    }
+
+    internal static LocalBackupScope PreUpdateBackupScope(
+        ClusterService cluster,LocalMap map)
+    {
+        ArgumentNullException.ThrowIfNull(cluster);
+        ArgumentNullException.ThrowIfNull(map);
+        string root=Path.GetFullPath(map.InstallationPath);
+        bool virgin=IsUntouchedEnrolledStore(cluster,map);
+        var scope=virgin?LocalBackupScope.None:
+            LocalBackupScope.WorldAndProfiles;
+        string ini=Path.Combine(root,"ShooterGame","Saved","Config","WindowsServer");
+        if(File.Exists(Path.Combine(ini,"Game.ini"))||
+           File.Exists(Path.Combine(ini,"GameUserSettings.ini")))
+            scope|=LocalBackupScope.Ini;
+        string binaryRoot=Path.Combine(root,"ShooterGame","Binaries","Win64");
+        string apiDir=Path.Combine(binaryRoot,"ArkApi");
+        string disabledDir=Path.Combine(binaryRoot,"UntamedDisabledPlugins");
+        bool HasFiles(string directory)=>Directory.Exists(directory)&&
+            Directory.EnumerateFiles(directory,"*",SearchOption.AllDirectories).Any();
+        if(HasFiles(apiDir)||HasFiles(disabledDir)||
+           File.Exists(Path.Combine(binaryRoot,"AsaApiLoader.exe"))||
+           File.Exists(Path.Combine(binaryRoot,"Version.dll"))||
+           File.Exists(Path.Combine(root,"Version.dll")))
+            scope|=LocalBackupScope.Plugins;
+        if(virgin&&!scope.HasFlag(LocalBackupScope.Ini))
+            throw new InvalidDataException("UM-STEAM-EMPTY-STORE-INI-BACKUP-REQUIRED");
+        return scope;
+    }
+
     public static Task<Receipt> UpdateAsync(ClusterService cluster,LocalMap map,
         string steamCmdExecutable,long downloadReserveBytes,
         TimeSpan timeout,IProgress<SteamMaintenanceStage>? progress=null,
@@ -280,12 +344,16 @@ public static class SteamStoppedMapUpdater
                 .TrimEnd(Path.DirectorySeparatorChar),root,StringComparison.OrdinalIgnoreCase))
             .ToArray();
         if(group.Length==0)throw new InvalidDataException("ASA installation ownership is missing");
+        bool emptyWorldBackup=false;
         void VerifyStopped()
         {
             // Recheck the entire live local registry at every irreversible
             // boundary; a newly registered Store sibling cannot be hidden
             // behind the initial preflight snapshot.
             DemandSafeLocalInstallation(cluster,map,CurrentObserver());
+            if(emptyWorldBackup&&!IsUntouchedEnrolledStore(cluster,map))
+                throw new InvalidOperationException(
+                    "UM-STEAM-EMPTY-STORE-WORLD-OR-PROFILE-CHANGED");
             foreach(var participant in group)
             {
                 var state=ObserveStopped(participant);
@@ -312,28 +380,18 @@ public static class SteamStoppedMapUpdater
                     "verified-pre-steam-update");
                 string destination=Path.Combine(backupRoot,map.Id.ToString("N")+"-"+
                     Guid.NewGuid().ToString("N"));
-                // A previously used map must have a real world/profile save.
-                // This is not a blind file update without a recoverable copy.
-                var scope=LocalBackupScope.WorldAndProfiles;
-                string ini=Path.Combine(root,"ShooterGame","Saved","Config","WindowsServer");
-                if(File.Exists(Path.Combine(ini,"Game.ini"))||
-                   File.Exists(Path.Combine(ini,"GameUserSettings.ini")))
-                    scope|=LocalBackupScope.Ini;
-                string binaryRoot=Path.Combine(root,"ShooterGame","Binaries","Win64");
-                string apiDir=Path.Combine(binaryRoot,"ArkApi");
-                string disabledDir=Path.Combine(binaryRoot,"UntamedDisabledPlugins");
-                bool hasFiles(string directory)=>Directory.Exists(directory)&&
-                    Directory.EnumerateFiles(directory,"*",SearchOption.AllDirectories).Any();
-                if(hasFiles(apiDir)||hasFiles(disabledDir)||
-                   File.Exists(Path.Combine(binaryRoot,"AsaApiLoader.exe"))||
-                   File.Exists(Path.Combine(binaryRoot,"Version.dll"))||
-                   File.Exists(Path.Combine(root,"Version.dll")))
-                    scope|=LocalBackupScope.Plugins;
+                // Existing worlds always require the complete world/profile
+                // backup. A never-started, separately enrolled Store map may
+                // instead back up its verified native RCON INI (and any API
+                // plugins) before the very first world is ever created.
+                var scope=PreUpdateBackupScope(cluster,map);
+                emptyWorldBackup=!scope.HasFlag(LocalBackupScope.WorldAndProfiles);
                 VerifyStopped();
                 progress?.Report(SteamMaintenanceStage.Backup);
                 // The verified backup is created OUTSIDE the install root.
-                // LocalBackupWorkflow hashes source AND destination and fails
-                // on changed memberships. Missing world saves reject update.
+                // LocalBackupWorkflow hashes source/destination and rejects
+                // incomplete world saves. The exact empty-world exception is
+                // limited to a never-launched new Store map with backed-up INI.
                 var backup=LocalBackupWorkflow.Create(map,ObserveStopped(map),
                     destination,scope,checkCurrent:()=>ObserveStopped(map),
                     limits:BackupResourcePolicy.ForManagerProfile(cluster.Store.Root));
