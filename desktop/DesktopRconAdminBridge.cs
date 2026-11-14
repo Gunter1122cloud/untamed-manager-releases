@@ -218,7 +218,9 @@ public sealed class DesktopRconAdminBridge
                 lease.Complete();
                 return Ok(id,new{
                     mapId=owned.Id,mapName=owned.Name,action=job.Action,
-                    command=job.Command,response=UntamedPresentation.Redact(output),
+                    command=job.Command,
+                    response=UntamedPresentation.Redact(output)
+                        .Replace(password,"[REDACTED]",StringComparison.Ordinal),
                     commandSent=true,observedUtc=DateTimeOffset.UtcNow,
                     oneShot=true,saveCompleteProven=false,
                     storeWriterTouched=false,
