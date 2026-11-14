@@ -7,8 +7,8 @@ import {managerBridge,type AsaApiCoreRelease,type AsaApiCorePreview,type AsaApiC
  * ZIP bytes, on-disk backups, process checks and transaction journal.
  * The React UI never sees a filesystem path, token or secret from korábbi Manager Store.
  */
-export function AsaApiCoreInstaller({mapId,onInstalled}:{
-  mapId:string;onInstalled:()=>void
+export function AsaApiCoreInstaller({mapId,mapName,onInstalled}:{
+  mapId:string;mapName:string;onInstalled:()=>void
 }){
   const [release,setRelease]=useState<AsaApiCoreRelease|null>(null);
   const [asset,setAsset]=useState("");
@@ -120,7 +120,7 @@ export function AsaApiCoreInstaller({mapId,onInstalled}:{
       setError("A visszaállítás nem lett igazolt. A Manager tartós műveleti naplóját ellenőrizni kell; automatikus újrapróbálás nincs.");
     }finally{setBusy(false);}
   };
-  return <section className="premium-panel" aria-label="Hivatalos ASA API CORE telepítés" style={{marginTop:18,padding:20}}>
+  return <section className="premium-panel" aria-label={"Hivatalos ASA API CORE telepítés · "+mapName} style={{marginTop:18,padding:20}}>
     <header className="premium-panel-heading"><h2><Download size={19}/> ASA API CORE · hivatalos GitHub frissítő</h2></header>
     <p>Csak saját, igazoltan leállított friss ASA vagy külön regisztrált új Store mapon végez célzott binárisfrissítést. Az eredetileg importált Store-v1 mapok védettek. A hivatalos kiadás GitHub SHA-256 ellenőrzése és a régi DLL/EXE bájtpontos megőrzése kötelező. Pluginbeállítások, mentések és a világfájlok nem módosulnak.</p>
     <button className="secondary" type="button" disabled={busy}
