@@ -342,7 +342,8 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                     _=Task.Run(async()=>{
                         try
                         {
-                            var until=DateTimeOffset.UtcNow.AddMinutes(3);
+                            var until=DateTimeOffset.UtcNow+
+                                FreshStoreApiPairObserver.StartupObservationWindow;
                             while(DateTimeOffset.UtcNow<until)
                             {
                                 var seen=LegacyStoreV1ProcessObserver.Observe(
