@@ -88,6 +88,9 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     {
         lock(sync)
         {
+            // Delayed RCON evidence reporting cannot reopen a completed
+            // original Store Stop/SaveWorld or hide manual recovery state.
+            if(job.State is "completed" or "needsOperator")return;
             job.State=state;job.Step=step;job.ChangedUtc=DateTimeOffset.UtcNow;
             if(receipt!=null)
             {
