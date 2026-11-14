@@ -8357,6 +8357,7 @@ try
         const string restartSource="CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
         int oldRestartPid=44311,saveExitCalls=0,newStarts=0;
         bool failNextStart=false,oldRestartExited=false;
+        Action<string>? lateStoreRestartProgress=null;
         var oldStartTime=new DateTimeOffset(2026,11,8,11,0,0,TimeSpan.Zero);
         var releaseOldExit=new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -8372,6 +8373,7 @@ try
             Action<string> report)
         {
             saveExitCalls++;
+            lateStoreRestartProgress=report;
             var journal=new AsaManualRestartJournal(restartRoot).Observe();
             Check(journal!=null&&journal.Phase==AsaRestartPhase.Stopping&&
                   journal.Id==journalId&&journal.MapId==restartMap.Id&&
@@ -8488,6 +8490,16 @@ try
             Check(completed?.Phase==AsaRestartPhase.Completed&&
                   completed.NewPid==44312,
                 "Store Restart closes durable journal only on verified new PID");
+            Check(lateStoreRestartProgress!=null,
+                "Store Restart captures the approved native progress callback");
+            lateStoreRestartProgress!("DELAYED ORIGINAL RESTART PROGRESS");
+            var stableRestart=await Call(restartBridge.HandleAsync,
+                "historical.restartStatus",new{jobId});
+            Check(stableRestart.GetProperty("data").GetProperty("state")
+                    .GetString()=="completed"&&
+                  !stableRestart.GetProperty("data").GetProperty("step")
+                    .GetString()!.Contains("DELAYED",StringComparison.Ordinal),
+                "late Store Restart stage cannot undo a completed replacement PID");
             // A separately approved attempt may fail after the old ASA stopped;
             // a crashed Manager must never launch another process automatically.
             failNextStart=true;
@@ -8516,6 +8528,14 @@ try
             Check(status.GetProperty("data").GetProperty("step").GetString()!
                       .Contains("[UM-",StringComparison.Ordinal),
                 "failed Store restart exposes a bounded failure code while retaining NeedsOperator");
+            lateStoreRestartProgress!("DELAYED ORIGINAL FAILED RESTART");
+            var retainedFailure=await Call(restartBridge.HandleAsync,
+                "historical.restartStatus",new{jobId});
+            Check(retainedFailure.GetProperty("data").GetProperty("state")
+                    .GetString()=="needsOperator"&&
+                  retainedFailure.GetProperty("data").GetProperty("step")
+                    .GetString()!.Contains("[UM-",StringComparison.Ordinal),
+                "late Store Restart evidence cannot hide a failed durable recovery");
         }
         using(var reattached=new DesktopHistoricalRestartBridge(
             restartCluster,RestartProbe,RestartStop,RestartStart))
