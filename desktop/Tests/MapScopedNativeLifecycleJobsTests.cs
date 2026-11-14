@@ -78,6 +78,42 @@ internal static class MapScopedNativeLifecycleJobsTests
                     :new ProcessCheck(true,"owned synthetic ASA",processes[index]);
             });
         foreach(var map in maps)cluster.AddMap(map);
+        // Rejected previews must preserve the earlier token, including across
+        // two independent local maps. The fake sender never opens a socket.
+        int adminPreviewSends=0;
+        var localAdmin=new DesktopRconAdminBridge(cluster,
+            (port,pid)=>Enumerable.Range(0,2).Any(i=>
+                maps[i].RconPort==port&&processes[i].Pid==pid),
+            (host,port,password,command,ct)=>{
+                Check(host=="127.0.0.1"&&command.StartsWith("Broadcast ",
+                    StringComparison.Ordinal),
+                    "synthetic admin sends remain loopback-only broadcasts");
+                adminPreviewSends++;
+                return Task.FromResult("SYNTHETIC_ADMIN_ACK");
+            });
+        var firstAdmin=Data(await Call(localAdmin.HandleAsync,
+            "rcon.adminPreview",new{mapId=maps[0].Id,action="broadcast",
+                message="first map approval"}),
+            "first fresh ASA admin preview is issued");
+        string firstAdminToken=firstAdmin.GetProperty("token").GetString()!;
+        var deniedAdmin=await Call(localAdmin.HandleAsync,
+            "rcon.adminPreview",new{mapId=maps[0].Id,action="custom",
+                message="SaveWorld"});
+        Check(!deniedAdmin.GetProperty("ok").GetBoolean(),
+            "unsafe admin preview is rejected without invalidating prior approval");
+        var secondAdmin=Data(await Call(localAdmin.HandleAsync,
+            "rcon.adminPreview",new{mapId=maps[1].Id,action="broadcast",
+                message="second map approval"}),
+            "second fresh ASA admin preview is issued");
+        string secondAdminToken=secondAdmin.GetProperty("token").GetString()!;
+        Data(await Call(localAdmin.HandleAsync,"rcon.adminSend",
+            new{token=firstAdminToken,confirm=true,typedApproval=""}),
+            "first map approval survives a rejected replacement preview");
+        Data(await Call(localAdmin.HandleAsync,"rcon.adminSend",
+            new{token=secondAdminToken,confirm=true,typedApproval=""}),
+            "second map approval survives first map dispatch");
+        Check(adminPreviewSends==2,
+            "each fresh map dispatches exactly once after preview isolation");
         Check(maps.All(map=>AsaReadyProbe.IsRegisteredServerBinary(map)&&
               FreshAsaInstallationSafety.IsProvenFresh(cluster,map)),
             "both local ASA install roots are independent and eligible");
@@ -222,6 +258,40 @@ internal static class MapScopedNativeLifecycleJobsTests
             if(idx<0)throw new UnauthorizedAccessException(
                 "UM-TEST-NO-FOREIGN-STORE-MAP");
             return new(maps[idx],processes[idx],sourceSha);
+        }
+        // The historical Store admin path uses a separate bridge and proof;
+        // it must enforce the same per-map failed-preview isolation.
+        int historicalAdminSends=0;
+        using(var historicalAdmin=new DesktopHistoricalRconAdminBridge(
+            cluster,Probe,(host,port,password,command,recheck,ct)=>{
+                recheck();
+                historicalAdminSends++;
+                return Task.FromResult("SYNTHETIC_ORIGINAL_ADMIN_ACK");
+            }))
+        {
+            var first=Data(await Call(historicalAdmin.HandleAsync,
+                "historical.adminPreview",new{mapId=maps[0].Id,
+                    action="broadcast",message="original first"}),
+                "first original Store admin approval is issued");
+            string firstToken=first.GetProperty("token").GetString()!;
+            var denied=await Call(historicalAdmin.HandleAsync,
+                "historical.adminPreview",new{mapId=maps[0].Id,
+                    action="custom",message="SaveWorld"});
+            Check(!denied.GetProperty("ok").GetBoolean(),
+                "rejected original Store preview preserves prior map token");
+            var second=Data(await Call(historicalAdmin.HandleAsync,
+                "historical.adminPreview",new{mapId=maps[1].Id,
+                    action="broadcast",message="original second"}),
+                "second original Store admin approval is issued");
+            string secondToken=second.GetProperty("token").GetString()!;
+            Data(await Call(historicalAdmin.HandleAsync,"historical.adminSend",
+                new{token=firstToken,confirm=true,typedApproval="STORE-V1 ADMIN"}),
+                "first original Store approval remains valid after denied preview");
+            Data(await Call(historicalAdmin.HandleAsync,"historical.adminSend",
+                new{token=secondToken,confirm=true,typedApproval="STORE-V1 ADMIN"}),
+                "second original Store map retains independent approval");
+            Check(historicalAdminSends==2,
+                "historical RCON dispatches exactly once per map without TCP");
         }
         Task<AsaGracefulStopReceipt> ForbiddenStop(
             Guid mapId,int pid,DateTimeOffset started,string source,
