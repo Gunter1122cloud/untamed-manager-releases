@@ -316,6 +316,8 @@ internal static class FreshStoreEnrollmentTests
             }
             var enrolled=manager.Config.LocalMaps.Single(x=>x.Id==mapId);
             FreshStoreEnrollmentPolicy.DemandEnrolled(manager,enrolled);
+            SteamStoppedMapUpdater.DemandSafeLocalInstallation(manager,enrolled);
+            Check(true,"exact enrolled Store map can preflight local stopped-only manual SteamCMD maintenance");
             // The exact installed Store profile can use natural ASA
             // SessionName text containing "ConvertToStore". Only actual
             // startup flags may cause a native conversion denial.
@@ -418,6 +420,8 @@ internal static class FreshStoreEnrollmentTests
             manager.ReplaceMap(enrolled,aliasSwap);
             Reject(()=>FreshStoreEnrollmentPolicy.DemandEnrolled(manager,aliasSwap),
                 "changed physical transfer-directory fingerprint blocks Store process authorization");
+            Reject(()=>SteamStoppedMapUpdater.DemandSafeLocalInstallation(manager,aliasSwap),
+                "manual SteamCMD also rejects changed Store transfer file identity before any download");
             Reject(()=>AsaApiOwnedInstaller.ListCompletedRollbacks(manager,mapId),
                 "changed Store transfer identity also blocks API Core update or rollback inspection");
             manager.ReplaceMap(aliasSwap,enrolled);
