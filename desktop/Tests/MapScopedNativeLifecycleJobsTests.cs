@@ -151,6 +151,7 @@ internal static class MapScopedNativeLifecycleJobsTests
             dispatched.Contains(maps[1].Id),
             "both ASA processes receive only their own one approved action");
         await VerifyOriginalStoreSaveWorldIsolated(root);
+        await VerifyFreshRestartJobs(root);
 
     }
     private static async Task VerifyOriginalStoreSaveWorldIsolated(string baseRoot)
@@ -270,6 +271,129 @@ internal static class MapScopedNativeLifecycleJobsTests
         lock(saved)Check(saved.Count==2&&
             saved.Contains(maps[0].Id)&&saved.Contains(maps[1].Id),
             "exactly one synthetic SaveWorld action per original Store map");
+    }
+
+    private static async Task VerifyFreshRestartJobs(string baseRoot)
+    {
+        string root=Path.Combine(baseRoot,"two-independent-restart-maps");
+        Directory.CreateDirectory(root);
+        var maps=new LocalMap[2];
+        var processes=new ProcessIdentity[2];
+        for(int i=0;i<2;i++)
+        {
+            string install=Path.Combine(root,"restart-map-"+i);
+            string binary=Path.Combine(install,
+                "ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+            File.WriteAllBytes(binary,new byte[]{0x4d,0x5a,0x90,0x00});
+            maps[i]=new LocalMap{
+                Name="Independent restart ASA map "+i,
+                InstallationPath=install,ExecutablePath=binary,
+                Arguments=(i==0?"TheIsland_WP":"Ragnarok_WP")+
+                    "?listen -port="+(7940+i)+" -QueryPort="+(27140+i),
+                GamePort=7940+i,QueryPort=27140+i,RconPort=37620+i,
+                RconHost="127.0.0.1",
+                RconPasswordProtected=SecureStore.Protect(
+                    "SYNTHETIC-MULTIMAP-RESTART-CREDENTIAL")
+            };
+            processes[i]=new ProcessIdentity{
+                Pid=45001+i,
+                StartedUtc=DateTimeOffset.UtcNow.AddMinutes(-5),
+                ExecutablePath=binary,Arguments=maps[i].Arguments
+            };
+            string manifest=Path.Combine(install,"steamapps","appmanifest_2430930.acf");
+            Directory.CreateDirectory(Path.GetDirectoryName(manifest)!);
+            File.WriteAllText(manifest,
+                "\"AppState\"\r\n{\r\n\"appid\" \"2430930\"\r\n"+
+                "\"buildid\" \"123456\"\r\n}\r\n");
+            AsaInitialRconSettings.CreateForNewServer(install,maps[i].RconPort,
+                "SYNTHETIC-MULTIMAP-RESTART-CREDENTIAL");
+        }
+        await using var cluster=new ClusterService(
+            "multi-map-native-restart-isolation",
+            Path.Combine(root,"manager-profile"),map=>{
+                int index=map.Id==maps[0].Id?0:map.Id==maps[1].Id?1:-1;
+                return index<0
+                    ?new ProcessCheck(false,"unregistered synthetic map",null,false)
+                    :new ProcessCheck(true,"owned synthetic restart ASA",processes[index]);
+            });
+        foreach(var map in maps)cluster.AddMap(map);
+        Check(maps.All(map=>AsaRconConfigurationEvidence.Matches(map)&&
+            !string.IsNullOrWhiteSpace(
+                AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath))),
+            "both independent ASA restarts have real local RCON INI and Steam manifests");
+        var releaseFirst=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatched=new List<Guid>();
+        using var bridge=new DesktopFreshAsaRestartBridge(cluster,
+            (port,pid)=>(port==37620&&pid==45001)||
+                        (port==37621&&pid==45002),
+            async (mapId,old,restartId,progress)=>{
+                lock(dispatched)dispatched.Add(mapId);
+                if(mapId==maps[0].Id)
+                    await releaseFirst.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                new AsaManualRestartJournal(maps[mapId==maps[0].Id?0:1].
+                    InstallationPath).Change(restartId,AsaRestartPhase.Starting);
+                var stopped=new AsaGracefulStopReceipt(mapId,old.Pid,
+                    true,false,true,DateTimeOffset.UtcNow,
+                    "SYNTHETIC_SAVEWORLD_OLD_ASA_EXIT");
+                var started=new ProcessIdentity{
+                    Pid=old.Pid+20,
+                    StartedUtc=old.StartedUtc.AddMinutes(1),
+                    ExecutablePath=old.ExecutablePath,
+                    Arguments=old.Arguments
+                };
+                return (stopped,started);
+            });
+        string[] ids=new string[2];
+        for(int i=0;i<2;i++)
+        {
+            var preview=Data(await Call(bridge.HandleAsync,
+                "servers.restartPreview",new{mapId=maps[i].Id}),
+                "fresh ASA map "+i+" receives its own restart preview");
+            Check(preview.GetProperty("mapId").GetGuid()==maps[i].Id,
+                "restart approval cannot target a different map");
+            string token=preview.GetProperty("token").GetString()!;
+            var accepted=Data(await Call(bridge.HandleAsync,
+                "servers.restartApply",new{token,confirm=true}),
+                "fresh ASA map "+i+" receives exactly one approved restart job");
+            ids[i]=accepted.GetProperty("jobId").GetString()!;
+            Check(!string.IsNullOrWhiteSpace(ids[i]),
+                "restart job has an actual native task ID");
+        }
+        Check(ids[0]!=ids[1],"two ASA Restart tasks have distinct IDs");
+        var original=Data(await Call(bridge.HandleAsync,
+            "servers.restartCurrent",new{mapId=maps[0].Id}),
+            "map A Restart can reattach after map B already started");
+        var sibling=Data(await Call(bridge.HandleAsync,
+            "servers.restartCurrent",new{mapId=maps[1].Id}),
+            "map B Restart can reattach independently");
+        Check(original.GetProperty("inMemoryJobId").GetString()==ids[0]&&
+              original.GetProperty("inMemoryRunning").GetBoolean()&&
+              sibling.GetProperty("inMemoryJobId").GetString()==ids[1],
+            "Restart statuses are not overwritten across local map boundaries");
+        var status=Data(await Call(bridge.HandleAsync,
+            "servers.restartStatus",new{jobId=ids[0]}),
+            "old Restart job ID resolves independently of latest map action");
+        Check(status.GetProperty("jobId").GetString()==ids[0],
+            "previous Restart status is not replaced by newer map job");
+        releaseFirst.TrySetResult(true);
+        for(int n=0;n<90;n++)
+        {
+            var progress=Data(await Call(bridge.HandleAsync,
+                "servers.restartStatus",new{jobId=ids[0]}),
+                "map A native Restart status remains queryable");
+            if(progress.GetProperty("state").GetString()=="completed")break;
+            await Task.Delay(25);
+        }
+        var done=Data(await Call(bridge.HandleAsync,
+            "servers.restartStatus",new{jobId=ids[0]}),
+            "first completed Restart retained its own final receipt");
+        Check(done.GetProperty("state").GetString()=="completed",
+            "first synthetic ASA Restart finishes after second map started");
+        lock(dispatched)Check(dispatched.Count==2&&
+            dispatched.Contains(maps[0].Id)&&dispatched.Contains(maps[1].Id),
+            "one native simulated Restart dispatch per independent local map");
     }
 
 }
