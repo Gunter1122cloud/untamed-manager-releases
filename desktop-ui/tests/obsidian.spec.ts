@@ -5364,6 +5364,9 @@ test("enrolled empty Store map exposes manual stopped-only SteamCMD diagnostics 
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_FRESH_STORE_API_MODE_READY__?:()=>void;
   }).__UNTAMED_FRESH_STORE_API_MODE_READY__?.());
+  // Refresh the React-owned snapshot after changing the injected native
+  // fixture; changing mock state alone does not publish a dashboard update.
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("navigation",{name:"Fő navigáció"})
     .getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local")
