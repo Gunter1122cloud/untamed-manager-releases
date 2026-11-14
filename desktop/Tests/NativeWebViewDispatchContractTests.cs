@@ -231,6 +231,22 @@ internal static class NativeWebViewDispatchContractTests
             Check(apiCoreUi.Contains("managerBridge."+operation+"(",
                     StringComparison.Ordinal),
                 "ASA API CORE UI calls production native method: "+operation);
+        string apiCoreNative=Read("desktop/DesktopAsaApiCoreBridge.cs");
+        Check(apiCoreNative.Contains(
+                "Dictionary<Guid,Approval> pendingByMap",
+                StringComparison.Ordinal)&&
+              apiCoreNative.Contains(
+                "Dictionary<Guid,RollbackApproval> rollbackByMap",
+                StringComparison.Ordinal)&&
+              !apiCoreNative.Contains("private Approval? pending;",
+                StringComparison.Ordinal)&&
+              !apiCoreNative.Contains("private RollbackApproval? pendingRollback;",
+                StringComparison.Ordinal),
+            "ASA API CORE install/rollback approvals are isolated by map rather than global slots");
+        Check(apiCoreNative.Contains(
+                "AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed",
+                StringComparison.Ordinal),
+            "completed operator review is not mistaken for an unresolved CORE update blocker");
         Check(pluginCenter.Contains("Pluginmappa megnyitása",
                 StringComparison.Ordinal)&&
               !pluginCenter.Contains("<PluginZipInstaller",
