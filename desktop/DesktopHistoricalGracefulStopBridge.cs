@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -43,8 +44,15 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         string SourceSha,DateTimeOffset Created);
     private ReviewApproval? pendingReview;
     private readonly Func<Guid,string,bool> verifyReviewSource;
-    private Job? currentJob;
+    // Per-map Store SaveWorld/DoExit receipts must remain observable when
+    // a second independent map starts another approved native operation.
+    private readonly Dictionary<Guid,Job> jobsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
+    private bool HasActive(Guid mapId)
+    {
+        lock(sync)return jobsByMap.TryGetValue(mapId,out var existing)&&
+            existing.State is ("queued" or "running");
+    }
 
     public DesktopHistoricalGracefulStopBridge(ClusterService service):
         this(service,null,null){}
@@ -131,9 +139,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             reviewedMap.InstallationPath).Observe();
         if(pendingRestart!=null&&pendingRestart.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed))
             return false;
-        lock(sync)
-            if(currentJob!=null&&currentJob.MapId==reviewedMapId&&
-               currentJob.State is "queued" or "running")return false;
+        if(HasActive(reviewedMapId))return false;
         // Paired local Stop/Restart journal review needs the exact same
         // owned-map source fingerprint, NOT a fresh Kova peer DONE marker.
         // No SaveWorld/DoExit command is replayed in this read-only review.
@@ -157,8 +163,8 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         bool restartPending=restart!=null&&restart.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
         Job? running;
         lock(sync)
-            running=currentJob!=null&&currentJob.MapId==mapId&&
-                currentJob.State is "queued" or "running"?currentJob:null;
+            running=jobsByMap.TryGetValue(mapId,out var tracked)&&
+                tracked.State is ("queued" or "running")?tracked:null;
         bool operationBlocked=journal!=null&&journal.Phase is
             UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
             UntamedOperationPhase.NeedsOperator;
@@ -335,17 +341,15 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                 }
                 if(method is "historical.gracefulStopStatus" or "historical.saveWorldStatus")
                 {
-                    if(!GuidValue(request,"jobId",out var jobId)||
-                       currentJob==null||currentJob.Id!=jobId||
-                       (method=="historical.saveWorldStatus")!=(currentJob.Kind=="SaveWorldOnly"))
+                    if(!GuidValue(request,"jobId",out var jobId))
                         return Fail(id,"UM-ORIGINAL-STOP-JOB-NOT-FOUND");
-                    return Ok(id,Snapshot(currentJob));
-                }
-                if(currentJob!=null)
-                {
-                    lock(sync)
-                        if(currentJob.State is "queued" or "running")
-                            return Fail(id,"UM-ORIGINAL-STOP-JOB-BUSY");
+                    Job? tracked;
+                    lock(sync)tracked=jobsByMap.Values.FirstOrDefault(
+                        item=>item.Id==jobId);
+                    if(tracked==null||
+                       (method=="historical.saveWorldStatus")!=(tracked.Kind=="SaveWorldOnly"))
+                        return Fail(id,"UM-ORIGINAL-STOP-JOB-NOT-FOUND");
+                    return Ok(id,Snapshot(tracked));
                 }
                 if(method is "historical.gracefulStopPreview" or "historical.saveWorldPreview")
                 {
@@ -366,6 +370,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                     if(original==null||!original.HistoricalStoreProtected||
                        original.Maintenance)
                         return Fail(id,"UM-ORIGINAL-STOP-LOCAL-ONLY");
+                    if(HasActive(mapId))return Fail(id,"UM-ORIGINAL-STOP-JOB-BUSY");
                     // A durable installation journal blocks even a new
                     // approval PREVIEW after a previous crash. Its read-only
                     // recovery screen must appear before any new RCON action.
@@ -418,6 +423,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                    JsonSerializer.Serialize(map)!=approved.Profile||
                    map.RconPort!=approved.RconPort)
                     return Fail(id,"UM-ORIGINAL-STOP-MAP-CHANGED");
+                if(HasActive(map.Id))return Fail(id,"UM-ORIGINAL-STOP-JOB-BUSY");
                 var rechecked=await Task.Run(()=>preview(map.Id));
                 if(!ReferenceEquals(rechecked.Map,map)||
                    rechecked.Process.Pid!=approved.Pid||
@@ -433,7 +439,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         job.Id,map.Id,approved.Pid,approved.StartedUtc,
                         approved.SourceSha);
                 }
-                currentJob=job;
+                lock(sync)jobsByMap[map.Id]=job;
                 _=Task.Run(async()=>{
                     Update(job,"running",approved.Kind=="SaveWorldOnly"?
                         "Eredeti Store-v1 SaveWorld és mentésigazolás":
