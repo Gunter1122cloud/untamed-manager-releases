@@ -44,7 +44,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
     private readonly bool nativeLauncher;
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly object sync=new();
-    private Approval? pending;
+    private readonly Dictionary<Guid,Approval> approvalsByMap=new();
     // Preserve the in-memory Restart identity of every local ASA map.
     private readonly Dictionary<Guid,Job> jobsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -208,9 +208,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                 }
                 if(method=="historical.restartPreview")
                 {
-                    pending=null;
                     if(!ReadId(request,"mapId",out var mapId))
                         return Fail(id,"UM-ORIGINAL-RESTART-MAP");
+                    approvalsByMap.Remove(mapId);
                     var map=Owned(mapId);
                     if(map==null||!map.HistoricalStoreProtected||map.Maintenance)
                         return Fail(id,"UM-ORIGINAL-RESTART-LOCAL-ONLY");
@@ -230,11 +230,12 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     if(!ReferenceEquals(owned.Map,map)||owned.Process.Pid<=0||
                        owned.Process.StartedUtc==default||owned.SourceSha.Length!=64)
                         return Fail(id,"UM-ORIGINAL-RESTART-SOURCE-INVALID");
-                    pending=new Approval(Guid.NewGuid(),mapId,owned.Process.Pid,
+                    var permit=new Approval(Guid.NewGuid(),mapId,owned.Process.Pid,
                         owned.Process.StartedUtc,JsonSerializer.Serialize(map),
                         owned.SourceSha,map.RconPort,DateTimeOffset.UtcNow);
+                    approvalsByMap[mapId]=permit;
                     return Ok(id,new{
-                        token=pending.Token,mapId,mapName=map.Name,
+                        token=permit.Token,mapId,mapName=map.Name,
                         pid=owned.Process.Pid,rconPort=map.RconPort,
                         launchMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",
                         usesSaveWorld=true,usesDoExit=true,launchesOriginalActive=true,
@@ -243,9 +244,12 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         evidence="ORIGINAL_STORE_V1_RESTART_TWO_STAGE_PREFLIGHT"
                     });
                 }
-                if(!ReadId(request,"token",out var token)||pending==null||
-                   pending.Token!=token||
-                   DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(3))
+                if(!ReadId(request,"token",out var token))
+                    return Fail(id,"UM-ORIGINAL-RESTART-TOKEN-EXPIRED");
+                var approved=approvalsByMap.Values.SingleOrDefault(
+                    item=>item.Token==token);
+                if(approved==null||
+                   DateTimeOffset.UtcNow-approved.Created>TimeSpan.FromMinutes(3))
                     return Fail(id,"UM-ORIGINAL-RESTART-TOKEN-EXPIRED");
                 if(!request.TryGetProperty("confirm",out var confirm)||
                    confirm.ValueKind!=JsonValueKind.True||
@@ -253,7 +257,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                    phrase.ValueKind!=JsonValueKind.String||
                    phrase.GetString()!="STORE-V1 SAVEWORLD DOEXIT START")
                     return Fail(id,"UM-ORIGINAL-RESTART-TYPED-APPROVAL");
-                var approved=pending;pending=null;
+                approvalsByMap.Remove(approved.MapId);
                 var original=Owned(approved.MapId);
                 if(original==null||!original.HistoricalStoreProtected||
                    original.Maintenance||

@@ -38,7 +38,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     private readonly Func<Guid,int,DateTimeOffset,string,Action<string>,Task<LegacyStoreV1GracefulStop.SaveOnlyReceipt>> saveOnly;
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly object sync=new();
-    private Approval? pending;
+    private readonly Dictionary<Guid,Approval> approvalsByMap=new();
     private sealed record ReviewApproval(Guid Token,Guid MapId,
         Guid ReceiptOperation,Guid? CoordinatorOperation,
         string SourceSha,DateTimeOffset Created);
@@ -363,9 +363,9 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                     if(saved?.Phase is "prepared" or "needsOperator")
                         return Fail(id,"UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW");
                     bool saveWorldOnly=method=="historical.saveWorldPreview";
-                    pending=null;
                     if(!GuidValue(request,"mapId",out var mapId))
                         return Fail(id,"UM-ORIGINAL-STOP-MAP");
+                    approvalsByMap.Remove(mapId);
                     var original=Owned(mapId);
                     if(original==null||!original.HistoricalStoreProtected||
                        original.Maintenance)
@@ -387,13 +387,14 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         return Fail(id,"UM-ORIGINAL-STOP-SOURCE-INVALID");
                     bool legacyPeerNeeded=!LegacyStoreV1PinnedSource.HasApprovedLocalSource(
                         cluster.Store.Root,original);
-                    pending=new Approval(Guid.NewGuid(),mapId,owned.Process.Pid,
+                    var permit=new Approval(Guid.NewGuid(),mapId,owned.Process.Pid,
                         owned.Process.StartedUtc,JsonSerializer.Serialize(original),
                         owned.SourceSha,original.RconPort,DateTimeOffset.UtcNow,
                         saveWorldOnly?"SaveWorldOnly":"Stop");
+                    approvalsByMap[mapId]=permit;
                     return Ok(id,new{
-                        token=pending.Token,mapId,mapName=original.Name,
-                        pid=pending.Pid,rconPort=pending.RconPort,
+                        token=permit.Token,mapId,mapName=original.Name,
+                        pid=permit.Pid,rconPort=permit.RconPort,
                         originalTwoPeersVerified=legacyPeerNeeded&&nativePreview,
                         originalPeerCheckRequiredForLocalOperation=legacyPeerNeeded,
                         usesSaveWorld=true,usesDoExit=!saveWorldOnly,forceKillAllowed=false,
@@ -403,12 +404,15 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                             "ORIGINAL_STORE_V1_SAVEWORLD_DOEXIT_PREFLIGHT_ONLY"
                     });
                 }
-                if(!GuidValue(request,"token",out var token)||pending==null||
-                   pending.Token!=token||
-                   DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(3))
+                if(!GuidValue(request,"token",out var token))
+                    return Fail(id,"UM-ORIGINAL-STOP-TOKEN-EXPIRED");
+                var approved=approvalsByMap.Values.SingleOrDefault(
+                    item=>item.Token==token);
+                if(approved==null||
+                   DateTimeOffset.UtcNow-approved.Created>TimeSpan.FromMinutes(3))
                     return Fail(id,"UM-ORIGINAL-STOP-TOKEN-EXPIRED");
                 bool wantsSaveOnly=method=="historical.saveWorldApply";
-                if(wantsSaveOnly!=(pending.Kind=="SaveWorldOnly"))
+                if(wantsSaveOnly!=(approved.Kind=="SaveWorldOnly"))
                     return Fail(id,"UM-ORIGINAL-STOP-OPERATION-MISMATCH");
                 if(!request.TryGetProperty("confirm",out var confirmed)||
                    confirmed.ValueKind!=JsonValueKind.True||
@@ -417,7 +421,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                    text.GetString()!=(wantsSaveOnly?
                        "STORE-V1 SAVEWORLD":"STORE-V1 SAVEWORLD DOEXIT"))
                     return Fail(id,"UM-ORIGINAL-STOP-TYPED-CONFIRMATION");
-                Approval approved=pending;pending=null;
+                approvalsByMap.Remove(approved.MapId);
                 var map=Owned(approved.MapId);
                 if(map==null||!map.HistoricalStoreProtected||
                    JsonSerializer.Serialize(map)!=approved.Profile||
