@@ -5351,6 +5351,72 @@ try
         Check(IsError(foreign,"UM-MAP-NOT-OWNED"),
             "RCON cannot target an unregistered or remote peer map");
 
+        // A slow first map must not block RCON from a different local ASA.
+        // No RCON or live ASA process is started in this fixture.
+        await using(var parallelCluster=new ClusterService(
+            "rcon-parallel-local",
+            Path.Combine(root,"rcon-parallel-local-profile"),
+            _=>new ProcessCheck(true,"parallel synthetic local process",identity,false)))
+        {
+            var parallelA=new LocalMap{
+                Name="The Island",Id=Guid.NewGuid(),
+                InstallationPath=syntheticRconRoot,
+                ExecutablePath=syntheticRconExe,
+                RconHost="127.0.0.1",RconPort=37555,
+                RconPasswordProtected=SecureStore.Protect("test-only-passphrase")
+            };
+            string parallelOtherRoot=Path.Combine(root,"rcon-parallel-other-install");
+            Directory.CreateDirectory(parallelOtherRoot);
+            var parallelB=new LocalMap{
+                Name="Ragnarok",Id=Guid.NewGuid(),
+                InstallationPath=parallelOtherRoot,
+                ExecutablePath=Path.Combine(parallelOtherRoot,"ArkAscendedServer.exe"),
+                RconHost="127.0.0.1",RconPort=37565,
+                RconPasswordProtected=SecureStore.Protect("test-only-passphrase")
+            };
+            parallelCluster.AddMap(parallelA);
+            parallelCluster.AddMap(parallelB);
+            var firstEntered=new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var firstRelease=new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            int firstCalls=0,secondCalls=0;
+            var parallelRcon=new DesktopRconReadOnlyBridge(parallelCluster,
+                (portNumber,pid)=>pid==identity.Pid&&
+                    (portNumber==parallelA.RconPort||portNumber==parallelB.RconPort),
+                async(host,portNumber,password,command,ct)=>{
+                    Check(host=="127.0.0.1"&&password=="test-only-passphrase"&&
+                          command is "ListPlayers" or "GetGameLog",
+                        "parallel fresh ASA RCON remains fixed-command and loopback-only");
+                    if(portNumber==parallelA.RconPort)
+                    {
+                        Interlocked.Increment(ref firstCalls);
+                        firstEntered.TrySetResult(true);
+                        await firstRelease.Task.WaitAsync(ct);
+                    }
+                    else Interlocked.Increment(ref secondCalls);
+                    return "SYNTHETIC_"+command;
+                });
+            var slowRead=Call(parallelRcon.HandleAsync,"rcon.listPlayers",
+                new{mapId=parallelA.Id});
+            await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            try
+            {
+                var otherRead=await Call(parallelRcon.HandleAsync,
+                    "rcon.gameLog",new{mapId=parallelB.Id})
+                    .WaitAsync(TimeSpan.FromSeconds(3));
+                IsOk(otherRead,"second local ASA does not wait for a stalled RCON map");
+                Check(otherRead.GetProperty("data").GetProperty("mapId").GetGuid()==
+                      parallelB.Id&&
+                      otherRead.GetProperty("data").GetProperty("command").GetString()==
+                      "GetGameLog"&&firstCalls==1&&secondCalls==1,
+                    "the two fresh ASA RCON lanes dispatch independently and exactly once");
+            }
+            finally{firstRelease.TrySetResult(true);}
+            IsOk(await slowRead.WaitAsync(TimeSpan.FromSeconds(5)),
+                "original slow ASA RCON finishes without a second dispatch");
+        }
+
         // Actual RCON admin execution is a separately approved, one-shot
         // native operation; the fake adapter never touches a game server.
         fakeMap.HistoricalStoreProtected=false;rconRunning=true;owner=true;
