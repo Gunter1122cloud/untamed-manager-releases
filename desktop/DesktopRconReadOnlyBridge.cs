@@ -256,7 +256,11 @@ public sealed class DesktopRconReadOnlyBridge
                         return Deny(id,"UM-RCON-SAVE-PROFILE-CHANGED");
                     lease.Complete();
                 }
-                string sanitized=UntamedPresentation.Redact(answer);
+                // The ASA response can echo its own currently configured
+                // ServerAdminPassword. Redact that exact DPAPI-unwrapped secret
+                // even if future log formatting evades generic redaction.
+                string sanitized=UntamedPresentation.Redact(answer)
+                    .Replace(password,"[REDACTED]",StringComparison.Ordinal);
                 if(method=="rcon.saveWorld")
                 {
                     if(bookmark!=null)
