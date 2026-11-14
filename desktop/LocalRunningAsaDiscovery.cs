@@ -25,28 +25,11 @@ public static class LocalRunningAsaDiscovery
         LocalAsaLaunchFacts.Facts? LaunchFacts=null,
         bool ObservedReadOnlyImported=false);
 
-    // ASA's native map URL may include an explicitly quoted SessionName,
-    // including spaces. Splitting at whitespace first makes valid launched
-    // servers impossible to identify or adopt. Only this known harmless
-    // URL option is accepted; extra URL switches remain unverified.
-    private static readonly Regex LaunchPrefix=new(
-        @"\A(?<map>[A-Za-z0-9_]{1,100})\?listen(?:\?SessionName=""[^""\r\n]{1,75}"")?(?=\s|\z)",
-        RegexOptions.IgnoreCase|RegexOptions.CultureInvariant,
-        TimeSpan.FromMilliseconds(100));
-
+    // The final Core physical Windows ownership check uses exactly
+    // the same parser as this display-only WMI classification.
     internal static bool TryReadLaunchArguments(string? value,
-        out string mapKey,out string flags)
-    {
-        mapKey="";flags="";
-        if(string.IsNullOrWhiteSpace(value)||value.Length>8192||
-           value.Any(char.IsControl))return false;
-        string source=value.TrimStart();
-        var match=LaunchPrefix.Match(source);
-        if(!match.Success)return false;
-        mapKey=match.Groups["map"].Value;
-        flags=source[match.Length..].TrimStart();
-        return true;
-    }
+        out string mapKey,out string flags)=>
+        AsaObservedLaunchArguments.TryRead(value,out mapKey,out flags);
 
     private static bool SamePath(string? first,string? second)
     {
