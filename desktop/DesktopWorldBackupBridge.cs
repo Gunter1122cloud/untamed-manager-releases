@@ -549,7 +549,6 @@ public sealed class DesktopWorldBackupBridge
                        m.ValueKind!=JsonValueKind.String||
                        !Guid.TryParse(m.GetString(),out var mid))
                         return Fail(id,"UM-BACKUP-INVALID-MAP");
-                    pendingByMap.Remove(mid);
                     var map=Owned(mid);
                     UniqueWorldDirectory(map);
                     Stopped(map);
@@ -581,7 +580,10 @@ public sealed class DesktopWorldBackupBridge
                         if(new FileInfo(world).Length>budget.MaxTotalBytes)
                             return Fail(id,"UM-BACKUP-RESOURCE-BYTE-LIMIT");
                     }
-                    if(pendingByMap.Count>=25)pendingByMap.Clear();
+                    // Do not revoke another map's verified backup/restore preview
+                    // just because this Manager has reached its approval limit.
+                    if(!pendingByMap.ContainsKey(mid)&&pendingByMap.Count>=25)
+                        return Fail(id,"UM-BACKUP-PREVIEW-CAPACITY");
                     var approved=new Ticket(Guid.NewGuid(),map.Id,point,
                         map.InstallationPath,map.Arguments,
                         DateTimeOffset.UtcNow.AddMinutes(5),
