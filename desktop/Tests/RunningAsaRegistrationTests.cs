@@ -60,6 +60,19 @@ internal static class RunningAsaRegistrationTests
                   new[]{namedSample},Array.Empty<LocalMap>())
                   .Single() is {MapKey:"Ragnarok_WP",MatchState:"unregistered"},
             "real ASA quoted SessionName with spaces keeps native WMI and mod/port discovery");
+        string namedArgs=LocalRunningAsaDiscovery.CommandArguments(namedLaunch,exe)!;
+        Check(AsaObservedLaunchArguments.TryRead(namedArgs,
+                  out var coreMapKey,out var coreFlags)&&
+              coreMapKey=="Ragnarok_WP"&&
+              !AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(coreFlags),
+            "final Core physical adoption shares the exact native named-map grammar");
+        Check(AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(
+                  coreFlags+" -usestore")&&
+              AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(
+                  coreFlags+" -ClusterDirOverride=C:\\Unsafe")&&
+              AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(
+                  coreFlags+" -ServerAdminPassword=secret"),
+            "Core refuses protected Store, transfer and password switches before WMI takeover");
         string unexpectedUrl="\""+exe+"\" "+
             "Ragnarok_WP?listen?SessionName=\"Untamed\"?ServerPassword=secret"+
             " -Port=7817 -QueryPort=27037";
