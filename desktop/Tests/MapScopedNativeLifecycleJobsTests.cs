@@ -84,10 +84,13 @@ internal static class MapScopedNativeLifecycleJobsTests
         var firstReleased=new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var dispatched=new List<Guid>();
+        Action<string>? lateStopProgress=null;
         using var bridge=new DesktopFreshAsaStopBridge(cluster,
             (port,pid)=>(port==37570&&pid==44801)||
                         (port==37571&&pid==44802),
-            async (map,identity)=>{
+            null,
+            async (map,identity,stage)=>{
+                if(map==maps[0].Id)lateStopProgress=stage;
                 lock(dispatched)dispatched.Add(map);
                 if(map==maps[0].Id)
                     await firstReleased.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -153,6 +156,16 @@ internal static class MapScopedNativeLifecycleJobsTests
             "first completed Stop remains readable after sibling dispatch");
         Check(completed.GetProperty("state").GetString()=="completed",
             "first native Stop completes independently");
+        Check(lateStopProgress!=null,
+            "first ASA Stop retained its exact injected progress callback");
+        lateStopProgress!("DELAYED FRESH STOP PROGRESS");
+        var stableStop=Data(await Call(bridge.HandleAsync,
+            "servers.gracefulStopStatus",new{jobId=jobIds[0]}),
+            "final Stop status remains queryable after delayed progress");
+        Check(stableStop.GetProperty("state").GetString()=="completed"&&
+              stableStop.GetProperty("step").GetString()==
+                "Windows process verified stopped",
+            "late ASA Stop callback cannot reopen a verified terminated process");
         lock(dispatched)Check(dispatched.Count==2 &&
             dispatched.Contains(maps[0].Id)&&
             dispatched.Contains(maps[1].Id),
