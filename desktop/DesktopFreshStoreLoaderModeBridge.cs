@@ -148,13 +148,13 @@ public sealed class DesktopFreshStoreLoaderModeBridge : IDisposable
                        !req.TryGetProperty("useApi",out var choice)||
                        choice.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                         return Fail(id,"UM-FRESH-STORE-API-SELECTION");
-                    pendingByMap.Remove(mapId);
                     var map=Owned(mapId);
                     bool useApi=choice.GetBoolean();
                     if(map==null||map.StartWithAsaApi==useApi)
                         return Fail(id,"UM-FRESH-STORE-API-UNCHANGED");
                     var (loader,cache)=await Task.Run(()=>Preflight(map,useApi));
-                    if(pendingByMap.Count>=25)pendingByMap.Clear();
+                    if(!pendingByMap.ContainsKey(mapId)&&pendingByMap.Count>=25)
+                        return Fail(id,"UM-FRESH-STORE-API-PREVIEW-CAPACITY");
                     var previewApproval=new Approval(Guid.NewGuid(),map.Id,
                         JsonSerializer.Serialize(map),useApi,loader,DateTimeOffset.UtcNow);
                     pendingByMap[map.Id]=previewApproval;
