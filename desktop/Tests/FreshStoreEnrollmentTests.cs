@@ -275,6 +275,43 @@ internal static class FreshStoreEnrollmentTests
                       StringComparison.Ordinal)&&
                   plan.InstalledBuild=="980812"&&plan.RegistryRevision>0,
                 "new empty Store launch uses existing cluster metadata, exactly one -usestore, zero conversion");
+            // Independent new map, SteamCMD installation, RCON/INI and
+            // ClusterRegistry membership. Previewing one map must not revoke
+            // the other map's pending enrollment. No ASA process is started.
+            Guid secondMapId=Guid.Parse("11111111-2222-4333-8444-555555555557");
+            string secondInstall=Path.Combine(root,"future-ragnarok-install");
+            string secondBinary=Path.Combine(secondInstall,"ShooterGame","Binaries","Win64");
+            Directory.CreateDirectory(secondBinary);
+            File.WriteAllBytes(Path.Combine(secondBinary,"ArkAscendedServer.exe"),
+                new byte[]{77,90,7,9});
+            string secondSteamApps=Path.Combine(secondInstall,"steamapps");
+            Directory.CreateDirectory(secondSteamApps);
+            File.WriteAllText(Path.Combine(secondSteamApps,"appmanifest_2430930.acf"),
+                File.ReadAllText(Path.Combine(apps,"appmanifest_2430930.acf")));
+            string secondTransfer=Path.Combine(root,"future-transfer");
+            Directory.CreateDirectory(secondTransfer);
+            var secondMap=new LocalMap{
+                Id=secondMapId,Name="Ragnarok",
+                InstallationPath=secondInstall,
+                ExecutablePath=Path.Combine(secondBinary,"ArkAscendedServer.exe"),
+                GamePort=7853,QueryPort=27553,RconPort=37553,
+                Arguments=AsaSteamMapCatalog.LaunchArguments(
+                    "Ragnarok","Future Store Map",7853,27553),
+                AutoStart=false
+            };
+            AsaInitialRconSettings.CreateForNewServer(
+                secondInstall,secondMap.RconPort,syntheticAdminPassword);
+            secondMap.RconPasswordProtected=SecureStore.Protect(syntheticAdminPassword);
+            manager.AddMap(secondMap);
+            manager.Registry.CreateCluster(
+                "future-preview-cluster","Another New Store",secondTransfer);
+            var secondAssignment=manager.Registry.PreviewMapAssignments(
+                "future-preview-cluster",new[]{secondMapId});
+            manager.Registry.ApplyMapAssignments(
+                "future-preview-cluster",new[]{secondMapId},secondAssignment.BaseRevision);
+            Check(FreshStoreEnrollmentPolicy.Prepare(manager,secondMap,
+                    "future-preview-cluster").MapId==secondMapId,
+                "independently owned future ASA map has valid Store enrollment preflight");
             string untouched=map.Arguments;
             using(var bridge=new DesktopFreshStoreEnrollmentBridge(manager))
             {
@@ -295,6 +332,22 @@ internal static class FreshStoreEnrollmentTests
                       !preview.GetRawText().Contains(transfer,StringComparison.OrdinalIgnoreCase),
                     "native preview exposes neither transfer path nor a fictional server Start");
                 var token=preview.GetProperty("data").GetProperty("token").GetString()!;
+                var secondPreview=await Call(bridge,
+                    "freshStore.enrollmentPreview",
+                    new{mapId=secondMapId,clusterId="future-preview-cluster"});
+                Check(secondPreview.GetProperty("ok").GetBoolean()&&
+                      !secondPreview.GetRawText().Contains(secondTransfer,
+                          StringComparison.OrdinalIgnoreCase),
+                    "second local Store map preview is independently authorized and path-redacted");
+                string secondToken=secondPreview.GetProperty("data")
+                    .GetProperty("token").GetString()!;
+                Check(secondToken!=token,"two map approvals never share a token");
+                var secondNotApproved=await Call(bridge,"freshStore.enrollmentApply",
+                    new{token=secondToken,confirm=true,typedApproval="NO"});
+                Check(secondNotApproved.GetProperty("error").GetString()==
+                      "UM-FRESH-STORE-EXPLICIT-APPROVAL"&&
+                      !FreshStoreEnrollmentPolicy.IsEnrolled(secondMap),
+                    "second-map approval remains recognized without modifying its Store profile");
                 var notApproved=await Call(bridge,"freshStore.enrollmentApply",
                     new{token,confirm=true,typedApproval="NO"});
                 Check(!notApproved.GetProperty("ok").GetBoolean()&&
