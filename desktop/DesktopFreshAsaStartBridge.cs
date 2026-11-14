@@ -218,23 +218,26 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
                     if(!Eligible(map))return Error(id,"UM-FRESH-START-NOT-READY");
                     approvalsByMap.Remove(mapId);
-                    var permit=new Approval(Guid.NewGuid(),map.Id,map.InstallationPath,
+                    string? installedBuild=AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath);
+                    if(string.IsNullOrWhiteSpace(installedBuild))
+                        return Error(id,"UM-FRESH-START-BUILD-NOT-VERIFIED");
+                    var previewApproval=new Approval(Guid.NewGuid(),map.Id,map.InstallationPath,
                         map.ExecutablePath,map.Arguments,map.GamePort,map.QueryPort,
-                        map.RconPort,AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath),
+                        map.RconPort,installedBuild,
                         map.StartWithAsaApi,map.ApiLoaderPath,map.ApiLoaderArguments,
                         map.RconPasswordProtected,map.FreshStoreClusterId,
                         map.FreshStoreTransferDirectory,map.FreshInstallMapLevel,
                         IniFingerprint(map),
                         AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map),
                         DateTimeOffset.UtcNow);
-                    approvalsByMap[map.Id]=permit;
+                    approvalsByMap[map.Id]=previewApproval;
                     return Ok(id,new {
-                        token=permit.Token,mapId=map.Id,mapName=map.Name,
-                        steamBuild=permit.Build,gamePort=map.GamePort,
+                        token=previewApproval.Token,mapId=map.Id,mapName=map.Name,
+                        steamBuild=previewApproval.Build,gamePort=map.GamePort,
                         queryPort=map.QueryPort,rconConfigured=map.RconPort>0 &&
                             !string.IsNullOrWhiteSpace(map.RconPasswordProtected),
                         confirmedStopped=true,serverStarted=false,
-                        launchMode=permit.UseApi?"asaApiLoader":"directAsa",
+                        launchMode=previewApproval.UseApi?"asaApiLoader":"directAsa",
                         evidence="FRESH_LOCAL_ASA_START_PREVIEW_NO_WRITE"
                     });
                 }
