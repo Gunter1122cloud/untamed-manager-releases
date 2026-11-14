@@ -6096,7 +6096,7 @@ test("stopped SteamCMD update displays exact local process and reserve evidence"
   await expect(diagnostics).toContainText("Szabad tárhely: 50 GiB");
   await expect(diagnostics).toContainText("SteamCMD: Telepítve");
   await expect(diagnostics).toContainText(
-    "Közös telepítés tulajdonjoga: ellenőrzött, kizárólag leállított nem Store mapok");
+    "Közös telepítés tulajdonjoga: ellenőrzött, a helyi, leállított telepítés mapjai");
 });
 
 test("cluster bulk SteamCMD queues only explicitly approved stopped local map beyond page 1",async({page})=>{
