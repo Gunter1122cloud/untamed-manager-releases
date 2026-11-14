@@ -219,7 +219,7 @@ internal static class NativeWebViewDispatchContractTests
                 StringComparison.Ordinal)&&
               pluginCenter.Contains("<AsaApiCoreInstaller key={selected}",
                 StringComparison.Ordinal)&&
-              pluginCenter.Contains("!owned.storeProtected&&!owned.freshStoreEnrolled",
+              pluginCenter.Contains("(!owned.storeProtected||owned.freshStoreEnrolled)",
                 StringComparison.Ordinal)&&
               pluginCenter.Contains("!owned.observedReadOnlyImported",
                 StringComparison.Ordinal),
