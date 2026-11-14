@@ -210,7 +210,9 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                         return Fail(id,"UM-ASA-RESTART-MAP");
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
-                    if(HasActive(mapId))return Fail(id,"UM-ASA-RESTART-BUSY");
+                    // restartCurrent is a read-only reattachment route. An
+                    // ACTIVE map-owned job is precisely what the UI needs to
+                    // inspect; only mutating preview/apply routes refuse it.
                     var saved=new AsaManualRestartJournal(map.InstallationPath).Observe();
                     bool belongs=saved!=null&&saved.MapId==map.Id;
                     bool pending=saved!=null&&saved.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
