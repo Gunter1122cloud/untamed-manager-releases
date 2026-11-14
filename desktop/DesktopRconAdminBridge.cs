@@ -129,12 +129,14 @@ public sealed class DesktopRconAdminBridge
                        !root.TryGetProperty("message",out var rawMessage)||
                        rawMessage.ValueKind!=JsonValueKind.String)
                         return Fail(id,"UM-RCON-INVALID-PREVIEW");
-                    pendingByMap.Remove(mapId);
                     string action=rawAction.GetString()??"";
                     string message=rawMessage.GetString()??"";
                     string command=BuildCommand(action,message);
                     var (map,identity)=RequireOwned(mapId);
-                    if(pendingByMap.Count>=25)pendingByMap.Clear();
+                    // A rejected preview must not invalidate another map's approval.
+                    // A valid replacement for this same map may reuse its slot.
+                    if(!pendingByMap.ContainsKey(mapId)&&pendingByMap.Count>=25)
+                        return Fail(id,"UM-RCON-ADMIN-PREVIEW-CAPACITY");
                     var draftApproval=new Pending(Guid.NewGuid(),map.Id,action,command,
                         identity.Pid,identity.StartedUtc,JsonSerializer.Serialize(map),
                         DateTimeOffset.UtcNow.AddMinutes(3));
