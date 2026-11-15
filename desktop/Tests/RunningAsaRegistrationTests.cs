@@ -159,6 +159,12 @@ internal static class RunningAsaRegistrationTests
                 new{pid=71221,startedUtc=started.ToString("O"),name="Ragnarok",
                     gamePort=7817,queryPort=27037});
             token=preview.GetProperty("data").GetProperty("token").GetString()!;
+            var refusedConsent=await Call(bridge,"servers.runningRegister",
+                new{token,confirm=false});
+            Check(!refusedConsent.GetProperty("ok").GetBoolean()&&
+                  refusedConsent.GetProperty("error").GetString()=="UM-LIVE-APPROVAL-REQUIRED"&&
+                  cluster.Config.LocalMaps.Count==0,
+                "declined single running-map import does not revoke valid token");
             var done=await Call(bridge,"servers.runningRegister",
                 new{token,confirm=true});
             var map=cluster.Config.LocalMaps.Single();
@@ -363,6 +369,13 @@ internal static class RunningAsaRegistrationTests
                   batchCluster.Config.LocalMaps.Count==0,
                 "two running maps sharing game/query ports cannot gain partial registrations");
             observations=new[]{sample,secondSample,storeSample};
+            string retainedBatchToken=batchPreview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            var declinedBatch=await Call(batchBridge,"servers.runningBatchRegister",
+                new{token=retainedBatchToken,confirm=false});
+            Check(!declinedBatch.GetProperty("ok").GetBoolean()&&
+                  declinedBatch.GetProperty("error").GetString()=="UM-LIVE-BATCH-APPROVAL-REQUIRED",
+                "rejected collision preview leaves prior batch token valid, but requires consent");
             batchPreview=await Call(batchBridge,"servers.runningBatchPreview",new{});
             Check(batchPreview.GetProperty("ok").GetBoolean() &&
                   batchPreview.GetProperty("data").GetProperty("count").GetInt32()==2,
