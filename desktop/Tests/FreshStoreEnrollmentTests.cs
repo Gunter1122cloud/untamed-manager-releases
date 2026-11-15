@@ -332,6 +332,13 @@ internal static class FreshStoreEnrollmentTests
                       !preview.GetRawText().Contains(transfer,StringComparison.OrdinalIgnoreCase),
                     "native preview exposes neither transfer path nor a fictional server Start");
                 var token=preview.GetProperty("data").GetProperty("token").GetString()!;
+                var rejectedReplacement=await Call(bridge,
+                    "freshStore.enrollmentPreview",
+                    new{mapId,clusterId="KovaCluster"});
+                Check(!rejectedReplacement.GetProperty("ok").GetBoolean()&&
+                      rejectedReplacement.GetProperty("error").GetString()==
+                        "UM-FRESH-STORE-KOVA-CLUSTER-RESERVED",
+                    "rejected historical Store assignment cannot erase valid fresh enrollment ticket");
                 var secondPreview=await Call(bridge,
                     "freshStore.enrollmentPreview",
                     new{mapId=secondMapId,clusterId="future-preview-cluster"});
