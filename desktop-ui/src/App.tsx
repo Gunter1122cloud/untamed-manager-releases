@@ -1722,9 +1722,10 @@ function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
   </>;
 }
 type MapSection = "overview" | "monitor" | "scheduler" | "steam" | "mods" | "plugins" | "ini" | "backups" | "logs" | "rcon";
-function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
+function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluster}: {
   snapshot:DashboardSnapshot;mapId:string;onBack:()=>void;
-  setSelected:(value:string)=>void;onConfigured:()=>Promise<void>
+  setSelected:(value:string)=>void;onConfigured:()=>Promise<void>;
+  onOpenCluster:()=>void
 }) {
   const [section,setSection]=useState<MapSection>("overview");
   const [originalRconAction,setOriginalRconAction]=useState<"broadcast"|"wildWipe">("broadcast");
@@ -1882,6 +1883,40 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
         </Panel>
       </div>
       <MapMaintenancePanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>
+      {fresh&&map.gamePort>0&&<Panel title="Új map teljes indítási beállítása">
+        <div role="region" aria-label="Új map beállításának lépései">
+          <p className="muted small">
+            A beállítások a meglévő natív kezelőkhöz vezetnek. Minden mentés
+            az adott map profiljában történik, jóváhagyással; a navigáció
+            önmagában nem indít ASA-t, nem küld RCON-t és nem ír Store-adatot.
+          </p>
+          <div className="map-info-line">
+            <span>1. Game / Query port és indítási profil</span>
+            <strong>{map.gamePort} / {map.queryPort}</strong>
+          </div>
+          <div className="map-info-line">
+            <span>2. RCON</span>
+            <strong>{map.rconConfigured?"Konfigurálva":"Beállítás szükséges"}</strong>
+          </div>
+          <div className="map-overview-actions">
+            <button className="secondary" type="button"
+              onClick={()=>setSection("rcon")}>RCON konfigurálása</button>
+            <button className="secondary" type="button"
+              onClick={()=>setSection("ini")}>Game.ini / GameUserSettings.ini</button>
+            <button className="secondary" type="button"
+              onClick={()=>setSection("mods")}>Modlista és sorrend</button>
+            <button className="secondary" type="button"
+              onClick={()=>setSection("plugins")}>ASA API indítási mód</button>
+            <button className="secondary" type="button"
+              onClick={onOpenCluster}>Cluster hozzárendelés</button>
+            <button className="primary" type="button"
+              onClick={()=>document.getElementById("fresh-asa-start-control")?
+                .scrollIntoView({behavior:"smooth",block:"start"})}>
+              Start és jóváhagyás
+            </button>
+          </div>
+        </div>
+      </Panel>}
       {historical&&!map.rconConfigured&&<div className="warning-inline" role="status">
         <Shield size={17}/> Az eredeti Store-v1 map RCON-kapcsolata még nincs
         az Obsidianhoz rendelve. A natív adminparancsokhoz és a külön jóváhagyott
@@ -1901,7 +1936,10 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       {historical&&<HistoricalStoreSaveWorldPanel key={mapId} mapId={mapId} running={map.running} onSaved={onConfigured}/>}
       {historical&&<HistoricalGracefulStopPanel mapId={mapId} running={map.running} onStopped={onConfigured}/>}
       {historical&&<HistoricalStoreRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured}/>}
-      {map.gamePort>0 && fresh && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} onOpenRcon={()=>setSection("rcon")} journalBlocked={lifecycleBlocked}/>}
+      {map.gamePort>0 && fresh && <div id="fresh-asa-start-control">
+        <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured}
+          onOpenRcon={()=>setSection("rcon")} journalBlocked={lifecycleBlocked}/>
+      </div>}
       {map.gamePort>0 && fresh && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && fresh && <FreshAsaRestartPanel mapId={mapId} running={map.running}
         onRestarted={async()=>{
@@ -2047,7 +2085,7 @@ export function App() {
         {!snapshot && !error && <div className="loading"><RefreshCw className="spin"/> Valós helyi állapot betöltése...</div>}
         {snapshot && <>
           {page === "dashboard" && <Dashboard snapshot={snapshot} onPage={setPage} onSelect={selectMap} onInstall={openSteamInstall}/>}
-          {page === "map" && <MapDetails snapshot={snapshot} mapId={selected} setSelected={setSelected} onBack={()=>setPage("servers")} onConfigured={refresh}/>}
+          {page === "map" && <MapDetails snapshot={snapshot} mapId={selected} setSelected={setSelected} onBack={()=>setPage("servers")} onConfigured={refresh} onOpenCluster={()=>setPage("cluster")}/>
           {page === "servers" && <Servers snapshot={snapshot} search={search} setSearch={setSearch} onSelect={selectMap} onImported={refresh}/>} 
           {page === "cluster" && <Cluster snapshot={snapshot}/>}
           {page === "mods" && <Mods snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
