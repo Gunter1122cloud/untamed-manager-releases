@@ -5419,6 +5419,28 @@ test("original Store RCON native commit survives a failing follow-up status refr
   await expect(attach.getByRole("button",{name:"RCON átvétel véglegesítése"})).toHaveCount(0);
 });
 
+test("original Store mode can be selected before RCON without unlocking actual ASA Start",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
+  await expect(panel).toBeVisible();
+  const start=panel.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
+  await expect(start).toBeDisabled();
+  const mode=panel.getByRole("button",{name:"ASA API Loader mód választása"});
+  await expect(mode).toBeEnabled();
+  await mode.click();
+  const consent=panel.getByRole("region",{name:"Eredeti Store-v1 indítási mód módosítása"});
+  await expect(consent).toBeVisible();
+  await consent.getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
+  await expect(panel).toContainText("Az ASA API Loader indítási mód mentve");
+  await expect(start).toBeDisabled();
+  await expect(panel).toContainText("Előbb add meg az eredeti RCON-t");
+});
+
 test("original two-host ACTIVE Store-v1 ASA Start is real native approved operation, not a fresh-demo button",async({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
