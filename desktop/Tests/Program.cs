@@ -8767,6 +8767,13 @@ try
                 "historical.restartPreview",new{mapId=restartMap.Id});
             IsOk(approved,"original native Store Restart preflight");
             var token=approved.GetProperty("data").GetProperty("token").GetString()!;
+            restartMap.Maintenance=true;
+            var deniedRepreview=await Call(restartBridge.HandleAsync,
+                "historical.restartPreview",new{mapId=restartMap.Id});
+            Check(!deniedRepreview.GetProperty("ok").GetBoolean()&&
+                  saveExitCalls==0&&newStarts==0,
+                "rejected original Store Restart preview never revokes approved one-shot token");
+            restartMap.Maintenance=false;
             var wrong=await Call(restartBridge.HandleAsync,
                 "historical.restartApply",new{token,confirm=true,
                     typedApproval="STORE-V1 SAVEWORLD DOEXIT"});
