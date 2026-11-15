@@ -2085,7 +2085,7 @@ export function App() {
         {!snapshot && !error && <div className="loading"><RefreshCw className="spin"/> Valós helyi állapot betöltése...</div>}
         {snapshot && <>
           {page === "dashboard" && <Dashboard snapshot={snapshot} onPage={setPage} onSelect={selectMap} onInstall={openSteamInstall}/>}
-          {page === "map" && <MapDetails snapshot={snapshot} mapId={selected} setSelected={setSelected} onBack={()=>setPage("servers")} onConfigured={refresh} onOpenCluster={()=>setPage("cluster")}/>
+          {page === "map" && <MapDetails snapshot={snapshot} mapId={selected} setSelected={setSelected} onBack={()=>setPage("servers")} onConfigured={refresh} onOpenCluster={()=>setPage("cluster")}/>}
           {page === "servers" && <Servers snapshot={snapshot} search={search} setSearch={setSearch} onSelect={selectMap} onImported={refresh}/>} 
           {page === "cluster" && <Cluster snapshot={snapshot}/>}
           {page === "mods" && <Mods snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
