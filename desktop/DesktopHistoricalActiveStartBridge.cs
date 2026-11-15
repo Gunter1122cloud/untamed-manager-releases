@@ -194,8 +194,6 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                        !request.TryGetProperty("useApi",out var setting)||
                        setting.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                         return Fail(id,"UM-STORE-LOADER-MODE-SELECTION");
-                    modeApprovalsByMap.Remove(mapId);
-                    startApprovalsByMap.Remove(mapId);
                     bool useApi=setting.GetBoolean();
                     var map=Owned(mapId);
                     if(!ModeOwned(map)||
@@ -212,6 +210,9 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         return Fail(id,"UM-STORE-LOADER-MODE-PROCESS-OR-API-UNVERIFIED");
                     var permit=new ModePending(Guid.NewGuid(),map.Id,
                         JsonSerializer.Serialize(map),useApi,loader,DateTimeOffset.UtcNow);
+                    // Only an accepted preference change invalidates an
+                    // earlier Start plan for this same map.
+                    startApprovalsByMap.Remove(map.Id);
                     modeApprovalsByMap[map.Id]=permit;
                     return Ok(id,new{
                         token=permit.Token,mapId,mapName=map.Name,useApi,
@@ -313,7 +314,6 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                 {
                     if(!ReadId(request,"mapId",out var mapId))
                         return Fail(id,"UM-STORE-ACTIVE-MAP");
-                    startApprovalsByMap.Remove(mapId);
                     var map=Owned(mapId);
                     if(!Imported(map))return Fail(id,"UM-STORE-ACTIVE-RCON-REQUIRED");
                     if(map!.HistoricalLaunchModeNeedsApproval)
