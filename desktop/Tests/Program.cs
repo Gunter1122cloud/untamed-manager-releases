@@ -2127,7 +2127,7 @@ try
         string token=prepared.GetProperty("data").GetProperty("token").GetString()!;
         string otherFreshRoot=Path.Combine(root,"asa-independent-steam-preview");
         var siblingPlan=await Call(steamBridge.HandleAsync,"steam.freshPreflight",
-            new{mapName="Ragnarok",installRoot=otherFreshRoot,
+            new{mapName="Scorched Earth",installRoot=otherFreshRoot,
                 steamExe="",allowSteamCmdDownload=false,explicitRetry=false});
         IsOk(siblingPlan,
             "second ASA installation root retains its own SteamCMD approval without writes");
