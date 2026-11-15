@@ -64,7 +64,7 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
                         return Failure(id,"UM-EXISTING-WORLD-REQUIRES-PRESERVED-IMPORT");
                     // A sixth unrelated map preview must not invalidate valid
                     // import approvals on the other local installation roots.
-                    if(prepared.Count>=5&&!prepared.Values.Any(x=>
+                    if(prepared.Count>=25&&!prepared.Values.Any(x=>
                         string.Equals(x.Root,root,StringComparison.OrdinalIgnoreCase)))
                         return Failure(id,"UM-LOCAL-IMPORT-PREVIEW-CAPACITY");
                     foreach(var stale in prepared.Where(x=>
