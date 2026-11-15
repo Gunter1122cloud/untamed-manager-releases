@@ -2903,6 +2903,12 @@ try
         Check(!File.Exists(iniPath) && !preview.GetRawText().Contains(secret),
             "RCON preview leaves disk untouched and hides credential");
         string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+        var rejectedRconReplacement=await Call(rconSetup.HandleAsync,
+            "rcon.configPreview",new{mapId=fresh.Id,
+                rconPort=testRconPort,password="x",createIni=true});
+        Check(IsError(rejectedRconReplacement,"UM-RCON-CONFIG-FAILED")&&
+              !File.Exists(iniPath),
+            "invalid same-map RCON re-preview preserves prior valid bootstrap ticket");
         // A second independent local ASA map can finish its own first RCON
         // wizard without revoking the still pending Valguero approval.
         var customRcon=cluster.Config.LocalMaps.Single(x=>
