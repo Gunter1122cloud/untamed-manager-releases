@@ -664,7 +664,7 @@ internal static class OriginalKovaDirectImportTests
                 Directory.CreateDirectory(Path.GetDirectoryName(gusPath)!);
                 var utf16=Encoding.Unicode;
                 File.WriteAllBytes(gusPath,utf16.GetPreamble().Concat(
-                    utf16.GetBytes("[ServerSettings]\\r\\n")).ToArray());
+                    utf16.GetBytes("[ServerSettings]\r\n")).ToArray());
             }
         }
         var settingsTokens=new string[2];
