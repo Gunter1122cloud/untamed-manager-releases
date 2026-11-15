@@ -1928,6 +1928,19 @@ try
             new{name="Ragnarok",root=candidate});
         IsOk(prepared,"new local ASA installation is probed without modifying it");
         var token=prepared.GetProperty("data").GetProperty("importToken").GetString()!;
+        var invalidReinspect=await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Ragnarok",root=Path.Combine(root,"does-not-exist")});
+        Check(IsError(invalidReinspect,"UM-IMPORT-DIRECTORY-MISSING"),
+            "rejected local import re-inspection cannot consume earlier valid approval");
+        var newer=await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Ragnarok",root=candidate});
+        IsOk(newer,"same local installation can replace its own registration preview");
+        var replacedToken=newer.GetProperty("data").GetProperty("importToken").GetString()!;
+        Check(replacedToken!=token&&
+              IsError(await Call(importer.HandleAsync,"servers.importLocal",
+                  new{importToken=token}),"UM-IMPORT-EXPIRED"),
+            "new local installation approval invalidates only superseded token");
+        token=replacedToken;
         Check(!cluster.Config.LocalMaps.Any(m=>m.Name=="Ragnarok"),
             "preflight never writes the Manager profile");
         var confirmed=await Call(importer.HandleAsync,"servers.importLocal",
