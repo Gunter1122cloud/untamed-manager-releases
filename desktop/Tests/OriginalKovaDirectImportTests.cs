@@ -638,6 +638,79 @@ internal static class OriginalKovaDirectImportTests
                   File.ReadAllBytes(launchProfilePath)))==launchHash,
             "original four Store metadata and launch order remain byte-identical after imports");
 
+        // Complete the original post-import API/direct mode choice through
+        // the native approval path, then exercise *real* stopped-map runtime
+        // setting previews with UTF-16 BOM INI files on two independent maps.
+        // Neither a mocked response nor an unapproved Store write qualifies.
+        using(var modeChoice=new DesktopHistoricalActiveStartBridge(
+            cluster,null,null,loaderModePreflight:(_,_)=>true))
+        {
+            foreach(int i in new[]{0,1})
+            {
+                var m=cluster.Config.LocalMaps.Single(x=>x.Id.ToString("D")==ids[i]);
+                var modePreview=await Call(modeChoice.HandleAsync,
+                    "historical.loaderModePreview",
+                    new{mapId=m.Id,useApi=false});
+                Check(modePreview.GetProperty("ok").GetBoolean(),
+                    "synthetic imported original map mode can be explicitly confirmed");
+                var modeApplied=await Call(modeChoice.HandleAsync,
+                    "historical.loaderModeApply",
+                    new{token=modePreview.GetProperty("data").GetProperty("token").GetString(),
+                        confirm=true});
+                Check(modeApplied.GetProperty("ok").GetBoolean()&&
+                      !m.HistoricalLaunchModeNeedsApproval,
+                    "real native direct ASA mode approval unblocks stopped-map settings");
+                var gusPath=AsaInitialRconSettings.NewIniPath(m.InstallationPath);
+                Directory.CreateDirectory(Path.GetDirectoryName(gusPath)!);
+                var utf16=Encoding.Unicode;
+                File.WriteAllBytes(gusPath,utf16.GetPreamble().Concat(
+                    utf16.GetBytes("[ServerSettings]\\r\\n")).ToArray());
+            }
+        }
+        var settingsTokens=new string[2];
+        for(int i=0;i<2;i++)
+        {
+            var m=cluster.Config.LocalMaps.Single(x=>x.Id.ToString("D")==ids[i]);
+            var status=await Call(bridge,"historical.runtimeSettingsStatus",
+                new{mapId=m.Id});
+            Check(status.GetProperty("ok").GetBoolean()&&
+                  status.GetProperty("data").GetProperty("originalSourcePinned").GetBoolean(),
+                "original local source-pinned runtime settings work without a remote peer");
+            var preview=await Call(bridge,"historical.runtimeSettingsPreview",
+                new{mapId=m.Id,gamePort=m.GamePort,queryPort=m.QueryPort,
+                    clusterId=VaultProtocol.ClusterId,transferRoot=originalCluster.path});
+            Check(preview.GetProperty("ok").GetBoolean(),
+                "native original Store runtime preview decodes UTF-16 BOM GUS.ini");
+            settingsTokens[i]=preview.GetProperty("data").GetProperty("token").GetString()!;
+        }
+        var firstSettingsMap=cluster.Config.LocalMaps.Single(x=>x.Id.ToString("D")==ids[0]);
+        var deniedRuntime=await Call(bridge,"historical.runtimeSettingsPreview",
+            new{mapId=firstSettingsMap.Id,gamePort=firstSettingsMap.GamePort,
+                queryPort=firstSettingsMap.GamePort,
+                clusterId=VaultProtocol.ClusterId,transferRoot=originalCluster.path});
+        Check(!deniedRuntime.GetProperty("ok").GetBoolean(),
+            "invalid Store runtime re-preview leaves both map approvals untouched");
+        Check(settingsTokens[0]!=settingsTokens[1],
+            "two original runtime port/cluster approvals have distinct tokens");
+        for(int i=0;i<2;i++)
+        {
+            var applied=await Call(bridge,"historical.runtimeSettingsApply",
+                new{token=settingsTokens[i],confirm=true,
+                    typedApproval="OBSIDIAN MAP KONFIG"});
+            Check(applied.GetProperty("ok").GetBoolean()&&
+                  applied.GetProperty("data").GetProperty("updated").GetBoolean(),
+                "one original map runtime commit does not revoke sibling approved settings");
+            var replay=await Call(bridge,"historical.runtimeSettingsApply",
+                new{token=settingsTokens[i],confirm=true,
+                    typedApproval="OBSIDIAN MAP KONFIG"});
+            Check(!replay.GetProperty("ok").GetBoolean(),
+                "runtime settings commit is single-use even across distinct Store maps");
+        }
+        Check(names.Select(n=>Convert.ToHexString(SHA256.HashData(
+                 File.ReadAllBytes(Path.Combine(local,n))))).SequenceEqual(hashes)&&
+              File.ReadAllText(launchProfilePath)==launchBytes,
+            "UTF-16 runtime settings approvals changed only Manager profiles, not original Store source files");
+
         // The same native historical bridge must keep read-only parity
         // available after Kova's synthetic local directory disappears.
         string temporarilyMissingKova=local+"-bridge-offline";
