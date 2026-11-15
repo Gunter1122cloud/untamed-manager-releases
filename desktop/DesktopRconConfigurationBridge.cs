@@ -182,7 +182,6 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
                        !root.TryGetProperty("createIni",out var createField) ||
                        createField.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                         return Error(id,"UM-RCON-CONFIG-FIELDS");
-                    approvalsByMap.Remove(mapId);
                     var map=Local(mapId);
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
                     if(!SafeMap(map)||!Stopped(map)||
@@ -206,7 +205,8 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
                     }
                     else VerifyExisting(path,port,password);
                     string digest=Digest(path);
-                    if(approvalsByMap.Count>=25)approvalsByMap.Clear();
+                    if(!approvalsByMap.ContainsKey(mapId)&&approvalsByMap.Count>=25)
+                        return Error(id,"UM-RCON-CONFIG-PREVIEW-CAPACITY");
                     var approval=new Pending(Guid.NewGuid(),map.Id,map.Arguments,
                         map.InstallationPath,map.ExecutablePath,map.RconPort,
                         SecureStore.Protect(password),port,create,digest,
