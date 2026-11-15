@@ -498,6 +498,14 @@ internal static class MapScopedNativeLifecycleJobsTests
                     "native Store Start approval is map-specific");
                 startTokens[i]=plan.GetProperty("token").GetString()!;
             }
+            // A transiently denied same-map Start preflight must not erase
+            // either map's already approved, independently verified plan.
+            maps[0].Maintenance=true;
+            var rejectedStart=await Call(starts.HandleAsync,
+                "historical.activeStartPreview",new{mapId=maps[0].Id});
+            Check(!rejectedStart.GetProperty("ok").GetBoolean(),
+                "maintenance denies original Start without invalidating its previous token");
+            maps[0].Maintenance=false;
             for(int i=0;i<2;i++)
             {
                 var result=Data(await Call(starts.HandleAsync,
@@ -536,6 +544,15 @@ internal static class MapScopedNativeLifecycleJobsTests
                     "historical Loader preference can be reviewed for each map");
                 modeApprovalTokens[i]=preview.GetProperty("token").GetString()!;
             }
+            // Failed Loader preference inspection is not a legitimate
+            // cancellation of another prepared ASA mode transition.
+            maps[0].Maintenance=true;
+            var rejectedMode=await Call(modes.HandleAsync,
+                "historical.loaderModePreview",
+                new{mapId=maps[0].Id,useApi=false});
+            Check(!rejectedMode.GetProperty("ok").GetBoolean(),
+                "rejected original Loader preference preserves both map approvals");
+            maps[0].Maintenance=false;
             for(int i=0;i<2;i++)
             {
                 var applied=Data(await Call(modes.HandleAsync,
