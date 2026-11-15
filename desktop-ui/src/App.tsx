@@ -1891,8 +1891,8 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
             önmagában nem indít ASA-t, nem küld RCON-t és nem ír Store-adatot.
           </p>
           <div className="map-info-line">
-            <span>1. Game / Query port és indítási profil</span>
-            <strong>{map.gamePort} / {map.queryPort}</strong>
+            <span>1. Game port és indítási profil</span>
+            <strong>{map.gamePort}</strong>
           </div>
           <div className="map-info-line">
             <span>2. RCON</span>
