@@ -4854,7 +4854,7 @@ test("new ASA map setup navigates to real INI, RCON, Mod, API, cluster and Start
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const flow=page.getByRole("region",{name:"Új map beállításának lépései"});
   await expect(flow).toBeVisible();
-  await expect(flow).toContainText("Game / Query port és indítási profil");
+  await expect(flow).toContainText("Game port és indítási profil");
   await flow.getByRole("button",{name:"RCON konfigurálása"}).click();
   await expect(page.getByRole("tab",{name:"RCON / Konzol"}))
     .toHaveAttribute("aria-selected","true");
