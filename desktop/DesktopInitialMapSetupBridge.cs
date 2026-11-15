@@ -163,7 +163,12 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     if(previewPorts!=AsaLocalPortAvailability.Available)
                         return Fail(id,previewPorts==AsaLocalPortAvailability.InUse?
                             "UM-INITIAL-PORT-IN-USE":"UM-INITIAL-PORT-UNVERIFIED");
-                    if(pending.Count>=6)pending.Clear();
+                    // Never revoke another local map's valid first-setup ticket.
+                    // A successful re-preview replaces only this map's ticket.
+                    if(pending.Count>=6&&!pending.Values.Any(x=>x.MapId==map.Id))
+                        return Fail(id,"UM-INITIAL-PREVIEW-CAPACITY");
+                    foreach(var old in pending.Where(x=>x.Value.MapId==map.Id)
+                        .Select(x=>x.Key).ToArray())pending.Remove(old);
                     var token=Guid.NewGuid();
                     pending[token]=new(token,map.Id,session,game,query,map.Name,level,
                         map.Arguments,map.GamePort,map.QueryPort,map.ExecutablePath,
