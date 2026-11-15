@@ -2125,6 +2125,16 @@ try
         Check(!Directory.Exists(freshRoot),
             "new installation preflight never creates destination");
         string token=prepared.GetProperty("data").GetProperty("token").GetString()!;
+        string otherFreshRoot=Path.Combine(root,"asa-independent-steam-preview");
+        var siblingPlan=await Call(steamBridge.HandleAsync,"steam.freshPreflight",
+            new{mapName="Ragnarok",installRoot=otherFreshRoot,
+                steamExe="",allowSteamCmdDownload=false,explicitRetry=false});
+        IsOk(siblingPlan,
+            "second ASA installation root retains its own SteamCMD approval without writes");
+        string siblingToken=siblingPlan.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        Check(siblingToken!=token&&!Directory.Exists(otherFreshRoot)&&fakeRuns==0,
+            "second new map preflight neither downloads nor invalidates first map");
         var refused=await Call(steamBridge.HandleAsync,"steam.freshStart",
             new{token,confirm=false});
         Check(IsError(refused,"UM-FRESH-EXPLICIT-CONFIRMATION-REQUIRED") &&
