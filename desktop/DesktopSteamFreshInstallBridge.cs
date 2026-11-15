@@ -108,6 +108,9 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
             await serial.WaitAsync();
             try
             {
+                foreach(var expired in prepared.Where(x=>
+                    DateTimeOffset.UtcNow-x.Value.CreatedUtc>TimeSpan.FromMinutes(10))
+                    .Select(x=>x.Key).ToArray())prepared.Remove(expired);
                 if(method=="steam.freshBrowse")
                 {
                     // The user picks a local folder with Windows itself. No
@@ -372,8 +375,15 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                            currentJob.ErrorCode==null)
                             return Error(id,"UM-FRESH-INSTALL-IN-PROGRESS");
                     }
+                    // Preparing another stopped installation must not cancel
+                    // a previous map's approved SteamCMD installation plan.
+                    if(prepared.Count>=8&&!prepared.Values.Any(x=>
+                        Same(x.Root,installRoot)))
+                        return Error(id,"UM-FRESH-INSTALL-PREVIEW-CAPACITY");
+                    foreach(var older in prepared.Where(x=>
+                        Same(x.Value.Root,installRoot)).Select(x=>x.Key).ToArray())
+                        prepared.Remove(older);
                     var token=Guid.NewGuid();
-                    prepared.Clear();
                     prepared[token]=new(token,mapId,mapName,customLevel,
                         installRoot,steamExe,download,retry,DateTimeOffset.UtcNow);
                     return Ok(id,new{
