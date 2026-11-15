@@ -74,12 +74,10 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
         string.IsNullOrWhiteSpace(map.ApiLoaderArguments)&&
         map.RconPort==0&&
         string.IsNullOrWhiteSpace(map.RconPasswordProtected)&&
-        (!map.StartWithAsaApi ||
-         (map.LastProcess is {Pid:>0,
-             Arguments:"HISTORICAL_STORE_V1_API_CHILD_VERIFIED"} &&
-          map.LastLoader is {Pid:>0,
-             Arguments:"HISTORICAL_STORE_V1_API_LOADER_VERIFIED"} &&
-          !string.IsNullOrWhiteSpace(map.ApiLoaderPath)))&&
+        // A stopped original API map cannot have a live child/parent pair
+        // before Start. Validate that the approved Loader path is present;
+        // Demand() still requires true stopped-family or running-child proof.
+        (!map.StartWithAsaApi||!string.IsNullOrWhiteSpace(map.ApiLoaderPath))&&
         map.GamePort is >=1024 and <=65535 &&
         map.QueryPort is >=1024 and <=65535;
 
@@ -257,6 +255,46 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
         }
     }
 
+    private bool VerifiedApiRconAttachState(LocalMap map,int port)
+    {
+        if(!map.StartWithAsaApi)return true;
+        try
+        {
+            string exe=Path.GetFullPath(map.ExecutablePath);
+            string loader=Path.Combine(Path.GetDirectoryName(exe)!,
+                "AsaApiLoader.exe");
+            if(string.IsNullOrWhiteSpace(map.ApiLoaderPath)||
+               !Path.GetFullPath(map.ApiLoaderPath).Equals(loader,
+                   StringComparison.OrdinalIgnoreCase)||
+               !File.Exists(loader)||
+               (File.GetAttributes(loader)&FileAttributes.ReparsePoint)!=0)
+                return false;
+            for(DirectoryInfo? parent=new(Path.GetDirectoryName(loader)!);
+                parent!=null;parent=parent.Parent)
+                if(parent.Exists&&(parent.Attributes&FileAttributes.ReparsePoint)!=0)
+                    return false;
+
+            // Any observed running or identifiable ASA/Loader requires the
+            // unchanged exact process pair, creation times and child-owned
+            // TCP listener. Never downgrade a failed live proof to offline.
+            var observed=apiProcessObserver(map);
+            if(observed.Running||observed.Identity!=null||
+               observed.LoaderIdentity!=null)
+                return VerifiedApiRconOwner(map,port);
+
+            // Native WMI family enumeration, not a WebView stopped flag,
+            // proves the map is physically idle. Rechecked inside lease.
+            var stopped=LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
+                map,cluster.Config.LocalMaps);
+            return stopped.ConfirmedStopped&&!stopped.Running&&
+                stopped.Identity==null&&stopped.LoaderIdentity==null;
+        }
+        catch(Exception)
+        {
+            return false; // Unknown PID/WMI/linked directory => no authority.
+        }
+    }
+
     private void Demand(LocalMap map,int port,string protectedPassword,string iniHash)
     {
         if(!Historical(map)||port is <1024 or >65535 ||
@@ -274,7 +312,7 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
         // before granting its Manager profile the existing RCON credentials.
         // The listener and Windows WMI are independently rechecked under
         // the native installation operation lease on Apply.
-        if(map.StartWithAsaApi&&!VerifiedApiRconOwner(map,port))
+        if(map.StartWithAsaApi&&!VerifiedApiRconAttachState(map,port))
             throw new InvalidDataException("UM-HISTORICAL-RCON-API-CHILD-UNVERIFIED");
         // The bridge is attaching credentials only; no TCP command is sent.
         // An already-running original ASA process may remain untouched.
