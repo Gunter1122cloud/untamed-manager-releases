@@ -54,7 +54,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
     private sealed record RuntimeSettingsPrepared(Guid Token,Guid MapId,
         string MapSnapshot,string GusSha,int GamePort,int QueryPort,
         string ClusterId,string TransferRoot,DateTimeOffset ExpiresUtc);
-    private RuntimeSettingsPrepared? pendingRuntimeSettings;
+    // One bounded approval per source-pinned map; invalid previews preserve prior tokens.
+    private readonly Dictionary<Guid,RuntimeSettingsPrepared> runtimeSettingsByMap=new();
 
     public DesktopHistoricalStoreImportBridge(ClusterService service,
         Func<LocalMap,ProcessCheck>? processInspector=null,
@@ -125,8 +126,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     pendingOriginalCluster=null;
                 if(pendingSourcePin?.ExpiresUtc<DateTimeOffset.UtcNow)
                     pendingSourcePin=null;
-                if(pendingRuntimeSettings?.ExpiresUtc<DateTimeOffset.UtcNow)
-                    pendingRuntimeSettings=null;
+                foreach(var expired in runtimeSettingsByMap.Where(x=>
+                    x.Value.ExpiresUtc<DateTimeOffset.UtcNow)
+                    .Select(x=>x.Key).ToArray())runtimeSettingsByMap.Remove(expired);
 
                 if(method=="historical.runtimeSettingsStatus")
                 {
@@ -165,7 +167,6 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     // original metadata or a live ASA/transfer file.
                     if(method=="historical.runtimeSettingsPreview")
                     {
-                        pendingRuntimeSettings=null;
                         if(!GuidField(data,"mapId",out var mapId)||
                            !PortField(data,"gamePort",out var game)||
                            !PortField(data,"queryPort",out var query)||
@@ -203,11 +204,14 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                             candidate.HistoricalMapKey,game,query,
                             mods.EnabledOrder.ToArray(),mods.Passive.ToArray(),
                             clusterId,transferRoot,"active",
-                            Encoding.UTF8.GetString(iniBytes),
+                            LegacyStoreV1ActiveLaunch.DecodeOriginalIni(iniBytes),
                             SourcePinnedClusterOnly:false));
                         string gusSha=Convert.ToHexString(SHA256.HashData(iniBytes));
+                        if(!runtimeSettingsByMap.ContainsKey(runtimeMap.Id)&&
+                           runtimeSettingsByMap.Count>=25)
+                            return Fail(id,"UM-STORE-RUNTIME-PREVIEW-CAPACITY");
                         var token=Guid.NewGuid();
-                        pendingRuntimeSettings=new(token,runtimeMap.Id,
+                        runtimeSettingsByMap[runtimeMap.Id]=new(token,runtimeMap.Id,
                             JsonSerializer.Serialize(runtimeMap),gusSha,game,query,
                             clusterId,transferRoot,DateTimeOffset.UtcNow.AddMinutes(5));
                         return Ok(id,new{
@@ -223,10 +227,10 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                        !runtimeApproved||
                        !TextField(data,"typedApproval",80,out var runtimePhrase)||
                        runtimePhrase!="OBSIDIAN MAP KONFIG"||
-                       pendingRuntimeSettings?.Token!=runtimeToken)
+                       !runtimeSettingsByMap.Values.Any(x=>x.Token==runtimeToken))
                         return Fail(id,"UM-STORE-RUNTIME-EXPLICIT-APPROVAL");
-                    var runtimeStage=pendingRuntimeSettings!;
-                    pendingRuntimeSettings=null;
+                    var runtimeStage=runtimeSettingsByMap.Values.Single(x=>x.Token==runtimeToken);
+                    runtimeSettingsByMap.Remove(runtimeStage.MapId); // one-shot only after explicit consent
                     if(runtimeStage.ExpiresUtc<DateTimeOffset.UtcNow)
                         return Fail(id,"UM-STORE-RUNTIME-PREVIEW-EXPIRED");
                     var owned=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==runtimeStage.MapId);
@@ -264,7 +268,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                             candidate.HistoricalMapKey,candidate.GamePort,
                             candidate.QueryPort,mods.EnabledOrder.ToArray(),
                             mods.Passive.ToArray(),runtimeStage.ClusterId,runtimeStage.TransferRoot,
-                            "active",Encoding.UTF8.GetString(current),
+                            "active",LegacyStoreV1ActiveLaunch.DecodeOriginalIni(current),
                             SourcePinnedClusterOnly:false));
                         operation.MarkMutationStarted();
                         cluster.ReplaceMap(owned,candidate);
