@@ -332,7 +332,7 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
                     Unique(name,exe,key,root,game,query);
                     // Keep one preview per physical process identity. An
                     // unrelated process cannot revoke existing pending imports.
-                    if(previews.Count>=12&&!previews.Values.Any(x=>
+                    if(previews.Count>=25&&!previews.Values.Any(x=>
                         x.Pid==pid&&x.StartedUtc==started))
                         return Denied(id,"UM-LIVE-IMPORT-PREVIEW-CAPACITY");
                     foreach(var earlier in previews.Where(x=>
