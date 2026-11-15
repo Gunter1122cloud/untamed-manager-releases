@@ -330,7 +330,14 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
                     if(game>0&&game==query)
                         return Denied(id,"UM-LIVE-PORT-CONFLICT");
                     Unique(name,exe,key,root,game,query);
-                    if(previews.Count>=12)previews.Clear();
+                    // Keep one preview per physical process identity. An
+                    // unrelated process cannot revoke existing pending imports.
+                    if(previews.Count>=12&&!previews.Values.Any(x=>
+                        x.Pid==pid&&x.StartedUtc==started))
+                        return Denied(id,"UM-LIVE-IMPORT-PREVIEW-CAPACITY");
+                    foreach(var earlier in previews.Where(x=>
+                        x.Value.Pid==pid&&x.Value.StartedUtc==started)
+                        .Select(x=>x.Key).ToArray())previews.Remove(earlier);
                     var token=Guid.NewGuid();
                     previews[token]=new(token,pid,started,exe,
                         Hash(selected.CommandLine!),key,root,name,game,query,
