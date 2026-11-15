@@ -51,7 +51,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         throw new Error("UM-STORE-MODE-PREVIEW-OTHER-MAP");
       setModePreview(result);
     }catch{
-      if(belongs(requested,generation))setError("A map helyi folyamata, RCON-ja, naplója vagy ASA API indítási módja nem igazolt.");
+      if(belongs(requested,generation))setError("A helyi ASA/Loader-folyamat, indítási mód vagy műveleti napló nem igazolt. A módválasztáshoz még nem kell RCON.");
     }finally{if(belongs(requested,generation))setBusy(false);}
   };
   const applyMode=async()=>{
@@ -213,8 +213,8 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
       {state?.launchModeApprovalRequired&&<div className="warning-inline" role="alert">
         <Shield size={17}/> A mapot leállított eredeti profilból importáltad. Az
         eredeti indítási mód nem bizonyítható a futó folyamat nélkül.
-        A meglévő RCON csatlakoztatása után még az első Start előtt
-        jóvá kell hagyni az ASA API Loader vagy a közvetlen ASA módot.
+        Az első Start előtt jóvá kell hagyni az ASA API Loader vagy
+        közvetlen ASA módot; ez a meglévő RCON csatlakoztatása előtt is elvégezhető.
         Addig az Obsidian natív rétege semmilyen indítást nem enged.
       </div>}
       <div className="details-line"><span>Megfigyelt ASA</span>
@@ -223,16 +223,14 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
           state?.confirmedStopped?"Leállítás igazolva":"Folyamatállapot nem igazolt"}</b></div>
       <div className="settings-actions">
         <button type="button" className="secondary"
-          disabled={busy||!state?.confirmedStopped||!!preview||!!modePreview||
-            !state?.rconConfigured} onClick={()=>{void changeMode();}}>
+          disabled={busy||!state?.confirmedStopped||!!preview||!!modePreview} onClick={()=>{void changeMode();}}>
           <Shield size={16}/> {state?.requestedMode==="asaApiLoader"?
             "Közvetlen ASA mód választása":"ASA API Loader mód választása"}
         </button>
         {state?.launchModeApprovalRequired&&
           state.requestedMode==="directAsa"&&
           <button type="button" className="secondary"
-            disabled={busy||!state.confirmedStopped||!!preview||!!modePreview||
-              !state.rconConfigured} onClick={()=>{void changeMode(false);}}>
+            disabled={busy||!state.confirmedStopped||!!preview||!!modePreview} onClick={()=>{void changeMode(false);}}>
             <Shield size={16}/> Közvetlen ASA mód kifejezett jóváhagyása
           </button>}
       </div>
