@@ -62,7 +62,14 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
                     RequireUnique(name,root);
                     if(ExistingWorld(root))
                         return Failure(id,"UM-EXISTING-WORLD-REQUIRES-PRESERVED-IMPORT");
-                    if(prepared.Count>=5)prepared.Clear();
+                    // A sixth unrelated map preview must not invalidate valid
+                    // import approvals on the other local installation roots.
+                    if(prepared.Count>=5&&!prepared.Values.Any(x=>
+                        string.Equals(x.Root,root,StringComparison.OrdinalIgnoreCase)))
+                        return Failure(id,"UM-LOCAL-IMPORT-PREVIEW-CAPACITY");
+                    foreach(var stale in prepared.Where(x=>
+                        string.Equals(x.Value.Root,root,StringComparison.OrdinalIgnoreCase))
+                        .Select(x=>x.Key).ToArray())prepared.Remove(stale);
                     var token=Guid.NewGuid();
                     prepared[token]=new(token,name,root,found.ServerExecutable!,
                         DateTimeOffset.UtcNow);
