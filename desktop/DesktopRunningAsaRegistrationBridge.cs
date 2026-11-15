@@ -198,8 +198,8 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
                 if(batch!=null&&batch.ExpiresUtc<DateTimeOffset.UtcNow)batch=null;
                 if(method.GetString()=="servers.runningBatchPreview")
                 {
-                    batch=null;
-                    previews.Clear();
+                    // A rejected batch preview cannot invalidate independently
+                    // approved per-process imports or a previous valid batch.
                     var observed=observe();
                     var eligible=new List<Pinned>();
                     var stagedNames=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -259,11 +259,11 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
                     if(!GuidField(j,"token",out var token)||batch==null||
                        batch.Token!=token||batch.ExpiresUtc<DateTimeOffset.UtcNow)
                         return Denied(id,"UM-LIVE-BATCH-APPROVAL-EXPIRED");
-                    var approved=batch;
-                    batch=null; // single use, including unsuccessful apply
                     if(!j.TryGetProperty("confirm",out var yes)||
                        yes.ValueKind!=JsonValueKind.True)
                         return Denied(id,"UM-LIVE-BATCH-APPROVAL-REQUIRED");
+                    var approved=batch;
+                    batch=null; // single use after explicit approval
                     var observed=observe();
                     var stagedNames=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     var stagedKeys=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -354,11 +354,12 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
                     });
                 }
                 if(!GuidField(j,"token",out var approval)||
-                   !previews.Remove(approval,out var pinned))
+                   !previews.TryGetValue(approval,out var pinned))
                     return Denied(id,"UM-LIVE-PREVIEW-EXPIRED");
                 if(!j.TryGetProperty("confirm",out var confirmed)||
                    confirmed.ValueKind!=JsonValueKind.True)
                     return Denied(id,"UM-LIVE-APPROVAL-REQUIRED");
+                previews.Remove(approval); // one-shot after positive approval
                 var current=observe();
                 var (active,_)=Select(current,pinned.Pid,pinned.StartedUtc);
                 var (root2,exe2,key2,_facts)=Inspect(active,current,cluster.Config.LocalMaps);
