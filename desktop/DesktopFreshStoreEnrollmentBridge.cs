@@ -91,12 +91,12 @@ public sealed class DesktopFreshStoreEnrollmentBridge : IDisposable
                     if(!GuidId(req,"mapId",out var mapId)||
                        !Text(req,"clusterId",out string clusterId))
                         return Fail(id,"UM-FRESH-STORE-MAP-OR-CLUSTER");
-                    approvalsByMap.Remove(mapId);
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-FRESH-STORE-LOCAL-MAP");
                     var plan=await Task.Run(()=>FreshStoreEnrollmentPolicy.Prepare(
                         cluster,map,clusterId));
-                    if(approvalsByMap.Count>=25)approvalsByMap.Clear();
+                    if(!approvalsByMap.ContainsKey(mapId)&&approvalsByMap.Count>=25)
+                        return Fail(id,"UM-FRESH-STORE-ENROLLMENT-PREVIEW-CAPACITY");
                     var approval=new Approval(Guid.NewGuid(),map.Id,plan.ClusterId,
                         plan.Fingerprint,plan.RegistryRevision,DateTimeOffset.UtcNow);
                     approvalsByMap[map.Id]=approval;
