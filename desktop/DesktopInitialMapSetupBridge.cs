@@ -165,7 +165,7 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                             "UM-INITIAL-PORT-IN-USE":"UM-INITIAL-PORT-UNVERIFIED");
                     // Never revoke another local map's valid first-setup ticket.
                     // A successful re-preview replaces only this map's ticket.
-                    if(pending.Count>=6&&!pending.Values.Any(x=>x.MapId==map.Id))
+                    if(pending.Count>=25&&!pending.Values.Any(x=>x.MapId==map.Id))
                         return Fail(id,"UM-INITIAL-PREVIEW-CAPACITY");
                     foreach(var old in pending.Where(x=>x.Value.MapId==map.Id)
                         .Select(x=>x.Key).ToArray())pending.Remove(old);
