@@ -1910,8 +1910,8 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
             <button className="secondary" type="button"
               onClick={onOpenCluster}>Cluster hozzárendelés</button>
             <button className="primary" type="button"
-              onClick={()=>document.getElementById("fresh-asa-start-control")?
-                .scrollIntoView({behavior:"smooth",block:"start"})}>
+              onClick={()=>document.getElementById("fresh-asa-start-control")
+                ?.scrollIntoView({behavior:"smooth",block:"start"})}>
               Start és jóváhagyás
             </button>
           </div>
