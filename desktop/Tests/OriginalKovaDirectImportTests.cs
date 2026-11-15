@@ -464,6 +464,23 @@ internal static class OriginalKovaDirectImportTests
               first.GetProperty("data").GetProperty("originalIdsPreserved").GetBoolean(),
             "first synthetic map has a source-pinned, stopped-process preview");
         string token=first.GetProperty("data").GetProperty("token").GetString()!;
+        var invalidAgain=await Call(bridge,"historical.originalPreview",
+            new{mapId=ids[0],gamePort=7777,queryPort=7777});
+        Check(!invalidAgain.GetProperty("ok").GetBoolean(),
+            "rejected original map preview keeps previously approved import");
+        var refreshed=await Call(bridge,"historical.originalPreview",
+            new{mapId=ids[0],gamePort=7777,queryPort=27015});
+        Check(refreshed.GetProperty("ok").GetBoolean(),
+            "valid second preview replaces original map ticket without clearing others");
+        string newToken=refreshed.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        Check(newToken!=token,
+            "original Store import replacement uses a fresh one-shot token");
+        var replaced=await Call(bridge,"historical.originalRegister",
+            new{token,confirm=true});
+        Check(!replaced.GetProperty("ok").GetBoolean(),
+            "superseded original Store import token cannot be replayed");
+        token=newToken;
         var denied=await Call(bridge,"historical.originalRegister",
             new{token,confirm=false});
         Check(!denied.GetProperty("ok").GetBoolean(),
