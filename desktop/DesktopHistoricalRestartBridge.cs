@@ -213,7 +213,6 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                 {
                     if(!ReadId(request,"mapId",out var mapId))
                         return Fail(id,"UM-ORIGINAL-RESTART-MAP");
-                    approvalsByMap.Remove(mapId);
                     var map=Owned(mapId);
                     if(map==null||!map.HistoricalStoreProtected||map.Maintenance)
                         return Fail(id,"UM-ORIGINAL-RESTART-LOCAL-ONLY");
