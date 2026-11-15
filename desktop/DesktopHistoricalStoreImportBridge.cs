@@ -465,7 +465,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 }
                 if(method=="historical.originalLiveBatchPreview")
                 {
-                    pendingOriginalLiveBatch=null;
+                    // Only a *successful* re-preview supersedes an earlier
+                    // valid five-map takeover approval. A failed WMI/UNC or
+                    // journal check must not revoke an unrelated consent.
                     var (original,observed,shared)=VerifyLiveOriginalFive();
                     // An existing NeedsOperator journal is NOT a source or
                     // process mismatch; surface it BEFORE offering a token
@@ -506,14 +508,19 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     if(pendingOriginalLiveBatch.Token!=token)
                         return Fail(id,"UM-ORIGINAL-LIVE-APPROVAL-STALE");
                     var approved=pendingOriginalLiveBatch;
-                    pendingOriginalLiveBatch=null; // single use, including denial
                     if(approved.ExpiresUtc<DateTimeOffset.UtcNow)
+                    {
+                        pendingOriginalLiveBatch=null;
                         return Fail(id,"UM-ORIGINAL-LIVE-APPROVAL-EXPIRED");
+                    }
                     if(!BoolField(data,"confirm",out var confirm)||!confirm||
                        !BoolField(data,"externalControllerStopped",out var detached)||!detached||
                        !TextField(data,"typedApproval",60,out var phrase)||
                        phrase!="STORE-V1 FUTÓ ÁTVÉTEL")
                         return Fail(id,"UM-ORIGINAL-LIVE-EXPLICIT-APPROVAL-REQUIRED");
+                    // Consume only after explicit owner approval; never
+                    // replay any failed or ambiguous physical takeover.
+                    pendingOriginalLiveBatch=null;
                     var (original,observed,shared)=VerifyLiveOriginalFive();
                     if(original.FourFilesSha256!=approved.FourFilesHash||
                        original.LaunchProfileSha256!=approved.LaunchHash||
