@@ -676,12 +676,12 @@ internal static class OriginalKovaDirectImportTests
             Check(status.GetProperty("ok").GetBoolean()&&
                   status.GetProperty("data").GetProperty("originalSourcePinned").GetBoolean(),
                 "original local source-pinned runtime settings work without a remote peer");
-            var preview=await Call(bridge,"historical.runtimeSettingsPreview",
+            var runtimePreview=await Call(bridge,"historical.runtimeSettingsPreview",
                 new{mapId=m.Id,gamePort=m.GamePort,queryPort=m.QueryPort,
                     clusterId=VaultProtocol.ClusterId,transferRoot=originalCluster.path});
-            Check(preview.GetProperty("ok").GetBoolean(),
+            Check(runtimePreview.GetProperty("ok").GetBoolean(),
                 "native original Store runtime preview decodes UTF-16 BOM GUS.ini");
-            settingsTokens[i]=preview.GetProperty("data").GetProperty("token").GetString()!;
+            settingsTokens[i]=runtimePreview.GetProperty("data").GetProperty("token").GetString()!;
         }
         var firstSettingsMap=cluster.Config.LocalMaps.Single(x=>x.Id.ToString("D")==ids[0]);
         var deniedRuntime=await Call(bridge,"historical.runtimeSettingsPreview",
