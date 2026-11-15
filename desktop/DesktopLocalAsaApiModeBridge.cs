@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -21,7 +22,8 @@ public sealed class DesktopLocalAsaApiModeBridge : IDisposable
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private readonly ClusterService cluster;
     private readonly SemaphoreSlim serial=new(1,1);
-    private Approval? pending;
+    // Different local map cards can approve their own ASA/API mode changes.
+    private readonly Dictionary<Guid,Approval> pendingByMap=new();
 
     public DesktopLocalAsaApiModeBridge(ClusterService service)=>
         cluster=service??throw new ArgumentNullException(nameof(service));
@@ -139,6 +141,9 @@ public sealed class DesktopLocalAsaApiModeBridge : IDisposable
             await serial.WaitAsync();
             try
             {
+                foreach(var expired in pendingByMap.Where(x=>
+                    DateTimeOffset.UtcNow-x.Value.CreatedUtc>TimeSpan.FromMinutes(3))
+                    .Select(x=>x.Key).ToArray())pendingByMap.Remove(expired);
                 if(name=="servers.apiModeStatus")
                 {
                     if(!ReadGuid(req,"mapId",out var mapId))
@@ -162,7 +167,6 @@ public sealed class DesktopLocalAsaApiModeBridge : IDisposable
                 }
                 if(name=="servers.apiModePreview")
                 {
-                    pending=null;
                     if(!ReadGuid(req,"mapId",out var mapId)||
                        !req.TryGetProperty("useApi",out var field)||
                        field.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
@@ -172,25 +176,28 @@ public sealed class DesktopLocalAsaApiModeBridge : IDisposable
                     if(map==null||map.StartWithAsaApi==useApi)
                         return Fail(id,"UM-LOCAL-API-NO-CHANGE");
                     string loader=Preflight(map,useApi);
-                    pending=new(Guid.NewGuid(),map.Id,JsonSerializer.Serialize(map),
-                        useApi,loader,DateTimeOffset.UtcNow);
+                    if(!pendingByMap.ContainsKey(mapId)&&pendingByMap.Count>=25)
+                        return Fail(id,"UM-LOCAL-API-PREVIEW-CAPACITY");
+                    var previewApproval=new Approval(Guid.NewGuid(),map.Id,
+                        JsonSerializer.Serialize(map),useApi,loader,DateTimeOffset.UtcNow);
+                    pendingByMap[mapId]=previewApproval;
                     return Ok(id,new{
-                        token=pending.Token,mapId,mapName=map.Name,useApi,
+                        token=previewApproval.Token,mapId,mapName=map.Name,useApi,
                         mode=useApi?"asaApiLoader":"directAsa",
                         startsServer=false,changesStore=false,
                         requiresStoppedProcess=true,
                         evidence="LOCAL_ASA_API_MODE_PREVIEW_NO_WRITE"
                     });
                 }
-                if(!ReadGuid(req,"token",out var token)||pending==null||
-                   token!=pending.Token||
-                   DateTimeOffset.UtcNow-pending.CreatedUtc>TimeSpan.FromMinutes(3))
+                if(!ReadGuid(req,"token",out var token))
+                    return Fail(id,"UM-LOCAL-API-APPROVAL-EXPIRED");
+                var approval=pendingByMap.Values.SingleOrDefault(x=>x.Token==token);
+                if(approval==null)
                     return Fail(id,"UM-LOCAL-API-APPROVAL-EXPIRED");
                 if(!req.TryGetProperty("confirm",out var yes)||
                    yes.ValueKind!=JsonValueKind.True)
                     return Fail(id,"UM-LOCAL-API-APPROVAL-REQUIRED");
-                var approval=pending;
-                pending=null;
+                pendingByMap.Remove(approval.MapId); // one-shot after explicit approval
                 var owned=Owned(approval.MapId);
                 if(owned==null||owned.StartWithAsaApi==approval.UseApi||
                    JsonSerializer.Serialize(owned)!=approval.Profile)
