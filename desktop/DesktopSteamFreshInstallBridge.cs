@@ -377,7 +377,7 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                     }
                     // Preparing another stopped installation must not cancel
                     // a previous map's approved SteamCMD installation plan.
-                    if(prepared.Count>=8&&!prepared.Values.Any(x=>
+                    if(prepared.Count>=25&&!prepared.Values.Any(x=>
                         Same(x.Root,installRoot)))
                         return Error(id,"UM-FRESH-INSTALL-PREVIEW-CAPACITY");
                     foreach(var older in prepared.Where(x=>
