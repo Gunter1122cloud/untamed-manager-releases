@@ -721,7 +721,14 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     if(observed.Running||!observed.ConfirmedStopped||
                        observed.Identity!=null||observed.LoaderIdentity!=null)
                         return Fail(id,"UM-HISTORICAL-STOP-REQUIRED");
-                    if(pendingOriginal.Count>=8)pendingOriginal.Clear();
+                    // Cap applies to independent local maps, not previews.
+                    // Refuse a new map without revoking earlier owner approvals.
+                    if(pendingOriginal.Count>=8&&
+                       !pendingOriginal.Values.Any(x=>x.MapId==selected.MapId))
+                        return Fail(id,"UM-STORE-DIRECT-PREVIEW-CAPACITY");
+                    foreach(var previous in pendingOriginal.Where(x=>
+                        x.Value.MapId==selected.MapId).Select(x=>x.Key).ToArray())
+                        pendingOriginal.Remove(previous);
                     var approval=Guid.NewGuid();
                     pendingOriginal[approval]=new(approval,source.FourFilesSha256,
                         source.LaunchProfileSha256,selected.MapId,selected.MapKey,name,root,
@@ -1009,7 +1016,11 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     // writer ownership or recover the original full args.
                     if(Digest(archive)!=originalHash)
                         return Fail(id,"UM-HISTORICAL-ARCHIVE-CHANGED");
-                    if(pending.Count>=8)pending.Clear();
+                    if(pending.Count>=8&&
+                       !pending.Values.Any(x=>x.MapId==mapId))
+                        return Fail(id,"UM-HISTORICAL-PREVIEW-CAPACITY");
+                    foreach(var previous in pending.Where(x=>x.Value.MapId==mapId)
+                        .Select(x=>x.Key).ToArray())pending.Remove(previous);
                     var token=Guid.NewGuid();
                     pending[token]=new(token,archive,originalHash,mapId,
                         selected.MapId,name,root,previewInstall.ServerExecutable,
