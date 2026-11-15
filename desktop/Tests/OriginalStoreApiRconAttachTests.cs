@@ -189,5 +189,61 @@ internal static class OriginalStoreApiRconAttachTests
             "one-time API child RCON approval token cannot be replayed");
         Check(File.ReadAllBytes(ini).SequenceEqual(iniBefore),
             "original GameUserSettings.ini remains byte-identical");
+
+        // The critical stopped-import path: the API Loader mode can be
+        // selected before ASA is running. Previously RCON attachment then
+        // demanded a live Loader-child pair, but Start itself required RCON:
+        // a circular blocker. Native WMI now proves an actually stopped
+        // process family without conferring command authority.
+        await using var stoppedCluster=new ClusterService(
+            "isolated-original-stopped-api-rcon",
+            Path.Combine(testRoot,"original-stopped-api-rcon-manager-profile"),
+            _=>new ProcessCheck(false,"synthetic stopped",null,true));
+        var stoppedMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Genesis Part 1",
+            InstallationPath=install,ExecutablePath=exe,
+            HistoricalStoreProtected=true,
+            HistoricalArchiveSha256=new string('B',64),
+            HistoricalMapKey="Genesis_WP",
+            HistoricalEnabledMods=new(),HistoricalPassiveMods=new(),
+            GamePort=7867,QueryPort=27167,Arguments="",ApiLoaderArguments="",
+            StartWithAsaApi=true,ApiLoaderPath=loader,
+            LastProcess=null,LastLoader=null,
+            AutoStart=false,MonitorRcon=false,RconPort=0
+        };
+        stoppedCluster.AddMap(stoppedMap);
+        bool pretendRunning=true,listenerChecked=false;
+        using var offlineBridge=new DesktopHistoricalRconAttachBridge(
+            stoppedCluster,sourceGuard:_=>true,
+            apiObserver:_=>new ProcessCheck(pretendRunning,
+                pretendRunning?"synthetic unresolved running API":"synthetic stopped",
+                null,!pretendRunning),
+            listenerOwner:(p,pid)=>{listenerChecked=true;return false;});
+        var deniedOffline=await Call(offlineBridge,"historical.rconExistingPreview",
+            new{mapId=stoppedMap.Id});
+        Check(!deniedOffline.GetProperty("ok").GetBoolean()&&
+              stoppedMap.RconPort==0,
+            "unverified running API map cannot misuse the physically stopped path");
+        pretendRunning=false;
+        var stoppedPreview=await Call(offlineBridge,"historical.rconExistingPreview",
+            new{mapId=stoppedMap.Id});
+        Check(stoppedPreview.GetProperty("ok").GetBoolean()&&
+              stoppedPreview.GetProperty("data").GetProperty("rconPort").GetInt32()==port,
+            "physically stopped original API map can prepare existing RCON without a prior child PID");
+        var stoppedToken=stoppedPreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        var stoppedApplied=await Call(offlineBridge,"historical.rconApply",
+            new{token=stoppedToken,confirm=true});
+        Check(stoppedApplied.GetProperty("ok").GetBoolean()&&
+              !listenerChecked&&
+              stoppedCluster.Config.LocalMaps.Single().RconPort==port&&
+              stoppedCluster.Config.LocalMaps.Single().LastProcess==null&&
+              stoppedCluster.Config.LocalMaps.Single().LastLoader==null&&
+              File.ReadAllBytes(ini).SequenceEqual(iniBefore),
+            "stopped original API RCON attach writes only DPAPI Manager profile, no live listener, ASA start or INI changes");
+        var stoppedReplay=await Call(offlineBridge,"historical.rconApply",
+            new{token=stoppedToken,confirm=true});
+        Check(!stoppedReplay.GetProperty("ok").GetBoolean(),
+            "stopped API RCON approval is one-shot and cannot replay");
     }
 }
