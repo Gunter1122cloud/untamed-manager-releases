@@ -4849,6 +4849,34 @@ test("configured mods enrich official provider titles only when API credential i
   await expect(page.locator(".premium-mod-list-panel")).not.toContainText("synthetic-mod-metadata-key");
 });
 
+test("new ASA map setup navigates to real INI, RCON, Mod, API, cluster and Start controls",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const flow=page.getByRole("region",{name:"Új map beállításának lépései"});
+  await expect(flow).toBeVisible();
+  await expect(flow).toContainText("Game / Query port és indítási profil");
+  await flow.getByRole("button",{name:"RCON konfigurálása"}).click();
+  await expect(page.getByRole("tab",{name:"RCON / Konzol"}))
+    .toHaveAttribute("aria-selected","true");
+  await page.getByRole("tab",{name:"Áttekintés"}).click();
+  await flow.getByRole("button",{name:"Game.ini / GameUserSettings.ini"}).click();
+  await expect(page.getByRole("tab",{name:"INI",exact:true}))
+    .toHaveAttribute("aria-selected","true");
+  await page.getByRole("tab",{name:"Áttekintés"}).click();
+  await flow.getByRole("button",{name:"Modlista és sorrend"}).click();
+  await expect(page.getByRole("tab",{name:"Modok",exact:true}))
+    .toHaveAttribute("aria-selected","true");
+  await page.getByRole("tab",{name:"Áttekintés"}).click();
+  await flow.getByRole("button",{name:"ASA API indítási mód"}).click();
+  await expect(page.getByRole("tab",{name:"Pluginok / ASA API"}))
+    .toHaveAttribute("aria-selected","true");
+  await page.getByRole("tab",{name:"Áttekintés"}).click();
+  await expect(flow.getByRole("button",{name:"Start és jóváhagyás"})).toBeEnabled();
+  await flow.getByRole("button",{name:"Cluster hozzárendelés"}).click();
+  await expect(page.getByRole("button",{name:"Cluster",exact:true}))
+    .toHaveAttribute("aria-current","page");
+});
+
 test("native ASA API CORE installation and rollback are available only on eligible local maps",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Pluginok",exact:true}).click();
