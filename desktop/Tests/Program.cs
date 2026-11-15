@@ -2624,6 +2624,23 @@ try
                 gamePort=testGamePort,queryPort=testQueryPort});
         IsOk(preview,"official ASA level/session/ports preview is calculated");
         var token=preview.GetProperty("data").GetProperty("token").GetString()!;
+        // A bad second preview cannot revoke this map's valid ticket.
+        var invalidRepreview=await Call(setup.HandleAsync,"servers.initialPreview",
+            new{mapId=valguero.Id,sessionName="Rejected duplicate ports",
+                gamePort=testGamePort,queryPort=testGamePort});
+        Check(!invalidRepreview.GetProperty("ok").GetBoolean(),
+            "rejected initial re-preview does not wipe a previously approved map");
+        var replacedPreview=await Call(setup.HandleAsync,"servers.initialPreview",
+            new{mapId=valguero.Id,sessionName="Untamed Kingdom Test",
+                gamePort=testGamePort,queryPort=testQueryPort});
+        IsOk(replacedPreview,"same fresh map can replace its own first-setup ticket");
+        string replacedToken=replacedPreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        Check(replacedToken!=token&&
+              IsError(await Call(setup.HandleAsync,"servers.initialApply",
+                  new{token,confirm=true}),"UM-INITIAL-PREVIEW-EXPIRED"),
+            "successful same-map re-preview invalidates only older approval");
+        token=replacedToken;
         Check(string.IsNullOrEmpty(valguero.Arguments) &&
               valguero.GamePort==0 && valguero.QueryPort==0,
             "profile stays unmodified until approval");
