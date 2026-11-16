@@ -552,9 +552,11 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                                 peer==approved.SharedStateHash&&
                                 OriginalLiveRegistryHash(again)==approved.RegistryHash&&
                                 now.Maps.Select(m=>m.Id).SequenceEqual(approved.MapIds)&&
-                                // Verify the independent SaveWorld receipt while
-                                // holding the installation operation leases.
-                                OriginalLiveOperationBlockers(now.Maps).Length==0;
+                                // The generic journal now belongs to THIS
+                                // AcquireMany(Configuration) operation and is
+                                // expected to be Prepared. Only the independent
+                                // SaveWorld intent needs an additional check.
+                                !HasPendingOriginalSaveEvidence(now.Maps);
                         });
                     return Ok(id,new {
                         importedMaps=observed.Maps.Length,
@@ -1157,6 +1159,17 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         string MapName,string Kind,string Phase,Guid OperationId,
         string BlockingCode,bool ExistingManagerProfile,
         bool SupportedReviewInMapDetails);
+
+    private bool HasPendingOriginalSaveEvidence(IReadOnlyList<LocalMap> maps)
+    {
+        // SaveWorld-only persists intent before its RCON worker acquires
+        // the standard installation lease. Check only that independent
+        // receipt here; scanning a generic Prepared lease during takeover
+        // would incorrectly reject the current takeover's OWN journal.
+        return maps.Any(map=>
+            LegacyStoreV1SaveEvidenceJournal.Inspect(
+                cluster.Store.Root,map.Id)?.Phase is "prepared" or "needsOperator");
+    }
 
     private OriginalLiveJournalBlocker[] OriginalLiveOperationBlockers(
         IReadOnlyList<LocalMap> original)
