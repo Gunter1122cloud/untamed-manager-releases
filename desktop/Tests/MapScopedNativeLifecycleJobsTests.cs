@@ -433,6 +433,10 @@ internal static class MapScopedNativeLifecycleJobsTests
         Check(missingAuditBlocked&&missingAuditNewStopBlocked&&
               sharedStopGate.Observe()?.Phase==AsaStopPhase.OperatorReviewed,
             "missing reviewed audit blocks new Core Start/Restart and native Stop");
+        var missingCurrent=await Call(second.HandleAsync,
+            "servers.gracefulStopCurrent",new{mapId=map.Id});
+        Check(!missingCurrent.GetProperty("ok").GetBoolean(),
+            "native Stop reconnect refuses missing reviewed audit");
         File.WriteAllText(audit,"altered source bytes");
         bool modifiedAuditBlocked=false;
         try{sharedStopGate.DemandNoPending(map.Id);}
@@ -442,6 +446,10 @@ internal static class MapScopedNativeLifecycleJobsTests
         }
         Check(modifiedAuditBlocked,
             "tampered reviewed audit cannot unlock new lifecycle operations");
+        var modifiedPreview=await Call(second.HandleAsync,
+            "servers.gracefulStopPreview",new{mapId=map.Id});
+        Check(!modifiedPreview.GetProperty("ok").GetBoolean(),
+            "native Stop preview refuses altered reviewed audit");
         File.WriteAllBytes(audit,originalReviewEvidence);
         sharedStopGate.DemandNoPending(map.Id);
         Check(File.ReadAllBytes(audit).SequenceEqual(originalReviewEvidence),
