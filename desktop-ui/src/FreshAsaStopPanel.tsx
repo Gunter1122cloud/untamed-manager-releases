@@ -41,8 +41,13 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
     managerBridge.freshAsaStopCurrent(mapId).then(current=>{
       if(!active||!belongs(mapId)||revision!==actionRevision.current)return;
       if(current.mapId.toLowerCase()!==mapId.toLowerCase()||
+         current.evidence!=="LOCAL_ASA_STOP_IN_MEMORY_JOB_OBSERVATION_NO_DISPATCH"||
          (current.active&&!current.jobId))
         throw new Error("UM-ASA-STOP-RECONNECT-MISMATCH");
+      // A native terminal NeedsOperator is NOT a free Stop slot. After UI
+      // navigation keep this map blocked until operator reconciliation.
+      if(current.state==="needsOperator")
+        throw new Error("UM-ASA-STOP-NEEDS-OPERATOR");
       if(current.active&&current.jobId)setJobId(current.jobId);
     }).catch(e=>{
       if(active&&belongs(mapId)&&revision===actionRevision.current){
@@ -86,7 +91,8 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
           onStopped().catch(()=>{});
         }else if(result.state==="needsOperator"){
           setJobId(null);
-          setError("A leállítás elakadt. Ellenőrizd a folyamatot és a mentési naplót; nem történt automatikus Kill vagy ismétlés.");
+          setReconcileFailed(true);
+          setError("UM-ASA-STOP-NEEDS-OPERATOR: A leállítás elakadt. Ellenőrizd a folyamatot és a mentési naplót; új Stop, automatikus Kill vagy ismétlés nem engedélyezett.");
         }
       }catch{
         if(active&&belongs(mapId)){
