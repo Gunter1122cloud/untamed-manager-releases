@@ -104,6 +104,9 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             throw new InvalidOperationException("Restart requires a new local non-Store ASA installation");
         if(!allowPendingRestart)
             new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+        // A separate interrupted Stop has its own durable one-shot intent.
+        // Reject Restart before any new SaveWorld/DoExit or replacement Start.
+        new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
         var state=cluster.Check(map);
         if(!ReleaseCapabilityGate.Check(ManagerOperation.RealAsaRestart,true,
             map.Maintenance,state.ConfirmedStopped,state.Running,
