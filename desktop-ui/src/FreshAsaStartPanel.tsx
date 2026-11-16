@@ -61,7 +61,11 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     }
   };
   const checkReadiness=async()=>{
-    if((!observed?.running&&!acceptedStart)||checkingReady||journalBlocked)return;
+    // This is a READ-ONLY native query. A durable launch journal may still
+    // be settling after the exact Start receipt; it may block a second
+    // Start/Stop without hiding the existing ASA's RCON readiness probe.
+    if((!observed?.running&&!acceptedStart)||checkingReady||
+       (journalBlocked&&!acceptedStart))return;
     const requested=mapId,revision=readinessGeneration.current;
     setCheckingReady(true);setReadiness(null);setError("");
     try{
@@ -214,7 +218,8 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     <button type="button" className="secondary" disabled={busy||journalBlocked||acceptedStart||Boolean(observed?.running)}
       onClick={()=>{void check();}}>Valódi ASA-indítás előellenőrzése</button>
     <button type="button" className="secondary"
-      disabled={(!observed?.running&&!acceptedStart)||journalBlocked||checkingReady}
+      disabled={(!observed?.running&&!acceptedStart)||
+        (journalBlocked&&!acceptedStart)||checkingReady}
       onClick={()=>{void checkReadiness();}}><RefreshCw size={16}/> ASA / RCON készenlét ellenőrzése</button>
     {awaitingStartup&&<p className="muted small" role="status">Indítás utáni ASA/RCON-készenlét ellenőrzése (legfeljebb 10 perc, csak olvasás). A szerver nincs automatikusan újraindítva vagy leállítva.</p>}
     {readiness&&<div className="historical-preview" role="status">
