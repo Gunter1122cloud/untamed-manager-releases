@@ -224,12 +224,15 @@ public sealed class ObsidianWindow : Form
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
     private readonly bool _smokeTest;
+    private readonly bool _suppressScheduledMutations;
     private readonly string? _smokeRoot;
     private bool _smokeCompleted;
 
-    public ObsidianWindow(bool smokeTest = false,string? isolatedProfileRoot = null)
+    public ObsidianWindow(bool smokeTest = false,string? isolatedProfileRoot = null,
+        bool suppressScheduledMutations = false)
     {
         _smokeTest = smokeTest;
+        _suppressScheduledMutations = suppressScheduledMutations;
         if(smokeTest)
         {
             _smokeRoot=string.IsNullOrWhiteSpace(isolatedProfileRoot)
@@ -295,7 +298,9 @@ public sealed class ObsidianWindow : Form
         _scheduledBackups = new DesktopScheduledStoppedBackupSupervisor(_bridge.LocalCluster);
         _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster,
             scheduledBackups:_scheduledBackups);
-        Text = "Untamed Kingdom — Obsidian Command";
+        Text = suppressScheduledMutations&&!smokeTest
+            ? "Untamed Kingdom — Obsidian Command [MANUÁLIS TESZT]"
+            : "Untamed Kingdom — Obsidian Command";
         Width = 1510;
         Height = 880;
         MinimumSize = new Size(940, 620);
@@ -308,7 +313,9 @@ public sealed class ObsidianWindow : Form
         Controls.Add(_browser);
 
         _tray.Icon = Icon;
-        _tray.Text = "Untamed Kingdom — Obsidian Command";
+        _tray.Text = suppressScheduledMutations&&!smokeTest
+            ? "Obsidian Command — MANUÁLIS TESZT"
+            : "Untamed Kingdom — Obsidian Command";
         _tray.Visible = true;
         var menu = new ContextMenuStrip();
         menu.Items.Add("Megnyitás", null, (_, _) => RestoreWindow());
@@ -330,9 +337,15 @@ public sealed class ObsidianWindow : Form
                 // never starts/stops any ARK server or touches shared Store.
                 _asaDiscovery.Start();
                 _readOnlySupervisor.Start();
-                _scheduledBackups.Start();
+                // Installation acceptance never silently executes a
+                // previously configured ASA Restart/SaveWorld or backup.
+                // Explicit native manual commands remain fully available.
+                if(!_suppressScheduledMutations)
+                {
+                    _scheduledBackups.Start();
+                    _nativeSchedules.Start();
+                }
                 _scheduledSteam.Start();
-                _nativeSchedules.Start();
                 try { await _bridge.LocalCluster.BeginLanAsync(); }
                 catch (Exception) { /* UI remains usable; peer status stays unknown */ }
             }
