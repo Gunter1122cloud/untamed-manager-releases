@@ -49,6 +49,14 @@ internal static class LegacyStoreV1NativeStartPlanner
            map.QueryPort is <1024 or >65535||
            map.RconPort is <1024 or >65535)
             throw new InvalidDataException("UM-STORE-NATIVE-ACTIVE-IMPORT-ONLY");
+        // The last SaveWorld-only RCON attempt can be uncertain even if
+        // ASA has subsequently stopped. Do not launch across its durable
+        // prepared/needsOperator receipt; the owner must review it first.
+        var pendingSave=LegacyStoreV1SaveEvidenceJournal.Inspect(
+            cluster.Store.Root,map.Id);
+        if(pendingSave?.Phase is "prepared" or "needsOperator")
+            throw new InvalidOperationException(
+                "UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW");
         if(!AsaReadyProbe.IsRegisteredServerBinary(map)||
            !AsaRconConfigurationEvidence.Matches(map))
             throw new InvalidDataException("UM-STORE-NATIVE-EXE-RCON-PARITY");
