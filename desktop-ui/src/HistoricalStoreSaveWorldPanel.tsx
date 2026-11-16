@@ -228,10 +228,21 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       setJobId(queued.jobId);
       setNotice("A natív SaveWorld elindult. Az ASA mentésnaplója és a .ark fájl "+
         "változása külön ellenőrzés alatt áll.");
-    }catch{
-      if(belongs(requested,revision))
-        setError("A Store-v1 SaveWorld eredménye nem igazolható. A mentés már elindulhatott; "+
-          "ne küldd újra a napló és a feladat állapotának ellenőrzése nélkül.");
+    }catch(e){
+      if(belongs(requested,revision)){
+        const code=e instanceof Error?e.message:"";
+        if(code==="UM-ORIGINAL-STOP-INSTALLATION-BUSY")
+          setError("Másik natív művelet már zárolja ezt az ASA-telepítést. "+
+            "Az új SaveWorld-kérelem elutasítva; nem küldtünk RCON-parancsot. "+
+            "Ellenőrizd a műveleti naplót, majd kérj új előellenőrzést.");
+        else if(code==="UM-ORIGINAL-SAVE-HISTORY-REVIEW-REQUIRED")
+          setError("A korábbi SaveWorld-bizonylat archívumának megőrzése "+
+            "nem igazolható. Új mentés nem indult; a helyi naplókat "+
+            "kézzel ellenőrizni kell, automatikus feloldás nincs.");
+        else
+          setError("A Store-v1 SaveWorld eredménye nem igazolható. A mentés már elindulhatott; "+
+            "ne küldd újra a napló és a feladat állapotának ellenőrzése nélkül.");
+      }
     }finally{if(belongs(requested,revision))setBusy(false);}
   };
   const reviewPreviousSave=async()=>{
