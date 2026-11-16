@@ -600,9 +600,11 @@ internal static class MapScopedNativeLifecycleJobsTests
                     token=competingApproval.GetProperty("token").GetString(),
                     confirm=true,typedApproval="STORE-V1 SAVEWORLD"});
             Check(!refused.GetProperty("ok").GetBoolean()&&
+                  refused.GetProperty("error").GetString()==
+                    "UM-ORIGINAL-STOP-INSTALLATION-BUSY"&&
                   LegacyStoreV1SaveEvidenceJournal.Inspect(
                     cluster.Store.Root,maps[1].Id)==priorReceipt,
-                "competing installation owner denies SaveWorld intent without overwriting receipt");
+                "competing installation owner reports precise SaveWorld denial without overwriting receipt");
             otherOperation.Complete();
         }
         lock(saved)Check(saved.Count==2,
