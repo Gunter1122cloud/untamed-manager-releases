@@ -143,5 +143,79 @@ internal static class LegacyStoreSaveReviewBridgeTests
             Guid.NewGuid(),map.Id,50122,started,SourceSha);
         Check(newAttempt.Phase=="prepared"&&File.Exists(archived),
             "new SaveWorld receipt starts without deleting original crash evidence");
+
+        // Simulate an interrupted local receipt publisher, not an ASA/Store
+        // command. The strict mutating preflights must still fail closed,
+        // while recovery pages must expose the exact affected map and retain
+        // all local journal bytes for operator investigation.
+        string receiptDirectory=Path.Combine(cluster.Store.Root,
+            "historical-save-evidence-v1");
+        string interrupted=Path.Combine(receiptDirectory,
+            map.Id.ToString("N")+".json.next");
+        byte[] incomplete={0x53,0x54,0x4f,0x52,0x45,0x2d,0x56,0x31};
+        File.WriteAllBytes(interrupted,incomplete);
+        byte[] originalEvidence=File.ReadAllBytes(Path.Combine(
+            receiptDirectory,map.Id.ToString("N")+".json"));
+        var degradedEvidence=await Call(bridge,"historical.saveWorldEvidence",
+            new{mapId=map.Id});
+        Check(degradedEvidence.GetProperty("ok").GetBoolean()&&
+              degradedEvidence.GetProperty("data").GetProperty("phase")
+                .GetString()=="unreadable"&&
+              degradedEvidence.GetProperty("data").GetProperty("unreadable")
+                .GetBoolean()&&
+              degradedEvidence.GetProperty("data").GetProperty("errorCode")
+                .GetString()=="UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE"&&
+              !degradedEvidence.GetProperty("data")
+                .GetProperty("localSaveCompleteObserved").GetBoolean(),
+            "SaveWorld evidence remains readable as an explicit corrupted-receipt blocker");
+        var degradedRecovery=await Call(bridge,"historical.gracefulStopRecovery",
+            new{mapId=map.Id});
+        Check(degradedRecovery.GetProperty("ok").GetBoolean()&&
+              degradedRecovery.GetProperty("data").GetProperty("blocked")
+                .GetBoolean()&&
+              degradedRecovery.GetProperty("data").GetProperty("requiresOperator")
+                .GetBoolean()&&
+              degradedRecovery.GetProperty("data").GetProperty("saveEvidenceUnreadable")
+                .GetBoolean()&&
+              degradedRecovery.GetProperty("data").GetProperty("saveEvidencePhase")
+                .GetString()=="unreadable",
+            "Stop recovery identifies unreadable SaveWorld on only the affected map");
+        using(var restart=new DesktopHistoricalRestartBridge(cluster))
+        {
+            using var restartResponse=JsonDocument.Parse(await restart.HandleAsync(
+                JsonSerializer.Serialize(new{id=Guid.NewGuid(),method=
+                    "historical.restartRecovery",mapId=map.Id})));
+            var restartResult=restartResponse.RootElement;
+            Check(restartResult.GetProperty("ok").GetBoolean()&&
+                  restartResult.GetProperty("data").GetProperty("blocked")
+                    .GetBoolean()&&
+                  restartResult.GetProperty("data").GetProperty("saveEvidencePending")
+                    .GetBoolean()&&
+                  restartResult.GetProperty("data").GetProperty("saveEvidenceUnreadable")
+                    .GetBoolean()&&
+                  restartResult.GetProperty("data").GetProperty("saveEvidenceErrorCode")
+                    .GetString()=="UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE",
+                "Restart recovery reports the corrupt local SaveWorld without retry");
+            using var siblingResponse=JsonDocument.Parse(await restart.HandleAsync(
+                JsonSerializer.Serialize(new{id=Guid.NewGuid(),method=
+                    "historical.restartRecovery",mapId=secondMap.Id})));
+            Check(siblingResponse.RootElement.GetProperty("ok").GetBoolean()&&
+                  !siblingResponse.RootElement.GetProperty("data")
+                    .GetProperty("blocked").GetBoolean(),
+                "an unreadable SaveWorld for one map does not block another map");
+            using var refusedRestart=JsonDocument.Parse(await restart.HandleAsync(
+                JsonSerializer.Serialize(new{id=Guid.NewGuid(),method=
+                    "historical.restartPreview",mapId=map.Id})));
+            Check(!refusedRestart.RootElement.GetProperty("ok").GetBoolean(),
+                "strict Restart preflight still refuses unreadable SaveWorld evidence");
+        }
+        var refusedSave=await Call(bridge,"historical.saveWorldPreview",
+            new{mapId=map.Id});
+        Check(!refusedSave.GetProperty("ok").GetBoolean()&&
+              File.ReadAllBytes(interrupted).SequenceEqual(incomplete)&&
+              File.ReadAllBytes(Path.Combine(receiptDirectory,
+                map.Id.ToString("N")+".json")).SequenceEqual(originalEvidence)&&
+              File.Exists(archived),
+            "unreadable SaveWorld blocks new commands without deleting .next or any receipt");
     }
 }
