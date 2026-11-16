@@ -176,18 +176,32 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                 {
                     if(!GuidProperty(request,"mapId",out var mapId))
                         return Error(id,"UM-ASA-STOP-MAP");
-                    if(Owned(mapId)==null)return Error(id,"UM-MAP-NOT-OWNED");
+                    var owned=Owned(mapId);
+                    if(owned==null)return Error(id,"UM-MAP-NOT-OWNED");
+                    var durable=Journal(owned).Observe();
+                    if(durable!=null&&durable.MapId!=mapId)
+                        return Error(id,"UM-ASA-STOP-JOURNAL-MAP-MISMATCH");
                     lock(sync)
                     {
-                        if(!jobsByMap.TryGetValue(mapId,out var tracked))
+                        if(jobsByMap.TryGetValue(mapId,out var tracked))
                             return Ok(id,new{
-                                mapId,jobId=(Guid?)null,state=(string?)null,active=false,
-                                evidence="LOCAL_ASA_STOP_IN_MEMORY_JOB_OBSERVATION_NO_DISPATCH"
+                                mapId,jobId=(Guid?)tracked.JobId,
+                                state=(string?)tracked.State,
+                                active=tracked.State is "queued" or "running",
+                                journalId=(Guid?)durable?.Id,
+                                durablePhase=durable?.Phase.ToString(),
+                                evidence="LOCAL_ASA_STOP_MEMORY_AND_DURABLE_JOURNAL_OBSERVATION_NO_DISPATCH"
                             });
                         return Ok(id,new{
-                            mapId,jobId=(Guid?)tracked.JobId,state=tracked.State,
-                            active=tracked.State is "queued" or "running",
-                            evidence="LOCAL_ASA_STOP_IN_MEMORY_JOB_OBSERVATION_NO_DISPATCH"
+                            mapId,jobId=(Guid?)null,
+                            state=durable?.Phase is
+                                (AsaStopPhase.Pending or AsaStopPhase.NeedsOperator)
+                                ?"needsOperator":durable?.Phase==AsaStopPhase.Completed
+                                    ?"completed":(string?)null,
+                            active=false,
+                            journalId=(Guid?)durable?.Id,
+                            durablePhase=durable?.Phase.ToString(),
+                            evidence="LOCAL_ASA_STOP_MEMORY_AND_DURABLE_JOURNAL_OBSERVATION_NO_DISPATCH"
                         });
                     }
                 }
@@ -242,6 +256,10 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                 if(current.Pid!=approved.Pid||
                    current.StartedUtc!=approved.StartedUtc)
                     return Error(id,"UM-ASA-STOP-PROCESS-CHANGED");
+                // Persist one exact machine-local attempt BEFORE RCON can
+                // run. A Manager crash leaves Pending, never an empty slot.
+                var stopJournal=Journal(map);
+                var durable=stopJournal.Begin(map.Id,current.Pid,current.StartedUtc);
                 var item=new Job{MapId=map.Id};
                 lock(sync)jobsByMap[map.Id]=item;
                 _=Task.Run(async()=>{
@@ -253,10 +271,16 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                         if(!receipt.ConfirmedStopped||receipt.MapId!=map.Id||
                            receipt.Pid!=approved.Pid)
                             throw new InvalidDataException("ASA graceful stop receipt invalid");
+                        // The durable terminal receipt precedes any UI
+                        // success. Failure to persist remains NeedsOperator.
+                        stopJournal.Finish(durable.Id,AsaStopPhase.Completed);
                         Change(item,"completed","Windows process verified stopped",receipt);
                     }
                     catch(Exception ex)
                     {
+                        try{
+                            stopJournal.Finish(durable.Id,AsaStopPhase.NeedsOperator);
+                        }catch{/* Pending is itself a durable fail-closed block. */}
                         Change(item,"needsOperator",
                             "Stop interrupted ["+NativeLifecycleFailureCode.From(ex)+
                             "]; inspect process and save journal");
