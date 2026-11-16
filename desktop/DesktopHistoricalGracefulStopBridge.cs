@@ -466,11 +466,31 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                 var job=new Job(map.Id,approved.Kind);
                 if(approved.Kind=="SaveWorldOnly")
                 {
-                    // Journal BEFORE the native task can send RCON. A crash
-                    // leaves a durable prepared record, never false success.
-                    LegacyStoreV1SaveEvidenceJournal.Begin(cluster.Store.Root,
-                        job.Id,map.Id,approved.Pid,approved.StartedUtc,
-                        approved.SourceSha);
+                    // A separate Start/Stop/Restart bridge can acquire the
+                    // installation lease AFTER the UI preview but BEFORE
+                    // the SaveWorld-only receipt is published. Reserve the
+                    // installation first, re-verify the exact approved ASA
+                    // owner UNDER that cross-process lease, then create the
+                    // durable SaveWorld intent. A competing operation cannot
+                    // slip between the final owner proof and Begin().
+                    // Complete this no-RCON reservation before the worker
+                    // takes its own Backup lease for the actual one-shot send.
+                    using(var intent=cluster.Operations.Acquire(
+                        map.InstallationPath,UntamedOperationKind.Backup))
+                    {
+                        var pinned=await Task.Run(()=>preview(map.Id));
+                        if(!ReferenceEquals(pinned.Map,map)||
+                           pinned.Process.Pid!=approved.Pid||
+                           pinned.Process.StartedUtc!=approved.StartedUtc||
+                           pinned.SourceSha!=approved.SourceSha)
+                            return Fail(id,"UM-ORIGINAL-SAVE-LEASE-OWNER-CHANGED");
+                        // Persist intent BEFORE scheduling any RCON worker.
+                        // Crash leaves prepared receipt requiring review.
+                        LegacyStoreV1SaveEvidenceJournal.Begin(cluster.Store.Root,
+                            job.Id,map.Id,approved.Pid,approved.StartedUtc,
+                            approved.SourceSha);
+                        intent.Complete();
+                    }
                 }
                 lock(sync)jobsByMap[map.Id]=job;
                 _=Task.Run(async()=>{
