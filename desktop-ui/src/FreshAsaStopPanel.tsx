@@ -64,7 +64,16 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
       try{
         const result=await managerBridge.freshAsaStopStatus(jobId);
         if(!active||!belongs(mapId))return;
-        setError("");setStatus(result);
+        if(result.jobId!==jobId||result.killPerformed!==false||
+           result.restartPerformed!==false||result.storeTouched!==false||
+           (result.state==="completed"&&result.confirmedStopped!==true)){
+          // An unrelated task or an unproven PID exit is NOT completed Stop.
+          // Keep the original job ID pinned; never dispatch Stop again.
+          setReconcileFailed(true);
+          setError("UM-ASA-STOP-STATUS-INVALID: A natív Stop-bizonylat jobazonosítója vagy PID-kilépési igazolása nem egyezik. A feladatot nem ismételjük meg.");
+          return;
+        }
+        setReconcileFailed(false);setError("");setStatus(result);
         if(result.state==="completed"){
           setJobId(null);
           const text=result.preExitSaveEvidenceObserved?
@@ -117,6 +126,11 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
     try{
       const job=await managerBridge.freshAsaStopApply(token);
       if(!belongs(requested))return;
+      if(!job.started||typeof job.jobId!=="string"||
+         !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(job.jobId)||
+         job.killPerformed!==false||job.autoRestart!==false||
+         job.evidence!=="REAL_LOCAL_GRACEFUL_STOP_JOB_QUEUED")
+        throw new Error("UM-ASA-STOP-APPLY-RECEIPT-INVALID");
       setJobId(job.jobId);
       setStatus({jobId:job.jobId,state:"queued",step:"preflight",
         changedUtc:new Date().toISOString(),confirmedStopped:false,
