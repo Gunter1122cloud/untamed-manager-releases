@@ -316,6 +316,14 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_FRESH_START_CHANGED__?:()=>void})
       .__UNTAMED_FRESH_START_CHANGED__=()=>{freshStartInvalidated=true;};
     let restartInterrupted=false;
+    let restartForeignJournal=false,restartNeedsReviewWithoutDashboardFlag=false;
+    (window as typeof window & {
+      __UNTAMED_RESTART_FOREIGN_JOURNAL__?:()=>void;
+      __UNTAMED_RESTART_DURABLE_NEEDS_REVIEW__?:()=>void;
+    }).__UNTAMED_RESTART_FOREIGN_JOURNAL__=()=>{restartForeignJournal=true;};
+    (window as typeof window & {
+      __UNTAMED_RESTART_DURABLE_NEEDS_REVIEW__?:()=>void;
+    }).__UNTAMED_RESTART_DURABLE_NEEDS_REVIEW__=()=>{restartNeedsReviewWithoutDashboardFlag=true;};
     let freshRestartReviewCount=0;
     (window as typeof window & {__UNTAMED_FRESH_RESTART_REVIEWS__?:()=>number})
       .__UNTAMED_FRESH_RESTART_REVIEWS__=()=>freshRestartReviewCount;
@@ -2974,12 +2982,13 @@ test.beforeEach(async ({ page }) => {
           inMemoryJobState:lifecycleRestartIssued?
             (lifecycleRestartHeld?"running":"completed"):null,
           inMemoryRunning:lifecycleRestartIssued&&lifecycleRestartHeld,
-          exists:restartInterrupted,belongsToMap:true,
-          phase:restartInterrupted?"NeedsOperator":null,
+          exists:restartInterrupted||restartNeedsReviewWithoutDashboardFlag||restartForeignJournal,
+          belongsToMap:!restartForeignJournal,
+          phase:restartInterrupted||restartNeedsReviewWithoutDashboardFlag?"NeedsOperator":null,
           oldPid:restartInterrupted?(storeLaunchRecoveryFixture?123456:44117):null,
           newPid:restartInterrupted?0:null,
           changedUtc:restartInterrupted?"2026-11-06T11:51:00Z":null,
-          needsOperatorReview:restartInterrupted,
+          needsOperatorReview:restartInterrupted||restartNeedsReviewWithoutDashboardFlag,
           autoResumeAllowed:false,
           evidence:"DURABLE_MACHINE_LOCAL_MANUAL_ASA_RESTART"
         };
@@ -8436,6 +8445,38 @@ test("fresh Stop reattaches the exact in-memory job after map navigation without
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number
   }).__UNTAMED_LOCAL_STOP_APPLIES__?.())).toBe(1);
+});
+
+test("fresh Restart blocks unreviewed durable native journal despite a stale dashboard flag",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RESTART_DURABLE_NEEDS_REVIEW__?:()=>void;
+  }).__UNTAMED_RESTART_DURABLE_NEEDS_REVIEW__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
+  await expect(panel.getByRole("region",{name:"Megszakadt helyi Restart rendezése"}))
+    .toBeVisible();
+  await expect(panel.getByRole("button",{name:"Újraindítás előellenőrzése"}))
+    .toBeDisabled();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_LOCAL_RESTART_APPLIES__?:()=>number;
+  }).__UNTAMED_LOCAL_RESTART_APPLIES__?.())).toBe(0);
+});
+
+test("fresh Restart denies foreign map journal during native reconciliation",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RESTART_FOREIGN_JOURNAL__?:()=>void;
+  }).__UNTAMED_RESTART_FOREIGN_JOURNAL__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
+  await expect(panel).toContainText("UM-ASA-RESTART-CURRENT-MAP-MISMATCH");
+  await expect(panel.getByRole("button",{name:"Újraindítás előellenőrzése"}))
+    .toBeDisabled();
+  await expect(panel.getByRole("region",{name:"Megszakadt helyi Restart rendezése"}))
+    .toHaveCount(0);
 });
 
 test("fresh Restart reattaches a running native job without restarting it twice",async({page})=>{
