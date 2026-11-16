@@ -415,6 +415,37 @@ internal static class MapScopedNativeLifecycleJobsTests
               File.ReadAllBytes(audit).SequenceEqual(originalReviewEvidence)&&
               !File.ReadAllBytes(stopJournalPath).SequenceEqual(originalReviewEvidence),
             "operator review preserves immutable exact pre-review Stop evidence");
+        // Audited means verifiably audited, not merely that the current
+        // journal contains the OperatorReviewed flag. Missing/tampered
+        // original evidence must block all new Start/Stop/Restart paths.
+        File.Delete(audit);
+        bool missingAuditBlocked=false,missingAuditNewStopBlocked=false;
+        try{sharedStopGate.DemandNoPending(map.Id);}
+        catch(InvalidDataException ex){
+            missingAuditBlocked=
+                ex.Message=="UM-ASA-STOP-REVIEW-AUDIT-MISSING";
+        }
+        try{sharedStopGate.Begin(map.Id,pid.Pid,pid.StartedUtc);}
+        catch(InvalidDataException ex){
+            missingAuditNewStopBlocked=
+                ex.Message=="UM-ASA-STOP-REVIEW-AUDIT-MISSING";
+        }
+        Check(missingAuditBlocked&&missingAuditNewStopBlocked&&
+              sharedStopGate.Observe()?.Phase==AsaStopPhase.OperatorReviewed,
+            "missing reviewed audit blocks new Core Start/Restart and native Stop");
+        File.WriteAllText(audit,"altered source bytes");
+        bool modifiedAuditBlocked=false;
+        try{sharedStopGate.DemandNoPending(map.Id);}
+        catch(InvalidDataException ex){
+            modifiedAuditBlocked=
+                ex.Message=="UM-ASA-STOP-REVIEW-AUDIT-MISMATCH";
+        }
+        Check(modifiedAuditBlocked,
+            "tampered reviewed audit cannot unlock new lifecycle operations");
+        File.WriteAllBytes(audit,originalReviewEvidence);
+        sharedStopGate.DemandNoPending(map.Id);
+        Check(File.ReadAllBytes(audit).SequenceEqual(originalReviewEvidence),
+            "restored exact reviewed audit re-enables read-only preflight");
         // A pre-existing different audit must fail closed rather than erase
         // either the evidence or the unfinished new operation.
         var next=sharedStopGate.Begin(map.Id,pid.Pid,pid.StartedUtc);
