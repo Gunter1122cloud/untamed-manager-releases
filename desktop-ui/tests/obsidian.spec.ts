@@ -408,6 +408,18 @@ test.beforeEach(async ({ page }) => {
     const originalSaveJob="00000000-0000-4000-8000-000000001693";
     let originalSaveQueued=false;
     let originalSavePending=false;
+    let originalRestartPendingSaveReceipt=false;
+    (window as typeof window & {
+      __UNTAMED_RESTART_PENDING_SAVE__?:()=>void;
+      __UNTAMED_RESTART_CLEAR_PENDING_SAVE__?:()=>void;
+    }).__UNTAMED_RESTART_PENDING_SAVE__=()=>{
+      originalRestartPendingSaveReceipt=true;
+    };
+    (window as typeof window & {
+      __UNTAMED_RESTART_CLEAR_PENDING_SAVE__?:()=>void;
+    }).__UNTAMED_RESTART_CLEAR_PENDING_SAVE__=()=>{
+      originalRestartPendingSaveReceipt=false;
+    };
     let originalSaveDispatches=0;
     let originalSaveWrongPreviewMap=false;
     let originalSaveWrongStatusJob=false;
@@ -1305,9 +1317,11 @@ test.beforeEach(async ({ page }) => {
             phase:originalRestartFail&&originalRestartQueued?"NeedsOperator":
               originalRestartQueued?"Completed":"None",
             entryBelongsToMap:originalRestartQueued,
-            blocked:oldStopNeedsOperator||
+            saveEvidencePhase:originalRestartPendingSaveReceipt?"needsOperator":"none",
+            saveEvidencePending:originalRestartPendingSaveReceipt,
+            blocked:originalRestartPendingSaveReceipt||oldStopNeedsOperator||
               (originalRestartFail&&originalRestartQueued),
-            requiresOperator:oldStopNeedsOperator||
+            requiresOperator:originalRestartPendingSaveReceipt||oldStopNeedsOperator||
               (originalRestartFail&&originalRestartQueued),
             inMemoryRunning:false,jobId:null,
             oldPid:originalRestartQueued?42101:null,
@@ -1319,6 +1333,7 @@ test.beforeEach(async ({ page }) => {
         case "historical.restartPreview": {
           if(m.mapId!==two||!historicalRconAttached||
              !historicalActiveStarted||oldStopNeedsOperator||
+             originalRestartPendingSaveReceipt||
              !originalRconSourceValid||!originalRconPortOwner||
              originalRestartQueued||originalRestartApproved)
             throw new Error("Original Store Restart blocked");
@@ -5958,6 +5973,31 @@ test("original Store-v1 manual Restart requires exact two-stage approval and dis
   expect(sent).toBe(1);
   await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
     .toBeDisabled();
+});
+
+test("historical Store-v1 Restart explains unfinished SaveWorld receipt and permits read-only recheck",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RESTART_PENDING_SAVE__?:()=>void;
+  }).__UNTAMED_RESTART_PENDING_SAVE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"});
+  await expect(panel.getByText(/Függő Store-v1 SaveWorld-bizonylat/)).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+    .toBeDisabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RESTART_CLEAR_PENDING_SAVE__?:()=>void;
+  }).__UNTAMED_RESTART_CLEAR_PENDING_SAVE__?.());
+  await panel.getByRole("button",{name:"Store-v1 napló újraellenőrzése"}).click();
+  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+    .toBeEnabled();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RESTART_SENDS__?:()=>number;
+  }).__UNTAMED_RESTART_SENDS__?.())).toBe(0);
 });
 
 test("original Store-v1 Restart fails closed after synthetic Stop-to-Start crash and never auto-retries",async({page})=>{
