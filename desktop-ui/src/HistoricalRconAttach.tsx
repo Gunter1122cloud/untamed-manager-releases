@@ -2,6 +2,15 @@ import {useEffect,useRef,useState,type FormEvent} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,Shield,RadioTower} from "lucide-react";
 import {managerBridge,type HistoricalRconPreview,type HistoricalRconStatus} from "./bridge";
 
+function saveWorldAttachmentConflict(error:unknown):string|null {
+  const code=error instanceof Error?error.message:"";
+  if(code!=="UM-HISTORICAL-RCON-SAVEWORLD-IN-PROGRESS")return null;
+  return "Függő vagy bizonytalan helyi Store-v1 SaveWorld-napló ("+code+"). "+
+    "Az eredeti ASA RCON-profil csatolását a natív Manager megtagadta. "+
+    "Nem változott a Manager RCON-beállítása vagy az eredeti ASA INI; "+
+    "a SaveWorld-naplót előbb külön ellenőrizni kell.";
+}
+
 /**
  * Native-only original ASA RCON attachment. The original GUS.ini, shared
  * Store lock/session, world, characters and tribes are NEVER modified.
@@ -50,7 +59,7 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
       if(mapGeneration.current!==generation)return;
       setPassword("");
       const code=cause instanceof Error?cause.message:"";
-      setError(code==="UM-HISTORICAL-RCON-EXISTING-PASSWORD-INVALID"
+      setError(saveWorldAttachmentConflict(cause)??(code==="UM-HISTORICAL-RCON-EXISTING-PASSWORD-INVALID"
         ?"A meglévő ASA-jelszó nem adható át egyetlen INI-sorként (üres, 256 karakternél hosszabb vagy vezérlőkaraktert tartalmaz). A régi, rövid vagy speciális karakteres jelszót nem kell megváltoztatni."
         :code==="UM-HISTORICAL-RCON-INI-CHANGED"
         ?"A megadott RCON-port vagy jelszó nem egyezik a meglévő ASA GameUserSettings.ini beállításával, vagy az RCON nincs engedélyezve. A jelszót nem módosítottuk."
@@ -58,7 +67,7 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
         ?"A jóváhagyott helyi Store-v1 forrásazonosság vagy a még át nem vett korábbi Manager ACTIVE/DONE állapota nem egyezik. A szerverhez és a jelszóhoz nem nyúltunk."
         :code==="UM-HISTORICAL-RCON-API-CHILD-UNVERIFIED"
         ?"Az ASA API Loader mögötti eredeti szerverfolyamat vagy a TCP-port tulajdonosa nem igazolható. Nem történt RCON-csatolás."
-        :"A natív RCON-ellenőrzés nem sikerült. Az eredeti ASA/korábbi Manager-fájlok érintetlenek; ellenőrizd a maphoz tartozó futó ASA-folyamatot és RCON-beállítást.");
+        :"A natív RCON-ellenőrzés nem sikerült. Az eredeti ASA/korábbi Manager-fájlok érintetlenek; ellenőrizd a maphoz tartozó futó ASA-folyamatot és RCON-beállítást."));
     }finally{if(mapGeneration.current===generation)setBusy(false);}
   };
   const inspectExisting=async()=>{
@@ -77,10 +86,11 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
       setPreview(result);
       setNotice("A meglévő ASA RCON-port és jelszó a Windows hostban azonosítva. "+
         "A jelszó nem került a felületre; kizárólag jóváhagyás után tároljuk DPAPI-val.");
-    }catch{
+    }catch(e){
       if(mapGeneration.current===generation)
-        setError("A meglévő ASA INI-ből az automatikus RCON-átvétel nem igazolható. "+
-          "Ellenőrizd a helyi ServerSettings szekciót, vagy használd a kézi megadást.");
+        setError(saveWorldAttachmentConflict(e)??
+          ("A meglévő ASA INI-ből az automatikus RCON-átvétel nem igazolható. "+
+           "Ellenőrizd a helyi ServerSettings szekciót, vagy használd a kézi megadást."));
     }finally{if(mapGeneration.current===generation)setBusy(false);}
   };
   const attach=async()=>{
@@ -113,8 +123,10 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
           "), de a felület frissítése sikertelen. Újraküldés helyett "+
           "frissítsd a maplistát. Az ASA és a Store-fájlok nem módosultak.");
       }
-    }catch{
-      if(mapGeneration.current===generation && !committed)setError("Az eredeti RCON-kapcsolat átvétele nem fejezhető be, vagy a profil közben megváltozott. Ellenőrizd az aktuális állapotot.");
+    }catch(e){
+      if(mapGeneration.current===generation && !committed)
+        setError(saveWorldAttachmentConflict(e)??
+          "Az eredeti RCON-kapcsolat átvétele nem fejezhető be, vagy a profil közben megváltozott. Ellenőrizd az aktuális állapotot.");
     }finally{if(mapGeneration.current===generation)setBusy(false);}
   };
   return <section className="glass panel historical-rcon-attach"
