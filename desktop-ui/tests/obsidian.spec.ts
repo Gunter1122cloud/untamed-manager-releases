@@ -360,6 +360,12 @@ test.beforeEach(async ({ page }) => {
     let historicalRconAttached=false;
     let historicalRconSavePending=false,historicalRconAttachmentCommits=0;
     let historicalRconBadApplyReceipt=false,historicalRconApplyReplyLost=false;
+    let historicalRconWrongStatusMap=false;
+    (window as typeof window & {
+      __UNTAMED_RCON_ATTACH_WRONG_STATUS_MAP__?:()=>void;
+    }).__UNTAMED_RCON_ATTACH_WRONG_STATUS_MAP__=()=>{
+      historicalRconWrongStatusMap=true;
+    };
     (window as typeof window & {
       __UNTAMED_RCON_ATTACH_BAD_RECEIPT__?:()=>void;
       __UNTAMED_RCON_ATTACH_REPLY_LOST__?:()=>void;
@@ -1207,7 +1213,9 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-SYNTHETIC-HISTORICAL-RCON-STATUS-UNAVAILABLE");
           }
           return {
-          mapId:two,mapName:"Astraeos",configured:historicalRconAttached,
+          mapId:historicalRconWrongStatusMap
+            ?"00000000-0000-4000-8000-000000002222":two,
+          mapName:"Astraeos",configured:historicalRconAttached,
           port:historicalRconAttached?37145:0,
           suggestedPort:37145,verifiedIni:historicalRconAttached,
           originalStoreTouched:false,
@@ -5596,6 +5604,49 @@ test("original RCON attachment refuses pending SaveWorld both before and after e
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_RCON_ATTACH_COUNT__?:()=>number;
   }).__UNTAMED_RCON_ATTACH_COUNT__?.())).toBe(0);
+});
+
+test("original RCON tab rejects native status from another map before showing its port",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>{
+    const testWindow=window as typeof window & {
+      __UNTAMED_PROTECT_TEST_MAP__?:()=>void;
+      __UNTAMED_RCON_ATTACH_WRONG_STATUS_MAP__?:()=>void;
+    };
+    testWindow.__UNTAMED_PROTECT_TEST_MAP__?.();
+    testWindow.__UNTAMED_RCON_ATTACH_WRONG_STATUS_MAP__?.();
+  });
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Történeti Store-v1 RCON csatlakoztatás"});
+  await expect(panel).toContainText("UM-HISTORICAL-RCON-STATUS-MAP-MISMATCH");
+  await expect(panel).not.toContainText("Az eredeti ASA INI alapján felismert TCP RCON-port: 37145");
+  await expect(panel.locator(".success-inline")).toHaveCount(0);
+});
+
+test("original RCON commit cannot show a foreign-map follow-up status as verified",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void;
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Történeti Store-v1 RCON csatlakoztatás"});
+  await panel.getByRole("button",{name:"Meglévő RCON átvétele az ASA INI-ből"}).click();
+  await panel.getByRole("region",{name:"Store-v1 RCON jóváhagyása"})
+    .getByRole("checkbox").check();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_ATTACH_WRONG_STATUS_MAP__?:()=>void;
+  }).__UNTAMED_RCON_ATTACH_WRONG_STATUS_MAP__?.());
+  await panel.getByRole("button",{name:"RCON átvétel véglegesítése"}).click();
+  await expect(panel).toContainText("RCON-profil elmentve");
+  await expect(panel).toContainText("felület frissítése sikertelen");
+  await expect(panel).not.toContainText("RCON-port: 37145 ·");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_ATTACH_COUNT__?:()=>number;
+  }).__UNTAMED_RCON_ATTACH_COUNT__?.())).toBe(1);
 });
 
 test("original RCON attach rejects a mismatched native commit receipt without inviting replay",async({page})=>{
