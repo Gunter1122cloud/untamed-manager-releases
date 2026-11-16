@@ -16,13 +16,17 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
   const [checkingReady,setCheckingReady]=useState(false);
   const [awaitingStartup,setAwaitingStartup]=useState(false);
   const readinessGeneration=useRef(0);
+  const currentMap=useRef(mapId);
+  currentMap.current=mapId;
+  const belongs=(requested:string,revision:number)=>
+    currentMap.current===requested&&readinessGeneration.current===revision;
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState(()=>recentStartReceipts.get(mapId)??"");
   const [error,setError]=useState("");
   useEffect(()=>{
     let active=true;
     readinessGeneration.current++;
-    setAwaitingStartup(false);
+    setAwaitingStartup(false);setBusy(false);setCheckingReady(false);
     setPreview(null);setApproved(false);setObserved(null);setError("");
     setReadiness(null);
     setMessage(recentStartReceipts.get(mapId)??"");
@@ -33,16 +37,27 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
   },[mapId]);
 
   const observe=async()=>{
+    const requested=mapId,revision=readinessGeneration.current;
     setError("");
-    try{setObserved(await managerBridge.freshAsaStartStatus(mapId));}
-    catch{setError("A helyi ASA-folyamat állapotának beolvasása sikertelen.");}
+    try{
+      const status=await managerBridge.freshAsaStartStatus(requested);
+      if(belongs(requested,revision))setObserved(status);
+    }catch{
+      if(belongs(requested,revision))
+        setError("A helyi ASA-folyamat állapotának beolvasása sikertelen.");
+    }
   };
   const checkReadiness=async()=>{
     if(!observed?.running||checkingReady||busy||journalBlocked)return;
+    const requested=mapId,revision=readinessGeneration.current;
     setCheckingReady(true);setReadiness(null);setError("");
-    try{setReadiness(await managerBridge.freshAsaReadiness(mapId));}
-    catch{setError("Nem sikerült az ASA/RCON-készenlét ellenőrzése. Ez nem jelent karaktervesztést; a szerverfolyamatot nem állítottuk le.");}
-    finally{setCheckingReady(false);}
+    try{
+      const status=await managerBridge.freshAsaReadiness(requested);
+      if(belongs(requested,revision))setReadiness(status);
+    }catch{
+      if(belongs(requested,revision))
+        setError("Nem sikerült az ASA/RCON-készenlét ellenőrzése. Ez nem jelent karaktervesztést; a szerverfolyamatot nem állítottuk le.");
+    }finally{if(belongs(requested,revision))setCheckingReady(false);}
   };
   // Source-compatible post-spawn readiness handoff: observe the exact
   // existing ASA process and authenticated RCON every two seconds for at
@@ -102,10 +117,15 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
 
   const check=async()=>{
     if(busy || !mapId || journalBlocked)return;
+    const requested=mapId,revision=readinessGeneration.current;
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
-    try{setPreview(await managerBridge.freshAsaStartPreview(mapId));}
-    catch{setError("Indítás nem engedélyezett: új, érvényesen konfigurált ASA-telepítés, a Manager RCON-portjával és jelszavával egyező GameUserSettings.ini, szabad Game/Query/RCON portok, igazoltan leállított folyamat és sértetlen mentésállapot szükséges. Store-v1 történeti mapok nem indíthatók ezzel a művelettel.");}
-    finally{setBusy(false);}
+    try{
+      const candidate=await managerBridge.freshAsaStartPreview(requested);
+      if(belongs(requested,revision))setPreview(candidate);
+    }catch{
+      if(belongs(requested,revision))
+        setError("Indítás nem engedélyezett: új, érvényesen konfigurált ASA-telepítés, a Manager RCON-portjával és jelszavával egyező GameUserSettings.ini, szabad Game/Query/RCON portok, igazoltan leállított folyamat és sértetlen mentésállapot szükséges. Store-v1 történeti mapok nem indíthatók ezzel a művelettel.");
+    }finally{if(belongs(requested,revision))setBusy(false);}
   };
   const start=async()=>{
     if(!preview || !approved || busy || journalBlocked)return;
