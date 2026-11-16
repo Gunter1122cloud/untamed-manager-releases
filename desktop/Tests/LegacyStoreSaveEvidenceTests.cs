@@ -105,6 +105,11 @@ internal static class LegacyStoreSaveEvidenceTests
 
         var next=Guid.NewGuid();
         LegacyStoreV1SaveEvidenceJournal.Begin(root,next,id,pid,started,sourceSha);
+        string completedHistory=Path.Combine(root,"historical-save-evidence-v1",
+            "history",id.ToString("N")+"-"+operation.ToString("N")+"-completed.json");
+        Check(File.Exists(completedHistory)&&
+              File.ReadAllBytes(completedHistory).SequenceEqual(originalJournal),
+            "new approved SaveWorld archives the previous completed receipt byte-for-byte");
         LegacyStoreV1SaveEvidenceJournal.MarkUncertain(root,next,id,
             pid,started,sourceSha);
         Check(LegacyStoreV1SaveEvidenceJournal.Inspect(root,id)?
@@ -160,13 +165,42 @@ internal static class LegacyStoreSaveEvidenceTests
             "reviewing a failed SaveWorld never fabricates SaveComplete or restore authority");
         using(var fresh=coordinator.Acquire(installation,UntamedOperationKind.Backup))
             fresh.Complete();
+        byte[] reviewedBytes=File.ReadAllBytes(journal);
         var manuallyApprovedNew=LegacyStoreV1SaveEvidenceJournal.Begin(
             root,Guid.NewGuid(),id,pid,started,sourceSha);
+        string reviewedHistory=Path.Combine(root,"historical-save-evidence-v1",
+            "history",id.ToString("N")+"-"+next.ToString("N")+"-reviewed.json");
         Check(manuallyApprovedNew.Phase=="prepared"&&
-              File.ReadAllBytes(receiptArchive).SequenceEqual(previousReceipt),
-            "a NEW separately approved SaveWorld may begin without erasing old uncertain evidence");
+              File.ReadAllBytes(receiptArchive).SequenceEqual(previousReceipt)&&
+              File.ReadAllBytes(reviewedHistory).SequenceEqual(reviewedBytes),
+            "new SaveWorld preserves both the uncertain original and reviewed receipt bytes");
         Check(File.ReadAllBytes(immutableOriginal).SequenceEqual(original),
             "operator journal recovery never touches original Kova-shaped bytes");
+
+        // A conflicting historical archive must never be silently overwritten.
+        // The last completed receipt remains byte-identical after rejection.
+        var otherMap=Guid.NewGuid();
+        var firstOther=Guid.NewGuid();
+        LegacyStoreV1SaveEvidenceJournal.Begin(root,firstOther,
+            otherMap,pid+1,started,sourceSha);
+        LegacyStoreV1SaveEvidenceJournal.Complete(root,firstOther,
+            otherMap,pid+1,started,sourceSha,DateTimeOffset.UtcNow,true,false);
+        string otherCurrent=Path.Combine(root,"historical-save-evidence-v1",
+            otherMap.ToString("N")+".json");
+        byte[] preservedOther=File.ReadAllBytes(otherCurrent);
+        string collidingHistory=Path.Combine(root,"historical-save-evidence-v1",
+            "history",otherMap.ToString("N")+"-"+firstOther.ToString("N")+
+            "-completed.json");
+        File.WriteAllText(collidingHistory,"UNTRUSTED_COLLIDING_ARCHIVE");
+        Check(Rejects(()=>LegacyStoreV1SaveEvidenceJournal.Begin(root,
+                Guid.NewGuid(),otherMap,pid+1,started,sourceSha))&&
+              File.ReadAllBytes(otherCurrent).SequenceEqual(preservedOther)&&
+              File.ReadAllText(collidingHistory)=="UNTRUSTED_COLLIDING_ARCHIVE",
+            "conflicting historical receipt blocks new SaveWorld without overwriting current or archived bytes");
+        var sibling=LegacyStoreV1SaveEvidenceJournal.Begin(root,
+            Guid.NewGuid(),Guid.NewGuid(),pid+2,started,sourceSha);
+        Check(sibling.Phase=="prepared",
+            "one map's historical archive conflict does not block a sibling map");
         return Task.CompletedTask;
     }
 }
