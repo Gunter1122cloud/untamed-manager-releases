@@ -1151,6 +1151,9 @@ export type HistoricalRestartQueued = {
 export type HistoricalRestartRecovery = {
   mapId:string;phase:"None"|"Stopping"|"Starting"|"Completed"|"NeedsOperator";
   entryBelongsToMap:boolean;blocked:boolean;requiresOperator:boolean;
+  // Restart is also blocked by an unfinished SaveWorld-only receipt.
+  saveEvidencePhase?:"none"|"prepared"|"needsOperator";
+  saveEvidencePending?:boolean;
   inMemoryRunning:boolean;jobId:string|null;oldPid:number|null;newPid:number|null;
   automaticRecovery:false;automaticRetry:false;
   originalStoreTouched:false;lockCleared:false;
