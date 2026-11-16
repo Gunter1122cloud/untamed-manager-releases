@@ -182,7 +182,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             saveEvidenceUnreadable=saveUnreadable,
             saveEvidenceErrorCode=saveUnreadable?
                 "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
-            blocked=pendingRestart||pendingOperation||pendingSave,
+            blocked=pendingRestart||pendingOperation||pendingSave||running!=null,
             requiresOperator=(pendingRestart||pendingOperation||pendingSave)&&running==null,
             inMemoryRunning=running!=null,jobId=running?.Id,
             oldPid=entry?.OldPid,newPid=entry?.NewPid,
