@@ -629,6 +629,24 @@ internal static class MapScopedNativeLifecycleJobsTests
             var pending0=LegacyStoreV1SaveEvidenceJournal.Begin(
                 cluster.Store.Root,Guid.NewGuid(),maps[0].Id,
                 processes[0].Pid,processes[0].StartedUtc,sourceSha);
+            int overlappingAdminSends=0;
+            using var admin=new DesktopHistoricalRconAdminBridge(cluster,Probe,
+                (host,port,password,command,verify,ct)=>{
+                    overlappingAdminSends++;
+                    return Task.FromResult("SYNTHETIC_ADMIN_SHOULD_NOT_DISPATCH");
+                });
+            var rejectedAdmin=await Call(admin.HandleAsync,
+                "historical.adminPreview",new{
+                    mapId=maps[0].Id,action="broadcast",message="pending save"});
+            Check(!rejectedAdmin.GetProperty("ok").GetBoolean()&&
+                  rejectedAdmin.GetProperty("error").GetString()==
+                    "UM-ORIGINAL-ADMIN-SAVEWORLD-IN-PROGRESS",
+                "admin RCON preview refuses a prepared SaveWorld intent before dispatch");
+            var siblingAdmin=Data(await Call(admin.HandleAsync,
+                "historical.adminPreview",new{
+                    mapId=maps[1].Id,action="broadcast",message="independent map"}),
+                "sibling admin preview remains available while another map saves");
+            string staleAdminToken=siblingAdmin.GetProperty("token").GetString()!;
             bool coreStartDenied=false,coreStopDenied=false;
             try
             {
@@ -675,6 +693,14 @@ internal static class MapScopedNativeLifecycleJobsTests
             var pending1=LegacyStoreV1SaveEvidenceJournal.Begin(
                 cluster.Store.Root,Guid.NewGuid(),maps[1].Id,
                 processes[1].Pid,processes[1].StartedUtc,sourceSha);
+            var staleAdmin=await Call(admin.HandleAsync,"historical.adminSend",
+                new{token=staleAdminToken,confirm=true,
+                    typedApproval="STORE-V1 ADMIN"});
+            Check(!staleAdmin.GetProperty("ok").GetBoolean()&&
+                  staleAdmin.GetProperty("error").GetString()==
+                    "UM-ORIGINAL-ADMIN-SAVEWORLD-IN-PROGRESS"&&
+                  overlappingAdminSends==0,
+                "admin RCON apply rechecks SaveWorld intent after approval without dispatch");
             var deniedRestart=await Call(restarts.HandleAsync,
                 "historical.restartApply",new{token=pendingRestartToken,
                     confirm=true,typedApproval="STORE-V1 SAVEWORLD DOEXIT START"});
