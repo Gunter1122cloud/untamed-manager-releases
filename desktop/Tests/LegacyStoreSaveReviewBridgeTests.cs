@@ -217,5 +217,21 @@ internal static class LegacyStoreSaveReviewBridgeTests
                 map.Id.ToString("N")+".json")).SequenceEqual(originalEvidence)&&
               File.Exists(archived),
             "unreadable SaveWorld blocks new commands without deleting .next or any receipt");
+        // A directory occupying the atomic .next slot is equally unsafe:
+        // File.Exists returns false for directories, so Inspect must reject
+        // this case instead of presenting the original receipt as valid.
+        File.Delete(interruptedReceiptNext);
+        Directory.CreateDirectory(interruptedReceiptNext);
+        var directoryEvidence=await Call(bridge,"historical.saveWorldEvidence",
+            new{mapId=map.Id});
+        Check(directoryEvidence.GetProperty("ok").GetBoolean()&&
+              directoryEvidence.GetProperty("data").GetProperty("unreadable")
+                .GetBoolean()&&
+              directoryEvidence.GetProperty("data").GetProperty("phase")
+                .GetString()=="unreadable"&&
+              Directory.Exists(interruptedReceiptNext)&&
+              File.ReadAllBytes(Path.Combine(receiptDirectory,
+                map.Id.ToString("N")+".json")).SequenceEqual(originalEvidence),
+            "directory-shaped interrupted SaveWorld receipt also blocks without mutation");
     }
 }
