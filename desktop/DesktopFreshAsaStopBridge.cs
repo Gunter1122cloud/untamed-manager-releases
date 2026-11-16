@@ -43,19 +43,20 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private string? PendingStopBlocker(LocalMap map)
     {
+        // Durable review remains authoritative across a prior in-memory
+        // NeedsOperator record (including another Manager instance).
+        var durable=Journal(map).Observe();
+        if(durable!=null&&durable.MapId!=map.Id)
+            return "UM-ASA-STOP-JOURNAL-MAP-MISMATCH";
         lock(sync)
             if(jobsByMap.TryGetValue(map.Id,out var active))
             {
                 if(active.State is "queued" or "running")
                     return "UM-ASA-STOP-BUSY";
-                if(active.State=="needsOperator")
+                if(active.State=="needsOperator"&&
+                   durable?.Phase!=AsaStopPhase.OperatorReviewed)
                     return "UM-ASA-STOP-NEEDS-OPERATOR";
             }
-        // A new Manager process does not inherit the old in-memory job.
-        // Read its machine-local journal BEFORE issuing a fresh preview.
-        var durable=Journal(map).Observe();
-        if(durable!=null&&durable.MapId!=map.Id)
-            return "UM-ASA-STOP-JOURNAL-MAP-MISMATCH";
         return durable?.Phase is AsaStopPhase.Pending or AsaStopPhase.NeedsOperator
             ?"UM-ASA-STOP-JOURNAL-NEEDS-OPERATOR":null;
     }
@@ -183,7 +184,9 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                         return Error(id,"UM-ASA-STOP-JOURNAL-MAP-MISMATCH");
                     lock(sync)
                     {
-                        if(jobsByMap.TryGetValue(mapId,out var tracked))
+                        if(jobsByMap.TryGetValue(mapId,out var tracked)&&
+                           !(tracked.State=="needsOperator"&&
+                             durable?.Phase==AsaStopPhase.OperatorReviewed))
                             return Ok(id,new{
                                 mapId,jobId=(Guid?)tracked.JobId,
                                 state=(string?)tracked.State,
@@ -244,6 +247,10 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                        currentJournal.MapId!=reviewMapId)
                         return Error(id,"UM-ASA-STOP-REVIEW-JOURNAL-MISMATCH");
                     journal.ReviewStopped(reviewMapId,reviewId);
+                    lock(sync)
+                        if(jobsByMap.TryGetValue(reviewMapId,out var oldTask)&&
+                           oldTask.State=="needsOperator")
+                            jobsByMap.Remove(reviewMapId);
                     return Ok(id,new{
                         mapId=reviewMapId,journalId=reviewId,reviewed=true,
                         rconDispatched=false,serverStarted=false,
