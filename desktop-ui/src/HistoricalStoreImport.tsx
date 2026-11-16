@@ -456,10 +456,11 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         if(epoch!==directEpoch.current)return;
         setDirectError(code==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"?
           "Az ötmapos átvételt egy időközben megjelent vagy korábbról "+
-          "megmaradt műveleti napló blokkolja. A zárolt map neve és "+
-          "naplófázisa alább látható. Nem indítunk vagy küldünk parancsot "+
-          "újra; auditált map-helyreállítás és új natív előnézet kell ("+
-          code+").":
+          "megmaradt Launch, Restart vagy SaveWorld-v1 napló blokkolja. "+
+          "A zárolt map neve és naplófázisa alább látható. "+
+          "A map adatlapján külön ellenőrizd a megfelelő helyreállítási "+
+          "műveletet; automatikus feloldás vagy RCON-parancsismétlés nincs. "+
+          "Az auditált ellenőrzés után új natív előnézet kell ("+code+").":
           code==="UM-METHOD-DENIED"?
           "A telepített natív dispatcher elutasította a "+
           "historical.originalLiveBatchApply hívást (UM-METHOD-DENIED). "+
