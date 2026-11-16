@@ -44,7 +44,8 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
         "UM-STORE-PIN-MAP-ROOT-CHANGED",
         "UM-STORE-PIN-CLUSTER-METADATA",
         "UM-STORE-PIN-NOT-YET-APPROVED",
-        "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR"
+        "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR",
+        "UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW"
     };
     private sealed record Pending(Guid Token,Guid MapId,string ProfileJson,
         string PlanFingerprint,int Game,int Query,int Rcon,bool UseApi,DateTimeOffset Created);
