@@ -42,7 +42,8 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     private sealed record ReviewApproval(Guid Token,Guid MapId,
         Guid ReceiptOperation,Guid? CoordinatorOperation,
         string SourceSha,DateTimeOffset Created);
-    private ReviewApproval? pendingReview;
+    // Independent map approvals must not be superseded by another map.
+    private readonly Dictionary<Guid,ReviewApproval> pendingReviewByMap=new();
     private readonly Func<Guid,string,bool> verifyReviewSource;
     // Per-map Store SaveWorld/DoExit receipts must remain observable when
     // a second independent map starts another approved native operation.
@@ -234,9 +235,11 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             await serial.WaitAsync();
             try
             {
+                foreach(var expired in pendingReviewByMap.Where(x=>
+                    DateTimeOffset.UtcNow-x.Value.Created>TimeSpan.FromMinutes(5))
+                    .Select(x=>x.Key).ToArray())pendingReviewByMap.Remove(expired);
                 if(method=="historical.saveWorldReviewPreview")
                 {
-                    pendingReview=null;
                     if(!GuidValue(request,"mapId",out var reviewedMapId)||
                        Owned(reviewedMapId) is not {HistoricalStoreProtected:true} reviewedMap)
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-MAP");
@@ -257,9 +260,12 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                     if(!verifyReviewSource(reviewedMapId,reviewedEvidence.OriginalSourceSha256))
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-STOP-OR-SOURCE-UNVERIFIED");
                     var reviewToken=Guid.NewGuid();
-                    pendingReview=new(reviewToken,reviewedMapId,reviewedEvidence.OperationId,
-                        reviewedCoordinator?.Operation,reviewedEvidence.OriginalSourceSha256,
-                        DateTimeOffset.UtcNow);
+                    if(!pendingReviewByMap.ContainsKey(reviewedMapId)&&
+                       pendingReviewByMap.Count>=25)
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-PREVIEW-CAPACITY");
+                    pendingReviewByMap[reviewedMapId]=new(reviewToken,reviewedMapId,
+                        reviewedEvidence.OperationId,reviewedCoordinator?.Operation,
+                        reviewedEvidence.OriginalSourceSha256,DateTimeOffset.UtcNow);
                     return Ok(id,new{
                         token=reviewToken,mapId=reviewedMapId,phase=reviewedEvidence.Phase,
                         operationId=reviewedEvidence.OperationId,
@@ -277,11 +283,13 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                        reviewConsent.ValueKind!=JsonValueKind.True||
                        !request.TryGetProperty("confirmation",out var reviewedPhrase)||
                        reviewedPhrase.ValueKind!=JsonValueKind.String||
-                       reviewedPhrase.GetString()!="REVIEW STORE SAVE"||
-                       pendingReview?.Token!=reviewedToken)
+                       reviewedPhrase.GetString()!="REVIEW STORE SAVE")
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-APPROVAL-REQUIRED");
-                    var approvedReview=pendingReview!;
-                    pendingReview=null;
+                    var approvedReview=pendingReviewByMap.Values.SingleOrDefault(x=>
+                        x.Token==reviewedToken);
+                    if(approvedReview==null)
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-APPROVAL-REQUIRED");
+                    pendingReviewByMap.Remove(approvedReview.MapId);
                     if(DateTimeOffset.UtcNow-approvedReview.Created>TimeSpan.FromMinutes(5))
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-EXPIRED");
                     var currentReviewMap=Owned(approvedReview.MapId);
