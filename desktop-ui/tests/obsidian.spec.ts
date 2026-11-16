@@ -8093,7 +8093,10 @@ test("fresh ASA Start cannot present another map's PID as a successful launch",a
     __UNTAMED_FRESH_WRONG_RECEIPT_MAP__?:()=>void;
   }).__UNTAMED_FRESH_WRONG_RECEIPT_MAP__?.());
   await panel.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
-  await expect(panel).toContainText("Az ASA elindítása nem igazolható");
+  await expect(panel).toContainText("UM-FRESH-START-RECEIPT-INVALID");
+  await expect(panel).toContainText("A korábbi ASA Start kimenetele nem igazolt");
+  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+    .toBeDisabled();
   await expect(panel.locator(".success-inline").filter({hasText:"PID: 45678"}))
     .toHaveCount(0);
   await expect(panel.getByRole("region",{
