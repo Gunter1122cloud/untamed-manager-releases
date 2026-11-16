@@ -581,6 +581,32 @@ internal static class MapScopedNativeLifecycleJobsTests
             if(second.GetProperty("state").GetString()=="completed")break;
             await Task.Delay(25);
         }
+        // A completed SaveWorld receipt MUST NOT be replaced while another
+        // native lifecycle bridge owns the installation lease. The decision
+        // to publish a new prepared receipt is made under that SAME lease,
+        // not between an unprotected UI preview and an asynchronous worker.
+        var competingApproval=Data(await Call(bridge.HandleAsync,
+            "historical.saveWorldPreview",new{mapId=maps[1].Id}),
+            "second map can request another independently approved SaveWorld");
+        var priorReceipt=LegacyStoreV1SaveEvidenceJournal.Inspect(
+            cluster.Store.Root,maps[1].Id);
+        Check(priorReceipt?.Phase=="completed",
+            "prior completed SaveWorld is still the durable starting evidence");
+        using(var otherOperation=cluster.Operations.Acquire(
+            maps[1].InstallationPath,UntamedOperationKind.Configuration))
+        {
+            var refused=await Call(bridge.HandleAsync,
+                "historical.saveWorldApply",new{
+                    token=competingApproval.GetProperty("token").GetString(),
+                    confirm=true,typedApproval="STORE-V1 SAVEWORLD"});
+            Check(!refused.GetProperty("ok").GetBoolean()&&
+                  LegacyStoreV1SaveEvidenceJournal.Inspect(
+                    cluster.Store.Root,maps[1].Id)==priorReceipt,
+                "competing installation owner denies SaveWorld intent without overwriting receipt");
+            otherOperation.Complete();
+        }
+        lock(saved)Check(saved.Count==2,
+            "denied SaveWorld under a competing lease has no new native RCON worker");
         var stopPreview=Data(await Call(bridge.HandleAsync,
             "historical.gracefulStopPreview",new{mapId=maps[1].Id}),
             "old Stop token can be prepared before a new SaveWorld begins");
