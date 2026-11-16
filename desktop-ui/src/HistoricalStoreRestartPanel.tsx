@@ -83,6 +83,38 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
     const interval=window.setInterval(()=>{void poll();},1800);
     return ()=>{alive=false;window.clearInterval(interval);};
   },[jobId,mapId,onRestarted]);
+  const refreshRecovery=async()=>{
+    // Read-only check: clearing a SaveWorld recovery receipt in its own
+    // panel must not require closing/restarting this Manager or repeating RCON.
+    if(busy)return;
+    const requested=mapId;
+    setBusy(true);setChecked(false);setError("");setNotice("");
+    setPreview(null);setPhrase("");
+    try{
+      const result=await managerBridge.historicalRestartRecovery(requested);
+      if(!belongs(requested))return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase())
+        throw new Error("UM-STORE-RESTART-RECOVERY-WRONG-MAP");
+      setRecovery(result);setChecked(true);
+      if(result.inMemoryRunning&&result.jobId){
+        setJobId(result.jobId);
+        setNotice("A már futó újraindítás állapotához visszacsatlakozva; nincs új RCON.");
+      }else if(result.saveEvidencePending){
+        setError("Befejezetlen vagy bizonytalan Store-v1 SaveWorld-bizonylat. "+
+          "Ellenőrizd a SaveWorld panelen, majd frissítsd itt az állapotot.");
+      }else if(result.blocked||result.requiresOperator){
+        setError("A tartós Store-v1 napló további kézi ellenőrzést igényel.");
+      }else{
+        setNotice("A helyi naplók nem jeleznek függő műveletet. "+
+          "Ez még nem igazolja a szerver játékbeli készenlétét.");
+      }
+    }catch{
+      if(belongs(requested)){
+        setRecovery(null);setError("A helyi Store-v1 műveleti naplók nem "+
+          "ellenőrizhetők; Restart továbbra is tiltva.");
+      }
+    }finally{if(belongs(requested))setBusy(false);}
+  };
   const inspect=async()=>{
     if(busy||!running||!checked||!recovery||recovery.blocked||
        recovery.inMemoryRunning||jobId)return;
@@ -126,6 +158,10 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
         indítás újbóli ellenőrzése → új helyi ASA PID. Az opcionális ASA API Loader
         módnál a gyermek ASA PID és RCON-tulajdonlás külön igazolandó.
         A kétgépes Store session/lock változatlan. Nincs automatikus újrapróbálás vagy konverzió.</p>
+      <button type="button" className="secondary" disabled={busy}
+        onClick={()=>{void refreshRecovery();}}>
+        <RefreshCw size={16}/> Store-v1 napló újraellenőrzése
+      </button>
       <button type="button" className="secondary"
         disabled={busy||!running||!checked||!recovery||recovery.blocked||
           recovery.inMemoryRunning||!!jobId||!!preview||!!error}
