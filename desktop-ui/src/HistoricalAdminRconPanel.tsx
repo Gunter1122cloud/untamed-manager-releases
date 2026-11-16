@@ -5,6 +5,24 @@ import {managerBridge,type HistoricalAdminRconPreview,
 
 type Action="broadcast"|"serverChat"|"wildWipe"|"custom";
 
+function safeAdminRconDenial(error:unknown):string|null {
+  const code=error instanceof Error?error.message:"";
+  switch(code){
+    case "UM-ORIGINAL-ADMIN-SAVEWORLD-IN-PROGRESS":
+      return "A mapon függő Store-v1 SaveWorld-bizonylat van ("+code+"). "+
+        "Az admin RCON-küldést a natív védelem elutasította; "+
+        "nem indult új parancs. Előbb a SaveWorld-naplót kell ellenőrizni.";
+    case "UM-ORIGINAL-ADMIN-LIFECYCLE-JOURNAL-REVIEW-REQUIRED":
+      return "Befejezetlen Start, Stop vagy Restart műveleti napló ("+code+"). "+
+        "Az admin RCON-küldés tiltva marad a külön operátori helyreállításig.";
+    case "UM-ORIGINAL-ADMIN-INSTALLATION-BUSY":
+      return "Másik natív művelet zárolja ezt az ASA-telepítést ("+code+"). "+
+        "Az admin RCON-kérés az ellenőrzésnél elutasításra került; "+
+        "nincs automatikus ismétlés.";
+    default:return null;
+  }
+}
+
 /**
  * Operator-approved original Store-v1 admin actions. The normal read-only
  * player/log view remains separate. Commands may affect the game world,
@@ -48,11 +66,12 @@ export function HistoricalAdminRconPanel({mapId,running,initialAction="broadcast
          result.action!==action||result.dispatched)
         throw new Error("UM-STORE-ADMIN-PREVIEW-IDENTITY-MISMATCH");
       setPreview(result);setApproved("");setConfirmed(false);
-    }catch{
+    }catch(e){
       if(!belongs(requested,epoch))return;
       setPreview(null);
-      setError("A kiválasztott map admin RCON előellenőrzése vagy "+
-        "Windows PID/RCON azonosítója nem igazolható. Nem küldtünk parancsot.");
+      setError(safeAdminRconDenial(e)??
+        ("A kiválasztott map admin RCON előellenőrzése vagy "+
+         "Windows PID/RCON azonosítója nem igazolható. Nem küldtünk parancsot."));
     }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const send=async()=>{
@@ -70,11 +89,12 @@ export function HistoricalAdminRconPanel({mapId,running,initialAction="broadcast
          result.originalStoreMetadataWritten)
         throw new Error("UM-STORE-ADMIN-SEND-RECEIPT-MISMATCH");
       setReply(result);
-    }catch{
+    }catch(e){
       if(belongs(requested,epoch))
-        setError("Az egyszeri admin RCON parancs eredménye nem igazolható. "+
-          "A TCP-küldés már megtörténhetett; ne ismételd meg "+
-          "a map és a parancs tényleges állapotának ellenőrzése nélkül.");
+        setError(safeAdminRconDenial(e)??
+          ("Az egyszeri admin RCON parancs eredménye nem igazolható. "+
+           "A TCP-küldés már megtörténhetett; ne ismételd meg "+
+           "a map és a parancs tényleges állapotának ellenőrzése nélkül."));
     }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   return <section className="glass panel historical-admin-rcon"
