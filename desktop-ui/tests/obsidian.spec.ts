@@ -493,6 +493,18 @@ test.beforeEach(async ({ page }) => {
     const historicalAdminToken="00000000-0000-4000-8000-000000001695";
     let historicalAdminPending=false;
     let historicalAdminCommand="";
+    let historicalAdminSavePending=false,historicalAdminDispatches=0;
+    (window as typeof window & {
+      __UNTAMED_ADMIN_SAVE_PENDING__?:()=>void;
+      __UNTAMED_ADMIN_SAVE_CLEAR__?:()=>void;
+      __UNTAMED_ADMIN_SEND_COUNT__?:()=>number;
+    }).__UNTAMED_ADMIN_SAVE_PENDING__=()=>{historicalAdminSavePending=true;};
+    (window as typeof window & {
+      __UNTAMED_ADMIN_SAVE_CLEAR__?:()=>void;
+    }).__UNTAMED_ADMIN_SAVE_CLEAR__=()=>{historicalAdminSavePending=false;};
+    (window as typeof window & {
+      __UNTAMED_ADMIN_SEND_COUNT__?:()=>number;
+    }).__UNTAMED_ADMIN_SEND_COUNT__=()=>historicalAdminDispatches;
     let oldStopNeedsOperator=false;
     (window as typeof window & {
       __UNTAMED_ORIGINAL_STOP_CRASH_RECOVERY__?:()=>void
@@ -1274,6 +1286,8 @@ test.beforeEach(async ({ page }) => {
         }
         case "historical.adminPreview": {
           historicalAdminPending=false;
+          if(historicalAdminSavePending)
+            throw new Error("UM-ORIGINAL-ADMIN-SAVEWORLD-IN-PROGRESS");
           if(m.mapId!==two||!historicalActiveStarted||
              !historicalRconAttached||!originalRconSourceValid||
              !originalRconPortOwner||oldStopNeedsOperator)
@@ -1298,12 +1312,15 @@ test.beforeEach(async ({ page }) => {
             evidence:"ORIGINAL_STORE_ACTIVE_ADMIN_RCON_PREVIEW"};
         }
         case "historical.adminSend": {
+          if(historicalAdminSavePending)
+            throw new Error("UM-ORIGINAL-ADMIN-SAVEWORLD-IN-PROGRESS");
           const expected=historicalAdminCommand==="DestroyWildDinos"
             ?"STORE-V1 DINÓTÖRLÉS":"STORE-V1 ADMIN";
           if(!historicalAdminPending||m.token!==historicalAdminToken||
              m.confirm!==true||m.typedApproval!==expected)
             throw new Error("Synthetic original Store admin approval denied");
           historicalAdminPending=false;
+          historicalAdminDispatches++;
           return {mapId:two,mapName:"Astraeos",action:"original",
             command:historicalAdminCommand,response:"Synthetic original RCON admin dispatched",
             commandSent:true,oneShot:true,originalStoreMetadataWritten:false,
@@ -3214,6 +3231,9 @@ test.beforeEach(async ({ page }) => {
                   e.message==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"||
                   e.message==="UM-ORIGINAL-STOP-INSTALLATION-BUSY"||
                   e.message==="UM-ORIGINAL-SAVE-HISTORY-REVIEW-REQUIRED"||
+                  e.message==="UM-ORIGINAL-ADMIN-SAVEWORLD-IN-PROGRESS"||
+                  e.message==="UM-ORIGINAL-ADMIN-LIFECYCLE-JOURNAL-REVIEW-REQUIRED"||
+                  e.message==="UM-ORIGINAL-ADMIN-INSTALLATION-BUSY"||
                   e.message.startsWith("UM-RECOVERY-"))
                 ?e.message:"UM-METHOD-DENIED";
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));
@@ -5763,6 +5783,43 @@ test("original Store-v1 admin RCON requires exact one-time native approval and e
   await sendWipe.click();
   await expect(panel.getByText(/Egyszeri RCON-parancs elküldve: DestroyWildDinos/))
     .toBeVisible();
+});
+
+test("Store-v1 admin RCON explains pending SaveWorld at preview and stale approval without dispatch",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+    __UNTAMED_ADMIN_SAVE_PENDING__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Eredeti Store-v1 admin RCON"});
+  await panel.getByLabel("Küldendő üzenet").fill("Do not send during save");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ADMIN_SAVE_PENDING__?:()=>void;
+  }).__UNTAMED_ADMIN_SAVE_PENDING__?.());
+  await panel.getByRole("button",{name:"Eredeti adminparancs ellenőrzése"}).click();
+  await expect(panel).toContainText("UM-ORIGINAL-ADMIN-SAVEWORLD-IN-PROGRESS");
+  await expect(panel.getByRole("region",{name:"Store-v1 adminparancs végső jóváhagyása"}))
+    .toHaveCount(0);
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ADMIN_SAVE_CLEAR__?:()=>void;
+  }).__UNTAMED_ADMIN_SAVE_CLEAR__?.());
+  await panel.getByRole("button",{name:"Eredeti adminparancs ellenőrzése"}).click();
+  const approval=panel.getByRole("region",{name:"Store-v1 adminparancs végső jóváhagyása"});
+  await approval.getByLabel("Jóváhagyom a helyi Store-v1 RCON műveletet.").check();
+  await approval.getByLabel(/Írd be pontosan: STORE-V1 ADMIN/).fill("STORE-V1 ADMIN");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ADMIN_SAVE_PENDING__?:()=>void;
+  }).__UNTAMED_ADMIN_SAVE_PENDING__?.());
+  await approval.getByRole("button",{name:"Adminparancs egyszeri elküldése"}).click();
+  await expect(panel).toContainText("UM-ORIGINAL-ADMIN-SAVEWORLD-IN-PROGRESS");
+  await expect(panel).toContainText("nem indult új parancs");
+  await expect(panel.getByText(/Egyszeri RCON-parancs elküldve/)).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ADMIN_SEND_COUNT__?:()=>number;
+  }).__UNTAMED_ADMIN_SEND_COUNT__?.())).toBe(0);
 });
 
 test("Store admin RCON rejects a preview bound to another map without offering Apply",async({page})=>{
