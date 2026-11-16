@@ -1152,8 +1152,10 @@ export type HistoricalRestartRecovery = {
   mapId:string;phase:"None"|"Stopping"|"Starting"|"Completed"|"NeedsOperator";
   entryBelongsToMap:boolean;blocked:boolean;requiresOperator:boolean;
   // Restart is also blocked by an unfinished SaveWorld-only receipt.
-  saveEvidencePhase?:"none"|"prepared"|"needsOperator";
+  saveEvidencePhase?:"none"|"prepared"|"needsOperator"|"unreadable";
   saveEvidencePending?:boolean;
+  saveEvidenceUnreadable?:boolean;
+  saveEvidenceErrorCode?:string|null;
   inMemoryRunning:boolean;jobId:string|null;oldPid:number|null;newPid:number|null;
   automaticRecovery:false;automaticRetry:false;
   originalStoreTouched:false;lockCleared:false;
@@ -1190,7 +1192,8 @@ export type HistoricalSaveWorldQueued={
   evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_ONLY_JOB_QUEUED";
 };
 export type HistoricalSaveEvidenceStatus={
-  mapId:string;phase:"none"|"prepared"|"completed"|"needsOperator"|"reviewed";
+  mapId:string;phase:"none"|"prepared"|"completed"|"needsOperator"|"reviewed"|"unreadable";
+  unreadable?:boolean;errorCode?:string|null;
   operationId:string|null;pid:number|null;pidStartedUtc:string|null;
   saveObservedUtc:string|null;localSaveCompleteObserved:boolean;
   bothHostsSaveCompleteCertified:false;sharedStoreWriterCertified:false;
@@ -1223,6 +1226,8 @@ export type HistoricalGracefulStopRecovery = {
     "CancelledBeforeMutation"|"NeedsOperator"|"OperatorReviewed";
   operationKind:string;updatedUtc:string|null;
   blocked:boolean;requiresOperator:boolean;
+  saveEvidencePhase?:"none"|"prepared"|"completed"|"needsOperator"|"reviewed"|"unreadable";
+  saveEvidenceUnreadable?:boolean;saveEvidenceErrorCode?:string|null;
   inMemoryRunning:boolean;jobId:string|null;
   activeJobKind:"Stop"|"SaveWorldOnly"|null;
   automaticRecovery:false;automaticRetry:false;
