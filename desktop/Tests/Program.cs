@@ -249,6 +249,7 @@ await EmbeddedStorePartialIndexTests.Run(root);
 await LegacyStoreSaveReceiptPairTests.Run(root);
 await FreshStoreEnrollmentTests.Run(root);
 await OwnedAsaKillBridgeTests.Run(root);
+DesktopStartupModeTests.Run();
 // A real SQLite .ark COPY fixture tests the actual metadata reader, not a
 // mocked parser. No server process, production Store writer, or network share.
 {
