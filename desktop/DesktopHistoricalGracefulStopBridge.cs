@@ -558,9 +558,25 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             }
             finally{serial.Release();}
         }
-        catch(Exception)
+        catch(Exception ex)
         {
-            return Fail(id,"UM-ORIGINAL-STOP-SAFETY-CHECK-FAILED");
+            // Safe, bounded native preflight reasons matter to an operator:
+            // a competing lease or damaged SaveWorld history is NOT proof
+            // that SaveWorld/DoExit bytes were dispatched. Never surface
+            // raw exception text, filesystem paths, RCON secrets or output.
+            return Fail(id,ex.Message switch{
+                "UNTAMED_OPERATION_BUSY"=>
+                    "UM-ORIGINAL-STOP-INSTALLATION-BUSY",
+                "UNTAMED_OPERATION_NEEDS_OPERATOR"=>
+                    "UM-ORIGINAL-STOP-DURABLE-RECOVERY-REQUIRED",
+                "UM-ORIGINAL-SAVE-JOURNAL-NEEDS-REVIEW"=>
+                    "UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW",
+                "UM-ORIGINAL-SAVE-HISTORY-ARCHIVE-MISMATCH" or
+                "UM-ORIGINAL-SAVE-HISTORY-RECEIPT-CHANGED" or
+                "UM-ORIGINAL-SAVE-HISTORY-UNSAFE"=>
+                    "UM-ORIGINAL-SAVE-HISTORY-REVIEW-REQUIRED",
+                _=>"UM-ORIGINAL-STOP-SAFETY-CHECK-FAILED"
+            });
         }
     }
     private static string Ok(string id,object data)=>
