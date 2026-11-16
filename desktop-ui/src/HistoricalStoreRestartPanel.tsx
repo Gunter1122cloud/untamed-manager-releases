@@ -34,12 +34,16 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
         setJobId(result.jobId);
         setNotice("A meglévő eredeti Store-v1 újraindítás állapotához visszacsatlakozva; nincs új RCON-küldés.");
       }else if(result.requiresOperator||result.blocked){
-        setError(result.saveEvidencePending
-          ? "Befejezetlen vagy bizonytalan Store-v1 SaveWorld-bizonylat: "+
-            "előbb a SaveWorld panelen ellenőrizd a mentés állapotát. "+
-            "Nincs újraindítás, RCON vagy automatikus ismétlés."
-          : "Befejezetlen Store-v1 újraindítás vagy másik natív művelet: "+
-            "a PID és a helyi napló kézi ellenőrzéséig nincs új indítás.");
+        setError(result.saveEvidenceUnreadable
+          ? "Sérült vagy félbeszakadt Store-v1 SaveWorld-bizonylat "+
+            "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). Az eredeti napló megmarad; "+
+            "nincs Restart, RCON-küldés vagy automatikus feloldás."
+          : result.saveEvidencePending
+            ? "Befejezetlen vagy bizonytalan Store-v1 SaveWorld-bizonylat: "+
+              "előbb a SaveWorld panelen ellenőrizd a mentés állapotát. "+
+              "Nincs újraindítás, RCON vagy automatikus ismétlés."
+            : "Befejezetlen Store-v1 újraindítás vagy másik natív művelet: "+
+              "a PID és a helyi napló kézi ellenőrzéséig nincs új indítás.");
       }
     }).catch(()=>{
       if(alive&&belongs(mapId)){setChecked(true);setError("A helyi Store-v1 újraindítási napló nem ellenőrizhető; újraindítás tiltva.");}
@@ -99,6 +103,10 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
       if(result.inMemoryRunning&&result.jobId){
         setJobId(result.jobId);
         setNotice("A már futó újraindítás állapotához visszacsatlakozva; nincs új RCON.");
+      }else if(result.saveEvidenceUnreadable){
+        setError("Sérült vagy félbeszakadt SaveWorld-bizonylat "+
+          "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). Kézi naplóellenőrzés szükséges; "+
+          "nincs automatikus feloldás.");
       }else if(result.saveEvidencePending){
         setError("Befejezetlen vagy bizonytalan Store-v1 SaveWorld-bizonylat. "+
           "Ellenőrizd a SaveWorld panelen, majd frissítsd itt az állapotot.");
@@ -170,7 +178,10 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
       </button>
       {recovery?.blocked&&<div className="warning-inline" role="status">
         <AlertTriangle size={17}/>
-        {recovery.saveEvidencePending
+        {recovery.saveEvidenceUnreadable
+          ? <>Sérült Store-v1 SaveWorld-bizonylat ({recovery.saveEvidencePhase}).
+              A napló megmarad; kézi ellenőrzés és külön helyreállítás szükséges.</>
+          : recovery.saveEvidencePending
           ? <>Függő Store-v1 SaveWorld-bizonylat ({recovery.saveEvidencePhase}).
               Előbb a SaveWorld panelen ellenőrizd; nincs automatikus folytatás.</>
           : <>Tartós újraindítási vagy másik műveleti napló:
