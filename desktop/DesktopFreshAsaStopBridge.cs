@@ -228,8 +228,8 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                 if(map==null || map.InstallationPath!=approved.Root ||
                    map.RconPort!=approved.RconPort)
                     return Error(id,"UM-ASA-STOP-CHANGED");
-                if(PendingStopBlocker(map.Id) is { } blocker)
-                    return Error(id,blocker);
+                if(PendingStopBlocker(map.Id) is { } applyBlocker)
+                    return Error(id,applyBlocker);
                 var current=Require(map);
                 if(current.Pid!=approved.Pid||
                    current.StartedUtc!=approved.StartedUtc)
