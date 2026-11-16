@@ -40,9 +40,13 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
       else if(result.inMemoryRunning)
         setError("Másik Store-v1 művelet fut. Nem indítunk új leállítást.");
       if(result.requiresOperator)
-        setError("Korábban megszakadt művelet tartós naplója található. "+
-          "Ne indíts új SaveWorld/DoExit vagy Start műveletet. "+
-          "Ellenőrizd az eredeti ASA PID-et, mentésnaplót és a helyi művelet állapotát.");
+        setError(result.saveEvidenceUnreadable
+          ? "Sérült vagy félbeszakadt Store-v1 SaveWorld-bizonylat "+
+            "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). A helyi naplók megmaradnak; "+
+            "Stop, RCON és automatikus feloldás tiltva."
+          : "Korábban megszakadt művelet tartós naplója található. "+
+            "Ne indíts új SaveWorld/DoExit vagy Start műveletet. "+
+            "Ellenőrizd az eredeti ASA PID-et, mentésnaplót és a helyi művelet állapotát.");
     }).catch(()=>{
       if(active&&belongs(mapId)){
         setRecoveryChecked(true);
@@ -92,6 +96,41 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
     },1800);
     return ()=>{alive=false;window.clearInterval(interval);};
   },[jobId,onStopped]);
+  const refreshRecovery=async()=>{
+    // Read-only: neither this button nor a past Stop job authorizes any
+    // new SaveWorld/DoExit, process stop or journal transition.
+    if(busy||(jobId&&job?.state!=="completed"&&job?.state!=="needsOperator"))
+      return;
+    const requested=mapId;
+    setBusy(true);setPreview(null);setPhrase("");setError("");setNotice("");
+    try{
+      const result=await managerBridge.historicalGracefulStopRecovery(requested);
+      if(!belongs(requested))return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase()||
+         result.sharedStoreMutated||result.lockCleared)
+        throw new Error("UM-STORE-STOP-RECOVERY-WRONG-MAP");
+      setRecovery(result);setRecoveryChecked(true);
+      if(result.saveEvidenceUnreadable)
+        setError("Sérült vagy félbeszakadt SaveWorld-bizonylat "+
+          "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). Nincs automatikus feloldás.");
+      else if(result.blocked||result.requiresOperator)
+        setError("A Store-v1 műveleti napló még függő állapotban van. "+
+          "Külön operátori ellenőrzés szükséges, új RCON-parancsot nem küldtünk.");
+      else{
+        if(jobId&&job?.state==="completed"){
+          setJobId("");setJob(null);notified.current=false;
+        }
+        setNotice("A helyi Stop-napló újraellenőrizve, parancs nem indult. "+
+          "Új művelethez új, külön PID/RCON/Store-forrás jóváhagyás szükséges.");
+      }
+    }catch{
+      if(belongs(requested)){
+        setRecovery(null);setRecoveryChecked(true);
+        setError("A Store-v1 Stop-napló nem ellenőrizhető; "+
+          "leállítás és automatikus ismétlés továbbra is tiltva.");
+      }
+    }finally{if(belongs(requested))setBusy(false);}
+  };
   const inspect=async()=>{
     if(busy||jobId||!running||!recoveryChecked||
        !recovery||recovery.blocked||recovery.inMemoryRunning)return;
@@ -137,6 +176,12 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
         újraindítás, Store-konverzió vagy shared lock törlése.</p>
       <div className="settings-actions">
         <button className="secondary" type="button"
+          disabled={busy||
+            (!!jobId&&job?.state!=="completed"&&job?.state!=="needsOperator")}
+          onClick={()=>{void refreshRecovery();}}>
+          <RefreshCw size={16}/> Store-v1 leállítási napló újraellenőrzése
+        </button>
+        <button className="secondary" type="button"
           disabled={busy||!running||!!preview||!!jobId||
             !recoveryChecked||!recovery||recovery.blocked||recovery.inMemoryRunning}
           onClick={()=>{void inspect();}}>
@@ -147,7 +192,9 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
         aria-label="Tartós Store-v1 műveleti helyreállítás">
         <AlertTriangle size={18}/>
         <div>
-          <b>Korábbi műveleti napló · {recovery.phase}</b>
+          <b>{recovery.saveEvidenceUnreadable?
+            "Sérült Store-v1 SaveWorld-bizonylat · unreadable":
+            "Korábbi műveleti napló · "+recovery.phase}</b>
           <p>{recovery.inMemoryRunning
             ?"A natív Stop-folyamat még fut. A napló és az eredeti session érintetlen."
             :"A művelet lezárása nincs biztonságosan igazolva. "+
