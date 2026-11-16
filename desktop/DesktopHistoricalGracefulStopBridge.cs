@@ -166,9 +166,13 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
         bool restartPending=restart!=null&&restart.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
         Job? running;
+        bool localNeedsOperator;
         lock(sync)
-            running=jobsByMap.TryGetValue(mapId,out var tracked)&&
-                tracked.State is ("queued" or "running")?tracked:null;
+        {
+            jobsByMap.TryGetValue(mapId,out var tracked);
+            running=tracked?.State is "queued" or "running"?tracked:null;
+            localNeedsOperator=tracked?.State=="needsOperator";
+        }
         bool operationBlocked=journal!=null&&journal.Phase is
             UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
             UntamedOperationPhase.NeedsOperator;
@@ -180,8 +184,9 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         // second, Manager-local crash-recovery signal, not Kova ownership.
         bool pendingSaveEvidence=unreadableSaveEvidence||
             saveEvidence?.Phase is "prepared" or "needsOperator";
-        bool blocked=operationBlocked||restartPending||pendingSaveEvidence||running!=null;
-        bool needsOperator=unreadableSaveEvidence||pendingSaveEvidence||(journal!=null&&(
+        bool blocked=operationBlocked||restartPending||pendingSaveEvidence||
+            running!=null||localNeedsOperator;
+        bool needsOperator=localNeedsOperator||unreadableSaveEvidence||pendingSaveEvidence||(journal!=null&&(
             journal.Phase==UntamedOperationPhase.NeedsOperator||
             operationBlocked&&running==null))||
             restart?.Phase==AsaRestartPhase.NeedsOperator;
