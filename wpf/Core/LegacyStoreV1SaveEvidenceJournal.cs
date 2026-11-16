@@ -110,17 +110,27 @@ public static class LegacyStoreV1SaveEvidenceJournal
             throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-SCHEMA");
     }
 
+    private static FileAttributes? AttributesIfPresent(string path)
+    {
+        // File.Exists/Directory.Exists silently return false on access
+        // errors. That is not safe for a SaveWorld intent which gates
+        // later RCON/Stop/Restart; only an explicitly missing file or
+        // parent may mean "no pending receipt".
+        try{return File.GetAttributes(path);}
+        catch(FileNotFoundException){return null;}
+        catch(DirectoryNotFoundException){return null;}
+    }
+
     private static LegacyStoreV1SaveEvidence? Load(string file)
     {
         // A crash or filesystem tamper may leave either a file OR a
         // directory at the atomic .next slot. Neither may be interpreted as
         // an absent receipt while a new Stop/Restart/RCON mutation proceeds.
-        if(File.Exists(file+".next")||Directory.Exists(file+".next"))
+        if(AttributesIfPresent(file+".next").HasValue)
             throw new IOException("UM-ORIGINAL-SAVE-JOURNAL-INTERRUPTED");
-        if(Directory.Exists(file))
-            throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-UNSAFE");
-        if(!File.Exists(file))return null;
-        if((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0||
+        var attrs=AttributesIfPresent(file);
+        if(!attrs.HasValue)return null;
+        if((attrs.Value&(FileAttributes.Directory|FileAttributes.ReparsePoint))!=0||
            new FileInfo(file).Length is <64 or >4096)
             throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-UNSAFE");
         var envelope=JsonSerializer.Deserialize<Sealed>(File.ReadAllText(file),Json)
