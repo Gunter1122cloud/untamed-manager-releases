@@ -144,6 +144,14 @@ test.beforeEach(async ({ page }) => {
     let originalLiveExpiredPreviewOnce=false;
     let originalLiveApprovalLostOnce=false;
     let originalLiveBlockedApply=false;
+    let originalLiveSaveBlockerFixture=false;
+    (window as typeof window & {
+      __UNTAMED_ORIGINAL_LIVE_SAVE_BLOCKER__?:()=>void;
+    }).__UNTAMED_ORIGINAL_LIVE_SAVE_BLOCKER__=()=>{
+      originalLiveFiveFixture=true;
+      originalLiveBlockedApply=true;
+      originalLiveSaveBlockerFixture=true;
+    };
     let originalLiveBlockedAttempts=0;
     (window as typeof window & {
       __UNTAMED_ORIGINAL_LIVE_BLOCKED_APPLY__?:()=>void;
@@ -2008,7 +2016,7 @@ test.beforeEach(async ({ page }) => {
             deletedOrReviewed:false
           };
         case "historical.originalLiveOperationBlockers":
-          return {mapCount:5,blockedCount:2,blockedMaps:[{
+          return {mapCount:5,blockedCount:originalLiveSaveBlockerFixture?3:2,blockedMaps:[{
             mapId:"00000000-0000-4000-8000-000000007103",
             mapName:"Aberration",kind:"Launch",phase:"NeedsOperator",
             operationId:"00000000-0000-4000-8000-000000007199",
@@ -2020,7 +2028,13 @@ test.beforeEach(async ({ page }) => {
             operationId:"00000000-0000-4000-8000-000000007198",
             blockingCode:"UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE",
             existingManagerProfile:true,supportedReviewInMapDetails:true
-          }],allRecoveriesRequireFreshOwnerProof:true,
+          },...(originalLiveSaveBlockerFixture?[{
+            mapId:"00000000-0000-4000-8000-000000007102",
+            mapName:"The Island",kind:"SaveWorld-v1",phase:"needsOperator",
+            operationId:"00000000-0000-4000-8000-000000007197",
+            blockingCode:"UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW",
+            existingManagerProfile:true,supportedReviewInMapDetails:true
+          }]:[])],allRecoveriesRequireFreshOwnerProof:true,
             noAutomaticCommandRetry:true,processStarted:false,
             processStopped:false,
             evidence:"ORIGINAL_FIVE_RUNNING_MAP_DURABLE_JOURNAL_BLOCKERS_READ_ONLY"};
@@ -4613,6 +4627,41 @@ test("Store-v1 five-map preview can succeed but later Aberration Launch journal 
     __UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__?:()=>number;
   }).__UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__?.()??-1);
   expect(attempts).toBe(1);
+});
+
+test("Store-v1 takeover explains another map's uncertain SaveWorld receipt without RCON replay",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_LIVE_SAVE_BLOCKER__?:()=>void;
+  }).__UNTAMED_ORIGINAL_LIVE_SAVE_BLOCKER__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti map felismerése"}).click();
+  await panel.getByRole("button",{
+    name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
+  }).click();
+  const proof=panel.getByRole("region",{
+    name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
+  });
+  await proof.getByRole("checkbox").check();
+  await proof.getByRole("textbox",{
+    name:"Store-v1 futó átvétel megerősítése"
+  }).fill("STORE-V1 FUTÓ ÁTVÉTEL");
+  await proof.getByRole("button",{name:"Eredeti öt futó Store-v1 map átvétele"}).click();
+  const blockers=panel.getByRole("region",{
+    name:"Öt Store-v1 map zároló műveleti naplói"
+  });
+  await expect(blockers).toContainText("3 rekord / 2 érintett map");
+  await expect(blockers).toContainText("The Island");
+  await expect(blockers).toContainText("SaveWorld-v1 / needsOperator");
+  await expect(blockers).toContainText("UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW");
+  await expect(blockers).toContainText("az adatlap mentési helyreállításánál");
+  await expect(panel).toContainText("automatikus feloldás vagy RCON-parancsismétlés nincs");
+  await expect(proof).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__?:()=>number;
+  }).__UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__?.())).toBe(1);
 });
 
 test("original Store local journal inventory separates map-owned and unattributed logs without deletion",async({page})=>{
