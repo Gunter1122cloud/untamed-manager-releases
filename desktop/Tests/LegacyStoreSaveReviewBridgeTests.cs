@@ -233,5 +233,23 @@ internal static class LegacyStoreSaveReviewBridgeTests
               File.ReadAllBytes(Path.Combine(receiptDirectory,
                 map.Id.ToString("N")+".json")).SequenceEqual(originalEvidence),
             "directory-shaped interrupted SaveWorld receipt also blocks without mutation");
+        Directory.Delete(interruptedReceiptNext);
+        string canonicalReceipt=Path.Combine(receiptDirectory,
+            map.Id.ToString("N")+".json");
+        string preservedReceipt=canonicalReceipt+".synthetic-saved";
+        File.Move(canonicalReceipt,preservedReceipt);
+        Directory.CreateDirectory(canonicalReceipt);
+        var disguised=await Call(bridge,"historical.saveWorldEvidence",
+            new{mapId=map.Id});
+        Check(disguised.GetProperty("ok").GetBoolean()&&
+              disguised.GetProperty("data").GetProperty("unreadable")
+                .GetBoolean()&&
+              disguised.GetProperty("data").GetProperty("phase")
+                .GetString()=="unreadable"&&
+              Directory.Exists(canonicalReceipt)&&
+              File.ReadAllBytes(preservedReceipt).SequenceEqual(originalEvidence),
+            "directory masquerading as canonical SaveWorld receipt never counts as absent");
+        Directory.Delete(canonicalReceipt);
+        File.Move(preservedReceipt,canonicalReceipt);
     }
 }
