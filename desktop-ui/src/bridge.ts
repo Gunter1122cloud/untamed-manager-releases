@@ -573,7 +573,13 @@ export type FreshAsaStopCurrent = {
   mapId:string;jobId:string|null;
   state:"queued"|"running"|"completed"|"needsOperator"|null;
   active:boolean;
-  evidence:"LOCAL_ASA_STOP_IN_MEMORY_JOB_OBSERVATION_NO_DISPATCH";
+  journalId:string|null;durablePhase:"Pending"|"Completed"|"NeedsOperator"|"OperatorReviewed"|null;
+  evidence:"LOCAL_ASA_STOP_MEMORY_AND_DURABLE_JOURNAL_OBSERVATION_NO_DISPATCH";
+};
+export type FreshAsaStopReviewReceipt = {
+  mapId:string;journalId:string;reviewed:true;rconDispatched:false;
+  serverStarted:false;storeTouched:false;
+  evidence:"LOCAL_ASA_STOP_JOURNAL_OPERATOR_REVIEW_NO_DISPATCH";
 };
 export type FreshAsaStopStatus = {
   jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
@@ -1661,7 +1667,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
   "steam.freshRegister" | "steam.freshBrowse" |
   "steam.freshRecoverPreview" | "steam.freshRecoverRegister" |
-  "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.gracefulStopCurrent" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" |
+  "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.gracefulStopCurrent" | "servers.gracefulStopReview" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" |
   "servers.restartReviewPreview" | "servers.restartReviewApply" |
   "servers.freshReadiness" | "servers.lifecycleJournal" |
   "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
@@ -1903,6 +1909,9 @@ export const managerBridge = {
     request<FreshAsaStopStatus>("servers.gracefulStopStatus",{jobId}),
   freshAsaStopCurrent: (mapId:string) =>
     request<FreshAsaStopCurrent>("servers.gracefulStopCurrent",{mapId}),
+  freshAsaStopReview: (mapId:string,journalId:string,typedApproval:string) =>
+    request<FreshAsaStopReviewReceipt>("servers.gracefulStopReview",
+      {mapId,journalId,confirm:true,typedApproval}),
   freshAsaRestartCurrent: (mapId:string) =>
     request<AsaRestartJournalStatus>("servers.restartCurrent",{mapId}),
   freshAsaRestartReviewPreview: (mapId:string) =>
