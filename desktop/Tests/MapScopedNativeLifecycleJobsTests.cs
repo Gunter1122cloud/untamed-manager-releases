@@ -387,6 +387,9 @@ internal static class MapScopedNativeLifecycleJobsTests
         Check(!wrong.GetProperty("ok").GetBoolean()&&
               sent==1,
             "incorrect operator approval cannot release durable Stop");
+        string stopKey=UntamedOperationCoordinator.ResourceKey(install);
+        string stopJournalPath=Path.Combine(journals,stopKey+".json");
+        byte[] originalReviewEvidence=File.ReadAllBytes(stopJournalPath);
         var reviewed=Data(await Call(second.HandleAsync,
             "servers.gracefulStopReview",new{
                 mapId=map.Id,journalId,confirm=true,
@@ -406,6 +409,27 @@ internal static class MapScopedNativeLifecycleJobsTests
         Check(final.GetProperty("durablePhase").GetString()=="OperatorReviewed"&&
               final.GetProperty("state").ValueKind==JsonValueKind.Null,
             "reviewed journal is terminal without falsely certifying prior Stop");
+        string audit=Path.Combine(journals,stopKey+"-"+
+            Guid.Parse(journalId).ToString("N")+".operator-reviewed.json");
+        Check(File.Exists(audit)&&
+              File.ReadAllBytes(audit).SequenceEqual(originalReviewEvidence)&&
+              !File.ReadAllBytes(stopJournalPath).SequenceEqual(originalReviewEvidence),
+            "operator review preserves immutable exact pre-review Stop evidence");
+        // A pre-existing different audit must fail closed rather than erase
+        // either the evidence or the unfinished new operation.
+        var next=sharedStopGate.Begin(map.Id,pid.Pid,pid.StartedUtc);
+        string nextAudit=Path.Combine(journals,stopKey+"-"+
+            next.Id.ToString("N")+".operator-reviewed.json");
+        File.WriteAllText(nextAudit,"tampered audit");
+        bool auditRejected=false;
+        try{sharedStopGate.ReviewStopped(map.Id,next.Id);}
+        catch(InvalidDataException ex){
+            auditRejected=ex.Message=="UM-ASA-STOP-REVIEW-AUDIT-MISMATCH";
+        }
+        Check(auditRejected&&
+              sharedStopGate.Observe()?.Phase==AsaStopPhase.Pending&&
+              File.ReadAllText(nextAudit)=="tampered audit",
+            "tampered Stop audit is never overwritten or falsely reviewed");
     }
 
     private static async Task VerifyFreshAdminCapacity(string baseRoot)
