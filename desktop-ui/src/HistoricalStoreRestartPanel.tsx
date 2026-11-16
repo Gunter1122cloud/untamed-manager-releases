@@ -139,7 +139,7 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
               Előbb a SaveWorld panelen ellenőrizd; nincs automatikus folytatás.</>
           : <>Tartós újraindítási vagy másik műveleti napló:
               {recovery.phase} · automatikus folytatás tiltva.</>}
-      </div>
+      </div>}
       {preview&&<div className="warning-inline" role="region"
         aria-label="Store-v1 újraindítás jóváhagyása">
         <AlertTriangle size={18}/>
