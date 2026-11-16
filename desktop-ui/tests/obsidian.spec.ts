@@ -64,6 +64,10 @@ test.beforeEach(async ({ page }) => {
         });
       };
     let lifecycleStopHeld=false;
+    let lifecycleStopNeedsOperator=false;
+    (window as typeof window & {
+      __UNTAMED_STOP_NEEDS_OPERATOR__?:()=>void;
+    }).__UNTAMED_STOP_NEEDS_OPERATOR__=()=>{lifecycleStopNeedsOperator=true;};
     let lifecycleStopIssued=false;
     let lifecycleStopApplies=0;
     let lifecycleRestartIssued=false;
@@ -3061,15 +3065,17 @@ test.beforeEach(async ({ page }) => {
         case "servers.gracefulStopCurrent": return {
           mapId:m.mapId,
           jobId:lifecycleStopIssued?"00000000-0000-4000-8000-000000009555":null,
-          state:lifecycleStopIssued?(lifecycleStopHeld?"running":"completed"):null,
-          active:lifecycleStopIssued&&lifecycleStopHeld,
+          state:lifecycleStopIssued?
+            (lifecycleStopNeedsOperator?"needsOperator":lifecycleStopHeld?"running":"completed"):null,
+          active:lifecycleStopIssued&&lifecycleStopHeld&&!lifecycleStopNeedsOperator,
           evidence:"LOCAL_ASA_STOP_IN_MEMORY_JOB_OBSERVATION_NO_DISPATCH"
         };
         case "servers.gracefulStopStatus": return {
           jobId:stopWrongJob
             ?"00000000-0000-4000-8000-000000009556"
             :"00000000-0000-4000-8000-000000009555",
-          state:lifecycleStopHeld?"running":"completed",step:"Windows process verified stopped",
+          state:lifecycleStopNeedsOperator?"needsOperator":lifecycleStopHeld?"running":"completed",
+          step:lifecycleStopNeedsOperator?"Operator review required":"Windows process verified stopped",
           changedUtc:"2026-11-06T11:00:00Z",confirmedStopped:!stopMissingExit,
           saveCompleteProven:false,killPerformed:false,
           restartPerformed:false,storeTouched:false
@@ -8352,6 +8358,35 @@ test("fresh Restart cannot claim success without an observed new PID",async({pag
   await panel.getByRole("button",{name:"Szerver újraindítása"}).click();
   await expect(panel).toContainText("UM-ASA-RESTART-STATUS-INVALID");
   await expect(panel.locator(".success-inline")).toHaveCount(0);
+});
+
+test("fresh Stop NeedsOperator keeps the second Stop blocked, including after navigation",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STOP_NEEDS_OPERATOR__?:()=>void;
+  }).__UNTAMED_STOP_NEEDS_OPERATOR__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
+  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
+  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
+  await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
+  await expect(panel).toContainText("UM-ASA-STOP-NEEDS-OPERATOR");
+  await expect(panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+    .toBeDisabled();
+  await expect(panel.locator(".success-inline")).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number;
+  }).__UNTAMED_LOCAL_STOP_APPLIES__?.())).toBe(1);
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const reopened=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
+  await expect(reopened).toContainText("UM-ASA-STOP-NEEDS-OPERATOR");
+  await expect(reopened.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+    .toBeDisabled();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number;
+  }).__UNTAMED_LOCAL_STOP_APPLIES__?.())).toBe(1);
 });
 
 test("ASA normal Stop requires approval and never force-kills or claims SaveComplete",async({page})=>{
