@@ -268,6 +268,14 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_STEAM_BATCH_APPLIES__?:()=>number})
       .__UNTAMED_STEAM_BATCH_APPLIES__=()=>steamBatchApplyCount;
     let freshStarted=false;
+    let freshWrongPreviewMap=false,freshWrongReceiptMap=false;
+    (window as typeof window & {
+      __UNTAMED_FRESH_WRONG_PREVIEW_MAP__?:()=>void;
+      __UNTAMED_FRESH_WRONG_RECEIPT_MAP__?:()=>void;
+    }).__UNTAMED_FRESH_WRONG_PREVIEW_MAP__=()=>{freshWrongPreviewMap=true;};
+    (window as typeof window & {
+      __UNTAMED_FRESH_WRONG_RECEIPT_MAP__?:()=>void;
+    }).__UNTAMED_FRESH_WRONG_RECEIPT_MAP__=()=>{freshWrongReceiptMap=true;};
     let freshReadinessCalls=0;
     (window as typeof window & {__UNTAMED_FRESH_READY_CALLS__?:()=>number})
       .__UNTAMED_FRESH_READY_CALLS__=()=>freshReadinessCalls;
@@ -2855,7 +2863,7 @@ test.beforeEach(async ({ page }) => {
         };
         case "servers.freshStartPreview": return {
           token:"00000000-0000-4000-8000-000000009333",
-          mapId:m.mapId,mapName:"Astraeos",steamBuild:"123456",
+          mapId:freshWrongPreviewMap?one:m.mapId,mapName:"Astraeos",steamBuild:"123456",
           gamePort:7847,queryPort:27085,rconConfigured:true,
           confirmedStopped:true,serverStarted:false,
           evidence:"FRESH_LOCAL_ASA_START_PREVIEW_NO_WRITE"
@@ -2875,7 +2883,7 @@ test.beforeEach(async ({ page }) => {
           if(!m.confirm)throw new Error("approval required");
           if(freshStartInvalidated)throw new Error("UM-FRESH-START-CHANGED");
           freshStarted=true;
-          return {mapId:two,mapName:"Astraeos",pid:45678,
+          return {mapId:freshWrongReceiptMap?one:two,mapName:"Astraeos",pid:45678,
             createdUtc:"2026-11-06T10:01:00Z",startRequested:true,
             readyCertified:false,requiresRconReadiness:true,storeTouched:false,
             evidence:"LOCAL_REAL_ASA_PROCESS_STARTED_NOT_READY"};
@@ -7833,6 +7841,43 @@ test("interrupted SteamCMD queue survives UI restart and blocks accidental retry
   await expect(page.getByText(/Helyi SteamCMD-napló: NeedsOperator/)).toBeVisible();
   await expect(page.getByText(/kézi ellenőrzés szükséges/)).toBeVisible();
   await expect(page.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+});
+
+test("fresh ASA Start never accepts preview or spawned-process receipt for another map",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_WRONG_PREVIEW_MAP__?:()=>void;
+  }).__UNTAMED_FRESH_WRONG_PREVIEW_MAP__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  const startPanel=page.getByRole("region",{name:"Valódi ASA első indítása"});
+  await startPanel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
+  await expect(startPanel.getByRole("region",{
+    name:"Valódi ASA indítás jóváhagyása"
+  })).toHaveCount(0);
+  await expect(startPanel).toContainText("Indítás nem engedélyezett");
+  await expect(startPanel.getByRole("button",{
+    name:"ASA szerver indítása",exact:true
+  })).toHaveCount(0);
+});
+
+test("fresh ASA Start cannot present another map's PID as a successful launch",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  const panel=page.getByRole("region",{name:"Valódi ASA első indítása"});
+  await panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
+  await panel.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_WRONG_RECEIPT_MAP__?:()=>void;
+  }).__UNTAMED_FRESH_WRONG_RECEIPT_MAP__?.());
+  await panel.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
+  await expect(panel).toContainText("Az ASA elindítása nem igazolható");
+  await expect(panel.locator(".success-inline").filter({hasText:"PID: 45678"}))
+    .toHaveCount(0);
+  await expect(panel.getByRole("region",{
+    name:"Valódi ASA indítás jóváhagyása"
+  })).toHaveCount(0);
 });
 
 test("delayed native ASA Start preview cannot reopen approval after map navigation",async({page})=>{
