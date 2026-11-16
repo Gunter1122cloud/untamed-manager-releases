@@ -113,6 +113,17 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
         string.IsNullOrWhiteSpace(map.Arguments)&&
         string.IsNullOrWhiteSpace(map.ApiLoaderArguments);
 
+    private bool ModeOperationJournalAllows(LocalMap map,bool underOwnLease)
+    {
+        // Acquire(Configuration) already checked competing processes and
+        // now owns this map. Re-reading its own Prepared journal as a
+        // foreign operation would make every real mode apply fail.
+        if(underOwnLease)return true;
+        var existing=cluster.Operations.Observe(map.InstallationPath);
+        return existing?.Phase is not (UntamedOperationPhase.Prepared or
+            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator);
+    }
+
     private bool PhysicalModePreflight(LocalMap map,bool useApi)=>
         PhysicalModePreflight(map,useApi,underOwnLease:false);
 
@@ -125,13 +136,8 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
         // The approved Configuration lease itself is Prepared during apply;
         // never interpret that journal as an unrelated operation. Before
         // acquiring the lease, keep the ordinary fail-closed journal check.
-        if(!underOwnLease)
-        {
-            var existing=cluster.Operations.Observe(map.InstallationPath);
-            if(existing?.Phase is UntamedOperationPhase.Prepared or
-                UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
-                return false;
-        }
+        if(!ModeOperationJournalAllows(map,underOwnLease))
+            return false;
         // A SaveWorld-only receipt is a separate durable intent created
         // before its asynchronous RCON worker acquires an operation lease.
         var save=LegacyStoreV1SaveEvidenceJournal.Inspect(
