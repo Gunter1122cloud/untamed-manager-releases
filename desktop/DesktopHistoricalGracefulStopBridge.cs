@@ -440,6 +440,13 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                    map.RconPort!=approved.RconPort)
                     return Fail(id,"UM-ORIGINAL-STOP-MAP-CHANGED");
                 if(HasActive(map.Id))return Fail(id,"UM-ORIGINAL-STOP-JOB-BUSY");
+                // A different bridge may have begun SaveWorld after the
+                // Stop approval was issued. Reject stale tokens before a
+                // second RCON command can be queued for the same ASA PID.
+                var priorSave=LegacyStoreV1SaveEvidenceJournal.Inspect(
+                    cluster.Store.Root,map.Id);
+                if(priorSave?.Phase is "prepared" or "needsOperator")
+                    return Fail(id,"UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW");
                 var rechecked=await Task.Run(()=>preview(map.Id));
                 if(!ReferenceEquals(rechecked.Map,map)||
                    rechecked.Process.Pid!=approved.Pid||
