@@ -24,12 +24,17 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     typeof receipt.mapId==="string"&&
     receipt.mapId.toLowerCase()===requested.toLowerCase();
   const [busy,setBusy]=useState(false);
+  // One validated native Start receipt is sufficient to permit read-only
+  // RCON readiness checks. Dashboard refresh may be slow and must not keep
+  // the command UI permanently busy or allow another Start request.
+  const [acceptedStart,setAcceptedStart]=useState(false);
   const [message,setMessage]=useState(()=>recentStartReceipts.get(mapId)??"");
   const [error,setError]=useState("");
   useEffect(()=>{
     let active=true;
     readinessGeneration.current++;
     setAwaitingStartup(false);setBusy(false);setCheckingReady(false);
+    setAcceptedStart(false);
     setPreview(null);setApproved(false);setObserved(null);setError("");
     setReadiness(null);
     setMessage(recentStartReceipts.get(mapId)??"");
@@ -56,7 +61,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     }
   };
   const checkReadiness=async()=>{
-    if(!observed?.running||checkingReady||busy||journalBlocked)return;
+    if((!observed?.running&&!acceptedStart)||checkingReady||journalBlocked)return;
     const requested=mapId,revision=readinessGeneration.current;
     setCheckingReady(true);setReadiness(null);setError("");
     try{
@@ -134,7 +139,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
   };
 
   const check=async()=>{
-    if(busy || !mapId || journalBlocked)return;
+    if(busy || acceptedStart || !mapId || journalBlocked)return;
     const requested=mapId,revision=readinessGeneration.current;
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
     try{
@@ -149,7 +154,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     }finally{if(belongs(requested,revision))setBusy(false);}
   };
   const start=async()=>{
-    if(!preview || !approved || busy || journalBlocked)return;
+    if(!preview || !approved || busy || acceptedStart || journalBlocked)return;
     const token=preview.token,requested=mapId,revision=readinessGeneration.current;
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
     try{
@@ -169,6 +174,11 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
       recentStartReceipts.set(requested,summary);
       if(!belongs(requested,revision))return;
       setMessage(summary);
+      setAcceptedStart(true);
+      // Native Start has already returned; awaiting the dashboard refresh
+      // is not a second mutating operation and must not disable an explicit
+      // read-only RCON readiness check.
+      setBusy(false);
       try{await onStarted();}catch{/* Process receipt remains visible even if dashboard refresh fails. */}
       if(!belongs(requested,revision))return;
       await observe();
@@ -201,10 +211,10 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
         observed.loaderPid?"Loader PID "+observed.loaderPid+" · ASA gyermek nem igazolt":
         observed.confirmedStopped?"Igazoltan leállítva":"Nem igazolt állapot"}</b>
     </div>}
-    <button type="button" className="secondary" disabled={busy||journalBlocked||Boolean(observed?.running)}
+    <button type="button" className="secondary" disabled={busy||journalBlocked||acceptedStart||Boolean(observed?.running)}
       onClick={()=>{void check();}}>Valódi ASA-indítás előellenőrzése</button>
     <button type="button" className="secondary"
-      disabled={!observed?.running||busy||journalBlocked||checkingReady}
+      disabled={(!observed?.running&&!acceptedStart)||journalBlocked||checkingReady}
       onClick={()=>{void checkReadiness();}}><RefreshCw size={16}/> ASA / RCON készenlét ellenőrzése</button>
     {awaitingStartup&&<p className="muted small" role="status">Indítás utáni ASA/RCON-készenlét ellenőrzése (legfeljebb 10 perc, csak olvasás). A szerver nincs automatikusan újraindítva vagy leállítva.</p>}
     {readiness&&<div className="historical-preview" role="status">
