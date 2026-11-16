@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 
@@ -156,6 +157,32 @@ public sealed class AsaManualStopJournal
                    (AsaStopPhase.Pending or AsaStopPhase.NeedsOperator))
                 throw new InvalidOperationException(
                     "UM-ASA-STOP-REVIEW-NOT-PENDING");
+            // Preserve the EXACT pre-review journal bytes in an immutable,
+            // installation- and operation-keyed audit file. A crash after
+            // creating the audit but before updating the journal can resume
+            // only if the existing audit still hashes to the same source.
+            // Never overwrite or delete an audit, even after an error.
+            byte[] original=File.ReadAllBytes(path);
+            string audit=Path.Combine(folder,key+"-"+
+                current.Id.ToString("N")+".operator-reviewed.json");
+            if(File.Exists(audit))
+            {
+                var info=new FileInfo(audit);
+                if(info.Length is <=0 or >8192 ||
+                   (info.Attributes&FileAttributes.ReparsePoint)!=0 ||
+                   !CryptographicOperations.FixedTimeEquals(
+                        SHA256.HashData(File.ReadAllBytes(audit)),
+                        SHA256.HashData(original)))
+                    throw new InvalidDataException(
+                        "UM-ASA-STOP-REVIEW-AUDIT-MISMATCH");
+            }
+            else
+            {
+                using var stream=new FileStream(audit,FileMode.CreateNew,
+                    FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough);
+                stream.Write(original);
+                stream.Flush(flushToDisk:true);
+            }
             var changed=current with{
                 Phase=AsaStopPhase.OperatorReviewed,
                 ChangedUtc=DateTimeOffset.UtcNow
