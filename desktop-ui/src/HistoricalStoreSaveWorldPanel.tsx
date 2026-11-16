@@ -143,7 +143,8 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
   const refreshDurable=async()=>{
     // Read-only evidence refresh after the operator has inspected the
     // local journal externally. Never retry SaveWorld or clear a receipt.
-    if(busy||jobId)return;
+    if(busy||(jobId&&job?.state!=="completed"&&job?.state!=="needsOperator"))
+      return;
     const requested=mapId,revision=epoch.current;
     setBusy(true);setPreview(null);setPhrase("");
     setReviewPreview(null);setReviewPhrase("");setError("");setNotice("");
@@ -163,6 +164,18 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       setDurableSave(evidence);setDurableChecked(true);
       setDurableUnknown(evidence.unreadable===true||evidence.phase==="unreadable");
       setRecovery(review);setChecked(true);
+      // Clear the previous UI job only after matching, independent durable
+      // evidence and unblocked native recovery. This never changes its
+      // saved journal or reissues a command.
+      const completedVerified=job?.state==="completed"&&
+        evidence.phase==="completed"&&evidence.localSaveCompleteObserved&&
+        evidence.operationId===jobId;
+      const manuallyReviewed=job?.state==="needsOperator"&&
+        evidence.phase==="reviewed";
+      if(jobId&&!review.blocked&&!evidence.unreadable&&
+         (completedVerified||manuallyReviewed)){
+        setJobId("");setJob(null);finished.current=false;
+      }
       if(evidence.unreadable||review.saveEvidenceUnreadable)
         setError("Sérült vagy félbeszakadt SaveWorld-bizonylat "+
           "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). A helyi fájlok változatlanok; "+
@@ -286,7 +299,8 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
         Az ellenőrzött helyi ASA PID-nek egyszer küldi a SaveWorld
         parancsot. A log és világfájl ellenőrzése után sincs DoExit, konverzió vagy
         karakter-, tribe- és tribute-fájlmódosítás a Managerből.</p>
-      <button type="button" className="secondary" disabled={busy||!!jobId}
+      <button type="button" className="secondary" disabled={busy||
+          (!!jobId&&job?.state!=="completed"&&job?.state!=="needsOperator")}
         onClick={()=>{void refreshDurable();}}>
         <RefreshCw size={16}/> Store-v1 mentési napló újraellenőrzése
       </button>
