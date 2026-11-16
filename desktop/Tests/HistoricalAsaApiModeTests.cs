@@ -88,5 +88,55 @@ internal static class HistoricalAsaApiModeTests
             new{mapId=map.Id});
         Check(!deniedStart.GetProperty("ok").GetBoolean(),
             "missing real RCON still blocks Start even after choosing API");
+
+        // A harmless Loader-mode preview is NOT an approved launch-mode
+        // mutation and therefore must not consume an original Start token.
+        string secondInstallation=Path.Combine(root,"historical-api-mode-start-preview");
+        string secondServer=Path.Combine(secondInstallation,"ShooterGame",
+            "Binaries","Win64","ArkAscendedServer.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(secondServer)!);
+        File.WriteAllBytes(secondServer,new byte[]{0x4d,0x5a,0x90,0x00});
+        var restartable=new LocalMap{
+            Id=Guid.NewGuid(),Name="Ragnarok",InstallationPath=secondInstallation,
+            ExecutablePath=secondServer,HistoricalStoreProtected=true,
+            HistoricalArchiveSha256=new string('B',64),
+            HistoricalMapKey="Ragnarok_WP",GamePort=7837,QueryPort=27077,
+            RconPort=37075,RconPasswordProtected=SecureStore.Protect("SYNTHETIC_RCON_ONLY"),
+            Arguments="",ApiLoaderArguments="",StartWithAsaApi=false,
+            AutoStart=false,MonitorRcon=false
+        };
+        cluster.AddMap(restartable);
+        using var previewBridge=new DesktopHistoricalActiveStartBridge(cluster,
+            preparation:(_)=>new LegacyStoreV1NativeStartPlan(
+                "Ragnarok_WP?listen -Port=7837 -QueryPort=27077 -usestore",
+                new string('A',64),7837,27077,37075,"SYNTHETIC_ONLY"),
+            launcher:(_,_,_)=>throw new InvalidOperationException(
+                "SYNTHETIC START MUST NEVER BE EXECUTED"),
+            loaderModePreflight:(_,_)=>true);
+        var startPreview=await Call(previewBridge,"historical.activeStartPreview",
+            new{mapId=restartable.Id});
+        Check(startPreview.GetProperty("ok").GetBoolean(),
+            "synthetic native original Start approval is issued without Process.Start");
+        string startToken=startPreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        var modePreview=await Call(previewBridge,"historical.loaderModePreview",
+            new{mapId=restartable.Id,useApi=true});
+        Check(modePreview.GetProperty("ok").GetBoolean(),
+            "uncommitted Loader selection previews without mutating source");
+        var firstUnconfirmedStart=await Call(previewBridge,"historical.activeStartApply",
+            new{token=startToken,confirm=false,typedApproval="STORE-V1 ACTIVE START"});
+        Check(firstUnconfirmedStart.GetProperty("error").GetString()==
+              "UM-STORE-ACTIVE-EXPLICIT-APPROVAL",
+            "Loader mode preview did not revoke original Start approval");
+        var modeToken=modePreview.GetProperty("data").GetProperty("token").GetString()!;
+        var change=await Call(previewBridge,"historical.loaderModeApply",
+            new{token=modeToken,confirm=true});
+        Check(change.GetProperty("ok").GetBoolean(),
+            "committed Loader choice changes only historical Manager preference");
+        var oldStart=await Call(previewBridge,"historical.activeStartApply",
+            new{token=startToken,confirm=false,typedApproval="STORE-V1 ACTIVE START"});
+        Check(oldStart.GetProperty("error").GetString()==
+              "UM-STORE-ACTIVE-APPROVAL-EXPIRED",
+            "actual committed Loader mode change revokes stale old-mode Start token");
     }
 }
