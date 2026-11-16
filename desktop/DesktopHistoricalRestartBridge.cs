@@ -54,6 +54,17 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             existing.State is ("queued" or "running");
     }
 
+    private LegacyStoreV1SaveEvidence? PendingSaveEvidence(Guid mapId)
+    {
+        // A SaveWorld-only bridge may have persisted its one-shot receipt
+        // before its background RCON task acquired the operation lease.
+        // Do not overlap that pending/uncertain operation with a Restart,
+        // even when the generic operation journal still looks completed.
+        var receipt=LegacyStoreV1SaveEvidenceJournal.Inspect(
+            cluster.Store.Root,mapId);
+        return receipt?.Phase is "prepared" or "needsOperator" ? receipt : null;
+    }
+
     public DesktopHistoricalRestartBridge(ClusterService service):
         this(service,null,null,null){}
 
@@ -155,12 +166,15 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         var operation=cluster.Operations.Observe(map.InstallationPath);
         bool pendingOperation=operation?.Phase is UntamedOperationPhase.Prepared or
             UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator;
+        var pendingSave=PendingSaveEvidence(mapId);
         bool same=entry?.MapId==mapId;
         return new{
             mapId,phase=entry?.Phase.ToString()??"None",
             entryBelongsToMap=same,
-            blocked=pendingRestart||pendingOperation,
-            requiresOperator=(pendingRestart||pendingOperation)&&running==null,
+            saveEvidencePhase=pendingSave?.Phase??"none",
+            saveEvidencePending=pendingSave!=null,
+            blocked=pendingRestart||pendingOperation||pendingSave!=null,
+            requiresOperator=(pendingRestart||pendingOperation||pendingSave!=null)&&running==null,
             inMemoryRunning=running!=null,jobId=running?.Id,
             oldPid=entry?.OldPid,newPid=entry?.NewPid,
             automaticRecovery=false,automaticRetry=false,
@@ -217,6 +231,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     if(map==null||!map.HistoricalStoreProtected||map.Maintenance)
                         return Fail(id,"UM-ORIGINAL-RESTART-LOCAL-ONLY");
                     if(HasActive(mapId))return Fail(id,"UM-ORIGINAL-RESTART-BUSY");
+                    if(PendingSaveEvidence(mapId)!=null)
+                        return Fail(id,"UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW");
                     // Preserve the exact per-map launch mode. A Loader-based
                     // restart is permitted only when the verified ASA CHILD
                     // owns RCON; never send DoExit to the Loader parent.
@@ -270,6 +286,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                    original.RconPort!=approved.RconPort)
                     return Fail(id,"UM-ORIGINAL-RESTART-MAP-CHANGED");
                 if(HasActive(original.Id))return Fail(id,"UM-ORIGINAL-RESTART-BUSY");
+                if(PendingSaveEvidence(original.Id)!=null)
+                    return Fail(id,"UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW");
                 var rechecked=await Task.Run(()=>preview(approved.MapId));
                 if(!Same(rechecked,original,approved))
                     return Fail(id,"UM-ORIGINAL-RESTART-SOURCE-CHANGED");
@@ -279,6 +297,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     original.InstallationPath,UntamedOperationKind.Configuration))
                 {
                     restart.DemandNoPending();
+                    if(PendingSaveEvidence(original.Id)!=null)
+                        return Fail(id,"UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW");
                     var underLease=await Task.Run(()=>preview(approved.MapId));
                     if(!Same(underLease,original,approved))
                         return Fail(id,"UM-ORIGINAL-RESTART-LEASE-OWNER-CHANGED");
