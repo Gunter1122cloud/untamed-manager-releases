@@ -150,10 +150,10 @@ internal static class LegacyStoreSaveReviewBridgeTests
         // all local journal bytes for operator investigation.
         string receiptDirectory=Path.Combine(cluster.Store.Root,
             "historical-save-evidence-v1");
-        string interrupted=Path.Combine(receiptDirectory,
+        string interruptedReceiptNext=Path.Combine(receiptDirectory,
             map.Id.ToString("N")+".json.next");
         byte[] incomplete={0x53,0x54,0x4f,0x52,0x45,0x2d,0x56,0x31};
-        File.WriteAllBytes(interrupted,incomplete);
+        File.WriteAllBytes(interruptedReceiptNext,incomplete);
         byte[] originalEvidence=File.ReadAllBytes(Path.Combine(
             receiptDirectory,map.Id.ToString("N")+".json"));
         var degradedEvidence=await Call(bridge,"historical.saveWorldEvidence",
@@ -212,7 +212,7 @@ internal static class LegacyStoreSaveReviewBridgeTests
         var refusedSave=await Call(bridge,"historical.saveWorldPreview",
             new{mapId=map.Id});
         Check(!refusedSave.GetProperty("ok").GetBoolean()&&
-              File.ReadAllBytes(interrupted).SequenceEqual(incomplete)&&
+              File.ReadAllBytes(interruptedReceiptNext).SequenceEqual(incomplete)&&
               File.ReadAllBytes(Path.Combine(receiptDirectory,
                 map.Id.ToString("N")+".json")).SequenceEqual(originalEvidence)&&
               File.Exists(archived),
