@@ -65,6 +65,18 @@ test.beforeEach(async ({ page }) => {
       };
     let lifecycleStopHeld=false;
     let lifecycleStopNeedsOperator=false;
+    let stopReviewOsStopped=false,stopReviewCount=0,stopForgetInMemory=false;
+    (window as typeof window & {
+      __UNTAMED_STOP_REVIEW_OS_STOPPED__?:()=>void;
+      __UNTAMED_STOP_FORGET_IN_MEMORY__?:()=>void;
+      __UNTAMED_STOP_REVIEWS__?:()=>number;
+    }).__UNTAMED_STOP_REVIEW_OS_STOPPED__=()=>{stopReviewOsStopped=true;};
+    (window as typeof window & {
+      __UNTAMED_STOP_FORGET_IN_MEMORY__?:()=>void;
+    }).__UNTAMED_STOP_FORGET_IN_MEMORY__=()=>{stopForgetInMemory=true;};
+    (window as typeof window & {
+      __UNTAMED_STOP_REVIEWS__?:()=>number;
+    }).__UNTAMED_STOP_REVIEWS__=()=>stopReviewCount;
     (window as typeof window & {
       __UNTAMED_STOP_NEEDS_OPERATOR__?:()=>void;
     }).__UNTAMED_STOP_NEEDS_OPERATOR__=()=>{lifecycleStopNeedsOperator=true;};
@@ -3076,12 +3088,29 @@ test.beforeEach(async ({ page }) => {
             evidence:"REAL_LOCAL_GRACEFUL_STOP_JOB_QUEUED"};
         case "servers.gracefulStopCurrent": return {
           mapId:m.mapId,
-          jobId:lifecycleStopIssued?"00000000-0000-4000-8000-000000009555":null,
+          jobId:lifecycleStopIssued&&!stopForgetInMemory?
+            "00000000-0000-4000-8000-000000009555":null,
           state:lifecycleStopIssued?
-            (lifecycleStopNeedsOperator?"needsOperator":lifecycleStopHeld?"running":"completed"):null,
-          active:lifecycleStopIssued&&lifecycleStopHeld&&!lifecycleStopNeedsOperator,
-          evidence:"LOCAL_ASA_STOP_IN_MEMORY_JOB_OBSERVATION_NO_DISPATCH"
+            (lifecycleStopNeedsOperator||stopForgetInMemory?"needsOperator":
+              lifecycleStopHeld?"running":"completed"):null,
+          active:lifecycleStopIssued&&lifecycleStopHeld&&
+            !lifecycleStopNeedsOperator&&!stopForgetInMemory,
+          journalId:lifecycleStopIssued?"00000000-0000-4000-8000-000000009558":null,
+          durablePhase:lifecycleStopIssued?
+            (lifecycleStopNeedsOperator||stopForgetInMemory?"NeedsOperator":
+              lifecycleStopHeld?"Pending":"Completed"):null,
+          evidence:"LOCAL_ASA_STOP_MEMORY_AND_DURABLE_JOURNAL_OBSERVATION_NO_DISPATCH"
         };
+        case "servers.gracefulStopReview":
+          if(!stopReviewOsStopped||!m.confirm||m.typedApproval!=="REVIEW STOPPED ASA"||
+             m.journalId!=="00000000-0000-4000-8000-000000009558")
+            throw new Error("UM-ASA-STOP-REVIEW-NOT-STOPPED");
+          stopReviewCount++;
+          lifecycleStopNeedsOperator=false;stopForgetInMemory=false;
+          lifecycleStopIssued=false;
+          return {mapId:m.mapId,journalId:m.journalId,reviewed:true,
+            rconDispatched:false,serverStarted:false,storeTouched:false,
+            evidence:"LOCAL_ASA_STOP_JOURNAL_OPERATOR_REVIEW_NO_DISPATCH"};
         case "servers.gracefulStopStatus": return {
           jobId:stopWrongJob
             ?"00000000-0000-4000-8000-000000009556"
