@@ -446,6 +446,10 @@ test.beforeEach(async ({ page }) => {
     let originalSaveReattached=false;
     let originalSaveHold=false;
     let originalSaveEvidenceTampered=false;
+    let originalSaveUnreadable=false;
+    (window as typeof window & {
+      __UNTAMED_SAVE_UNREADABLE_RECEIPT__?:()=>void;
+    }).__UNTAMED_SAVE_UNREADABLE_RECEIPT__=()=>{originalSaveUnreadable=true;};
     let originalSaveRecoveryFixture=false;
     let originalSaveReviewed=false;
     (window as typeof window & {__UNTAMED_SAVE_REVIEW_FIXTURE__?:()=>void})
@@ -1325,12 +1329,16 @@ test.beforeEach(async ({ page }) => {
             phase:originalRestartFail&&originalRestartQueued?"NeedsOperator":
               originalRestartQueued?"Completed":"None",
             entryBelongsToMap:originalRestartQueued,
-            saveEvidencePhase:originalRestartPendingSaveReceipt?"needsOperator":"none",
-            saveEvidencePending:originalRestartPendingSaveReceipt,
-            blocked:originalRestartPendingSaveReceipt||oldStopNeedsOperator||
-              (originalRestartFail&&originalRestartQueued),
-            requiresOperator:originalRestartPendingSaveReceipt||oldStopNeedsOperator||
-              (originalRestartFail&&originalRestartQueued),
+            saveEvidencePhase:originalSaveUnreadable?"unreadable":
+              originalRestartPendingSaveReceipt?"needsOperator":"none",
+            saveEvidencePending:originalSaveUnreadable||originalRestartPendingSaveReceipt,
+            saveEvidenceUnreadable:originalSaveUnreadable,
+            saveEvidenceErrorCode:originalSaveUnreadable?
+              "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
+            blocked:originalSaveUnreadable||originalRestartPendingSaveReceipt||
+              oldStopNeedsOperator||(originalRestartFail&&originalRestartQueued),
+            requiresOperator:originalSaveUnreadable||originalRestartPendingSaveReceipt||
+              oldStopNeedsOperator||(originalRestartFail&&originalRestartQueued),
             inMemoryRunning:false,jobId:null,
             oldPid:originalRestartQueued?42101:null,
             newPid:originalRestartQueued&&!originalRestartFail?42102:0,
@@ -1341,7 +1349,7 @@ test.beforeEach(async ({ page }) => {
         case "historical.restartPreview": {
           if(m.mapId!==two||!historicalRconAttached||
              !historicalActiveStarted||oldStopNeedsOperator||
-             originalRestartPendingSaveReceipt||
+             (originalRestartPendingSaveReceipt||originalSaveUnreadable)||
              !originalRconSourceValid||!originalRconPortOwner||
              originalRestartQueued||originalRestartApproved)
             throw new Error("Original Store Restart blocked");
@@ -1398,10 +1406,14 @@ test.beforeEach(async ({ page }) => {
           updatedUtc:oldStopNeedsOperator||originalStopQueued
             ?"2026-11-07T18:35:00Z":null,
           // A native task can be queued before its durable journal changes phase.
-          blocked:oldStopNeedsOperator||
+          blocked:originalSaveUnreadable||oldStopNeedsOperator||
             (originalSaveRecoveryFixture&&!originalSaveReviewed),
-          requiresOperator:oldStopNeedsOperator||
+          requiresOperator:originalSaveUnreadable||oldStopNeedsOperator||
             (originalSaveRecoveryFixture&&!originalSaveReviewed),
+          saveEvidencePhase:originalSaveUnreadable?"unreadable":"none",
+          saveEvidenceUnreadable:originalSaveUnreadable,
+          saveEvidenceErrorCode:originalSaveUnreadable?
+            "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
           inMemoryRunning:originalSaveReattached,
           jobId:originalSaveReattached?originalSaveJob:null,
           activeJobKind:originalSaveReattached?"SaveWorldOnly":null,
@@ -1412,7 +1424,7 @@ test.beforeEach(async ({ page }) => {
         case "historical.saveWorldPreview": {
           if(!historicalRconAttached||!historicalActiveStarted||
              !originalRconSourceValid||!originalRconPortOwner||m.mapId!==two||
-             oldStopNeedsOperator||originalSavePending)
+             oldStopNeedsOperator||originalSavePending||originalSaveUnreadable)
             throw new Error("Original Store SaveWorld owner/session unavailable");
           originalSavePending=true;
           return {
@@ -1441,15 +1453,20 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-ORIGINAL-SAVE-JOURNAL-TAMPERED");
           const complete=originalSaveQueued&&!(originalSaveReattached&&originalSaveHold);
           return {
-            mapId:originalSaveWrongEvidenceMap?one:two,phase:originalSaveRecoveryFixture?
+            mapId:originalSaveWrongEvidenceMap?one:two,
+            phase:originalSaveUnreadable?"unreadable":originalSaveRecoveryFixture?
               (originalSaveReviewed?"reviewed":"needsOperator"):
               originalSaveQueued?(complete?"completed":"prepared"):"none",
-            operationId:originalSaveRecoveryFixture?originalSaveJob:
+            unreadable:originalSaveUnreadable,
+            errorCode:originalSaveUnreadable?
+              "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
+            operationId:originalSaveUnreadable?null:
+              originalSaveRecoveryFixture?originalSaveJob:
               originalSaveQueued?originalSaveJob:null,
             pid:originalSaveQueued?42101:null,
             pidStartedUtc:originalSaveQueued?"2026-11-08T18:00:00Z":null,
             saveObservedUtc:complete?"2026-11-08T18:35:00Z":null,
-            localSaveCompleteObserved:complete,
+            localSaveCompleteObserved:complete&&!originalSaveUnreadable,
             bothHostsSaveCompleteCertified:false,sharedStoreWriterCertified:false,
             gameClientRejoinVerified:false,productionRestoreAllowed:false,
             fsyncCertified:false,sourceStateCertifiedForCurrentWriter:false,
@@ -5973,6 +5990,39 @@ test("Store-v1 interrupted SaveWorld can be explicitly reviewed when stopped wit
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Operátori felülvizsgálat megtörtént");
   await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"})).toHaveCount(0);
+});
+
+test("unreadable original Store SaveWorld is visible on Save and Restart without any RCON retry",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+    __UNTAMED_SAVE_UNREADABLE_RECEIPT__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_UNREADABLE_RECEIPT__?:()=>void;
+  }).__UNTAMED_SAVE_UNREADABLE_RECEIPT__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const savePanel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  const restartPanel=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"});
+  await expect(savePanel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Tartós napló nem ellenőrizhető");
+  await expect(savePanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
+  await expect(savePanel.getByRole("button",{name:"Mentés előellenőrzése"}))
+    .toBeDisabled();
+  await expect(restartPanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
+  await expect(restartPanel.getByRole("button",{
+    name:"Store-v1 újraindítás előellenőrzése"
+  })).toBeDisabled();
+  await restartPanel.getByRole("button",{name:"Store-v1 napló újraellenőrzése"}).click();
+  await expect(restartPanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+    __UNTAMED_RESTART_SENDS__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RESTART_SENDS__?:()=>number;
+  }).__UNTAMED_RESTART_SENDS__?.())).toBe(0);
 });
 
 test("original Store-v1 SaveWorld-only refuses unresolved durable journal without RCON dispatch",async({page})=>{
