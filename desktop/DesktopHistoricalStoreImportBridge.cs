@@ -546,17 +546,20 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     var outcome=cluster.ReconcileOriginalStoreLiveFive(
                         observed.Maps,()=>{
                             var (again,now,peer)=VerifyLiveOriginalFive();
-                            return again.FourFilesSha256==approved.FourFilesHash&&
+                            bool sourceUnchanged=
+                                again.FourFilesSha256==approved.FourFilesHash&&
                                 again.LaunchProfileSha256==approved.LaunchHash&&
                                 now.ProcessSha256==approved.ProcessHash&&
                                 peer==approved.SharedStateHash&&
                                 OriginalLiveRegistryHash(again)==approved.RegistryHash&&
-                                now.Maps.Select(m=>m.Id).SequenceEqual(approved.MapIds)&&
-                                // The generic journal now belongs to THIS
-                                // AcquireMany(Configuration) operation and is
-                                // expected to be Prepared. Only the independent
-                                // SaveWorld intent needs an additional check.
-                                !HasPendingOriginalSaveEvidence(now.Maps);
+                                now.Maps.Select(m=>m.Id).SequenceEqual(approved.MapIds);
+                            if(!sourceUnchanged)return false;
+                            // The generic Prepared journal belongs to THIS
+                            // AcquireMany operation. Check only independent
+                            // SaveWorld intents and distinguish their failure
+                            // from a real source/parent/PID mismatch.
+                            DemandNoPendingOriginalSaveEvidence(now.Maps);
+                            return true;
                         });
                     return Ok(id,new {
                         importedMaps=observed.Maps.Length,
@@ -1183,6 +1186,14 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             }
         }
         return false;
+    }
+
+    private void DemandNoPendingOriginalSaveEvidence(
+        IReadOnlyList<LocalMap> maps)
+    {
+        if(HasPendingOriginalSaveEvidence(maps))
+            throw new InvalidOperationException(
+                "UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL");
     }
 
     private OriginalLiveJournalBlocker[] OriginalLiveOperationBlockers(
