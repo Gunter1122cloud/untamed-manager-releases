@@ -327,6 +327,14 @@ internal static class MapScopedNativeLifecycleJobsTests
               reopened.GetProperty("jobId").ValueKind==JsonValueKind.Null,
             "post-crash native Stop is conservatively NeedsOperator, never replayed");
         string journalId=reopened.GetProperty("journalId").GetString()!;
+        var sharedStopGate=new AsaManualStopJournal(install,journals);
+        bool launchRejected=false;
+        try{sharedStopGate.DemandNoPending(map.Id);}
+        catch(InvalidOperationException ex){
+            launchRejected=ex.Message=="UM-ASA-STOP-JOURNAL-NEEDS-OPERATOR";
+        }
+        Check(launchRejected,
+            "Start and Restart shared Core gate reject persisted in-flight Stop");
         var blocked=await Call(second.HandleAsync,
             "servers.gracefulStopPreview",new{mapId=map.Id});
         Check(!blocked.GetProperty("ok").GetBoolean()&&
@@ -376,6 +384,9 @@ internal static class MapScopedNativeLifecycleJobsTests
               !reviewed.GetProperty("serverStarted").GetBoolean()&&
               sent==1,
             "review writes only journal, never SaveWorld, DoExit, Kill or Start");
+        sharedStopGate.DemandNoPending(map.Id);
+        Check(sent==1,
+            "review releases Start/Restart preflight without repeating RCON");
         var final=Data(await Call(second.HandleAsync,
             "servers.gracefulStopCurrent",new{mapId=map.Id}),
             "reviewed Stop remains observable after native reconciliation");
