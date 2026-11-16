@@ -231,6 +231,19 @@ internal static class OriginalStoreLiveReconcileTests
             new string('E',64));
         Check(!NoPendingSaveUnderLease(),
             "five-map under-lease receipt guard detects prepared SaveWorld without RCON");
+        var guard=typeof(DesktopHistoricalStoreImportBridge).GetMethod(
+            "DemandNoPendingOriginalSaveEvidence",
+            System.Reflection.BindingFlags.NonPublic|
+            System.Reflection.BindingFlags.Instance)??throw new InvalidOperationException(
+                "Under-lease Store SaveWorld error mapper missing");
+        bool reportsPendingJournal=false;
+        try { _=guard.Invoke(bridge,new object[]{live}); }
+        catch(System.Reflection.TargetInvocationException ex) when(
+            ex.InnerException is InvalidOperationException inner&&
+            inner.Message=="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL")
+        { reportsPendingJournal=true; }
+        Check(reportsPendingJournal,
+            "under-lease SaveWorld conflict returns a journal blocker, not a source mismatch");
         var withSave=((System.Collections.IEnumerable)(inspect.Invoke(
             bridge,new object[]{live})??throw new InvalidOperationException(
                 "SaveWorld receipt blocker scan failed")))
