@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -21,7 +22,10 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
     private readonly Func<LocalMap,string> sourceEpoch;
     private readonly Func<int,int,bool> owner;
     private readonly Func<string,int,string,string,CancellationToken,Task<string>> send;
-    private readonly SemaphoreSlim serial=new(1,1);
+    // Each map has a separate RCON request lane: an unresponsive ASA on one
+    // map must never block players/logs from another locally owned map.
+    // Requests to the SAME map remain serialized to avoid reordering replies.
+    private readonly ConcurrentDictionary<Guid,SemaphoreSlim> mapSerial=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopHistoricalRconReadOnlyBridge(ClusterService service):
@@ -39,11 +43,12 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
         cluster=service??throw new ArgumentNullException(nameof(service));
         inspect=processInspector??(map=>LegacyStoreV1ProcessObserver.Observe(
             map,cluster.Config.LocalMaps));
-        // Read the SAME exact original two-peer ACTIVE/DONE source SHA
-        // used by the native historical Start and SaveWorld paths. A mere
-        // boolean probe cannot detect an A->B shared-session swap during
-        // a successful read-only RCON request.
-        sourceEpoch=sourceEpochProof??LegacyStoreV1GracefulStop.OriginalSource;
+        // After a verified Obsidian source import, local RCON reads bind
+        // to that Manager-owned source, not a retired Kova profile or a
+        // switched-off peer's old ACTIVE/DONE marker. Unmigrated profiles
+        // retain their original strict handoff check.
+        sourceEpoch=sourceEpochProof??(
+            map=>LegacyStoreV1GracefulStop.OriginalSource(cluster,map));
         owner=portOwner??RconPortOwnership.IsOwnedListener;
         send=dispatch??RconProtocol.Execute;
     }
@@ -104,6 +109,7 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
                 "historical.rconPlayers" or "historical.rconGameLog" or
                 "historical.rconChatLog"))
                 return Error(id,"UM-METHOD-DENIED");
+            var serial=mapSerial.GetOrAdd(mapId,static _=>new SemaphoreSlim(1,1));
             await serial.WaitAsync();
             try
             {
@@ -188,5 +194,9 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
         JsonSerializer.Serialize(new{id,ok=true,data=result},Json);
     private static string Error(string? id,string reason)=>
         JsonSerializer.Serialize(new{id,ok=false,error=reason},Json);
-    public void Dispose()=>serial.Dispose();
+    public void Dispose()
+    {
+        foreach(var gate in mapSerial.Values)gate.Dispose();
+        mapSerial.Clear();
+    }
 }

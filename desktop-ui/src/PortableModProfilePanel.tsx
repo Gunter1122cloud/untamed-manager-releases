@@ -75,7 +75,7 @@ export function PortableModProfilePanel({maps,sourceMapId,onApplied}:{
         onClick={()=>{void exportFile();}}><FileDown size={16}/> Kijelölt map profiljának exportja</button>
     </div>
     <div className="warning-inline"><Shield size={16}/>
-      Az eredeti Kova Store-v1 mapok modlistája is exportálható és
+      Az eredeti eredeti Store-v1 mapok modlistája is exportálható és
       importálható, de importáláskor a helyi ASA/Loader folyamatoknak
       igazoltan leállított állapotban kell lenniük. A közös Store,
       karakterek és nyers indítási kapcsolók nem módosulnak.

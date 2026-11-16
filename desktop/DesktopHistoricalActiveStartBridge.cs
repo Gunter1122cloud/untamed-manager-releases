@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -17,6 +18,35 @@ namespace UntamedDesktop;
 /// </summary>
 public sealed class DesktopHistoricalActiveStartBridge : IDisposable
 {
+    // Only literal native safety codes are returned to WebView. Never forward
+    // exception details, paths, credentials or original Kova source records.
+    private static readonly HashSet<string> SafeStartErrors = new(StringComparer.Ordinal)
+    {
+        "UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED",
+        "UM-STORE-NATIVE-ACTIVE-IMPORT-ONLY",
+        "UM-STORE-NATIVE-EXE-RCON-PARITY",
+        "UM-STORE-NATIVE-BACKUP-RECOVERY",
+        "UM-STORE-NATIVE-PORT-IN-USE",
+        "UM-STORE-NATIVE-PROCESS-NOT-PROVEN-STOPPED",
+        "UM-STORE-NATIVE-ORIGINAL-TWO-HOST-NOT-READY",
+        "UM-STORE-NATIVE-RCON-CHANGED",
+        "UM-STORE-RUNTIME-CLUSTER-INCOMPLETE",
+        "UM-STORE-RUNTIME-RCON-INI-MISMATCH",
+        "UM-STORE-RUNTIME-CONVERSION-DENIED",
+        "UM-STORE-RUNTIME-ARGUMENTS-TOO-LONG",
+        "UM-STORE-PIN-MANIFEST-MISSING",
+        "UM-STORE-PIN-MANIFEST-INVALID",
+        "UM-STORE-PIN-FILE-CHANGED",
+        "UM-STORE-PIN-SOURCE-PARITY",
+        "UM-STORE-PIN-NOT-A-DIRECTORY",
+        "UM-STORE-PIN-MAP-IDENTITY",
+        "UM-STORE-PIN-OWNER-CHANGED",
+        "UM-STORE-PIN-MAP-ROOT-CHANGED",
+        "UM-STORE-PIN-CLUSTER-METADATA",
+        "UM-STORE-PIN-NOT-YET-APPROVED",
+        "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR",
+        "UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW"
+    };
     private sealed record Pending(Guid Token,Guid MapId,string ProfileJson,
         string PlanFingerprint,int Game,int Query,int Rcon,bool UseApi,DateTimeOffset Created);
     private sealed record ModePending(Guid Token,Guid MapId,string Profile,
@@ -26,9 +56,12 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
     private readonly Func<Guid,string,bool,ProcessIdentity> start;
     private readonly bool nativeLauncher;
     private readonly Func<LocalMap,bool,bool> modePreflight;
+    private readonly bool usesPhysicalModePreflight;
     private readonly SemaphoreSlim serial=new(1,1);
-    private Pending? pending;
-    private ModePending? pendingMode;
+    // Both the Start and API Loader mode approvals belong to a single map.
+    // Selecting a different local map cannot revoke another map's token.
+    private readonly Dictionary<Guid,Pending> startApprovalsByMap=new();
+    private readonly Dictionary<Guid,ModePending> modeApprovalsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopHistoricalActiveStartBridge(ClusterService service):
@@ -46,6 +79,7 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
         nativeLauncher=launcher==null;
         start=launcher??((map,fingerprint,approved)=>
             cluster.LaunchOriginalActiveStoreAsa(map,fingerprint,approved));
+        usesPhysicalModePreflight=loaderModePreflight==null;
         modePreflight=loaderModePreflight??PhysicalModePreflight;
     }
 
@@ -79,16 +113,36 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
         string.IsNullOrWhiteSpace(map.Arguments)&&
         string.IsNullOrWhiteSpace(map.ApiLoaderArguments);
 
-    private bool PhysicalModePreflight(LocalMap map,bool useApi)
+    private bool ModeOperationJournalAllows(LocalMap map,bool underOwnLease)
+    {
+        // Acquire(Configuration) already checked competing processes and
+        // now owns this map. Re-reading its own Prepared journal as a
+        // foreign operation would make every real mode apply fail.
+        if(underOwnLease)return true;
+        var existing=cluster.Operations.Observe(map.InstallationPath);
+        return existing?.Phase is not (UntamedOperationPhase.Prepared or
+            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator);
+    }
+
+    private bool PhysicalModePreflight(LocalMap map,bool useApi)=>
+        PhysicalModePreflight(map,useApi,underOwnLease:false);
+
+    private bool PhysicalModePreflight(LocalMap map,bool useApi,bool underOwnLease)
     {
         if(!AsaReadyProbe.IsRegisteredServerBinary(map)||
            KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             return false;
         new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
-        var existing=cluster.Operations.Observe(map.InstallationPath);
-        if(existing?.Phase is UntamedOperationPhase.Prepared or
-            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
+        // The approved Configuration lease itself is Prepared during apply;
+        // never interpret that journal as an unrelated operation. Before
+        // acquiring the lease, keep the ordinary fail-closed journal check.
+        if(!ModeOperationJournalAllows(map,underOwnLease))
             return false;
+        // A SaveWorld-only receipt is a separate durable intent created
+        // before its asynchronous RCON worker acquires an operation lease.
+        var save=LegacyStoreV1SaveEvidenceJournal.Inspect(
+            cluster.Store.Root,map.Id);
+        if(save?.Phase is "prepared" or "needsOperator")return false;
         // A settings change may be committed ONLY while the registered local
         // process family is unequivocally stopped. No synthetic UI status.
         var stopped=LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
@@ -159,7 +213,6 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                 }
                 if(method=="historical.loaderModePreview")
                 {
-                    pendingMode=null;pending=null;
                     if(!ReadId(request,"mapId",out var mapId)||
                        !request.TryGetProperty("useApi",out var setting)||
                        setting.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
@@ -178,10 +231,13 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         return Fail(id,"UM-STORE-LOADER-MODE-PATH-MISMATCH");
                     if(!modePreflight(map,useApi))
                         return Fail(id,"UM-STORE-LOADER-MODE-PROCESS-OR-API-UNVERIFIED");
-                    pendingMode=new ModePending(Guid.NewGuid(),map.Id,
+                    var permit=new ModePending(Guid.NewGuid(),map.Id,
                         JsonSerializer.Serialize(map),useApi,loader,DateTimeOffset.UtcNow);
+                    // A mode PREVIEW cannot revoke an already approved Start
+                    // of this map. Only the committed mode change does that.
+                    modeApprovalsByMap[map.Id]=permit;
                     return Ok(id,new{
-                        token=pendingMode.Token,mapId,mapName=map.Name,useApi,
+                        token=permit.Token,mapId,mapName=map.Name,useApi,
                         mode=useApi?"asaApiLoader":"directAsa",
                         startsServer=false,changesStore=false,
                         requiresStoppedProcess=true,
@@ -191,12 +247,15 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                 if(method=="historical.loaderModeApply")
                 {
                     if(!ReadId(request,"token",out var modeToken)||
-                       pendingMode==null||pendingMode.Token!=modeToken||
-                       DateTimeOffset.UtcNow-pendingMode.Created>TimeSpan.FromMinutes(3)||
                        !request.TryGetProperty("confirm",out var modeConfirm)||
                        modeConfirm.ValueKind!=JsonValueKind.True)
                         return Fail(id,"UM-STORE-LOADER-MODE-APPROVAL");
-                    var requested=pendingMode;pendingMode=null;pending=null;
+                    var requested=modeApprovalsByMap.Values.SingleOrDefault(
+                        item=>item.Token==modeToken);
+                    if(requested==null||
+                       DateTimeOffset.UtcNow-requested.Created>TimeSpan.FromMinutes(3))
+                        return Fail(id,"UM-STORE-LOADER-MODE-APPROVAL");
+                    modeApprovalsByMap.Remove(requested.MapId);
                     var map=Owned(requested.MapId);
                     if(!ModeOwned(map)||
                        (map!.StartWithAsaApi==requested.UseApi&&
@@ -208,7 +267,9 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                     using var operation=cluster.Operations.Acquire(
                         map.InstallationPath,UntamedOperationKind.Configuration);
                     if(JsonSerializer.Serialize(map)!=requested.Profile||
-                       !modePreflight(map,requested.UseApi))
+                       !(usesPhysicalModePreflight
+                            ? PhysicalModePreflight(map,requested.UseApi,underOwnLease:true)
+                            : modePreflight(map,requested.UseApi)))
                         return Fail(id,"UM-STORE-LOADER-MODE-LEASE-CHANGED");
                     bool before=map.StartWithAsaApi;
                     bool neededApproval=map.HistoricalLaunchModeNeedsApproval;
@@ -226,6 +287,9 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         throw;
                     }
                     operation.Complete();
+                    // A failed mode change must not erase an independently
+                    // approved same-map Start plan.
+                    startApprovalsByMap.Remove(map.Id);
                     return Ok(id,new{
                         mapId=map.Id,mapName=map.Name,
                         useApi=map.StartWithAsaApi,
@@ -274,7 +338,6 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                 }
                 if(method=="historical.activeStartPreview")
                 {
-                    pending=null;
                     if(!ReadId(request,"mapId",out var mapId))
                         return Fail(id,"UM-STORE-ACTIVE-MAP");
                     var map=Owned(mapId);
@@ -290,23 +353,30 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         JsonSerializer.Serialize(map),plan.Fingerprint,
                         plan.GamePort,plan.QueryPort,plan.RconPort,
                         plan.UseApi,DateTimeOffset.UtcNow);
-                    pending=permit;
+                    startApprovalsByMap[mapId]=permit;
                     return Ok(id,new{
                         token=permit.Token,mapId=map.Id,mapName=map.Name,
                         gamePort=permit.Game,queryPort=permit.Query,
                         rconPort=permit.Rcon,launchMode=permit.UseApi?"asaApiLoader":"directAsa",
                         apiCacheState=plan.ApiCacheState,
                         apiCacheRuntimeCertified=false,
-                        originalTwoPeersVerified=true,
+                        // Local pinned starts must work with the other host
+                        // offline. Never claim its obsolete DONE marker was
+                        // inspected when the native plan skipped that check.
+                        originalTwoPeersVerified=plan.OriginalTwoPeersVerified,
+                        originalPeerCheckRequiredForLocalStart=plan.OriginalTwoPeersVerified,
                         conversionAllowed=false,automaticRetryAllowed=false,
                         serverStarted=false,readyCertified=false,
                         gameplayTravelVerified=false,
                         evidence="ORIGINAL_ACTIVE_STORE_NATIVE_START_PREFLIGHT"
                     });
                 }
-                if(!ReadId(request,"token",out var token)||pending==null||
-                   pending.Token!=token||
-                   DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(3))
+                if(!ReadId(request,"token",out var token))
+                    return Fail(id,"UM-STORE-ACTIVE-APPROVAL-EXPIRED");
+                var approved=startApprovalsByMap.Values.SingleOrDefault(
+                    item=>item.Token==token);
+                if(approved==null||
+                   DateTimeOffset.UtcNow-approved.Created>TimeSpan.FromMinutes(3))
                     return Fail(id,"UM-STORE-ACTIVE-APPROVAL-EXPIRED");
                 if(!request.TryGetProperty("confirm",out var confirmed)||
                    confirmed.ValueKind!=JsonValueKind.True||
@@ -314,7 +384,7 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                    phrase.ValueKind!=JsonValueKind.String||
                    phrase.GetString()!="STORE-V1 ACTIVE START")
                     return Fail(id,"UM-STORE-ACTIVE-EXPLICIT-APPROVAL");
-                var approved=pending;pending=null;
+                startApprovalsByMap.Remove(approved.MapId);
                 var live=Owned(approved.MapId);
                 if(!Imported(live)||
                    JsonSerializer.Serialize(live)!=approved.ProfileJson)
@@ -342,6 +412,9 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                     _=Task.Run(async()=>{
                         try
                         {
+                            // Imported, heavily modded original ASA servers
+                            // can take longer than three minutes to expose
+                            // their Loader-child RCON listener. No retry/start.
                             var until=DateTimeOffset.UtcNow+
                                 FreshStoreApiPairObserver.StartupObservationWindow;
                             while(DateTimeOffset.UtcNow<until)
@@ -384,6 +457,12 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                 });
             }
             finally{serial.Release();}
+        }
+        catch(Exception e) when(e is InvalidDataException or InvalidOperationException or
+            UnauthorizedAccessException or IOException)
+        {
+            return Fail(id,SafeStartErrors.Contains(e.Message)?e.Message:
+                "UM-STORE-ACTIVE-START-SAFETY-FAILED");
         }
         catch(Exception)
         {

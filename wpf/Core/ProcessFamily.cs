@@ -8,6 +8,26 @@ public sealed record ObservedProcess(int Pid, int ParentPid, DateTimeOffset Star
     string ExecutablePath, string Arguments);
 public static class ProcessFamily
 {
+    // Read-only classifier shared by actual Windows inspection and tests.
+    // A configured-but-unused API Loader cannot prevent direct ASA from
+    // being recognized. Conversely a previously verified Loader child
+    // must NEVER be silently treated as direct if its parent has exited.
+    public static bool IsVerifiedDirectServer(ObservedProcess candidate,
+        ProcessIdentity? lastServer,ProcessIdentity? lastLoader,
+        bool startWithApi,string serverPath,string serverArguments)
+    {
+        if(startWithApi || lastLoader!=null || candidate.Pid<=0 ||
+           candidate.StartedUtc==default ||
+           !StringComparer.OrdinalIgnoreCase.Equals(candidate.ExecutablePath,serverPath) ||
+           !StringComparer.Ordinal.Equals(candidate.Arguments,serverArguments))
+            return false;
+        // PID reuse must not inherit previously granted process ownership.
+        return lastServer==null || lastServer.Pid!=candidate.Pid ||
+            lastServer.StartedUtc==candidate.StartedUtc &&
+            StringComparer.OrdinalIgnoreCase.Equals(lastServer.ExecutablePath,candidate.ExecutablePath) &&
+            StringComparer.Ordinal.Equals(lastServer.Arguments,candidate.Arguments);
+    }
+
     // Windows may no longer report the original ParentProcessId after the loader exits.
     // Reattach for observation only when BOTH identities came from an earlier verified
     // parent/child pair and the live child matches the persisted identity exactly.

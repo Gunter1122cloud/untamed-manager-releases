@@ -182,6 +182,30 @@ public static class ModStateController
         foreach(var token in Switches(arg).Reverse())
             remaining=remaining.Remove(token.Start,token.Length);
         remaining=remaining.Trim();
+        // An enrolled new Store map must ALWAYS terminate in its exact
+        // source-pinned cluster and -usestore switches. Appending -mods after
+        // -usestore used to make fresh Store ownership verification fail and
+        // prevented normal mod editing/copying on an already enrolled map.
+        // The Core enrollment policy will separately validate the actual
+        // registry, transfer file ID and local stopped process under lease.
+        string enrolledSuffix="";
+        if(!map.HistoricalStoreProtected&&
+           FreshStoreEnrollmentPolicy.IsEnrolled(map))
+        {
+            string transfer=map.FreshStoreTransferDirectory;
+            if(string.IsNullOrWhiteSpace(transfer)||
+               string.IsNullOrWhiteSpace(map.FreshStoreClusterId))
+                throw new InvalidDataException(
+                    "UM-MODS-FRESH-STORE-SOURCE-UNVERIFIED");
+            string transferArg=transfer.Contains(' ')?
+                "\"" + transfer + "\"":transfer;
+            enrolledSuffix=" -clusterid="+map.FreshStoreClusterId+
+                " -ClusterDirOverride="+transferArg+" -usestore";
+            if(!remaining.EndsWith(enrolledSuffix,StringComparison.Ordinal))
+                throw new InvalidDataException(
+                    "UM-MODS-FRESH-STORE-ARGS-UNVERIFIED");
+            remaining=remaining[..^enrolledSuffix.Length].TrimEnd();
+        }
         // Preserve every untouched -mods item's global position. Moving a mod
         // between Active and Passive is a mode change, NOT a load-order change.
         var enabled=originalOrder.ToList();
@@ -210,6 +234,7 @@ public static class ModStateController
             (enabled.Count>0?(remaining.Length>0?" ":"")+"-mods="+string.Join(",",enabled):"");
         next+=(passive.Count>0?(next.Length>0?" ":"")+"-passivemods="+
             string.Join(",",passive):"");
+        next+=enrolledSuffix;
         bool changed=!string.Equals(next,arg,StringComparison.Ordinal) ||
             !disabled.SequenceEqual(before.Disabled);
         return new(map.Id,map.Arguments??"",next,before,
@@ -262,9 +287,26 @@ public static class ModStateController
             {
                 var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==edit.Map);
                 if(map==null)throw new UnauthorizedAccessException("Cannot edit a peer map");
+                bool enrolledStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
                 if(map.ObservedReadOnlyImported||map.Maintenance||
-                   (!map.HistoricalStoreProtected&&UntamedWorldBackup.HasLiveOrHistoricalStore(map)))
+                   (!map.HistoricalStoreProtected&&
+                    UntamedWorldBackup.HasLiveOrHistoricalStore(map)&&!enrolledStore))
                     throw new UnauthorizedAccessException("Store/mod ownership is not locally editable");
+                if(enrolledStore)
+                {
+                    // No original Store-v1 bypass: only a separately enrolled
+                    // local ASA Store map on its pinned transfer file identity.
+                    // Mod launch-order editing is offline only; no RCON or
+                    // remote writer is invoked and no server is restarted.
+                    FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+                    new AsaManualRestartJournal(map.InstallationPath)
+                        .DemandNoPending();
+                    var stopped=cluster.Check(map);
+                    if(stopped.Running||!stopped.ConfirmedStopped||
+                       stopped.Identity!=null||stopped.LoaderIdentity!=null)
+                        throw new InvalidOperationException(
+                            "UM-MODS-FRESH-STORE-STOP-REQUIRED");
+                }
                 if(map.HistoricalStoreProtected)
                 {
                     if(string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
@@ -333,6 +375,15 @@ public static class ModStateController
                 map.DisabledModIds=preview.Updated.Disabled.ToList();
                 map.ModChangesPending=preview.Updated.Pending;
                 previews.Add(preview);
+            }
+            // The final staged launch line still must satisfy EXACTLY ONE
+            // cluster writer and the original pinned physical transfer ID.
+            // This check is before the first durable Manager profile write.
+            foreach(var id in requests.Select(x=>x.Map).Distinct())
+            {
+                var changed=cluster.Config.LocalMaps.Single(m=>m.Id==id);
+                if(FreshStoreEnrollmentPolicy.IsEnrolled(changed))
+                    FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,changed);
             }
             operation.MarkMutationStarted();
             cluster.Save();

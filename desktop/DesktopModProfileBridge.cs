@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -16,12 +17,13 @@ namespace UntamedDesktop;
 /// </summary>
 public sealed class DesktopModProfileBridge : IDisposable
 {
-    private sealed record Approval(Guid Token,PortableModImportPlan Plan,DateTimeOffset At);
+    private sealed record Approval(Guid Token,string Scope,PortableModImportPlan Plan,DateTimeOffset At);
     private readonly ClusterService cluster;
     private readonly Func<string,string?> savePicker;
     private readonly Func<string?> openPicker;
     private readonly SemaphoreSlim serial=new(1,1);
-    private Approval? pending;
+    // Separate target sets retain independent short-lived import approvals.
+    private readonly Dictionary<string,Approval> pendingByScope=new(StringComparer.Ordinal);
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     public DesktopModProfileBridge(ClusterService owner,
         Func<string,string?>? nativeSave=null,Func<string?>? nativeOpen=null)
@@ -123,6 +125,9 @@ public sealed class DesktopModProfileBridge : IDisposable
             await serial.WaitAsync();
             try
             {
+                foreach(var expired in pendingByScope.Where(x=>
+                    DateTimeOffset.UtcNow-x.Value.At>TimeSpan.FromMinutes(5))
+                    .Select(x=>x.Key).ToArray())pendingByScope.Remove(expired);
                 if(method=="mods.profileExport")
                 {
                     if(!GuidField(data,"mapId",out var mapId))
@@ -166,7 +171,6 @@ public sealed class DesktopModProfileBridge : IDisposable
                 }
                 if(method=="mods.profileImportPreview")
                 {
-                    pending=null;
                     if(!data.TryGetProperty("targets",out var targets)||
                        targets.ValueKind!=JsonValueKind.Array||
                        targets.GetArrayLength() is <1 or >25||
@@ -190,8 +194,13 @@ public sealed class DesktopModProfileBridge : IDisposable
                     var profile=PortableModProfileCodec.Parse(content);
                     var plan=PortableModProfileImporter.Preview(cluster,profile,ids,mode);
                     DemandHistoricalTargetsStopped(plan);
-                    pending=new(Guid.NewGuid(),plan,DateTimeOffset.UtcNow);
-                    return Ok(id,new{token=pending.Token,label=profile.Label,
+                    string scope=string.Join("|",plan.Targets.Select(t=>
+                        t.MapId.ToString("N")).OrderBy(x=>x,StringComparer.Ordinal));
+                    if(!pendingByScope.ContainsKey(scope)&&pendingByScope.Count>=25)
+                        return Fail(id,"UM-MODPROFILE-PREVIEW-CAPACITY");
+                    var previewApproval=new Approval(Guid.NewGuid(),scope,plan,DateTimeOffset.UtcNow);
+                    pendingByScope[scope]=previewApproval;
+                    return Ok(id,new{token=previewApproval.Token,label=profile.Label,
                         sha256=profile.Sha256,mode=modeField.GetString(),
                         enabled=profile.EnabledOrder.Length,
                         passive=profile.Passive.Length,
@@ -211,9 +220,10 @@ public sealed class DesktopModProfileBridge : IDisposable
                 if(!GuidField(data,"token",out var approval)||
                    !data.TryGetProperty("confirm",out var confirm)||
                    confirm.ValueKind!=JsonValueKind.True ||
-                   pending==null||pending.Token!=approval)
+                   !pendingByScope.Values.Any(p=>p.Token==approval))
                     return Fail(id,"UM-MODPROFILE-APPROVAL-REQUIRED");
-                var approved=pending;pending=null;
+                var approved=pendingByScope.Values.Single(p=>p.Token==approval);
+                pendingByScope.Remove(approved.Scope); // One-shot for this exact target set.
                 if(DateTimeOffset.UtcNow-approved.At>TimeSpan.FromMinutes(5))
                     return Fail(id,"UM-MODPROFILE-PREVIEW-EXPIRED");
                 if(!approved.Plan.Changed)

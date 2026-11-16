@@ -8,13 +8,57 @@ import {managerBridge,type PublicMap,type WorldBackupCreated,
   type OriginalFiveMapBackupReceipt,type OriginalFiveMapBackupStatus,
   type OriginalFiveMapJournalRepairPreview} from "./bridge";
 
+function backupResourceError(error:unknown,fallback:string):string {
+  const code=error instanceof Error?error.message:"";
+  switch(code){
+    case "UM-BACKUP-RESOURCE-FILE-LIMIT":
+      return "A mentés fájlszáma túllépi a beállított maponkénti korlátot. "+
+        "Ellenőrizd az Obsidian backup-resource-limits-v1.json beállítását.";
+    case "UM-BACKUP-RESOURCE-BYTE-LIMIT":
+      return "A mentési adatméret meghaladja a beállított maponkénti korlátot. "+
+        "Módosítsd a helyi Manager mentési szabályzatát, vagy csökkentsd a mentési hatókört.";
+    case "UM-BACKUP-PREVIEW-RESOURCE-POLICY-MISSING":
+      return "A natív Manager mentési előnézete nem tartalmaz ellenőrzött erőforráskorlátot. "+
+        "A mentés jóváhagyása tiltva marad; frissítsd együtt a felületet és a Windows Managert.";
+    case "UM-BACKUP-RESOURCE-POLICY-INVALID":
+    case "UM-BACKUP-RESOURCE-POLICY-NOT-FILE":
+      return "Hibás Obsidian backup-resource-limits-v1.json szabályzat; "+
+        "érvénytelen fájl esetén a mentés biztonsági okból tiltva marad.";
+    default:return fallback+(code.startsWith("UM-")?" ("+code+")":"");
+  }
+}
+
+// A stale renderer/native pairing must never display an approval button
+// using guessed backup limits. In particular, omitted JSON fields must not
+// crash React's render or result in unbounded copy approval.
+function verifiedBackupBudget(value:{
+  maxFilesPerMap:number;maxBytesPerMap:number;
+  resourcePolicyCustomized:boolean;actualCopySizeRecheckedAtCreate:true
+}):boolean {
+  return Number.isSafeInteger(value.maxFilesPerMap)&&value.maxFilesPerMap>0&&
+    Number.isSafeInteger(value.maxBytesPerMap)&&value.maxBytesPerMap>=1048576&&
+    typeof value.resourcePolicyCustomized==="boolean"&&
+    value.actualCopySizeRecheckedAtCreate===true;
+}
+
+// Completed native backup/restore receipts are non-secret, read-only UI state.
+// Keep them during card navigation, never the one-time approval token.
+const recentWorldReceipts=new Map<string,WorldBackupCreated|WorldBackupRestored>();
+function retainWorldReceipt(mapId:string,receipt:WorldBackupCreated|WorldBackupRestored){
+  if(!recentWorldReceipts.has(mapId)&&recentWorldReceipts.size>=128){
+    const first=recentWorldReceipts.keys().next().value;
+    if(first)recentWorldReceipts.delete(first);
+  }
+  recentWorldReceipts.set(mapId,receipt);
+}
+
 export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selectedMap?:string}){
   const [chosen,setChosen]=useState(selectedMap??maps[0]?.id??"");
   const [history,setHistory]=useState<WorldBackupHistory|null>(null);
   const [pending,setPending]=useState<WorldBackupPreview|null>(null);
   const [restoreTarget,setRestoreTarget]=useState<WorldBackupPoint|null>(null);
   const [confirmName,setConfirmName]=useState("");
-  const [receipt,setReceipt]=useState<WorldBackupCreated|WorldBackupRestored|null>(null);
+  const [receipt,setReceipt]=useState<WorldBackupCreated|WorldBackupRestored|null>(()=>recentWorldReceipts.get(selectedMap??maps[0]?.id??"")??null);
   const [busy,setBusy]=useState(false);
   const [scheduled,setScheduled]=useState<ScheduledStoppedBackupState|null>(null);
   const [scheduleMinutes,setScheduleMinutes]=useState(120);
@@ -41,7 +85,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   useEffect(()=>{
     selectedRef.current=chosen;
     setHistory(null);setPending(null);setRestoreTarget(null);
-    setConfirmName("");setReceipt(null);setError("");
+    setConfirmName("");setReceipt(recentWorldReceipts.get(chosen)??null);setError("");
     setScheduleConfirm(false);setScheduleNotice("");
   },[chosen]);
   const current=useMemo(()=>maps.find(m=>m.id===chosen),[maps,chosen]);
@@ -120,9 +164,12 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     setBusy(true);setError("");
     try{
       const ticket=await managerBridge.backupPreview(requestedMap);
+      if(!verifiedBackupBudget(ticket))
+        throw new Error("UM-BACKUP-PREVIEW-RESOURCE-POLICY-MISSING");
       if(selectedRef.current===requestedMap && ticket.mapId===requestedMap)setPending(ticket);
-    }catch{if(selectedRef.current===requestedMap)
-      setError("Mentés nem indítható: igazoltan leállított helyi map és érvényes világfájl szükséges.");}
+    }catch(e){if(selectedRef.current===requestedMap)
+      setError(backupResourceError(e,
+        "Mentés nem indítható: igazoltan leállított helyi map és érvényes világfájl szükséges."));}
     finally{if(selectedRef.current===requestedMap)setBusy(false);}
   };
   const create=async()=>{
@@ -131,13 +178,25 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     const token=pending.token;const requestedMap=chosen;setPending(null);
     try{
       const result=await managerBridge.backupCreate(token);
-      if(selectedRef.current!==requestedMap || result.mapId!==requestedMap)return;
+      if(result.mapId!==requestedMap || !result.backupVerified)
+        throw new Error("UM-BACKUP-COMMIT-RECEIPT-INVALID");
+      retainWorldReceipt(requestedMap,result);
+      if(selectedRef.current!==requestedMap)return;
       setReceipt(result);
-      const nextHistory=await managerBridge.backupHistory(requestedMap);
-      if(selectedRef.current===requestedMap)setHistory(nextHistory);
-    }catch{
+      // The destructive/expensive native operation is already complete.
+      // A read-only history refresh failure cannot turn that into a failed
+      // backup or prompt another mutating apply using a consumed token.
+      try{
+        const nextHistory=await managerBridge.backupHistory(requestedMap);
+        if(selectedRef.current===requestedMap)setHistory(nextHistory);
+      }catch{
+        if(selectedRef.current===requestedMap)
+          setError("A világmentés sikeresen elkészült és ellenőrzött, de az előzmények frissítése sikertelen. Ne indítsd el újra a mentést; frissítsd csak a listát.");
+      }
+    }catch(e){
       if(selectedRef.current===requestedMap)
-        setError("A mentés nem készült el ellenőrzötten; az esetleges .pending csomag nem állítható vissza.");
+        setError(backupResourceError(e,
+          "A mentési kérelem eredménye nem igazolt. Ellenőrizd a mentésnaplót és az előzményeket, mielőtt új műveletet indítasz."));
     }finally{if(selectedRef.current===requestedMap)setBusy(false);}
   };
   const restorePreview=async(point:WorldBackupPoint)=>{
@@ -147,6 +206,8 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     const requestedMap=chosen;
     try{
       const ticket=await managerBridge.backupRestorePreview(requestedMap,point.id);
+      if(!verifiedBackupBudget(ticket))
+        throw new Error("UM-BACKUP-PREVIEW-RESOURCE-POLICY-MISSING");
       if(selectedRef.current===requestedMap && ticket.mapId===requestedMap){
         setPending(ticket);setRestoreTarget(point);
       }
@@ -163,14 +224,23 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     setBusy(true);setError("");
     try{
       const result=await managerBridge.backupRestore(token,confirmName);
-      if(selectedRef.current!==requestedMap || result.mapId!==requestedMap)return;
-      setReceipt(result);
-      const nextHistory=await managerBridge.backupHistory(requestedMap);
-      if(selectedRef.current===requestedMap)setHistory(nextHistory);
-      if(selectedRef.current===requestedMap)setConfirmName("");
+      if(result.mapId!==requestedMap || !result.restored || !result.bytesRestoredAndHashesVerified || !result.oldWorldRetained)
+        throw new Error("UM-BACKUP-RESTORE-RECEIPT-INVALID");
+      retainWorldReceipt(requestedMap,result);
+      if(selectedRef.current!==requestedMap)return;
+      setReceipt(result);setConfirmName("");
+      // Once Core has committed a verified restore, only refresh the view.
+      // Do not represent a failed list request as a failed world restore.
+      try{
+        const nextHistory=await managerBridge.backupHistory(requestedMap);
+        if(selectedRef.current===requestedMap)setHistory(nextHistory);
+      }catch{
+        if(selectedRef.current===requestedMap)
+          setError("A világfájlok visszaállítása és SHA-256 ellenőrzése sikeres, de a mentéslista frissítése sikertelen. Az ASA-beli betöltés még nem igazolt; a Restore műveletet ne ismételd meg.");
+      }
     }catch{
       if(selectedRef.current===requestedMap)
-        setError("A világ visszaállítása elakadt. Ellenőrizd a Manager eseménynaplóját és a megőrzött védőmentést; ne indítsd el automatikusan a mapot.");
+        setError("A visszaállítás eredménye nem igazolt. Ellenőrizd a Manager naplóját és a védőmentést; ne ismételd meg automatikusan és ne indítsd el a mapot.");
     }finally{if(selectedRef.current===requestedMap)setBusy(false);}
   };
   const originalLocalFive=maps.filter(m=>m.storeProtected);
@@ -184,7 +254,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
       setRepairPhrase("");
     }catch{
       setOriginalFiveError("A napló felülvizsgálata nem indítható. "+
-        "Az eredeti öt mapnak igazoltan leállítva kell lennie és a Kova-forrásnak "+
+        "Az eredeti öt mapnak igazoltan leállítva kell lennie és a eredeti forrásnak "+
         "változatlannak. A korábbi mentéseket nem töröljük.");
     }finally{setRepairBusy(false);}
   };
@@ -213,6 +283,8 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     setOriginalFiveError("");
     try{
       const candidate=await managerBridge.backupOriginalFivePreview();
+      if(!verifiedBackupBudget(candidate))
+        throw new Error("UM-BACKUP-PREVIEW-RESOURCE-POLICY-MISSING");
       if(candidate.localMaps!==5||!candidate.originalSourcePinned||
          !candidate.allMapsConfirmedStopped||candidate.originalKovaFilesWritten||
          candidate.serverStarted||candidate.sharedTransferIncluded||
@@ -222,7 +294,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     }catch(e){
       setOriginalFiveError("Az eredeti ötmapos mentés nem készíthető elő. "+
         "Mind az öt importált mapnak igazoltan leállítva kell lennie, "+
-        "változatlan Kova metaadatokkal és érvényes világfájlokkal. "+
+        "változatlan korábbi kezelőalkalmazás metaadatokkal és érvényes világfájlokkal. "+
         (e instanceof Error?e.message:""));
     }finally{setOriginalFiveBusy(false);}
   };
@@ -253,7 +325,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   return <section className="uk-world-backup premium-panel">
     <header className="premium-panel-heading">
       <h2><ShieldCheck size={19}/> Valódi világmentés és védett visszaállítás</h2>
-      <span className="premium-small-muted">KOVA-MINTA · SHA-256 · ATOMIKUS</span>
+      <span className="premium-small-muted">OBSIDIAN MINTA · SHA-256 · ATOMIKUS</span>
     </header>
     <div className="uk-world-backup-inner">
       <div className="uk-world-backup-toolbar">
@@ -277,7 +349,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
           <b>Az öt eredeti helyi Store-v1 map mentése együtt</b>
           <p>A már működő, SHA-256 ellenőrzött mapmentési motor mind az öt
             eredeti helyi mapról mentést készít. Nem indít vagy állít le
-            szervert, nem küld RCON-t, és nem módosít Kova-sessiont, lockot
+            szervert, nem küld RCON-t, és nem módosít eredeti sessiont, lockot
             vagy a közös transferkönyvtárat. A másik gépen külön futtasd.</p>
           {!originalFivePreview&&<button type="button" className="secondary"
             disabled={originalFiveBusy||originalFiveRunning||busy}
@@ -293,6 +365,13 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
             <p className="muted small">A világfájlok összes mérete legalább
               {" "}{(originalFivePreview.worldBytes/1024/1024/1024).toFixed(2)} GiB.
               A teljes mentés tartalmazhat további profil- és törzsfájlokat.</p>
+            <p className="muted small">Erőforráskorlát maponként:
+              {" "}{originalFivePreview.maxFilesPerMap.toLocaleString("hu-HU")} fájl,
+              {" "}{(originalFivePreview.maxBytesPerMap/1024/1024/1024).toFixed(0)} GiB.
+              {originalFivePreview.resourcePolicyCustomized?
+                " Egyedi, ellenőrzött Obsidian-szabály.":" Alapértelmezett Obsidian-szabály."}
+              {" "}A pontos fájlszámot és méretet a Core másolás előtt újból ellenőrzi;
+              a kétgépes csomag korlátai külön értendők.</p>
             <label><input type="checkbox" checked={originalFiveConsent}
               disabled={originalFiveBusy}
               onChange={e=>setOriginalFiveConsent(e.target.checked)}/>
@@ -322,7 +401,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
                 <p>{originalFiveJob.points.map(p=>p.mapName).join(", ")}</p>}
               {originalFiveJob.state==="needsOperator"&&
                 <p role="alert">A már sikeres mapmentések megmaradtak a helyi előzményekben.
-                  A Kova Store/session/transfer fájlok változatlanok.
+                  A korábbi kezelőalkalmazás Store/session/transfer fájlok változatlanok.
                   Ellenőrizd a mapok leállított állapotát és a mentési előzményeket.</p>}
               {originalFiveJob.step==="journal-integrity-repair-required"&&
                 <button type="button" className="secondary" disabled={repairBusy}
@@ -334,7 +413,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
             aria-label="Sérült mentési napló jóváhagyása"
             className="uk-world-backup-confirm">
               <p><b>Csak a Manager saját sérült műveleti naplójának
-                elkülönítése.</b> Az eredeti ASA/Kova világ, karakter, session,
+                elkülönítése.</b> Az eredeti ASA/korábbi kezelőalkalmazás világ, karakter, session,
                 lock és transfer változatlan marad. Eltérő korábbi mentési
                 pontok nem kerülnek törlésre.</p>
               <label>Jóváhagyás szövege: REVIEW FIVE BACKUPS
@@ -413,6 +492,13 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         <div><b>{pending.mapName}</b> · {pending.mapKey}
           <p>Az eredeti fájlok változatlanok maradnak. Külön, SHA-256-tal
             ellenőrzött mentéscsomag készül a helyi Manager profilban.</p>
+          <p className="muted small">Mentési felső korlát:
+            {" "}{pending.maxFilesPerMap.toLocaleString("hu-HU")} fájl,
+            {" "}{(pending.maxBytesPerMap/1024/1024/1024).toFixed(0)} GiB.
+            {" "}{pending.resourcePolicyCustomized?"Egyedi":"Alapértelmezett"} beállítás.
+            A Core a teljes karakter-/tribe-adatmennyiséget újra ellenőrzi.
+            A korlát az Obsidian helyi profiljának
+            {" "}<code>backup-resource-limits-v1.json</code> fájljával csökkenthető.</p>
         </div>
         <button type="button" className="primary" disabled={busy}
           onClick={()=>{void create();}}><CheckCircle2 size={15}/> Mentés indítása</button>

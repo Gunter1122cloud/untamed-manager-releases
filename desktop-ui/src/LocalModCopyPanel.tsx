@@ -17,7 +17,7 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
   const [notice,setNotice]=useState("");
   const eligible=useMemo(()=>maps.filter(m=>
     m.id!==sourceMapId && !m.maintenance && !m.observedReadOnlyImported &&
-    (!m.storeProtected || !m.freshStoreEnrolled)),[maps,sourceMapId]);
+    !(m.freshStoreEnrolled&&m.running)),[maps,sourceMapId]);
   const filtered=useMemo(()=>eligible.filter(m=>{
     const needle=query.trim().toLocaleLowerCase("hu-HU");
     return !needle||m.name.toLocaleLowerCase("hu-HU").includes(needle)||
@@ -29,7 +29,7 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
   const source=maps.find(m=>m.id===sourceMapId);
   const sourceAllowed=Boolean(source && !source.maintenance &&
     !source.observedReadOnlyImported &&
-    (!source.storeProtected || !source.freshStoreEnrolled));
+    !(source.freshStoreEnrolled&&source.running));
   useEffect(()=>{
     setTargets([]);setQuery("");setPage(0);setPreview(null);setApproved(false);
     setError("");setNotice("");
@@ -65,7 +65,7 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
     <div className="panel-head"><h3><Layers3 size={18}/> Copy to – többmapos modlista</h3>
       <span className="mod-tag amber">Csak helyi Manager</span></div>
     <p className="muted small">A kijelölt mapok következő indításához használt
-      modlistája módosul. Az eredeti Kova Store-v1 mapoknál kizárólag a
+      modlistája módosul. Az eredeti eredeti Store-v1 mapoknál kizárólag a
       Manager dedikált modlistája változik, igazoltan leállított ASA/Loader mellett.
       A másik gép, a közös Store és a játékosmentések érintetlenek maradnak.</p>
     {!sourceAllowed&&<div className="warning-inline"><Shield size={16}/>
@@ -111,6 +111,8 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
           <input type="checkbox" checked={targets.includes(map.id)} disabled={busy||(!targets.includes(map.id)&&targets.length>=25)}
             onChange={()=>toggle(map.id)}/>
           <span><strong>{map.name}</strong><small>{
+            map.freshStoreEnrolled?
+              "Új Store-map – csak leállítva, Registry-azonossággal szerkeszthető":
             map.storeProtected?
               (map.running?"Eredeti Store-v1 – előbb állítsd le az ASA/Loadert":
                 "Eredeti Store-v1 – leállított helyi map"):

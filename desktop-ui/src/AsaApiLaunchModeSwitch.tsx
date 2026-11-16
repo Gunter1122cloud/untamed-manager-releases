@@ -121,7 +121,7 @@ export function AsaApiLaunchModeSwitch({map,onSaved}:{
         indítást érinti; az aktuális szervert nem állítja le és nem indítja újra.
       </p>
       {status?.approvalRequired&&<div className="warning-inline">
-        A korábbi Kova indítási módját még külön jóvá kell hagyni.
+        A korábbi korábbi Manager indítási módját még külön jóvá kell hagyni.
         {!status.useApi&&<button type="button" className="secondary"
           disabled={!status.canChange||busy||!!preview}
           onClick={()=>{void prepare(false);}}>

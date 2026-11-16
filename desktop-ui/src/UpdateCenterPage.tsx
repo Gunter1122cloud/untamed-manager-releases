@@ -30,7 +30,12 @@ export function UpdateCenterPage(){
   useEffect(()=>{
     let active=true;
     managerBridge.updateStatus().then(r=>{if(active)setCurrent(r);})
-      .catch(()=>{if(active)setError("A helyi verzióazonosító nem olvasható.");});
+      .catch(e=>{
+        if(!active)return;
+        setError(e instanceof Error && e.message==="UM-NATIVE-TIMEOUT-OPERATION-STATUS-UNKNOWN"
+          ? "A natív verziólekérdezés időtúllépést ért el. Az állapot ismeretlen; nincs automatikus újrapróbálás vagy telepítés."
+          : "A helyi verzióazonosító nem olvasható.");
+      });
     return ()=>{active=false;};
   },[]);
   const check=async()=>{

@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useState} from "react";
+import {useCallback,useEffect,useRef,useState} from "react";
 import {Archive,AlertTriangle,CheckCircle2,FolderOpen,RefreshCw,Shield} from "lucide-react";
 import {managerBridge,type OfflineAsaArchivePreview,type OfflineAsaArchiveStatus} from "./bridge";
 
@@ -15,14 +15,34 @@ export function OfflineAsaArchivePanel(){
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState("");
   const [error,setError]=useState("");
+  const currentJob=useRef(jobId);
+  currentJob.current=jobId;
   const inspect=useCallback(async(id:string)=>{
-    try{setStatus(await managerBridge.offlineArchiveStatus(id));}
-    catch{setError("Az archívum műveletének állapota nem ellenőrizhető. A fájlokat ne tekintsd késznek.");}
+    if(currentJob.current!==id)return;
+    try{
+      const next=await managerBridge.offlineArchiveStatus(id);
+      if(currentJob.current!==id)return;
+      if(next.jobId!==id){
+        setError("A kapott archívumstátusz nem a kiválasztott feladathoz tartozik. Ellenőrzés szükséges.");
+        return;
+      }
+      setStatus(next);
+    }catch{
+      if(currentJob.current===id)
+        setError("Az archívum műveletének állapota nem ellenőrizhető. A fájlokat ne tekintsd késznek.");
+    }
   },[]);
   useEffect(()=>{
     if(!jobId || status?.state==="completed" || status?.state==="needsOperator")return;
-    const handle=window.setInterval(()=>{void inspect(jobId);},1500);
-    return ()=>window.clearInterval(handle);
+    let active=true,inFlight=false;
+    const poll=()=>{
+      if(!active||inFlight||currentJob.current!==jobId)return;
+      inFlight=true;
+      void inspect(jobId).finally(()=>{inFlight=false;});
+    };
+    poll();
+    const handle=window.setInterval(poll,1500);
+    return ()=>{active=false;window.clearInterval(handle);};
   },[jobId,status?.state,inspect]);
   const preview=async()=>{
     if(busy||jobId)return;
@@ -37,6 +57,9 @@ export function OfflineAsaArchivePanel(){
     setBusy(true);setPrepared(null);setApproved(false);setError("");
     try{
       const started=await managerBridge.offlineArchiveApply(token);
+      if(!started.started||!started.jobId||started.productionRestoreAllowed||
+         started.originalStoreTouched||started.sqlUsed)
+        throw new Error("UM-OFFLINE-ARCHIVE-START-RECEIPT-MISMATCH");
       setJobId(started.jobId);
       setStatus(null);
       setNotice("Az offline archívum elkészítése elkezdődött. Csak a SHA-256 ellenőrzés után jelenhet meg sikeres állapot.");

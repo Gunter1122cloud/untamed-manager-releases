@@ -5,7 +5,7 @@ import {managerBridge,type FreshStoreLoaderModePreview,
 
 /**
  * Only for a locally owned, NEW enrolled Store map. Never render for
- * historical Kova imports. Mode choice is not an ASA Start or cache install.
+ * historical korábbi Manager imports. Mode choice is not an ASA Start or cache install.
  */
 export function FreshStoreLoaderModePanel({mapId,onConfigured}:{
   mapId:string;onConfigured:()=>Promise<void>

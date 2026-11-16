@@ -9,7 +9,7 @@
   "DatabaseBaseline": "10.11.19",
   "SourceDocuments": [
     "docs/audits/UK-HOME-02-LIVE-READONLY-OBSERVATIONS-2026-11-04-HU.md",
-    "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+    "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
     "docs/audits/UNTAMED-IDEAS-AND-IMPROVEMENTS-HU.md",
     "docs/audits/UNTAMED-P0-P3-IMPLEMENTATION-BACKLOG-HU.md",
     "docs/audits/UK-HOME-02-READONLY-MANIFEST-REDACTED.json",
@@ -20,7 +20,7 @@
     {
       "Id": "G01",
       "Title": "5+5 map, profilok és helyi/távoli állapot",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ClusterBackend.cs::ClusterService.AddMap/PollPeerAsync; HistoricalLaunchProfileReader.cs::Inspect",
       "BacklogTasks": [
         "T01",
@@ -38,7 +38,7 @@
     {
       "Id": "G02",
       "Title": "Folyamatazonosság, Loader/ASA readiness",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "WindowsProcessFamily.cs::WindowsProcessInspector.InspectFamily; ProcessFamily.cs",
       "BacklogTasks": [
         "T02"
@@ -54,7 +54,7 @@
     {
       "Id": "G03",
       "Title": "Valódi Start/Stop/Restart/Kill",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafeLifecycle.cs::Stop; ReleaseCapabilityGate.cs::Check; ClusterBackend.cs::LaunchLocal",
       "BacklogTasks": [
         "T01",
@@ -73,7 +73,7 @@
     {
       "Id": "G04",
       "Title": "SaveWorld és mentésbefejezés",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SaveWorldValidator.cs::VerifySynthetic/VerifyLiveUnavailable; SafeLifecycle.cs::Stop",
       "BacklogTasks": [
         "T03",
@@ -90,7 +90,7 @@
     {
       "Id": "G05",
       "Title": "Store-v1 olvasás, hash és session",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ClusterVaultArchiveInspector.cs::Inspect/InspectFiles; VaultCompatibilityReader.cs::Inspect; StoreV1Fingerprint.cs::Compute",
       "BacklogTasks": [
         "T05"
@@ -106,7 +106,7 @@
     {
       "Id": "G06",
       "Title": "Store írójog, átállás és lockok",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ReleaseCapabilityGate.cs::Check; ClusterVaultArchiveInspector.cs::InspectFiles",
       "BacklogTasks": [
         "T01",
@@ -123,7 +123,7 @@
     {
       "Id": "G07",
       "Title": "Karakter/tribe/cluster-transfer",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "OfflineClusterBackup.cs::Verify (csak fájlintegritás); új transfer-adapter szükséges",
       "BacklogTasks": [
         "T06"
@@ -139,7 +139,7 @@
     {
       "Id": "G08",
       "Title": "Világ/plugin/INI backup és védőmentés",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "LocalBackupWorkflow.cs::Create; BackupManifest.cs; OfflineClusterBackup.cs::Build",
       "BacklogTasks": [
         "T07"
@@ -155,7 +155,7 @@
     {
       "Id": "G09",
       "Title": "Restore, rollback és próbavisszaállítás",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SyntheticRestore.cs::Restore/Recover; SafePluginZip.cs::Rollback; OfflineSqlArchive.cs::SimulateRestore",
       "BacklogTasks": [
         "T09",
@@ -172,7 +172,7 @@
     {
       "Id": "G10",
       "Title": "SQL/MariaDB három adatbázis",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "OfflineSqlArchive.cs::ImportFixture/Verify/SimulateRestore",
       "BacklogTasks": [
         "T08"
@@ -188,7 +188,7 @@
     {
       "Id": "G11",
       "Title": "Scheduler és egyszeri végrehajtás",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "OperationalScheduler.cs::Next; PersistentScheduler.cs::RunDue; RecurringReadOnlyRunner.cs; Supervisor/Worker.cs",
       "BacklogTasks": [
         "T16"
@@ -204,7 +204,7 @@
     {
       "Id": "G12",
       "Title": "Supervisor, maintenance és watchdog",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SupervisorPolicy.cs::Observe; WatchdogDiagnostics.cs::Observe; Supervisor/Worker.cs",
       "BacklogTasks": [
         "T17"
@@ -220,7 +220,7 @@
     {
       "Id": "G13",
       "Title": "Három RCON-hiba utáni diagnosztika/riasztás",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "WatchdogDiagnostics.cs::Observe; SupervisorPolicy.cs::Observe; DiscordStatusPublisher.cs::SendAsync",
       "BacklogTasks": [
         "T17",
@@ -237,7 +237,7 @@
     {
       "Id": "G14",
       "Title": "RCON konzol, auth, multipart, admin",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "RconProtocol.cs::Execute; RconCommandPolicy.cs::Preview; FakeRconQueue::ExecuteOnceAsync",
       "BacklogTasks": [
         "T15"
@@ -253,7 +253,7 @@
     {
       "Id": "G15",
       "Title": "SteamCMD telepítés, build/version és frissítés",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SteamCmdPreflight.cs::Inspect; SteamUpdateDryRun.cs::Plan/Simulate; SteamCmdTestRunner.cs::RunAsync",
       "BacklogTasks": [
         "T11"
@@ -269,7 +269,7 @@
     {
       "Id": "G16",
       "Title": "ASA API telepítés/verzió/runtime",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "AsaApiInspector.cs::Inspect; AsaApiReleaseCatalog.cs::FetchLatestAsync",
       "BacklogTasks": [
         "T12"
@@ -285,7 +285,7 @@
     {
       "Id": "G17",
       "Title": "Plugin leltár/engedélyezés/betöltés",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "LocalPluginInventory.cs::Scan; PluginStateManager.cs::Inventory/Toggle",
       "BacklogTasks": [
         "T12"
@@ -301,7 +301,7 @@
     {
       "Id": "G18",
       "Title": "Pluginfrissítés, JSON/adatmegőrzés és rollback",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafePluginZip.cs::Inspect/Preview/Install/PreviewRollback/Rollback; DirectoryUpdateTransaction.cs",
       "BacklogTasks": [
         "T12"
@@ -317,7 +317,7 @@
     {
       "Id": "G19",
       "Title": "Mod Active/Passive/Disabled/sorrend/bulk",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ModStateController.cs::Read/Preview/ApplyLocalBatch/ConfirmAppliedAfterVerifiedRestart; LocalContentOperations.cs",
       "BacklogTasks": [
         "T14"
@@ -333,7 +333,7 @@
     {
       "Id": "G20",
       "Title": "CurseForge keresés, file ID, crossplay/prémium/függőség",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "CurseForgeCatalog.cs::SearchAsaAsync/GetModFilesAsync; ModUpdatePlanner.cs::Assess",
       "BacklogTasks": [
         "T13"
@@ -349,7 +349,7 @@
     {
       "Id": "G21",
       "Title": "INI nyers/strukturált editor, BOM/CRLF/komment",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafeConfigEditor.cs::Read/Preview/Save/SetIniValue",
       "BacklogTasks": [
         "T18",
@@ -366,7 +366,7 @@
     {
       "Id": "G22",
       "Title": "Plugin JSON-szerkesztő és séma",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafeConfigEditor.cs::Read/Preview/Save (PluginJson)",
       "BacklogTasks": [
         "T18",
@@ -383,7 +383,7 @@
     {
       "Id": "G23",
       "Title": "Discord státusz, bejelentés és admin",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs::Compose/SendAsync",
       "BacklogTasks": [
         "T21"
@@ -399,7 +399,7 @@
     {
       "Id": "G24",
       "Title": "Clusterchat, Discord-chat, színek",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Új relay kell; EventJournal.cs csak kapcsolódó alap",
       "BacklogTasks": [
         "T22"
@@ -415,7 +415,7 @@
     {
       "Id": "G25",
       "Title": "Discord szerepek/welcome/kártyák/animáció",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs részleges szöveges státusz",
       "BacklogTasks": [
         "T21",
@@ -432,7 +432,7 @@
     {
       "Id": "G26",
       "Title": "WAN/DDNS változás és opcionális restart",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "WanChangeTracker.cs::Observe; ReadOnlyWanProbe.CaptureAsync; WatchdogDiagnostics.cs",
       "BacklogTasks": [
         "T24"
@@ -448,7 +448,7 @@
     {
       "Id": "G27",
       "Title": "Monitoring, CPU/RAM/uptime/játékosszám",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "TelemetryHistory.cs::Observe/Read; Supervisor/Worker.cs; RconProtocol.cs::Execute",
       "BacklogTasks": [
         "T02",
@@ -466,7 +466,7 @@
     {
       "Id": "G28",
       "Title": "Napló, műveleti idővonal és diagnosztika",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "EventJournal.cs; AsaHistoricalLogReader.cs; SafeSupportBundle.cs",
       "BacklogTasks": [
         "T10",
@@ -483,7 +483,7 @@
     {
       "Id": "G29",
       "Title": "Frissítő, digitális hitelesség és kiadási csatornák",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "UpdateCenter.cs::CheckAsync/DownloadAndVerifyAsync/CheckAuthenticodePublisher; UpdateRecovery.cs; Updater/Program.cs",
       "BacklogTasks": [
         "T20"
@@ -499,7 +499,7 @@
     {
       "Id": "G30",
       "Title": "Licenc, aktiválás és offline türelem",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Nincs LicenseClient; MainWindow.Updater.cs frissítés, nem aktiválás",
       "BacklogTasks": [
         "T25"
@@ -515,7 +515,7 @@
     {
       "Id": "G31",
       "Title": "Natív ablak, ikon, tálca, X és egy példány",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "App.xaml.cs; MainWindow.xaml.cs::Restore/Navigate; MainWindow.xaml; installer/UntamedManager.iss",
       "BacklogTasks": [
         "T30"
@@ -531,7 +531,7 @@
     {
       "Id": "G32",
       "Title": "Modkattintás utáni fókusz/hit-test hiba",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "MainWindow.ModState.cs::ShowModStateEditor/Refresh; MainWindow.xaml.cs::Btn; MainWindow.Bulk.cs",
       "BacklogTasks": [
         "T19"
@@ -547,7 +547,7 @@
     {
       "Id": "G33",
       "Title": "Opcionális mobil/Discord távoli admin",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "StatusCipher.cs::Encrypt/Decrypt; LAN státusz, nem admin gateway",
       "BacklogTasks": [
         "T23"
@@ -563,7 +563,7 @@
     {
       "Id": "G34",
       "Title": "Backup retenció/karantén és sérült pontok",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "BackupRetention.cs::Preview/Quarantine; LocalBackupCatalog.cs",
       "BacklogTasks": [
         "T32"
@@ -579,7 +579,7 @@
     {
       "Id": "G35",
       "Title": "Offline migráció/archívumvizsgálat",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "UntamedManagerArchiveInspector.cs::Inspect; HistoricalLaunchProfileReader.cs::Inspect; VaultReadSnapshot.cs",
       "BacklogTasks": [
         "T05",
@@ -596,7 +596,7 @@
     {
       "Id": "G36",
       "Title": "UPS és külső megfigyelési támogatás",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Nincs UPS adapter; WatchdogDiagnostics.cs kapcsolódó alap",
       "BacklogTasks": [
         "T27"
@@ -612,7 +612,7 @@
     {
       "Id": "G37",
       "Title": "Kapacitás/erőforrásfüggő indítás és statisztika",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "TelemetryHistory.cs; új kapacitás/start policy kell",
       "BacklogTasks": [
         "T28"
@@ -628,7 +628,7 @@
     {
       "Id": "G38",
       "Title": "Mély konfigurációs sablonok/loot/spawn/engram",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafeConfigEditor.cs::SetIniValue; új AsaConfigurationSchema kell",
       "BacklogTasks": [
         "T29"
@@ -644,7 +644,7 @@
     {
       "Id": "G39",
       "Title": "Minecraft és további nem ASA funkciók",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Nincs megfelelő ASA-projektmodul",
       "BacklogTasks": [
         "T31"
@@ -660,7 +660,7 @@
     {
       "Id": "G40",
       "Title": "Manager UI-bővítmény és arculati kiegészítők",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Natív XAML arculat; nincs UI extension API",
       "BacklogTasks": [
         "T33"
@@ -676,7 +676,7 @@
     {
       "Id": "G41",
       "Title": "Hálózati diagnosztika és hitelesített LAN státusz",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "StatusCipher.cs::Encrypt/Decrypt; ClusterBackend.cs; NetworkLatencyDiagnostics.cs",
       "BacklogTasks": [
         "T01",
@@ -695,7 +695,7 @@
     {
       "Id": "OP01",
       "Title": "/api/commands",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "RconProtocol.cs::Execute; RconCommandPolicy.cs::Preview; FakeRconQueue::ExecuteOnceAsync",
       "BacklogTasks": [
         "T15"
@@ -711,7 +711,7 @@
     {
       "Id": "OP02",
       "Title": "/api/command",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "RconProtocol.cs::Execute; RconCommandPolicy.cs::Preview; FakeRconQueue::ExecuteOnceAsync",
       "BacklogTasks": [
         "T15"
@@ -727,7 +727,7 @@
     {
       "Id": "OP03",
       "Title": "/api/status",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "AsaApiInspector.cs::Inspect; AsaApiReleaseCatalog.cs::FetchLatestAsync",
       "BacklogTasks": [
         "T12"
@@ -743,7 +743,7 @@
     {
       "Id": "OP04",
       "Title": "/api/log",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "EventJournal.cs; AsaHistoricalLogReader.cs; SafeSupportBundle.cs",
       "BacklogTasks": [
         "T10",
@@ -760,7 +760,7 @@
     {
       "Id": "OP05",
       "Title": "/api/install",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "AsaApiInspector.cs::Inspect; AsaApiReleaseCatalog.cs::FetchLatestAsync",
       "BacklogTasks": [
         "T12"
@@ -776,7 +776,7 @@
     {
       "Id": "OP06",
       "Title": "/api/configure",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "AsaApiInspector.cs::Inspect; AsaApiReleaseCatalog.cs::FetchLatestAsync",
       "BacklogTasks": [
         "T12"
@@ -792,7 +792,7 @@
     {
       "Id": "OP07",
       "Title": "/api/import",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafePluginZip.cs::Inspect/Preview/Install/PreviewRollback/Rollback; DirectoryUpdateTransaction.cs",
       "BacklogTasks": [
         "T12"
@@ -808,7 +808,7 @@
     {
       "Id": "OP08",
       "Title": "/api/toggle",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "LocalPluginInventory.cs::Scan; PluginStateManager.cs::Inventory/Toggle",
       "BacklogTasks": [
         "T12"
@@ -824,7 +824,7 @@
     {
       "Id": "OP09",
       "Title": "/api/config/read",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafeConfigEditor.cs::Read/Preview/Save (PluginJson)",
       "BacklogTasks": [
         "T18",
@@ -841,7 +841,7 @@
     {
       "Id": "OP10",
       "Title": "/api/config/write",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafeConfigEditor.cs::Read/Preview/Save (PluginJson)",
       "BacklogTasks": [
         "T18",
@@ -858,7 +858,7 @@
     {
       "Id": "OP11",
       "Title": "/api/recover",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafePluginZip.cs::Inspect/Preview/Install/PreviewRollback/Rollback; DirectoryUpdateTransaction.cs",
       "BacklogTasks": [
         "T12"
@@ -874,7 +874,7 @@
     {
       "Id": "OP12",
       "Title": "enable",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ClusterBackend.cs::ClusterService.AddMap/PollPeerAsync; HistoricalLaunchProfileReader.cs::Inspect",
       "BacklogTasks": [
         "T01",
@@ -892,7 +892,7 @@
     {
       "Id": "OP13",
       "Title": "disable",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ClusterBackend.cs::ClusterService.AddMap/PollPeerAsync; HistoricalLaunchProfileReader.cs::Inspect",
       "BacklogTasks": [
         "T01",
@@ -910,7 +910,7 @@
     {
       "Id": "OP14",
       "Title": "/supervisor/status",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SupervisorPolicy.cs::Observe; WatchdogDiagnostics.cs::Observe; Supervisor/Worker.cs",
       "BacklogTasks": [
         "T17"
@@ -926,7 +926,7 @@
     {
       "Id": "OP15",
       "Title": "/supervisor/configure",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SupervisorPolicy.cs::Observe; WatchdogDiagnostics.cs::Observe; Supervisor/Worker.cs",
       "BacklogTasks": [
         "T17"
@@ -942,7 +942,7 @@
     {
       "Id": "OP16",
       "Title": "/supervisor/maintenance",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SupervisorPolicy.cs::Observe; WatchdogDiagnostics.cs::Observe; Supervisor/Worker.cs",
       "BacklogTasks": [
         "T17"
@@ -958,7 +958,7 @@
     {
       "Id": "OP17",
       "Title": "/supervisor/resume",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SupervisorPolicy.cs::Observe; WatchdogDiagnostics.cs::Observe; Supervisor/Worker.cs",
       "BacklogTasks": [
         "T17"
@@ -974,7 +974,7 @@
     {
       "Id": "OP18",
       "Title": "/discord/tick",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs::Compose/SendAsync",
       "BacklogTasks": [
         "T21"
@@ -990,7 +990,7 @@
     {
       "Id": "OP19",
       "Title": "/discord/roles",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs részleges szöveges státusz",
       "BacklogTasks": [
         "T21",
@@ -1007,7 +1007,7 @@
     {
       "Id": "OP20",
       "Title": "/discord/channels",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs részleges szöveges státusz",
       "BacklogTasks": [
         "T21",
@@ -1024,7 +1024,7 @@
     {
       "Id": "OP21",
       "Title": "/discord/status",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs::Compose/SendAsync",
       "BacklogTasks": [
         "T21"
@@ -1040,7 +1040,7 @@
     {
       "Id": "OP22",
       "Title": "/discord/configure",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs::Compose/SendAsync",
       "BacklogTasks": [
         "T21"
@@ -1056,7 +1056,7 @@
     {
       "Id": "OP23",
       "Title": "/discord/check",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs::Compose/SendAsync",
       "BacklogTasks": [
         "T21"
@@ -1072,7 +1072,7 @@
     {
       "Id": "OP24",
       "Title": "/discord/enable",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs::Compose/SendAsync",
       "BacklogTasks": [
         "T21"
@@ -1088,7 +1088,7 @@
     {
       "Id": "OP25",
       "Title": "/discord/disable",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs::Compose/SendAsync",
       "BacklogTasks": [
         "T21"
@@ -1104,7 +1104,7 @@
     {
       "Id": "OP26",
       "Title": "/chat/status",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Új relay kell; EventJournal.cs csak kapcsolódó alap",
       "BacklogTasks": [
         "T22"
@@ -1120,7 +1120,7 @@
     {
       "Id": "OP27",
       "Title": "/chat/configure",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Új relay kell; EventJournal.cs csak kapcsolódó alap",
       "BacklogTasks": [
         "T22"
@@ -1136,7 +1136,7 @@
     {
       "Id": "OP28",
       "Title": "/chat/colors",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Új relay kell; EventJournal.cs csak kapcsolódó alap",
       "BacklogTasks": [
         "T22"
@@ -1152,7 +1152,7 @@
     {
       "Id": "OP29",
       "Title": "/chat/disable",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Új relay kell; EventJournal.cs csak kapcsolódó alap",
       "BacklogTasks": [
         "T22"
@@ -1168,7 +1168,7 @@
     {
       "Id": "OP30",
       "Title": "/cluster/store/shared/begin",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ReleaseCapabilityGate.cs::Check; ClusterVaultArchiveInspector.cs::InspectFiles",
       "BacklogTasks": [
         "T01",
@@ -1185,7 +1185,7 @@
     {
       "Id": "OP31",
       "Title": "/cluster/store/shared/join",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ReleaseCapabilityGate.cs::Check; ClusterVaultArchiveInspector.cs::InspectFiles",
       "BacklogTasks": [
         "T01",
@@ -1202,7 +1202,7 @@
     {
       "Id": "OP32",
       "Title": "/cluster/store/shared/backup",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "LocalBackupWorkflow.cs::Create; BackupManifest.cs; OfflineClusterBackup.cs::Build",
       "BacklogTasks": [
         "T07"
@@ -1218,7 +1218,7 @@
     {
       "Id": "OP33",
       "Title": "/cluster/store/shared/cancel",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ReleaseCapabilityGate.cs::Check; ClusterVaultArchiveInspector.cs::InspectFiles",
       "BacklogTasks": [
         "T01",
@@ -1235,7 +1235,7 @@
     {
       "Id": "OP34",
       "Title": "/cluster/store/prepare",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ReleaseCapabilityGate.cs::Check; ClusterVaultArchiveInspector.cs::InspectFiles",
       "BacklogTasks": [
         "T01",
@@ -1252,7 +1252,7 @@
     {
       "Id": "OP35",
       "Title": "/cluster/store/confirm",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ReleaseCapabilityGate.cs::Check; ClusterVaultArchiveInspector.cs::InspectFiles",
       "BacklogTasks": [
         "T01",
@@ -1269,7 +1269,7 @@
     {
       "Id": "OP36",
       "Title": "/cluster/status",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ClusterVaultArchiveInspector.cs::Inspect/InspectFiles; VaultCompatibilityReader.cs::Inspect; StoreV1Fingerprint.cs::Compute",
       "BacklogTasks": [
         "T05"
@@ -1285,7 +1285,7 @@
     {
       "Id": "OP37",
       "Title": "/cluster/apply",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ReleaseCapabilityGate.cs::Check; ClusterVaultArchiveInspector.cs::InspectFiles",
       "BacklogTasks": [
         "T01",
@@ -1302,7 +1302,7 @@
     {
       "Id": "OP38",
       "Title": "/cluster/clear",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ReleaseCapabilityGate.cs::Check; ClusterVaultArchiveInspector.cs::InspectFiles",
       "BacklogTasks": [
         "T01",
@@ -1319,7 +1319,7 @@
     {
       "Id": "OP39",
       "Title": "/cluster/backup",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "LocalBackupWorkflow.cs::Create; BackupManifest.cs; OfflineClusterBackup.cs::Build",
       "BacklogTasks": [
         "T07"
@@ -1335,7 +1335,7 @@
     {
       "Id": "OP40",
       "Title": "/cluster/list",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "BackupRetention.cs::Preview/Quarantine; LocalBackupCatalog.cs",
       "BacklogTasks": [
         "T32"
@@ -1351,7 +1351,7 @@
     {
       "Id": "OP41",
       "Title": "/cluster/restore",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SyntheticRestore.cs::Restore/Recover; SafePluginZip.cs::Rollback; OfflineSqlArchive.cs::SimulateRestore",
       "BacklogTasks": [
         "T09",
@@ -1368,7 +1368,7 @@
     {
       "Id": "OP42",
       "Title": "/status",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "TelemetryHistory.cs::Observe/Read; Supervisor/Worker.cs; RconProtocol.cs::Execute",
       "BacklogTasks": [
         "T02",
@@ -1386,7 +1386,7 @@
     {
       "Id": "OP43",
       "Title": "/folder",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ClusterBackend.cs::ClusterService.AddMap/PollPeerAsync; HistoricalLaunchProfileReader.cs::Inspect",
       "BacklogTasks": [
         "T01",
@@ -1404,7 +1404,7 @@
     {
       "Id": "OP44",
       "Title": "/probe",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "WindowsProcessFamily.cs::WindowsProcessInspector.InspectFamily; ProcessFamily.cs",
       "BacklogTasks": [
         "T02"
@@ -1420,7 +1420,7 @@
     {
       "Id": "OP45",
       "Title": "/read",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafeConfigEditor.cs::Read/Preview/Save/SetIniValue",
       "BacklogTasks": [
         "T18",
@@ -1437,7 +1437,7 @@
     {
       "Id": "OP46",
       "Title": "/write",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafeConfigEditor.cs::Read/Preview/Save/SetIniValue",
       "BacklogTasks": [
         "T18",
@@ -1454,7 +1454,7 @@
     {
       "Id": "OP47",
       "Title": "/install",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SteamCmdPreflight.cs::Inspect; SteamUpdateDryRun.cs::Plan/Simulate; SteamCmdTestRunner.cs::RunAsync",
       "BacklogTasks": [
         "T11"
@@ -1470,7 +1470,7 @@
     {
       "Id": "OP48",
       "Title": "/start",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafeLifecycle.cs::Stop; ReleaseCapabilityGate.cs::Check; ClusterBackend.cs::LaunchLocal",
       "BacklogTasks": [
         "T01",
@@ -1489,7 +1489,7 @@
     {
       "Id": "OP49",
       "Title": "/stop",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafeLifecycle.cs::Stop; ReleaseCapabilityGate.cs::Check; ClusterBackend.cs::LaunchLocal",
       "BacklogTasks": [
         "T01",
@@ -1508,7 +1508,7 @@
     {
       "Id": "OP50",
       "Title": "/restart",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafeLifecycle.cs::Stop; ReleaseCapabilityGate.cs::Check; ClusterBackend.cs::LaunchLocal",
       "BacklogTasks": [
         "T01",
@@ -1527,7 +1527,7 @@
     {
       "Id": "OP51",
       "Title": "/kill",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafeLifecycle.cs::Stop; ReleaseCapabilityGate.cs::Check; ClusterBackend.cs::LaunchLocal",
       "BacklogTasks": [
         "T01",
@@ -1546,7 +1546,7 @@
     {
       "Id": "OP52",
       "Title": "/wipe",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "RconProtocol.cs::Execute; RconCommandPolicy.cs::Preview; FakeRconQueue::ExecuteOnceAsync",
       "BacklogTasks": [
         "T15"
@@ -1562,7 +1562,7 @@
     {
       "Id": "OP53",
       "Title": "/versions/check",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SteamCmdPreflight.cs::Inspect; SteamUpdateDryRun.cs::Plan/Simulate; SteamCmdTestRunner.cs::RunAsync",
       "BacklogTasks": [
         "T11"
@@ -1578,7 +1578,7 @@
     {
       "Id": "OP54",
       "Title": "/schedules/status",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "OperationalScheduler.cs::Next; PersistentScheduler.cs::RunDue; RecurringReadOnlyRunner.cs; Supervisor/Worker.cs",
       "BacklogTasks": [
         "T16"
@@ -1594,7 +1594,7 @@
     {
       "Id": "OP55",
       "Title": "/schedules/set",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "OperationalScheduler.cs::Next; PersistentScheduler.cs::RunDue; RecurringReadOnlyRunner.cs; Supervisor/Worker.cs",
       "BacklogTasks": [
         "T16"
@@ -1610,7 +1610,7 @@
     {
       "Id": "OP56",
       "Title": "/schedules/clear",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "OperationalScheduler.cs::Next; PersistentScheduler.cs::RunDue; RecurringReadOnlyRunner.cs; Supervisor/Worker.cs",
       "BacklogTasks": [
         "T16"
@@ -1626,7 +1626,7 @@
     {
       "Id": "OP57",
       "Title": "/backups/test",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "LocalBackupWorkflow.cs::Create; BackupManifest.cs; OfflineClusterBackup.cs::Build",
       "BacklogTasks": [
         "T07"
@@ -1642,7 +1642,7 @@
     {
       "Id": "OP58",
       "Title": "/backups/configure",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "LocalBackupWorkflow.cs::Create; BackupManifest.cs; OfflineClusterBackup.cs::Build",
       "BacklogTasks": [
         "T07"
@@ -1658,7 +1658,7 @@
     {
       "Id": "OP59",
       "Title": "/backups/list",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "BackupRetention.cs::Preview/Quarantine; LocalBackupCatalog.cs",
       "BacklogTasks": [
         "T32"
@@ -1674,7 +1674,7 @@
     {
       "Id": "OP60",
       "Title": "/backups/create",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "LocalBackupWorkflow.cs::Create; BackupManifest.cs; OfflineClusterBackup.cs::Build",
       "BacklogTasks": [
         "T07"
@@ -1690,7 +1690,7 @@
     {
       "Id": "OP61",
       "Title": "/backups/restore",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SyntheticRestore.cs::Restore/Recover; SafePluginZip.cs::Rollback; OfflineSqlArchive.cs::SimulateRestore",
       "BacklogTasks": [
         "T09",
@@ -1707,7 +1707,7 @@
     {
       "Id": "M01",
       "Title": "Reference module: agent/agent.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafeLifecycle.cs::Stop; ReleaseCapabilityGate.cs::Check; ClusterBackend.cs::LaunchLocal",
       "BacklogTasks": [
         "T01",
@@ -1726,7 +1726,7 @@
     {
       "Id": "M02",
       "Title": "Reference module: agent/api-console.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "RconProtocol.cs::Execute; RconCommandPolicy.cs::Preview; FakeRconQueue::ExecuteOnceAsync",
       "BacklogTasks": [
         "T15"
@@ -1742,7 +1742,7 @@
     {
       "Id": "M03",
       "Title": "Reference module: agent/api-packages.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafePluginZip.cs::Inspect/Preview/Install/PreviewRollback/Rollback; DirectoryUpdateTransaction.cs",
       "BacklogTasks": [
         "T12"
@@ -1758,7 +1758,7 @@
     {
       "Id": "M04",
       "Title": "Reference module: agent/asa-api.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "AsaApiInspector.cs::Inspect; AsaApiReleaseCatalog.cs::FetchLatestAsync",
       "BacklogTasks": [
         "T12"
@@ -1774,7 +1774,7 @@
     {
       "Id": "M05",
       "Title": "Reference module: agent/backups.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "LocalBackupWorkflow.cs::Create; BackupManifest.cs; OfflineClusterBackup.cs::Build",
       "BacklogTasks": [
         "T07"
@@ -1790,7 +1790,7 @@
     {
       "Id": "M06",
       "Title": "Reference module: agent/chat-colors.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Új relay kell; EventJournal.cs csak kapcsolódó alap",
       "BacklogTasks": [
         "T22"
@@ -1806,7 +1806,7 @@
     {
       "Id": "M07",
       "Title": "Reference module: agent/chat-controller.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Új relay kell; EventJournal.cs csak kapcsolódó alap",
       "BacklogTasks": [
         "T22"
@@ -1822,7 +1822,7 @@
     {
       "Id": "M08",
       "Title": "Reference module: agent/chat-relay.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Új relay kell; EventJournal.cs csak kapcsolódó alap",
       "BacklogTasks": [
         "T22"
@@ -1838,7 +1838,7 @@
     {
       "Id": "M09",
       "Title": "Reference module: agent/chat-text.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Új relay kell; EventJournal.cs csak kapcsolódó alap",
       "BacklogTasks": [
         "T22"
@@ -1854,7 +1854,7 @@
     {
       "Id": "M10",
       "Title": "Reference module: agent/cluster.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ClusterVaultArchiveInspector.cs::Inspect/InspectFiles; VaultCompatibilityReader.cs::Inspect; StoreV1Fingerprint.cs::Compute",
       "BacklogTasks": [
         "T05"
@@ -1870,7 +1870,7 @@
     {
       "Id": "M11",
       "Title": "Reference module: agent/discord-animation.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs részleges szöveges státusz",
       "BacklogTasks": [
         "T21",
@@ -1887,7 +1887,7 @@
     {
       "Id": "M12",
       "Title": "Reference module: agent/discord-bot.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs::Compose/SendAsync",
       "BacklogTasks": [
         "T21"
@@ -1903,7 +1903,7 @@
     {
       "Id": "M13",
       "Title": "Reference module: agent/discord-card-worker.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs részleges szöveges státusz",
       "BacklogTasks": [
         "T21",
@@ -1920,7 +1920,7 @@
     {
       "Id": "M14",
       "Title": "Reference module: agent/discord-card.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs részleges szöveges státusz",
       "BacklogTasks": [
         "T21",
@@ -1937,7 +1937,7 @@
     {
       "Id": "M15",
       "Title": "Reference module: agent/discord-chat.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Új relay kell; EventJournal.cs csak kapcsolódó alap",
       "BacklogTasks": [
         "T22"
@@ -1953,7 +1953,7 @@
     {
       "Id": "M16",
       "Title": "Reference module: agent/discord-controls.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs::Compose/SendAsync",
       "BacklogTasks": [
         "T21"
@@ -1969,7 +1969,7 @@
     {
       "Id": "M17",
       "Title": "Reference module: agent/discord-members.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs részleges szöveges státusz",
       "BacklogTasks": [
         "T21",
@@ -1986,7 +1986,7 @@
     {
       "Id": "M18",
       "Title": "Reference module: agent/discord-roles.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs részleges szöveges státusz",
       "BacklogTasks": [
         "T21",
@@ -2003,7 +2003,7 @@
     {
       "Id": "M19",
       "Title": "Reference module: agent/discord-welcome.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "DiscordStatusPublisher.cs részleges szöveges státusz",
       "BacklogTasks": [
         "T21",
@@ -2020,7 +2020,7 @@
     {
       "Id": "M20",
       "Title": "Reference module: agent/lifecycle.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SafeLifecycle.cs::Stop; ReleaseCapabilityGate.cs::Check; ClusterBackend.cs::LaunchLocal",
       "BacklogTasks": [
         "T01",
@@ -2039,7 +2039,7 @@
     {
       "Id": "M21",
       "Title": "Reference module: agent/minecraft-download.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Nincs megfelelő ASA-projektmodul",
       "BacklogTasks": [
         "T31"
@@ -2055,7 +2055,7 @@
     {
       "Id": "M22",
       "Title": "Reference module: agent/minecraft-host.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Nincs megfelelő ASA-projektmodul",
       "BacklogTasks": [
         "T31"
@@ -2071,7 +2071,7 @@
     {
       "Id": "M23",
       "Title": "Reference module: agent/minecraft-manager.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Nincs megfelelő ASA-projektmodul",
       "BacklogTasks": [
         "T31"
@@ -2087,7 +2087,7 @@
     {
       "Id": "M24",
       "Title": "Reference module: agent/minecraft-model.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Nincs megfelelő ASA-projektmodul",
       "BacklogTasks": [
         "T31"
@@ -2103,7 +2103,7 @@
     {
       "Id": "M25",
       "Title": "Reference module: agent/owned-process.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "WindowsProcessFamily.cs::WindowsProcessInspector.InspectFamily; ProcessFamily.cs",
       "BacklogTasks": [
         "T02"
@@ -2119,7 +2119,7 @@
     {
       "Id": "M26",
       "Title": "Reference module: agent/rcon-query.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "RconProtocol.cs::Execute; RconCommandPolicy.cs::Preview; FakeRconQueue::ExecuteOnceAsync",
       "BacklogTasks": [
         "T15"
@@ -2135,7 +2135,7 @@
     {
       "Id": "M27",
       "Title": "Reference module: agent/server-health.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "WatchdogDiagnostics.cs::Observe; SupervisorPolicy.cs::Observe; DiscordStatusPublisher.cs::SendAsync",
       "BacklogTasks": [
         "T17",
@@ -2152,7 +2152,7 @@
     {
       "Id": "M28",
       "Title": "Reference module: agent/shared-store.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ReleaseCapabilityGate.cs::Check; ClusterVaultArchiveInspector.cs::InspectFiles",
       "BacklogTasks": [
         "T01",
@@ -2169,7 +2169,7 @@
     {
       "Id": "M29",
       "Title": "Reference module: agent/steam-install.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SteamCmdPreflight.cs::Inspect; SteamUpdateDryRun.cs::Plan/Simulate; SteamCmdTestRunner.cs::RunAsync",
       "BacklogTasks": [
         "T11"
@@ -2185,7 +2185,7 @@
     {
       "Id": "M30",
       "Title": "Reference module: agent/telemetry.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "TelemetryHistory.cs::Observe/Read; Supervisor/Worker.cs; RconProtocol.cs::Execute",
       "BacklogTasks": [
         "T02",
@@ -2203,7 +2203,7 @@
     {
       "Id": "M31",
       "Title": "Reference module: agent/versions.mjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SteamCmdPreflight.cs::Inspect; SteamUpdateDryRun.cs::Plan/Simulate; SteamCmdTestRunner.cs::RunAsync",
       "BacklogTasks": [
         "T11"
@@ -2219,7 +2219,7 @@
     {
       "Id": "M32",
       "Title": "Reference module: device-identity.cjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ClusterBackend.cs::ClusterService.AddMap/PollPeerAsync; HistoricalLaunchProfileReader.cs::Inspect",
       "BacklogTasks": [
         "T01",
@@ -2237,7 +2237,7 @@
     {
       "Id": "M33",
       "Title": "Reference module: launch-store.cjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ModStateController.cs::Read/Preview/ApplyLocalBatch/ConfirmAppliedAfterVerifiedRestart; LocalContentOperations.cs",
       "BacklogTasks": [
         "T14"
@@ -2253,7 +2253,7 @@
     {
       "Id": "M34",
       "Title": "Reference module: license-session.cjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Nincs LicenseClient; MainWindow.Updater.cs frissítés, nem aktiválás",
       "BacklogTasks": [
         "T25"
@@ -2269,7 +2269,7 @@
     {
       "Id": "M35",
       "Title": "Reference module: local-manager.cjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ClusterBackend.cs::ClusterService.AddMap/PollPeerAsync; HistoricalLaunchProfileReader.cs::Inspect",
       "BacklogTasks": [
         "T01",
@@ -2287,7 +2287,7 @@
     {
       "Id": "M36",
       "Title": "Reference module: main.cjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "App.xaml.cs; MainWindow.xaml.cs::Restore/Navigate; MainWindow.xaml; installer/UntamedManager.iss",
       "BacklogTasks": [
         "T30"
@@ -2303,7 +2303,7 @@
     {
       "Id": "M37",
       "Title": "Reference module: policy.cjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "App.xaml.cs; MainWindow.xaml.cs::Restore/Navigate; MainWindow.xaml; installer/UntamedManager.iss",
       "BacklogTasks": [
         "T30"
@@ -2319,7 +2319,7 @@
     {
       "Id": "M38",
       "Title": "Reference module: preload.cjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "App.xaml.cs; MainWindow.xaml.cs::Restore/Navigate; MainWindow.xaml; installer/UntamedManager.iss",
       "BacklogTasks": [
         "T30"
@@ -2335,7 +2335,7 @@
     {
       "Id": "M39",
       "Title": "Reference module: profile-launch.cjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "ModStateController.cs::Read/Preview/ApplyLocalBatch/ConfirmAppliedAfterVerifiedRestart; LocalContentOperations.cs",
       "BacklogTasks": [
         "T14"
@@ -2351,7 +2351,7 @@
     {
       "Id": "M40",
       "Title": "Reference module: release-key.cjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "UpdateCenter.cs::CheckAsync/DownloadAndVerifyAsync/CheckAuthenticodePublisher; UpdateRecovery.cs; Updater/Program.cs",
       "BacklogTasks": [
         "T20"
@@ -2367,7 +2367,7 @@
     {
       "Id": "M41",
       "Title": "Reference module: scheduler.cjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "OperationalScheduler.cs::Next; PersistentScheduler.cs::RunDue; RecurringReadOnlyRunner.cs; Supervisor/Worker.cs",
       "BacklogTasks": [
         "T16"
@@ -2383,7 +2383,7 @@
     {
       "Id": "M42",
       "Title": "Reference module: supervisor.cjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "SupervisorPolicy.cs::Observe; WatchdogDiagnostics.cs::Observe; Supervisor/Worker.cs",
       "BacklogTasks": [
         "T17"
@@ -2399,7 +2399,7 @@
     {
       "Id": "M43",
       "Title": "Reference module: ui/atmosphere.js",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "Natív XAML arculat; nincs UI extension API",
       "BacklogTasks": [
         "T33"
@@ -2415,7 +2415,7 @@
     {
       "Id": "M44",
       "Title": "Reference module: updater.cjs",
-      "SourceDocument": "docs/audits/UNTAMED-KOVA-FUNCTION-GAP-61-OPERATIONS-HU.md",
+      "SourceDocument": "docs/audits/UNTAMED-LEGACY-FUNCTION-GAP-61-OPERATIONS-HU.md",
       "CodeReferences": "UpdateCenter.cs::CheckAsync/DownloadAndVerifyAsync/CheckAuthenticodePublisher; UpdateRecovery.cs; Updater/Program.cs",
       "BacklogTasks": [
         "T20"
@@ -2448,7 +2448,7 @@
     },
     {
       "Id": "I02",
-      "Title": "Meglévő Store-v1, KovaCluster és -usestore változatlan; konverzió nélkül",
+      "Title": "Meglévő Store-v1, LegacyCluster és -usestore változatlan; konverzió nélkül",
       "SourceDocument": "docs/audits/UNTAMED-IDEAS-AND-IMPROVEMENTS-HU.md",
       "CodeReferences": "ClusterVaultArchiveInspector.cs::Inspect/InspectFiles; VaultCompatibilityReader.cs::Inspect; StoreV1Fingerprint.cs::Compute",
       "BacklogTasks": [
@@ -3604,7 +3604,7 @@
     },
     {
       "Id": "T31",
-      "Title": "Kova további, nem ASA funkcióinak tudatos határa",
+      "Title": "Legacy további, nem ASA funkcióinak tudatos határa",
       "SourceDocument": "docs/audits/UNTAMED-P0-P3-IMPLEMENTATION-BACKLOG-HU.md",
       "CodeReferences": "Minecraft-moduloknak nincs C# ASA-megfelelőjük; új modul csak külön termékdöntésre",
       "BacklogTasks": [

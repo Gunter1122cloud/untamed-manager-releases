@@ -233,7 +233,8 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                 "cluster.multiHostRestoreApply" or "cluster.multiHostRestoreStatus" or
                 "cluster.multiHostRestoreReplacePreview" or "cluster.multiHostRestoreReplaceApply" or
                 "cluster.multiHostRestoreRecoveryList" or "cluster.multiHostRestoreRecoveryPreview" or
-                "cluster.multiHostRestoreRecoveryApply"))
+                "cluster.multiHostRestoreRecoveryApply" or
+                "cluster.multiHostCancel"))
                 return Fail(id, "UM-METHOD-DENIED");
 
             await gate.WaitAsync();
@@ -363,6 +364,49 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                         catalogName=CatalogFileName,offlineCopiesOnly=true,
                         originalStoreTouched=false,productionRestoreAllowed=false,
                         evidence="EXISTING_MULTIHOST_ARCHIVE_V1_VALIDATED_CATALOG_CREATED"
+                    });
+                }
+                if(method=="cluster.multiHostCancel")
+                {
+                    // Request cancellation for one exact running OFFLINE job.
+                    // This is not an ASA Stop, RCON, rollback, archive deletion
+                    // or a claim that the operation has already stopped.
+                    if(!request.TryGetProperty("jobId",out var rawJob)||
+                       rawJob.ValueKind!=JsonValueKind.String||
+                       !Guid.TryParseExact(rawJob.GetString(),"D",out var jobId)||
+                       !request.TryGetProperty("confirm",out var consent)||
+                       consent.ValueKind!=JsonValueKind.True)
+                        return Fail(id,"UM-MULTIHOST-CANCEL-EXPLICIT-CONFIRMATION");
+                    if(current==null||current.Id!=jobId)
+                        return Fail(id,"UM-MULTIHOST-BACKUP-JOB-NOT-FOUND");
+                    var activeJob=current;
+                    lock(activeJob)
+                    {
+                        if(activeJob.State is not ("queued" or "running")||
+                           currentCancellation==null)
+                            return Fail(id,"UM-MULTIHOST-CANCEL-NOT-RUNNING");
+                    }
+                    // Do not invoke CancellationToken callbacks while holding
+                    // the job monitor: a callback may attempt to publish its
+                    // final state through Set(job), which locks this monitor.
+                    try{currentCancellation!.Cancel();}
+                    catch(ObjectDisposedException)
+                    {return Fail(id,"UM-MULTIHOST-CANCEL-NOT-RUNNING");}
+                    lock(activeJob)
+                    {
+                        if(activeJob.State is "queued" or "running")
+                        {
+                            activeJob.Stage="CANCELLATION_REQUESTED_AWAIT_OPERATOR_RESULT";
+                            activeJob.ChangedUtc=DateTimeOffset.UtcNow;
+                        }
+                    }
+                    return Ok(id,new{
+                        jobId=activeJob.Id,cancelRequested=true,
+                        completed=false,requiresStatusRecheck=true,
+                        productionRestoreAllowed=false,
+                        rconSent=false,serverProcessTouched=false,
+                        automaticRollback=false,journalDeleted=false,
+                        evidence="EXACT_OFFLINE_JOB_CANCELLATION_REQUEST_ONLY"
                     });
                 }
                 if (method is "cluster.multiHostBackupStatus" or

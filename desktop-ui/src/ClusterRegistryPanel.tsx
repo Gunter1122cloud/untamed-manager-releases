@@ -340,7 +340,7 @@ export function ClusterRegistryPanel({protectedMapIds=new Set<string>()}:{protec
               return <label className={"cluster-registry-map"+(inactive||protectedStore?" inactive":"")} key={key}>
                 <input type="checkbox" checked={selectedMapIds.has(key)} disabled={busy||inactive||protectedStore}
                   onChange={e=>toggleMap(map.mapId,e.target.checked)}/>
-                <span><b>{map.mapName}</b><small>{protectedStore?"Kova Store-v1 védett":inactive?"Már nincs a helyi Managerben":map.mapId}</small></span>
+                <span><b>{map.mapName}</b><small>{protectedStore?"eredeti Store-v1 védett":inactive?"Már nincs a helyi Managerben":map.mapId}</small></span>
                 {(inactive||protectedStore)&&<em>{protectedStore?"Védett":"Inaktív"}</em>}
               </label>;
             })}
@@ -370,8 +370,8 @@ export function ClusterRegistryPanel({protectedMapIds=new Set<string>()}:{protec
         </div>}
       </>}
     </RegistryPanel>
-    <RegistryPanel title="Új map a meglévő Kova Store-v1 clusterhez">
-      <p className="muted small">A történeti, eredeti öt helyi mapot és a Kova
+    <RegistryPanel title="Új map a meglévő eredeti Store-v1 clusterhez">
+      <p className="muted small">A történeti, eredeti öt helyi mapot és a korábbi kezelőalkalmazás
         négy Store-metaadatát változatlanul ellenőrzi. A rendszer csak az
         eredeti, forrásból olvasott clusterazonosítót és az igazolt helyi
         transferkönyvtárat fogadhatja el. Ez az ellenőrzés nem indít ASA-t,

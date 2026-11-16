@@ -197,7 +197,7 @@ public partial class MainWindow
                             if(busy)operationStatus.Text="Másolt fájlok: "+n+
                                 " · ellenőrzés folyamatban...";
                         });
-                    }));
+                    },checkCurrent:()=>_cluster.Check(map)));
                 operationStatus.Text="ELLENŐRZÖTT FÁJLMÁSOLAT · "+
                     result.Manifest.Files.Count+" fájl\n"+result.PackageDirectory+
                     "\nFájlok SHA-256 szerint épek. Restore NEM történt; "+

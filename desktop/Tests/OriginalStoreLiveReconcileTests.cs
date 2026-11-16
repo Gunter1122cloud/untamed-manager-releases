@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using UntamedDesktop;
 using UntamedManager.Core;
 
 /// <summary>
@@ -159,6 +160,22 @@ internal static class OriginalStoreLiveReconcileTests
         var again=cluster.ReconcileOriginalStoreLiveFive(live,()=>true);
         Check(again.Unchanged==5&&again.Added==0,
             "same process IDs reattach idempotently without map duplication");
+        using var bridge=new DesktopHistoricalStoreImportBridge(cluster);
+        var pendingOnly=typeof(DesktopHistoricalStoreImportBridge).GetMethod(
+            "HasPendingOriginalSaveEvidence",
+            System.Reflection.BindingFlags.NonPublic|
+            System.Reflection.BindingFlags.Instance)??throw new InvalidOperationException(
+                "Pending SaveWorld receipt guard missing");
+        bool NoPendingSaveUnderLease()=>!(bool)(pendingOnly.Invoke(
+            bridge,new object[]{live})??throw new InvalidOperationException(
+                "Pending SaveWorld scan did not return a bool"));
+        // The current five-map import owns Prepared Configuration journals.
+        // The extra SaveWorld-only check must not misidentify those as foreign
+        // operations or permanently deny every valid live takeover.
+        var selfLease=cluster.ReconcileOriginalStoreLiveFive(
+            live,NoPendingSaveUnderLease);
+        Check(selfLease.Unchanged==5,
+            "five-map own Prepared lease does not trigger false SaveWorld blockage");
         foreach(var (file,bytes) in originalFiles)
             Check(File.ReadAllBytes(file).SequenceEqual(bytes),
                 "the synthetic original ASA/INI source file is byte-identical");
@@ -170,5 +187,120 @@ internal static class OriginalStoreLiveReconcileTests
         Check(cluster.Config.LocalMaps.Count==5&&
               cluster.Config.LocalMaps.Select(m=>m.Id).Distinct().Count()==5,
             "no partial map regrowth after denied owner conflict");
+
+        // The preview must report BOTH journals before offering five-map
+        // approval, and must not mistake a restart-only journal for success.
+        // No real ASA/RCON/Store commands: these are isolated TEMP records.
+        using(var operation=cluster.Operations.Acquire(
+            live[0].InstallationPath,UntamedOperationKind.Launch))
+            operation.MarkMutationStarted();
+        var paired=new AsaManualRestartJournal(live[0].InstallationPath);
+        var pairedEntry=paired.Begin(live[0].Id,live[0].LastProcess!.Pid);
+        paired.Change(pairedEntry.Id,AsaRestartPhase.NeedsOperator);
+        var restartOnly=new AsaManualRestartJournal(live[1].InstallationPath);
+        var restartEntry=restartOnly.Begin(live[1].Id,live[1].LastProcess!.Pid);
+        restartOnly.Change(restartEntry.Id,AsaRestartPhase.NeedsOperator);
+        var inspect=typeof(DesktopHistoricalStoreImportBridge).GetMethod(
+            "OriginalLiveOperationBlockers",
+            System.Reflection.BindingFlags.NonPublic|
+            System.Reflection.BindingFlags.Instance)??throw new InvalidOperationException(
+                "Five-map durable blocker reader is unavailable");
+        var rows=((System.Collections.IEnumerable)(inspect.Invoke(
+            bridge,new object[]{live})??throw new InvalidOperationException(
+                "Five-map durable blocker reader failed")))
+            .Cast<object>().Select(x=>(
+                Map:(Guid)x.GetType().GetProperty("MapId")!.GetValue(x)!,
+                Kind:(string)x.GetType().GetProperty("Kind")!.GetValue(x)!,
+                Code:(string)x.GetType().GetProperty("BlockingCode")!.GetValue(x)!))
+            .ToArray();
+        Check(rows.Length==3&&
+              rows.Count(x=>x.Map==live[0].Id)==2&&
+              rows.Count(x=>x.Map==live[1].Id)==1&&
+              rows.Any(x=>x.Map==live[0].Id&&x.Kind=="Launch")&&
+              rows.Any(x=>x.Map==live[0].Id&&x.Kind=="Restart-v1"&&
+                  x.Code=="UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE")&&
+              rows.Any(x=>x.Map==live[1].Id&&x.Kind=="Restart-v1"&&
+                  x.Code=="UM-RECOVERY-RESTART-ONLY-REVIEW-AVAILABLE"),
+            "five-map preflight reports paired and restart-only NeedsOperator separately");
+        // SaveWorld-only is the third durable lifecycle signal. Its receipt
+        // may be prepared before a separate operation lease has begun, so
+        // the five-map diagnostic must not wrongly offer batch takeover.
+        var saveReceipt=LegacyStoreV1SaveEvidenceJournal.Begin(
+            cluster.Store.Root,Guid.NewGuid(),live[2].Id,
+            live[2].LastProcess!.Pid,live[2].LastProcess!.StartedUtc,
+            new string('E',64));
+        Check(!NoPendingSaveUnderLease(),
+            "five-map under-lease receipt guard detects prepared SaveWorld without RCON");
+        var guard=typeof(DesktopHistoricalStoreImportBridge).GetMethod(
+            "DemandNoPendingOriginalSaveEvidence",
+            System.Reflection.BindingFlags.NonPublic|
+            System.Reflection.BindingFlags.Instance)??throw new InvalidOperationException(
+                "Under-lease Store SaveWorld error mapper missing");
+        bool reportsPendingJournal=false;
+        try { _=guard.Invoke(bridge,new object[]{live}); }
+        catch(System.Reflection.TargetInvocationException ex) when(
+            ex.InnerException is InvalidOperationException inner&&
+            inner.Message=="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL")
+        { reportsPendingJournal=true; }
+        Check(reportsPendingJournal,
+            "under-lease SaveWorld conflict returns a journal blocker, not a source mismatch");
+        var withSave=((System.Collections.IEnumerable)(inspect.Invoke(
+            bridge,new object[]{live})??throw new InvalidOperationException(
+                "SaveWorld receipt blocker scan failed")))
+            .Cast<object>().Select(x=>(
+                Map:(Guid)x.GetType().GetProperty("MapId")!.GetValue(x)!,
+                Kind:(string)x.GetType().GetProperty("Kind")!.GetValue(x)!,
+                Phase:(string)x.GetType().GetProperty("Phase")!.GetValue(x)!,
+                Code:(string)x.GetType().GetProperty("BlockingCode")!.GetValue(x)!))
+            .ToArray();
+        Check(withSave.Length==4&&
+              withSave.Count(x=>x.Map==live[2].Id)==1&&
+              withSave.Any(x=>x.Map==live[2].Id&&
+                x.Kind=="SaveWorld-v1"&&x.Phase=="prepared"&&
+                x.Code=="UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW"),
+            "five-map takeover reveals map-scoped prepared SaveWorld receipt");
+        LegacyStoreV1SaveEvidenceJournal.MarkUncertain(cluster.Store.Root,
+            saveReceipt.OperationId,live[2].Id,live[2].LastProcess!.Pid,
+            live[2].LastProcess!.StartedUtc,new string('E',64));
+        var afterUncertain=((System.Collections.IEnumerable)(inspect.Invoke(
+            bridge,new object[]{live})??throw new InvalidOperationException(
+                "SaveWorld uncertain receipt scan failed")))
+            .Cast<object>().Where(x=>
+                (string)x.GetType().GetProperty("Kind")!.GetValue(x)=="SaveWorld-v1")
+            .Select(x=>(
+                Map:(Guid)x.GetType().GetProperty("MapId")!.GetValue(x)!,
+                Phase:(string)x.GetType().GetProperty("Phase")!.GetValue(x)!))
+            .ToArray();
+        Check(afterUncertain.Length==1&&
+              afterUncertain[0].Map==live[2].Id&&
+              afterUncertain[0].Phase=="needsOperator",
+            "uncertain SaveWorld remains an explicit blocker only for its own map");
+        // Simulate a Windows crash leaving a half-published SaveWorld receipt
+        // under this isolated CI profile. Never delete or auto-repair it.
+        string interruptedReceipt=Path.Combine(cluster.Store.Root,
+            "historical-save-evidence-v1",live[2].Id.ToString("N")+".json.next");
+        File.WriteAllText(interruptedReceipt,"SYNTHETIC_INTERRUPTED_SAVEWORLD_RECEIPT");
+        var unreadable=((System.Collections.IEnumerable)(inspect.Invoke(
+            bridge,new object[]{live})??throw new InvalidOperationException(
+                "Interrupted SaveWorld receipt scan failed")))
+            .Cast<object>().Where(x=>
+                (string)x.GetType().GetProperty("Kind")!.GetValue(x)=="SaveWorld-v1")
+            .Select(x=>(
+                Map:(Guid)x.GetType().GetProperty("MapId")!.GetValue(x)!,
+                Phase:(string)x.GetType().GetProperty("Phase")!.GetValue(x)!,
+                Code:(string)x.GetType().GetProperty("BlockingCode")!.GetValue(x)!,
+                CanReview:(bool)x.GetType().GetProperty(
+                    "SupportedReviewInMapDetails")!.GetValue(x)!))
+            .ToArray();
+        Check(unreadable.Length==1&&unreadable[0].Map==live[2].Id&&
+              unreadable[0].Phase=="Unreadable"&&
+              unreadable[0].Code=="UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE"&&
+              !unreadable[0].CanReview&&
+              File.Exists(interruptedReceipt),
+            "corrupt SaveWorld receipt is map-scoped, unaltered, and never marked reviewable");
+        Check(!NoPendingSaveUnderLease(),
+            "unreadable SaveWorld receipt fails closed during five-map lease");
+        Check(Denies(()=>cluster.ReconcileOriginalStoreLiveFive(live,()=>true)),
+            "an unresolved original Launch journal cannot be bypassed by a successful preview");
     }
 }

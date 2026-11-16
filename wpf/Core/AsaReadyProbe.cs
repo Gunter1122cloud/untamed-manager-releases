@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -94,6 +95,38 @@ public static class AsaReadyProbe
                                  or NotSupportedException){return false;}
     }
 
+    // Only an explicit approved Start preview/apply hashes these binaries.
+    // The bytes of an EXE or selected API Loader must not silently change
+    // between an operator's preview and the one-shot Process.Start.
+    // No periodic dashboard polling or world-save hashing is performed.
+    internal static string ApprovedLaunchBinariesFingerprint(LocalMap map)
+    {
+        if(map==null||!IsRegisteredServerBinary(map))
+            throw new InvalidDataException("UM-ASA-LAUNCH-BINARY-NOT-REGISTERED");
+        string server=Path.Combine(Path.GetFullPath(map.InstallationPath),
+            "ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+        static string Hash(string path,long maxSize)
+        {
+            var info=new FileInfo(path);
+            if(!info.Exists||info.Length is <1 || info.Length>maxSize ||
+               (info.Attributes&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("UM-ASA-LAUNCH-BINARY-UNVERIFIED");
+            using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,
+                FileShare.Read,131072,FileOptions.SequentialScan);
+            if(stream.Length!=info.Length)
+                throw new InvalidDataException("UM-ASA-LAUNCH-BINARY-CHANGED");
+            return Convert.ToHexString(SHA256.HashData(stream));
+        }
+        string binary=Hash(server,4L*1024*1024*1024);
+        if(!map.StartWithAsaApi)return binary;
+        string expectedLoader=Path.Combine(Path.GetDirectoryName(server)!,
+            "AsaApiLoader.exe");
+        if(!string.Equals(Path.GetFullPath(map.ApiLoaderPath),expectedLoader,
+            StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("UM-ASA-LAUNCH-LOADER-IDENTITY");
+        return binary+"|"+Hash(expectedLoader,512L*1024*1024);
+    }
+
     // Never trust a successful RCON authentication at a port that multiple
     // locally owned profiles claim. The response could belong to another map.
     internal static bool HasPortConflict(LocalMap map,
@@ -134,6 +167,18 @@ public static class AsaReadyProbe
                    @"(?:^|[\s?])(?:-)?QueryPort\s*=\s*(?<port>[^\s?]*)(?=$|[\s?])",map.QueryPort);
     }
 
+    // A valid RCON password is not process identity. Require Windows TCP
+    // ownership for the exact ASA PID before and after the read-only query.
+    // This predicate is pure so failure cases are independently testable.
+    internal static bool ConfirmedOwnedRconListener(ProcessCheck process,int port,
+        Func<int,int,bool> owns)
+    {
+        ArgumentNullException.ThrowIfNull(owns);
+        return process.Running && !process.ConfirmedStopped &&
+            process.Identity is {Pid:>0} identity &&
+            port is >=1024 and <=65535 && owns(port,identity.Pid);
+    }
+
     public static async Task<AsaReadinessSnapshot> ProbeAsync(ClusterService cluster,
         Guid mapId,CancellationToken cancellationToken=default)
     {
@@ -147,8 +192,17 @@ public static class AsaReadyProbe
             return Result(map,AsaRuntimeStage.Unconfigured,
                 "Launch arguments disagree with configured game, query or RCON port");
         return await ObserveAsync(map,()=>cluster.Check(map),
-            async ct=>await RconProtocol.Execute(map.RconHost,map.RconPort,
-                SecureStore.Unprotect(map.RconPasswordProtected),"ListPlayers",ct),
+            async ct=>{
+                if(!ConfirmedOwnedRconListener(cluster.Check(map),map.RconPort,
+                    RconPortOwnership.IsOwnedListener))
+                    throw new UnauthorizedAccessException("UM-ASA-RCON-PID-OWNER-MISMATCH");
+                string result=await RconProtocol.Execute(map.RconHost,map.RconPort,
+                    SecureStore.Unprotect(map.RconPasswordProtected),"ListPlayers",ct);
+                if(!ConfirmedOwnedRconListener(cluster.Check(map),map.RconPort,
+                    RconPortOwnership.IsOwnedListener))
+                    throw new UnauthorizedAccessException("UM-ASA-RCON-PID-OWNER-CHANGED");
+                return result;
+            },
             cancellationToken);
     }
 
@@ -156,7 +210,8 @@ public static class AsaReadyProbe
     // Installation and ownership preconditions are still enforced by ProbeAsync.
     internal static async Task<AsaReadinessSnapshot> ObserveAsync(LocalMap map,
         Func<ProcessCheck> inspect,Func<CancellationToken,Task<string>> listPlayers,
-        CancellationToken cancellationToken=default)
+        CancellationToken cancellationToken=default,
+        Func<LocalMap,ProcessIdentity,bool>? loadedModule=null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if(map==null||inspect==null||listPlayers==null)
@@ -215,13 +270,18 @@ public static class AsaReadyProbe
                !Identical(before.LoaderIdentity,final.LoaderIdentity))
                 return Result(map,AsaRuntimeStage.ProcessVerified,
                     "ASA/Loader process changed while confirming runtime logs; readiness refused");
+            // The original desktop agent confirms AsaApi.dll in the
+            // running ASA CHILD process as well as current-session hooks.
+            // A log line or files on disk alone NEVER certify API loading.
+            bool modulePresent=map.StartWithAsaApi && log.ApiInitialized &&
+                (loadedModule??AsaApiModuleEvidence.IsLoaded)(map,before.Identity);
             bool ready=log.JoinAdvertised &&
-                (!map.StartWithAsaApi||log.ApiInitialized);
+                (!map.StartWithAsaApi||modulePresent);
             return Result(map,AsaRuntimeStage.RconAuthenticated,
                 ready?
-                "ASA PID, RCON and current startup join-advertising log confirmed; live client join/travel remains unverified":
-                "ASA PID and RCON confirmed; current startup join-advertising or required API load still unverified",
-                hasLoader,log.ApiInitialized,log.JoinAdvertised);
+                "ASA PID, RCON and current startup runtime confirmed; live client join/travel remains unverified":
+                "ASA PID and RCON confirmed; current startup advertising or API module/hook load still unverified",
+                hasLoader,modulePresent,log.JoinAdvertised);
         }
         catch(OperationCanceledException) when(cancellationToken.IsCancellationRequested){throw;}
         catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or InvalidDataException

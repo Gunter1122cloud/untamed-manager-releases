@@ -33,6 +33,18 @@ public static class UntamedWorldBackup
         bool Restored,bool OldWorldRetained,string PreviousDirectory);
 
     private const int MaxFiles=100000;
+    // Per-map offline world packages must remain bounded even when a source
+    // folder contains unexpected enormous files. The multi-host archive has
+    // its own independent resource limits.
+    public const long MaxWorldPackageBytes=2L*1024*1024*1024*1024;
+    // Pure budget helper for both source scanning and untrusted manifest reads.
+    public static long CheckedWorldBytes(long current,long next)
+    {
+        if(current<0||next<0||next>MaxWorldPackageBytes||
+           current>MaxWorldPackageBytes-next)
+            throw new InvalidDataException("UM-BACKUP-SIZE-LIMIT");
+        return current+next;
+    }
     private const int MaxManifestBytes=12_000_000;
     private const int MaxCompleteMarkerBytes=16;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -71,9 +83,8 @@ public static class UntamedWorldBackup
         })
         {
             if(string.IsNullOrWhiteSpace(args))continue;
-            if(args.Contains("-usestore",StringComparison.OrdinalIgnoreCase)||
-               args.Contains("-converttostore",StringComparison.OrdinalIgnoreCase)||
-               args.Contains("-convertfromstore",StringComparison.OrdinalIgnoreCase))
+            if(AsaStoreArgumentSwitches.ContainsStoreWriter(args)||
+               AsaStoreArgumentSwitches.ContainsConversion(args))
                 return true;
         }
         return false;
@@ -116,6 +127,7 @@ public static class UntamedWorldBackup
         if(!Directory.Exists(root))
             throw new DirectoryNotFoundException("UM-BACKUP-WORLD-FOLDER-MISSING");
         var entries=new List<Entry>();
+        long scannedBytes=0;
         void Walk(string directory)
         {
             string path=Guard(directory);
@@ -127,6 +139,7 @@ public static class UntamedWorldBackup
                     throw new InvalidDataException("UM-BACKUP-LINKED-FILE-DENIED");
                 string relative=SafeRelative(Path.GetRelativePath(root,file));
                 var info=new FileInfo(file);
+                scannedBytes=CheckedWorldBytes(scannedBytes,info.Length);
                 // ASA's documented -usestore mode embeds survivor/tribe data
                 // in the .ark world. Former loose .arkprofile/.arktribe files
                 // may linger after conversion and can even be empty during a
@@ -184,7 +197,11 @@ public static class UntamedWorldBackup
     }
     private static long Total(Entry[] files)
     {
-        long bytes=0;foreach(var file in files)bytes=checked(bytes+file.Bytes);
+        long bytes=0;
+        foreach(var file in files)
+        {
+            bytes=CheckedWorldBytes(bytes,file.Bytes);
+        }
         return bytes;
     }
     private static Point AsPoint(string id,Manifest m)=>
@@ -240,6 +257,9 @@ public static class UntamedWorldBackup
                SafeRelative(x.Relative).Length==0)||
            m.Files.Select(x=>x.Relative).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=m.Files.Length)
             throw new InvalidDataException("UM-BACKUP-MANIFEST-OWNER-MISMATCH");
+        // Reject maliciously oversized metadata before hashing any archive
+        // bytes. A valid marker does not override the source budget.
+        _=Total(m.Files);
         var actual=Scan(data,map,allowHistoricalEmptyProfiles:true);
         if(!actual.SequenceEqual(m.Files))
             throw new InvalidDataException("UM-BACKUP-DIGEST-MISMATCH");
@@ -279,6 +299,11 @@ public static class UntamedWorldBackup
         Stopped(process);PendingRestore(world);
         var manifestFiles=Scan(world,key,HasLiveOrHistoricalStore(map));
         long size=Total(manifestFiles);
+        // Manager-owned optional limits are enforced before creating any
+        // staging/archive directory. A malformed policy is an explicit error;
+        // it must not cause a silent fallback to an unbounded backup.
+        BackupResourcePolicy.ForManagerProfile(profile)
+            .DemandFits(manifestFiles.Length,size);
         Directory.CreateDirectory(archive);
         if(new DriveInfo(Path.GetPathRoot(archive)!).AvailableFreeSpace<size+64L*1024*1024)
             throw new IOException("UM-BACKUP-NOT-ENOUGH-SPACE");
@@ -403,8 +428,12 @@ public static class UntamedWorldBackup
         // cross-process lock could deadlock on Windows.
         var coordinator=operationCoordinator??new UntamedOperationCoordinator();
         var protective=Create(map,profile,process,"protective",coordinator);
+        // The protective copy is a Backup, but the subsequent directory swap
+        // is a Restore. The durable operation type must identify the actual
+        // mutating action so crash-recovery and operator review cannot mistake
+        // a partially restored world for an interrupted backup.
         using var lease=coordinator.Acquire(
-            map.InstallationPath,UntamedOperationKind.Backup);
+            map.InstallationPath,UntamedOperationKind.Restore);
         Stopped(process);
         if(!Scan(world,key).SequenceEqual(current))
             throw new IOException("UM-BACKUP-SOURCE-CHANGED-AFTER-PROTECTIVE");

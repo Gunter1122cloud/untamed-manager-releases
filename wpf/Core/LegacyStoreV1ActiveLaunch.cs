@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace UntamedManager.Core;
@@ -26,10 +27,50 @@ public static class LegacyStoreV1ActiveLaunch
     public sealed record Input(string MapKey,int GamePort,int QueryPort,
         IReadOnlyList<string> Mods,IReadOnlyList<string> PassiveMods,
         string ClusterId,string ClusterPath,string OriginalPhase,
-        string GameUserSettingsIni);
+        string GameUserSettingsIni,bool SourcePinnedClusterOnly=true);
     public sealed record Result(string[] Arguments,string MapKey,int GamePort,
         int QueryPort,string[] ModOrder,string[] PassiveModOrder,
         string StoreMode,bool ConversionRequested,string Evidence);
+
+    /// <summary>
+    /// Decode original ASA INI without rewriting a single source byte.
+    /// Kova 1.8.3 accepts UTF-8 and BOM-marked UTF-16 LE/BE. Strict
+    /// decoding makes a damaged or mislabeled INI a preflight error,
+    /// rather than silently interpreting it as a blank configuration.
+    /// </summary>
+    public static string DecodeOriginalIni(byte[] bytes)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        try
+        {
+            Encoding encoding;
+            int skip=0;
+            if(bytes.Length>=3&&bytes[0]==0xEF&&bytes[1]==0xBB&&bytes[2]==0xBF)
+            {
+                encoding=new UTF8Encoding(false,true);
+                skip=3;
+            }
+            else if(bytes.Length>=2&&bytes[0]==0xFF&&bytes[1]==0xFE)
+            {
+                encoding=new UnicodeEncoding(false,false,true);
+                skip=2;
+            }
+            else if(bytes.Length>=2&&bytes[0]==0xFE&&bytes[1]==0xFF)
+            {
+                encoding=new UnicodeEncoding(true,false,true);
+                skip=2;
+            }
+            else encoding=new UTF8Encoding(false,true);
+            string decoded=encoding.GetString(bytes,skip,bytes.Length-skip);
+            if(decoded.IndexOf('\0')>=0)
+                throw new InvalidDataException("UM-STORE-NATIVE-INI-NUL");
+            return decoded;
+        }
+        catch(DecoderFallbackException ex)
+        {
+            throw new InvalidDataException("UM-STORE-NATIVE-INI-ENCODING",ex);
+        }
+    }
 
     public static Result Build(Input data)
     {
@@ -41,7 +82,8 @@ public static class LegacyStoreV1ActiveLaunch
         if(data.GamePort is <1024 or >65535||data.QueryPort is <1024 or >65535||
            data.GamePort==data.QueryPort)
             throw new InvalidDataException("UM-STORE-V1-PORTS");
-        if(data.ClusterId!="KovaCluster"||!ClusterName.IsMatch(data.ClusterId))
+        if(!ClusterName.IsMatch(data.ClusterId)||
+           (data.SourcePinnedClusterOnly&&data.ClusterId!="KovaCluster"))
             throw new InvalidDataException("UM-STORE-V1-CLUSTER-IDENTITY");
         if(!ValidWindowsClusterPath(data.ClusterPath))
             throw new InvalidDataException("UM-STORE-V1-CLUSTER-PATH");
@@ -55,8 +97,11 @@ public static class LegacyStoreV1ActiveLaunch
         ValidateIniPort(data.GameUserSettingsIni,"Port",data.GamePort);
         ValidateIniPort(data.GameUserSettingsIni,"QueryPort",data.QueryPort);
         var passive=data.PassiveMods.ToArray();
-        var order=passive.Concat(data.Mods.Where(x=>!passive.Contains(x,StringComparer.Ordinal)))
-            .Distinct(StringComparer.Ordinal).ToArray();
+        // The -mods switch is an ordered list, not a passive-first group.
+        // -passivemods selects a subset without reshuffling that list.
+        var order=data.Mods.ToArray();
+        if(order.Distinct(StringComparer.Ordinal).Count()!=order.Length)
+            throw new InvalidDataException("UM-STORE-V1-DUPLICATE-MOD");
         var args=new List<string> {
             data.MapKey+"?listen",
             "-Port="+data.GamePort.ToString(CultureInfo.InvariantCulture),

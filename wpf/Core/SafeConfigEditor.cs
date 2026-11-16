@@ -14,6 +14,11 @@ public sealed class ConfigEtagConflictException : IOException
 {
     public ConfigEtagConflictException(string message) : base(message) { }
 }
+public sealed class ConfigMergeConflictException : IOException
+{
+    public ConfigMergeConflictException() : base("INI three-way merge conflict") { }
+}
+public sealed record IniRebaseResult(ConfigSnapshot Fresh,string Content,int MergedLines);
 public enum ConfigKind { GameIni, PluginJson }
 public sealed record ConfigSnapshot(string Path,ConfigKind Kind,string Sha256,string Text,
     string EncodingId,string LineEnding,bool HasBom,long Bytes);
@@ -86,6 +91,83 @@ public static class SafeConfigEditor
             return backup;
         }
         finally{if(File.Exists(tmp))File.Delete(tmp);}
+    }
+
+    /// <summary>
+    /// Safe optimistic rebase of an INI edit onto a newer on-disk snapshot.
+    /// It never writes files. Only VALUE changes on EXISTING, positionally
+    /// stable key=value lines may be merged. Unrelated external edits of an
+    /// existing comment are preserved if the operator did not edit that line.
+    /// Headers, arrays, added/removed/reordered lines or ambiguous structural
+    /// changes require manual review. Conflicting same-line edits fail closed.
+    /// Duplicate ASA INI keys remain distinct positional entries.
+    /// </summary>
+    public static IniRebaseResult RebaseIni(ConfigSnapshot original,
+        string edited,ConfigSnapshot current)
+    {
+        if(original==null||current==null||
+           original.Kind!=ConfigKind.GameIni||
+           current.Kind!=ConfigKind.GameIni||
+           !Path.GetFullPath(original.Path).Equals(
+               Path.GetFullPath(current.Path),StringComparison.OrdinalIgnoreCase)||
+           original.EncodingId!=current.EncodingId||
+           original.HasBom!=current.HasBom)
+            throw new ConfigMergeConflictException();
+        var before=Normalize(original.Text,"\n").Split('\n');
+        var user=Normalize(edited,"\n").Split('\n');
+        var disk=Normalize(current.Text,"\n").Split('\n');
+        if(before.Length!=user.Length||before.Length!=disk.Length)
+            throw new ConfigMergeConflictException();
+        // A peer edit may not alter the section or key identity of a line.
+        // Preserving same linecount alone is insufficient: a renamed header
+        // would relocate all subsequent values to a different ASA INI section.
+        for(int i=0;i<before.Length;i++)
+        {
+            if(before[i]==disk[i])continue;
+            string line=before[i].TrimStart();
+            string freshLine=disk[i].TrimStart();
+            if((line.StartsWith(';')||line.StartsWith('#')) &&
+               (freshLine.StartsWith(';')||freshLine.StartsWith('#')))
+            {
+                // Another editor may update a comment without changing the
+                // section or any ASA key. Preserve those disk bytes exactly,
+                // but never silently merge competing edits to the comment.
+                if(user[i]!=before[i])throw new ConfigMergeConflictException();
+                continue;
+            }
+            int eq=before[i].IndexOf('=');
+            if(eq<=0||line.StartsWith('[')||
+               line.StartsWith(';')||line.StartsWith('#')||
+               !disk[i].StartsWith(before[i][..(eq+1)],
+                   StringComparison.Ordinal))
+                throw new ConfigMergeConflictException();
+        }
+        int editedCount=0;
+        for(int i=0;i<before.Length;i++)
+        {
+            if(before[i]==user[i])continue;
+            editedCount++;
+            string oldLine=before[i];
+            int equals=oldLine.IndexOf('=');
+            if(equals<=0||oldLine.TrimStart().StartsWith(';')||
+               oldLine.TrimStart().StartsWith('#')||
+               oldLine.TrimStart().StartsWith('['))
+                throw new ConfigMergeConflictException();
+            // The full left-hand side, including leading whitespace, must
+            // be unchanged on both sides; it protects per-occurrence identity.
+            string prefix=oldLine[..(equals+1)];
+            if(!user[i].StartsWith(prefix,StringComparison.Ordinal)||
+               !disk[i].StartsWith(prefix,StringComparison.Ordinal))
+                throw new ConfigMergeConflictException();
+            // The on-disk writer may have changed the exact same value. Do
+            // not choose a winner silently even when both edits are valid.
+            if(disk[i]!=oldLine&&disk[i]!=user[i])
+                throw new ConfigMergeConflictException();
+            if(disk[i]==oldLine)disk[i]=user[i];
+        }
+        string result=string.Join(current.LineEnding,disk);
+        ValidateContent(result,ConfigKind.GameIni);
+        return new(current,result,editedCount);
     }
 
     public static string SetIniValue(ConfigSnapshot baseline,string section,string key,

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using UntamedManager.Core;
 
 if(args.Length==3&&args[0]=="--scheduler-claim-child")
 {await SchedulerConcurrencyTests.Hold(args[1],args[2]);return;}
@@ -10,6 +11,13 @@ if(args.Length!=2||!File.Exists(args[0])||!File.Exists(args[1])||
 string root=Path.Combine(Path.GetTempPath(),
     "Untamed-Integration-"+Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
+// Even optional/manual targeted test runners must not share the real
+// machine-wide operation journal namespace with running ASA servers.
+string isolatedOperations=Path.Combine(root,"operation-journals");
+using var journalScope=UntamedOperationCoordinator.UseIsolatedRootForTests(
+    isolatedOperations);
+if(UntamedOperationCoordinator.DefaultRoot!=Path.GetFullPath(isolatedOperations))
+    throw new InvalidOperationException("Targeted test journal isolation failed");
 File.WriteAllText(Path.Combine(root,"steamcmd.exe"),"offline synthetic steamcmd file");
 await SteamCmdIsolatedUpdaterTests.Run(root,args[0]);
 await ModDependencyPlannerTests.Run();

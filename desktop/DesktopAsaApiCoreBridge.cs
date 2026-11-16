@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -25,8 +26,10 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
     private readonly HttpClient http;
     private readonly bool ownsClient;
     private readonly SemaphoreSlim serial=new(1,1);
-    private Approval? pending;
-    private RollbackApproval? pendingRollback;
+    // Each local map owns its own one-shot CORE install/rollback approval.
+    // An invalid preview or a different map must never revoke it.
+    private readonly Dictionary<Guid,Approval> pendingByMap=new();
+    private readonly Dictionary<Guid,RollbackApproval> rollbackByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopAsaApiCoreBridge(ClusterService cluster,HttpClient? client=null)
@@ -55,8 +58,9 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
         else if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
                 UntamedWorldBackup.HasLiveOrHistoricalStore(map))
             return false;
-        if(new AsaManualRestartJournal(map.InstallationPath).Observe() is
-            { Phase: not AsaRestartPhase.Completed })return false;
+        var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
+        if(restart!=null&&restart.Phase is not
+            (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed))return false;
         return cluster.Config.LocalMaps.Where(m=>
             !string.IsNullOrWhiteSpace(m.InstallationPath)&&
             string.Equals(Path.GetFullPath(m.InstallationPath),
@@ -89,6 +93,10 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
             await serial.WaitAsync();
             try
             {
+                foreach(var stale in pendingByMap.Where(x=>x.Value.Until<DateTimeOffset.UtcNow)
+                    .Select(x=>x.Key).ToArray())pendingByMap.Remove(stale);
+                foreach(var stale in rollbackByMap.Where(x=>x.Value.Until<DateTimeOffset.UtcNow)
+                    .Select(x=>x.Key).ToArray())rollbackByMap.Remove(stale);
                 if(method=="api.coreRelease")
                 {
                     var latest=await AsaApiReleaseCatalog.FetchLatestAsync(http);
@@ -105,7 +113,6 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
                 }
                 if(method=="api.corePreview")
                 {
-                    pending=null;pendingRollback=null;
                     if(!obj.TryGetProperty("mapId",out var m)||
                        m.ValueKind!=JsonValueKind.String ||
                        !Guid.TryParse(m.GetString(),out var mapId)||
@@ -122,11 +129,15 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
                         x.OfficialSha256!=null&&
                         x.Name.EndsWith(".zip",StringComparison.OrdinalIgnoreCase));
                     if(asset==null)return Err(id,"UM-API-CORE-UPSTREAM-DIGEST-MISSING");
-                    pending=new Approval(Guid.NewGuid(),map.Id,map.InstallationPath,
+                    if(!pendingByMap.ContainsKey(map.Id)&&pendingByMap.Count>=25)
+                        return Err(id,"UM-API-CORE-PREVIEW-CAPACITY");
+                    var approvedPreview=new Approval(Guid.NewGuid(),map.Id,map.InstallationPath,
                         assetName,release.Tag,asset.OfficialSha256!,
                         DateTimeOffset.UtcNow.AddMinutes(5));
+                    pendingByMap[map.Id]=approvedPreview;
+                    rollbackByMap.Remove(map.Id);
                     return Ok(id,new{
-                        token=pending.Token,mapId=map.Id,mapName=map.Name,
+                        token=approvedPreview.Token,mapId=map.Id,mapName=map.Name,
                         releaseTag=release.Tag,assetName,bytes=asset.Bytes,
                         officialSha256VerifiedInMetadata=true,
                         approved=false,serverStopped=true,storeProtected=false,
@@ -150,7 +161,6 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
                 }
                 if(method=="api.coreRollbackPreview")
                 {
-                    pending=null;pendingRollback=null;
                     if(!obj.TryGetProperty("mapId",out var mapArg)||
                        mapArg.ValueKind!=JsonValueKind.String||
                        !Guid.TryParse(mapArg.GetString(),out var mapId)||
@@ -165,11 +175,15 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
                     var candidate=AsaApiOwnedInstaller.ListCompletedRollbacks(cluster,mapId)
                         .SingleOrDefault(x=>x.TransactionId==transactionId);
                     if(candidate==null)return Err(id,"UM-API-CORE-ROLLBACK-NOT-COMMITTED");
-                    pendingRollback=new RollbackApproval(Guid.NewGuid(),mapId,
+                    if(!rollbackByMap.ContainsKey(mapId)&&rollbackByMap.Count>=25)
+                        return Err(id,"UM-API-CORE-ROLLBACK-CAPACITY");
+                    var approvedRollback=new RollbackApproval(Guid.NewGuid(),mapId,
                         local.InstallationPath,transactionId,
                         DateTimeOffset.UtcNow.AddMinutes(5));
+                    rollbackByMap[mapId]=approvedRollback;
+                    pendingByMap.Remove(mapId);
                     return Ok(id,new {
-                        token=pendingRollback.Token,mapId,mapName=local.Name,
+                        token=approvedRollback.Token,mapId,mapName=local.Name,
                         transactionId,releaseTag=candidate.ReleaseTag,
                         binaries=candidate.Binaries,
                         approved=false,doesNotRestart=true,
@@ -182,10 +196,12 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
                        rollbackTokenProp.ValueKind!=JsonValueKind.String||
                        !Guid.TryParse(rollbackTokenProp.GetString(),out var rollbackToken)||
                        !obj.TryGetProperty("confirm",out var yes)||
-                       yes.ValueKind!=JsonValueKind.True||
-                       pendingRollback==null||pendingRollback.Token!=rollbackToken)
+                       yes.ValueKind!=JsonValueKind.True)
                         return Err(id,"UM-API-CORE-ROLLBACK-APPROVAL");
-                    var rollbackApproval=pendingRollback;pendingRollback=null;
+                    var rollbackApproval=rollbackByMap.Values.SingleOrDefault(x=>x.Token==rollbackToken);
+                    if(rollbackApproval==null)
+                        return Err(id,"UM-API-CORE-ROLLBACK-APPROVAL");
+                    rollbackByMap.Remove(rollbackApproval.MapId); // one shot
                     if(rollbackApproval.Until<DateTimeOffset.UtcNow)
                         return Err(id,"UM-API-CORE-ROLLBACK-PREVIEW-EXPIRED");
                     var local=Local(rollbackApproval.MapId);
@@ -208,10 +224,12 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
                    t.ValueKind!=JsonValueKind.String||
                    !Guid.TryParse(t.GetString(),out var token)||
                    !obj.TryGetProperty("confirm",out var confirm)||
-                   confirm.ValueKind!=JsonValueKind.True||
-                   pending==null||pending.Token!=token)
+                   confirm.ValueKind!=JsonValueKind.True)
                     return Err(id,"UM-API-CORE-EXPLICIT-APPROVAL-REQUIRED");
-                var approved=pending;pending=null;
+                var approved=pendingByMap.Values.SingleOrDefault(x=>x.Token==token);
+                if(approved==null)
+                    return Err(id,"UM-API-CORE-EXPLICIT-APPROVAL-REQUIRED");
+                pendingByMap.Remove(approved.MapId); // one shot
                 if(approved.Until<DateTimeOffset.UtcNow)
                     return Err(id,"UM-API-CORE-PREVIEW-EXPIRED");
                 var owned=Local(approved.MapId);

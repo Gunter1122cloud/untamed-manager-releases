@@ -33,6 +33,26 @@ public static class SteamFreshInstallTests
                 StringComparison.OrdinalIgnoreCase) &&
             File.Exists(receipt.ServerExecutable),
             "fresh ASA download accepts an empty session name and verifies the EXE/build before port setup");
+        var completed=SteamFreshInstall.InspectCompleted(destination);
+        Check(completed!=null&&completed.MapId==mapId &&
+            completed.MapName=="The Island"&&completed.MapLevel=="TheIsland_WP"&&
+            completed.BuildId=="123456"&&completed.ServerExecutable==receipt.ServerExecutable &&
+            SteamFreshInstall.InspectIncomplete(destination)==null,
+            "Manager restart reads verified complete journal with original map GUID, without reinstall");
+        byte[] untouchedExe=File.ReadAllBytes(receipt.ServerExecutable);
+        Check(completed!=null&&untouchedExe.Length>0,
+            "read-only completed recovery retains verified installed ASA binary");
+        File.AppendAllText(receipt.ServerExecutable,"TAMPER");
+        bool modifiedDenied=false;
+        try{_=SteamFreshInstall.InspectCompleted(destination);}
+        catch(InvalidDataException e) when(
+            e.Message=="UM-FRESH-RECOVERY-COMPLETED-FILES-CHANGED")
+        {modifiedDenied=true;}
+        Check(modifiedDenied,"modified ASA executable cannot be recovered using a prior completed SHA-256 journal");
+        File.WriteAllBytes(receipt.ServerExecutable,untouchedExe);
+        Check(SteamFreshInstall.InspectCompleted(destination)?.MapId==mapId,
+            "restored synthetic EXE bytes revalidate with original immutable Steam completion journal");
+
         Check(!File.Exists(Path.Combine(destination,"ShooterGame","Saved","SavedArks","TheIsland_WP.ark")) &&
             !Directory.Exists(Path.Combine(destination,"ShooterGame","Saved")),
             "new Steam install does not invent/overwrite saves, INIs or Store state");

@@ -68,7 +68,8 @@ public static class SteamStoppedMapUpdater
             {
                 if(originalStoppedObserver==null||
                    !map.HistoricalStoreProtected||
-                   sibling.ObservedReadOnlyImported||sibling.Maintenance||
+                   sibling.ObservedReadOnlyImported||
+                   sibling.HistoricalLaunchModeNeedsApproval||sibling.Maintenance||
                    string.IsNullOrWhiteSpace(sibling.HistoricalMapKey)||
                    sibling.HistoricalArchiveSha256?.Length!=64||
                    !sibling.HistoricalArchiveSha256.All(Uri.IsHexDigit)||
@@ -79,6 +80,20 @@ public static class SteamStoppedMapUpdater
                    !string.IsNullOrWhiteSpace(sibling.ApiLoaderArguments))
                     throw new UnauthorizedAccessException(
                         "UM-STEAM-ORIGINAL-STORE-IDENTITY-INVALID");
+            }
+            else if(FreshStoreEnrollmentPolicy.IsEnrolled(sibling))
+            {
+                // Newly enrolled Store maps retain their own exact
+                // ClusterRegistry membership and transfer file-ID. Updating
+                // ONLY the stopped local ASA install is safe after Core
+                // independently rechecks those source-pinned invariants.
+                // Historical Store-v1 remains on its separate native path.
+                if(!ReferenceEquals(sibling,map) ||
+                   map.HistoricalStoreProtected ||
+                   sibling.ObservedReadOnlyImported || sibling.Maintenance)
+                    throw new UnauthorizedAccessException(
+                        "UM-STEAM-NEW-STORE-SHARED-OWNER-DENIED");
+                FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,sibling);
             }
             else if(map.HistoricalStoreProtected||
                sibling.ObservedReadOnlyImported||sibling.Maintenance||
@@ -102,6 +117,70 @@ public static class SteamStoppedMapUpdater
         }
         if(owners==0)
             throw new InvalidDataException("UM-STEAM-INSTALL-OWNER-MISSING");
+    }
+
+    // A brand-new enrolled Store map has not created its first SavedArks
+    // world yet. Requiring a nonexistent world backup makes the first
+    // explicitly approved offline SteamCMD update unusable. Only such
+    // positively untouched maps may back up their already configured INI
+    // without inventing or rewriting a world/character file.
+    private static bool HasWorldMaterial(string root)
+    {
+        string saved=Path.Combine(root,"ShooterGame","Saved");
+        if(!Directory.Exists(saved))return false;
+        foreach(var folder in new DirectoryInfo(saved).GetDirectories())
+        {
+            if(!folder.Name.StartsWith("SavedArks",
+                    StringComparison.OrdinalIgnoreCase)&&
+               !folder.Name.Equals("SaveGames",
+                    StringComparison.OrdinalIgnoreCase))continue;
+            // Treat links, zero-byte files and even nested directories as
+            // material. An incomplete world is never an empty-map waiver.
+            if((folder.Attributes&FileAttributes.ReparsePoint)!=0 ||
+               Directory.EnumerateFileSystemEntries(folder.FullName).Any())
+                return true;
+        }
+        return false;
+    }
+
+    private static bool IsUntouchedEnrolledStore(ClusterService cluster,LocalMap map)
+    {
+        if(!FreshStoreEnrollmentPolicy.IsEnrolled(map) ||
+           map.HistoricalStoreProtected||map.ObservedReadOnlyImported||
+           map.AutoStart||map.Maintenance||
+           map.LastProcess!=null||map.LastLoader!=null)
+            return false;
+        FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+        return AsaRconConfigurationEvidence.Matches(map)&&
+            !HasWorldMaterial(Path.GetFullPath(map.InstallationPath));
+    }
+
+    internal static LocalBackupScope PreUpdateBackupScope(
+        ClusterService cluster,LocalMap map)
+    {
+        ArgumentNullException.ThrowIfNull(cluster);
+        ArgumentNullException.ThrowIfNull(map);
+        string root=Path.GetFullPath(map.InstallationPath);
+        bool virgin=IsUntouchedEnrolledStore(cluster,map);
+        var scope=virgin?LocalBackupScope.None:
+            LocalBackupScope.WorldAndProfiles;
+        string ini=Path.Combine(root,"ShooterGame","Saved","Config","WindowsServer");
+        if(File.Exists(Path.Combine(ini,"Game.ini"))||
+           File.Exists(Path.Combine(ini,"GameUserSettings.ini")))
+            scope|=LocalBackupScope.Ini;
+        string binaryRoot=Path.Combine(root,"ShooterGame","Binaries","Win64");
+        string apiDir=Path.Combine(binaryRoot,"ArkApi");
+        string disabledDir=Path.Combine(binaryRoot,"UntamedDisabledPlugins");
+        bool HasFiles(string directory)=>Directory.Exists(directory)&&
+            Directory.EnumerateFiles(directory,"*",SearchOption.AllDirectories).Any();
+        if(HasFiles(apiDir)||HasFiles(disabledDir)||
+           File.Exists(Path.Combine(binaryRoot,"AsaApiLoader.exe"))||
+           File.Exists(Path.Combine(binaryRoot,"Version.dll"))||
+           File.Exists(Path.Combine(root,"Version.dll")))
+            scope|=LocalBackupScope.Plugins;
+        if(virgin&&!scope.HasFlag(LocalBackupScope.Ini))
+            throw new InvalidDataException("UM-STEAM-EMPTY-STORE-INI-BACKUP-REQUIRED");
+        return scope;
     }
 
     public static Task<Receipt> UpdateAsync(ClusterService cluster,LocalMap map,
@@ -157,9 +236,12 @@ public static class SteamStoppedMapUpdater
         ClusterService cluster,IReadOnlyList<LocalMap> candidates,
         string steamExecutable,long downloadReserveBytes,TimeSpan timeout,
         IProgress<SteamQueueProgress>? queueProgress=null,
-        IProgress<SteamMaintenanceStage>? stageProgress=null,CancellationToken ct=default) =>
+        IProgress<SteamMaintenanceStage>? stageProgress=null,CancellationToken ct=default,
+        Func<LocalMap,ProcessCheck>? originalStoppedObserver=null,
+        Func<LocalMap,ProcessCheck>? originalStoppedObserverUnderLease=null) =>
         BatchCore(cluster,candidates,steamExecutable,downloadReserveBytes,
-            timeout,null,queueProgress,stageProgress,ct);
+            timeout,null,queueProgress,stageProgress,ct,
+            originalStoppedObserver,originalStoppedObserverUnderLease);
 
     internal static Task<IReadOnlyList<Receipt>> RunAllFakeFixtureAsync(
         ClusterService cluster,IReadOnlyList<LocalMap> candidates,
@@ -178,7 +260,9 @@ public static class SteamStoppedMapUpdater
         ClusterService cluster,IReadOnlyList<LocalMap> candidates,
         string steamExecutable,long reserve,TimeSpan timeout,
         string? fakeExecutable,IProgress<SteamQueueProgress>? queueProgress,
-        IProgress<SteamMaintenanceStage>? stageProgress,CancellationToken ct)
+        IProgress<SteamMaintenanceStage>? stageProgress,CancellationToken ct,
+        Func<LocalMap,ProcessCheck>? originalStoppedObserver=null,
+        Func<LocalMap,ProcessCheck>? originalStoppedObserverUnderLease=null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(candidates);
@@ -190,16 +274,29 @@ public static class SteamStoppedMapUpdater
         var selected=candidates.GroupBy(m=>Path.GetFullPath(m.InstallationPath)
             .TrimEnd(Path.DirectorySeparatorChar),StringComparer.OrdinalIgnoreCase)
             .Select(g=>g.First()).ToArray();
-        // Reject any Store owner or nested installation BEFORE writing the
-        // durable serial queue journal, not after marking work in progress.
+        // The original Store-v1 map uses the existing offline ASA update
+        // engine, but ONLY a trusted native Windows process-family observer
+        // may prove it stopped. Never infer control from peer status or a UI flag.
+        if(selected.Any(m=>m.HistoricalStoreProtected)&&
+           (originalStoppedObserver==null||originalStoppedObserverUnderLease==null))
+            throw new UnauthorizedAccessException(
+                "UM-STEAM-BATCH-ORIGINAL-STOPPED-OBSERVER-REQUIRED");
+        ProcessCheck ObserveStopped(LocalMap participant)=>participant.HistoricalStoreProtected?
+            originalStoppedObserver?.Invoke(participant)??
+                throw new UnauthorizedAccessException(
+                    "UM-STEAM-BATCH-ORIGINAL-STOPPED-OBSERVER-REQUIRED"):
+            cluster.Check(participant);
+        // Reject protected or mixed-owner installations before writing the
+        // durable queue journal, even if some siblings were not selected.
         foreach(var selectedMap in selected)
-            DemandSafeLocalInstallation(cluster,selectedMap);
+            DemandSafeLocalInstallation(cluster,selectedMap,originalStoppedObserver);
         var receipts=new List<Receipt>();
         var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
-        await queue.ExecuteAsync(selected,cluster.Config.LocalMaps,cluster.Check,
+        await queue.ExecuteAsync(selected,cluster.Config.LocalMaps,ObserveStopped,
             async (map,token)=>{
                 var item=await RunCore(cluster,map,steamExecutable,reserve,
-                    timeout,fakeExecutable,stageProgress,true,token);
+                    timeout,fakeExecutable,stageProgress,true,token,
+                    originalStoppedObserver,originalStoppedObserverUnderLease);
                 receipts.Add(item);
             },queueProgress,ct);
         return receipts;
@@ -247,12 +344,16 @@ public static class SteamStoppedMapUpdater
                 .TrimEnd(Path.DirectorySeparatorChar),root,StringComparison.OrdinalIgnoreCase))
             .ToArray();
         if(group.Length==0)throw new InvalidDataException("ASA installation ownership is missing");
+        bool emptyWorldBackup=false;
         void VerifyStopped()
         {
             // Recheck the entire live local registry at every irreversible
             // boundary; a newly registered Store sibling cannot be hidden
             // behind the initial preflight snapshot.
             DemandSafeLocalInstallation(cluster,map,CurrentObserver());
+            if(emptyWorldBackup&&!IsUntouchedEnrolledStore(cluster,map))
+                throw new InvalidOperationException(
+                    "UM-STEAM-EMPTY-STORE-WORLD-OR-PROFILE-CHANGED");
             foreach(var participant in group)
             {
                 var state=ObserveStopped(participant);
@@ -279,25 +380,21 @@ public static class SteamStoppedMapUpdater
                     "verified-pre-steam-update");
                 string destination=Path.Combine(backupRoot,map.Id.ToString("N")+"-"+
                     Guid.NewGuid().ToString("N"));
-                // A previously used map must have a real world/profile save.
-                // This is not a blind file update without a recoverable copy.
-                var scope=LocalBackupScope.WorldAndProfiles;
-                string ini=Path.Combine(root,"ShooterGame","Saved","Config","WindowsServer");
-                if(File.Exists(Path.Combine(ini,"Game.ini"))||
-                   File.Exists(Path.Combine(ini,"GameUserSettings.ini")))
-                    scope|=LocalBackupScope.Ini;
-                string plugin=Path.Combine(root,"ShooterGame","Binaries","Win64",
-                    "ArkApi","Plugins");
-                if(Directory.Exists(plugin)&&
-                   Directory.EnumerateFiles(plugin,"*",SearchOption.AllDirectories).Any())
-                    scope|=LocalBackupScope.Plugins;
+                // Existing worlds always require the complete world/profile
+                // backup. A never-started, separately enrolled Store map may
+                // instead back up its verified native RCON INI (and any API
+                // plugins) before the very first world is ever created.
+                var scope=PreUpdateBackupScope(cluster,map);
+                emptyWorldBackup=!scope.HasFlag(LocalBackupScope.WorldAndProfiles);
                 VerifyStopped();
                 progress?.Report(SteamMaintenanceStage.Backup);
                 // The verified backup is created OUTSIDE the install root.
-                // LocalBackupWorkflow hashes source AND destination and fails
-                // on changed memberships. Missing world saves reject update.
+                // LocalBackupWorkflow hashes source/destination and rejects
+                // incomplete world saves. The exact empty-world exception is
+                // limited to a never-launched new Store map with backed-up INI.
                 var backup=LocalBackupWorkflow.Create(map,ObserveStopped(map),
-                    destination,scope);
+                    destination,scope,checkCurrent:()=>ObserveStopped(map),
+                    limits:BackupResourcePolicy.ForManagerProfile(cluster.Store.Root));
                 var manifestFile=Path.Combine(backup.PackageDirectory,"manifest.json");
                 if(!File.Exists(manifestFile))
                     throw new InvalidDataException("Verified pre-update backup manifest is missing");
@@ -321,7 +418,7 @@ public static class SteamStoppedMapUpdater
                 operation.MarkMutationStarted();
                 progress?.Report(SteamMaintenanceStage.SteamCmd);
                 await RunSteamAsync(fakeExecutable??steamExecutable,root,
-                    timeout,fakeExecutable!=null,token);
+                    timeout,fakeExecutable!=null,VerifyStopped,token);
                 VerifyStopped();
                 progress?.Report(SteamMaintenanceStage.VerifyBuild);
                 var after=SteamProtectedFiles.Snapshot(root);
@@ -355,26 +452,31 @@ public static class SteamStoppedMapUpdater
         return result ?? throw new InvalidOperationException("No verified Steam update receipt was committed");
     }
 
+    // Source-compatible, bounded SteamCMD first-run retry. A failed network,
+    // disk or SteamCMD process is NEVER retried blindly. Synthetic/native CI
+    // fixtures never auto-retry, and no retry is a second operator job.
+    internal static bool ShouldRetryMissingConfiguration(
+        int attempt,int exitCode,string output,bool synthetic) =>
+        !synthetic&&attempt is >=0 and <2&&exitCode!=0&&
+        SteamFreshInstall.IsTransientMissingSteamConfiguration(output);
+
     private static async Task RunSteamAsync(string exe,string install,
-        TimeSpan timeout,bool synthetic,CancellationToken ct)
+        TimeSpan timeout,bool synthetic,Action verifyStopped,CancellationToken ct)
     {
-        var psi=new ProcessStartInfo(exe)
-        {
-            UseShellExecute=false,CreateNoWindow=true,
-            WorkingDirectory=Path.GetDirectoryName(exe)!,
-            RedirectStandardOutput=true,RedirectStandardError=true
-        };
-        foreach(var arg in new[]{"+force_install_dir",install,"+login","anonymous",
-            "+app_update","2430930","validate","+quit"})
-            psi.ArgumentList.Add(arg);
-        foreach(string key in new[]{"STEAM_USERNAME","STEAM_PASSWORD","MYSQL_PWD",
-            "MARIADB_PWD","UNTAMED_RCON_PASSWORD"})
-            psi.Environment.Remove(key);
-        if(synthetic)psi.Environment["FAKE_STEAM_REFRESH_BUILD"]="1";
+        ArgumentNullException.ThrowIfNull(verifyStopped);
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(timeout);
-        using var child=Process.Start(psi) ??
-            throw new IOException("SteamCMD child could not be launched");
+        // Reuse the working original SteamCMD bootstrap implementation. A
+        // newly installed steamcmd.exe may self-update and exit before it can
+        // process app_update; its first +quit happens under the same approved
+        // local Steam maintenance lease and never starts/stops an ASA server.
+        if(!synthetic)
+        {
+            verifyStopped();
+            await SteamFreshInstall.BootstrapSteamCmdAsync(exe,null,deadline.Token);
+            verifyStopped();
+            _=SteamCmdPreflight.Inspect(exe);
+        }
         static async Task<string> Capture(StreamReader reader,CancellationToken token)
         {
             var output=new StringBuilder();
@@ -389,27 +491,64 @@ public static class SteamStoppedMapUpdater
             }
             return output.ToString();
         }
-        var stdout=Capture(child.StandardOutput,deadline.Token);
-        var stderr=Capture(child.StandardError,deadline.Token);
-        try
+        for(int attempt=0;attempt<3;attempt++)
         {
-            await child.WaitForExitAsync(deadline.Token);
-            var message=await stdout;
-            _=await stderr;
-            if(child.ExitCode!=0 ||
-               !message.Contains("Success! App '2430930' fully installed.",
-                   StringComparison.Ordinal))
-                throw new InvalidDataException("SteamCMD did not acknowledge a complete ASA update");
-        }
-        catch
-        {
-            if(!child.HasExited)
+            deadline.Token.ThrowIfCancellationRequested();
+            // No subsequent SteamCMD process can start unless the full local
+            // ASA/Loader process family and its shared-install siblings are
+            // independently verified STOPPED again.
+            verifyStopped();
+            var psi=new ProcessStartInfo(exe)
             {
-                try{child.Kill(entireProcessTree:true);}catch{}
-                try{await child.WaitForExitAsync(CancellationToken.None)
-                    .WaitAsync(TimeSpan.FromSeconds(5));}catch{}
+                UseShellExecute=false,CreateNoWindow=true,
+                WorkingDirectory=Path.GetDirectoryName(exe)!,
+                RedirectStandardOutput=true,RedirectStandardError=true
+            };
+            foreach(var arg in new[]{"+force_install_dir",install,"+login","anonymous",
+                "+app_update","2430930","validate","+quit"})
+                psi.ArgumentList.Add(arg);
+            foreach(string key in new[]{"STEAM_USERNAME","STEAM_PASSWORD","MYSQL_PWD",
+                "MARIADB_PWD","UNTAMED_RCON_PASSWORD"})
+                psi.Environment.Remove(key);
+            if(synthetic)psi.Environment["FAKE_STEAM_REFRESH_BUILD"]="1";
+            using var child=Process.Start(psi) ??
+                throw new IOException("SteamCMD child could not be launched");
+            var stdout=Capture(child.StandardOutput,deadline.Token);
+            var stderr=Capture(child.StandardError,deadline.Token);
+            try
+            {
+                await child.WaitForExitAsync(deadline.Token);
+                string message=await stdout;
+                string error=await stderr;
+                if(child.ExitCode==0 &&
+                   message.Contains("Success! App '2430930' fully installed.",
+                       StringComparison.OrdinalIgnoreCase))
+                    return;
+                if(ShouldRetryMissingConfiguration(attempt,child.ExitCode,
+                    message+"\n"+error,synthetic))
+                {
+                    // Valve's exact initial Missing configuration response
+                    // may be transient. At most two retries with bounded
+                    // backoff, inside the existing ONE manual update operation.
+                    verifyStopped();
+                    await Task.Delay(TimeSpan.FromSeconds(3*(attempt+1)),
+                        deadline.Token);
+                    continue;
+                }
+                throw new InvalidDataException(
+                    "SteamCMD did not acknowledge a complete ASA update");
             }
-            throw;
+            catch
+            {
+                if(!child.HasExited)
+                {
+                    try{child.Kill(entireProcessTree:true);}catch{}
+                    try{await child.WaitForExitAsync(CancellationToken.None)
+                        .WaitAsync(TimeSpan.FromSeconds(5));}catch{}
+                }
+                throw;
+            }
         }
+        throw new InvalidDataException("SteamCMD initial configuration retry exhausted");
     }
 }

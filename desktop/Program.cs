@@ -12,12 +12,13 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         // Do not permit two desktop shells to race on the same user profile.
-        bool smokeTest=args.Any(a=>a=="--smoke-test");
-        string mutexName=smokeTest
+        var mode=DesktopStartupMode.Parse(args);
+        string mutexName=mode.SmokeTest
             ?@"Local\Untamed-Obsidian-Desktop-Smoke"
             :@"Local\Untamed-Obsidian-Desktop";
         using var singleInstance = new Mutex(true, mutexName, out bool isFirst);
         if (!isFirst) return;
-        Application.Run(new ObsidianWindow(smokeTest));
+        Application.Run(new ObsidianWindow(mode.SmokeTest,
+            suppressScheduledMutations:!mode.RunScheduledMutations));
     }
 }

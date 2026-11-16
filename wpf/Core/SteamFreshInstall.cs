@@ -24,6 +24,9 @@ public sealed record SteamFreshInstallReceipt(Guid MapId,string InstallationRoot
 public sealed record InterruptedSteamInstall(Guid MapId,string MapName,
     string InstallRoot,string SteamCmdExecutable,string Phase,DateTimeOffset ChangedUtc,
     string? MapLevel=null);
+public sealed record CompletedSteamInstall(Guid MapId,string MapName,
+    string InstallRoot,string ServerExecutable,string SteamCmdExecutable,
+    string MapLevel,string BuildId,DateTimeOffset CompletedUtc);
 
 public static class SteamFreshInstall
 {
@@ -94,7 +97,8 @@ public static class SteamFreshInstall
     }
     private sealed record Journal(Guid MapId,string InstallRoot,string SteamExe,
         string Phase,DateTimeOffset ChangedUtc,string? MapName=null,
-        string? MapLevel=null);
+        string? MapLevel=null,string? BinarySha256=null,
+        string? ManifestSha256=null);
 
     /// <summary>
     /// Read an interrupted SteamCMD transaction without mutating files.
@@ -120,6 +124,89 @@ public static class SteamFreshInstall
                 "Legacy unfinished Steam journal has no map name; review manually");
         return new(entry.MapId,entry.MapName,root,entry.SteamExe,
             entry.Phase,entry.ChangedUtc,entry.MapLevel);
+    }
+
+    /// <summary>
+    /// Recover a verified but not-yet-registered new ASA installation after
+    /// the Windows Manager exited. This performs READS ONLY. It never runs
+    /// SteamCMD, creates a map, edits an INI or touches the old Kova cluster.
+    /// Registration must still be explicitly approved in the native bridge.
+    /// A prepared/mutating journal is NOT a completed install.
+    /// </summary>
+    private static string FileSha256(string path)
+    {
+        using var bytes=new FileStream(path,FileMode.Open,FileAccess.Read,
+            FileShare.Read,1024*1024,FileOptions.SequentialScan);
+        return Convert.ToHexString(SHA256.HashData(bytes));
+    }
+
+    public static CompletedSteamInstall? InspectCompleted(string chosenRoot)
+    {
+        string root=Canonical(chosenRoot);
+        string file=Canonical(OperationPath(root));
+        if(!File.Exists(file))return null;
+        if((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0||
+           new FileInfo(file).Length is <=0 or >16384)
+            throw new InvalidDataException("UM-FRESH-RECOVERY-JOURNAL-INVALID");
+        Journal entry;
+        try
+        {
+            entry=JsonSerializer.Deserialize<Journal>(File.ReadAllText(file)) ??
+                throw new InvalidDataException("UM-FRESH-RECOVERY-JOURNAL-INVALID");
+        }
+        catch(JsonException ex)
+        {
+            throw new InvalidDataException("UM-FRESH-RECOVERY-JOURNAL-INVALID",ex);
+        }
+        if(entry.Phase!="complete")return null;
+        if(entry.MapId==Guid.Empty||!Same(entry.InstallRoot,root)||
+           string.IsNullOrWhiteSpace(entry.MapName)||
+           string.IsNullOrWhiteSpace(entry.MapLevel)||
+           string.IsNullOrWhiteSpace(entry.SteamExe))
+            throw new InvalidDataException("UM-FRESH-RECOVERY-JOURNAL-INVALID");
+        if(!string.Equals(LocalMapNameRules.Normalize(entry.MapName),entry.MapName,
+               StringComparison.Ordinal))
+            throw new InvalidDataException("UM-FRESH-RECOVERY-MAP-NAME-INVALID");
+        string originalLevel;
+        try{originalLevel=AsaSteamMapCatalog.LevelFor(entry.MapName);}
+        catch(InvalidDataException)
+        {
+            originalLevel=AsaSteamMapCatalog.ValidateCustomLevel(entry.MapLevel);
+        }
+        if(!string.Equals(originalLevel,entry.MapLevel,StringComparison.Ordinal))
+            throw new InvalidDataException("UM-FRESH-RECOVERY-LEVEL-MISMATCH");
+        string steam=Canonical(entry.SteamExe);
+        // Both must still exist in the SAME fixed local installation root.
+        var probe=LocalAsaInstallLocator.Probe(root);
+        string manifest=Canonical(Path.Combine(root,"steamapps",
+            "appmanifest_2430930.acf"));
+        var build=AsaSteamBuildCatalog.InstalledBuild(root);
+        if(!probe.HasServerExecutable || string.IsNullOrWhiteSpace(probe.ServerExecutable) ||
+           string.IsNullOrWhiteSpace(build))
+            throw new InvalidDataException("UM-FRESH-RECOVERY-FILES-UNVERIFIED");
+        string binary=Canonical(probe.ServerExecutable);
+        if(!binary.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar)+
+            Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase) ||
+           !File.Exists(binary) ||
+           (File.GetAttributes(binary)&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("UM-FRESH-RECOVERY-BINARY-OUTSIDE-ROOT");
+
+        // A completion journal from older builds without hashes is NOT
+        // sufficient evidence to adopt an executable after a crash. The
+        // operator may instead use the existing manual ASA import workflow.
+        if(entry.BinarySha256 is not {Length:64} ||
+           entry.ManifestSha256 is not {Length:64} ||
+           !entry.BinarySha256.All(Uri.IsHexDigit) ||
+           !entry.ManifestSha256.All(Uri.IsHexDigit))
+            throw new InvalidDataException("UM-FRESH-RECOVERY-UNPINNED-COMPLETION");
+        if(!string.Equals(FileSha256(binary),entry.BinarySha256,
+                StringComparison.OrdinalIgnoreCase) ||
+           !string.Equals(FileSha256(manifest),entry.ManifestSha256,
+                StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("UM-FRESH-RECOVERY-COMPLETED-FILES-CHANGED");
+
+        return new(entry.MapId,entry.MapName,root,binary,steam,
+            originalLevel,build,entry.ChangedUtc);
     }
 
     private static void SaveJournal(string file,Journal value)
@@ -199,6 +286,76 @@ public static class SteamFreshInstall
             return exe;
         }
         finally{if(File.Exists(temp))File.Delete(temp);}
+    }
+
+    // The original desktop installer explicitly bootstraps Valve's SteamCMD
+    // before app_update. A fresh steamcmd.exe often self-updates and exits
+    // before it can process +app_update; do not interpret that as ASA installed.
+    internal static bool NeedsSteamBootstrapRestart(int exitCode,string output)
+    {
+        return exitCode!=0 &&
+            (output.Contains("Update complete, launching",
+                StringComparison.OrdinalIgnoreCase) ||
+             output.Contains("Restarting SteamCMD",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    // A freshly bootstrapped Valve installation can report missing client
+    // configuration once before its initial download is ready. Only this
+    // exact Steam failure is eligible for the source-compatible 2 retries.
+    internal static bool IsTransientMissingSteamConfiguration(string output)=>
+        System.Text.RegularExpressions.Regex.IsMatch(output,
+            @"Failed to install app\s*'2430930'\s*\(Missing configuration\)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    // Shared with the explicit stopped-ASA update path. The existing source-
+    // compatible self-update bootstrap is not a background schedule.
+    internal static async Task BootstrapSteamCmdAsync(string steam,
+        IProgress<SteamInstallProgress>? progress,CancellationToken ct)
+    {
+        progress?.Report(new("steamcmd","SteamCMD első indítása / önfrissítésének ellenőrzése",null));
+        for(int attempt=0;attempt<2;attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            using var deadline=CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(TimeSpan.FromMinutes(5));
+            var psi=new ProcessStartInfo(steam) {
+                WorkingDirectory=Path.GetDirectoryName(steam)!,
+                UseShellExecute=false,CreateNoWindow=true,
+                RedirectStandardOutput=true,RedirectStandardError=true
+            };
+            psi.ArgumentList.Add("+quit");
+            foreach(string key in new[]{"STEAM_USERNAME","STEAM_PASSWORD","MYSQL_PWD",
+                "MARIADB_PWD","UNTAMED_RCON_PASSWORD"})
+                psi.Environment.Remove(key);
+            using var process=Process.Start(psi) ??
+                throw new IOException("SteamCMD bootstrap could not start");
+            var stdout=CaptureSteamOutput(process.StandardOutput,null,false,deadline.Token);
+            var stderr=CaptureSteamOutput(process.StandardError,null,true,deadline.Token);
+            try
+            {
+                await process.WaitForExitAsync(deadline.Token);
+                string first=await stdout;
+                string second=await stderr;
+                if(process.ExitCode==0)return;
+                if(attempt==0 &&
+                   NeedsSteamBootstrapRestart(process.ExitCode,first+"\n"+second))
+                {
+                    progress?.Report(new("steamcmd",
+                        "A SteamCMD saját frissítése miatt egyszer újraellenőrzés szükséges",null));
+                    continue;
+                }
+                throw new IOException("SteamCMD bootstrap did not complete successfully; the ASA download was not started");
+            }
+            catch
+            {
+                if(!process.HasExited)
+                    try{process.Kill(entireProcessTree:true);}catch{}
+                throw;
+            }
+        }
+        throw new IOException("SteamCMD bootstrap retry exhausted");
     }
 
     /// <summary>
@@ -299,6 +456,10 @@ public static class SteamFreshInstall
             SaveJournal(journal,new(request.MapId,root,steam,"prepared",DateTimeOffset.UtcNow,
                 request.MapName,level));
             steam=await PrepareSteamCmdAsync(steam,request.DownloadSteamCmd,progress,cancellationToken);
+            // A verified FakeSteamCMD test fixture is not Valve's executable;
+            // never launch the real bootstrap during isolated CI regression.
+            if(fakeExecutable==null)
+                await BootstrapSteamCmdAsync(steam,progress,cancellationToken);
             Directory.CreateDirectory(root);
             // Test that the exact new root is writable; never touch a historical install.
             string probe=Path.Combine(root,".untamed-write-check-"+Guid.NewGuid().ToString("N"));
@@ -308,50 +469,74 @@ public static class SteamFreshInstall
             SaveJournal(journal,new(request.MapId,root,steam,"mutating",DateTimeOffset.UtcNow,
                 request.MapName,level));
             progress?.Report(new("download","ASA 2430930 telepítése / ellenőrzése",null));
-            var psi=new ProcessStartInfo(fakeExecutable??steam)
+            // Valve's first-run Missing configuration condition is transient.
+            // Preserve already downloaded files and retry no more than twice.
+            // Other failures and fake test runners never receive a retry.
+            bool downloadConfirmed=false;
+            for(int attempt=0;attempt<3;attempt++)
             {
-                WorkingDirectory=Path.GetDirectoryName(steam)!,
-                UseShellExecute=false,CreateNoWindow=true,
-                RedirectStandardOutput=true,RedirectStandardError=true
-            };
-            foreach(string arg in new[]{"+force_install_dir",root,"+login","anonymous",
-                "+app_update","2430930","validate","+quit"})
-                psi.ArgumentList.Add(arg);
-            using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            deadline.CancelAfter(TimeSpan.FromHours(5));
-            if(fakeExecutable!=null)
-            {
-                psi.Environment["FAKE_STEAM_NEW_INSTALL"]="1";
-                progress?.Report(new("test","Izolált FakeSteamCMD teszt, nem éles Steam",null));
+                cancellationToken.ThrowIfCancellationRequested();
+                var psi=new ProcessStartInfo(fakeExecutable??steam)
+                {
+                    WorkingDirectory=Path.GetDirectoryName(steam)!,
+                    UseShellExecute=false,CreateNoWindow=true,
+                    RedirectStandardOutput=true,RedirectStandardError=true
+                };
+                foreach(string arg in new[]{"+force_install_dir",root,"+login","anonymous",
+                    "+app_update","2430930","validate","+quit"})
+                    psi.ArgumentList.Add(arg);
+                using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                deadline.CancelAfter(TimeSpan.FromHours(5));
+                if(fakeExecutable!=null)
+                {
+                    psi.Environment["FAKE_STEAM_NEW_INSTALL"]="1";
+                    progress?.Report(new("test","Izolált FakeSteamCMD teszt, nem éles Steam",null));
+                }
+                using var process=Process.Start(psi)??throw new IOException("SteamCMD launch failed");
+                Task<string> stdout=CaptureSteamOutput(
+                    process.StandardOutput,progress,false,deadline.Token);
+                Task<string> stderr=CaptureSteamOutput(
+                    process.StandardError,null,true,deadline.Token);
+                string output;
+                try
+                {
+                    await process.WaitForExitAsync(deadline.Token);
+                    string first=await stdout;
+                    string second=await stderr;
+                    output=first+"\n"+second;
+                }
+                catch
+                {
+                    if(!process.HasExited)
+                        try{process.Kill(entireProcessTree:true);}catch{}
+                    throw;
+                }
+                if(process.ExitCode==0 &&
+                   output.Contains("Success! App '2430930' fully installed.",
+                       StringComparison.OrdinalIgnoreCase))
+                {
+                    downloadConfirmed=true;
+                    break;
+                }
+                if(fakeExecutable!=null || attempt==2 ||
+                   !IsTransientMissingSteamConfiguration(output))
+                    throw new InvalidDataException(
+                        "SteamCMD did not confirm ASA 2430930 installation");
+                progress?.Report(new("download",
+                    "SteamCMD első indítási konfigurációja még nem kész; ellenőrzött újrapróbálás "+
+                    (attempt+1)+"/2",null));
+                await Task.Delay(TimeSpan.FromSeconds((attempt+1)*3),cancellationToken);
             }
-            using var process=Process.Start(psi)??throw new IOException("SteamCMD launch failed");
-            Task<string> stdout=CaptureSteamOutput(
-                process.StandardOutput,progress,false,deadline.Token);
-            Task<string> stderr=CaptureSteamOutput(
-                process.StandardError,null,true,deadline.Token);
-            try
-            {
-                await process.WaitForExitAsync(deadline.Token);
-                string output=await stdout;
-                _=await stderr; // untrusted log output is never persisted
-                if(output.Length>3_000_000 || process.ExitCode!=0 ||
-                   !output.Contains("Success! App '2430930' fully installed.",
-                       StringComparison.Ordinal))
-                    throw new InvalidDataException("SteamCMD did not confirm ASA 2430930 installation");
-            }
-            catch
-            {
-                if(!process.HasExited)
-                    try{process.Kill(entireProcessTree:true);}catch{}
-                throw;
-            }
+            if(!downloadConfirmed)
+                throw new InvalidDataException("SteamCMD ASA installation not confirmed");
             cancellationToken.ThrowIfCancellationRequested();
             var probeInstall=LocalAsaInstallLocator.Probe(root);
             var build=AsaSteamBuildCatalog.InstalledBuild(root);
             if(!probeInstall.HasServerExecutable || build==null)
                 throw new InvalidDataException("SteamCMD exited but ASA EXE / appmanifest is not verified");
             SaveJournal(journal,new(request.MapId,root,steam,"complete",DateTimeOffset.UtcNow,
-                request.MapName,level));
+                request.MapName,level,FileSha256(probeInstall.ServerExecutable!),
+                FileSha256(Path.Combine(root,"steamapps","appmanifest_2430930.acf"))));
             progress?.Report(new("complete","ASA szerverfájlok ellenőrizve; szerver nincs elindítva",100));
             return new(request.MapId,root,probeInstall.ServerExecutable!,build,
                 DateTimeOffset.UtcNow,steam,level);

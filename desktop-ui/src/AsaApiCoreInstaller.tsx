@@ -5,10 +5,10 @@ import {managerBridge,type AsaApiCoreRelease,type AsaApiCorePreview,type AsaApiC
 /**
  * Official upstream ASA API CORE updater. Trusted native bridge owns HTTPS,
  * ZIP bytes, on-disk backups, process checks and transaction journal.
- * The React UI never sees a filesystem path, token or secret from Kova Store.
+ * The React UI never sees a filesystem path, token or secret from korábbi Manager Store.
  */
-export function AsaApiCoreInstaller({mapId,onInstalled}:{
-  mapId:string;onInstalled:()=>void
+export function AsaApiCoreInstaller({mapId,mapName,onInstalled}:{
+  mapId:string;mapName:string;onInstalled:()=>void
 }){
   const [release,setRelease]=useState<AsaApiCoreRelease|null>(null);
   const [asset,setAsset]=useState("");
@@ -40,7 +40,12 @@ export function AsaApiCoreInstaller({mapId,onInstalled}:{
   const prepare=async()=>{
     if(!mapId||!asset||busy)return;
     setBusy(true);setPreview(null);setApproved(false);setError("");setMessage("");
-    try{setPreview(await managerBridge.apiCorePreview(mapId,asset));}
+    try{
+      const result=await managerBridge.apiCorePreview(mapId,asset);
+      if(result.mapId.toLowerCase()!==mapId.toLowerCase())
+        throw new Error("UM-API-CORE-PREVIEW-MAP-MISMATCH");
+      setPreview(result);
+    }
     catch{
       setError("A hivatalos ZIP SHA-256 azonosítója, vagy a leállított, saját non-Store szerver nem igazolható.");
     }finally{setBusy(false);}
@@ -51,6 +56,10 @@ export function AsaApiCoreInstaller({mapId,onInstalled}:{
     setBusy(true);setPreview(null);setApproved(false);setError("");setMessage("");
     try{
       const result=await managerBridge.apiCoreApply(id);
+      if(result.mapId.toLowerCase()!==mapId.toLowerCase()){
+        setError("Az API CORE telepítési válaszának mapazonosítója eltér a kijelölt mapétól. A művelet kimenete külön ellenőrzendő; ne indítsd újra automatikusan.");
+        return;
+      }
       setMessage(result.releaseTag+" · "+result.binaries+
         " ellenőrzött ASA API CORE bináris telepítve; a korábbi fájlok célzott védőmentésben maradtak. Szerverindítás és automatikus újrapróbálás nem történt.");
       onInstalled();
@@ -80,7 +89,11 @@ export function AsaApiCoreInstaller({mapId,onInstalled}:{
     setBusy(true);setError("");setMessage("");setRollbackPreview(null);
     setRollbackApproved(false);
     try{
-      setRollbackPreview(await managerBridge.apiCoreRollbackPreview(mapId,rollbackId));
+      const result=await managerBridge.apiCoreRollbackPreview(mapId,rollbackId);
+      if(result.mapId.toLowerCase()!==mapId.toLowerCase()||
+         result.transactionId!==rollbackId)
+        throw new Error("UM-API-CORE-ROLLBACK-MAP-MISMATCH");
+      setRollbackPreview(result);
     }catch{
       setError("A visszaállítás előfeltételei vagy a kiválasztott, befejezett tranzakció már nem igazolhatók.");
     }finally{setBusy(false);}
@@ -92,6 +105,11 @@ export function AsaApiCoreInstaller({mapId,onInstalled}:{
     setMessage("");setError("");
     try{
       const result=await managerBridge.apiCoreRollbackApply(token);
+      if(result.mapId.toLowerCase()!==mapId.toLowerCase()||
+         result.transactionId!==rollbackPreview.transactionId){
+        setError("Az API CORE visszaállítási válaszának map- vagy tranzakcióazonosítója eltér. Ellenőrizd a natív naplót; nincs automatikus ismétlés.");
+        return;
+      }
       setMessage("API CORE visszaállítva: "+result.filesRestored+
         " eredeti bináris visszaállítva, "+result.filesRemoved+
         " csak e telepítés által létrehozott bináris eltávolítva. SHA-256 ellenőrizve; szerverindítás nem történt.");
@@ -102,9 +120,9 @@ export function AsaApiCoreInstaller({mapId,onInstalled}:{
       setError("A visszaállítás nem lett igazolt. A Manager tartós műveleti naplóját ellenőrizni kell; automatikus újrapróbálás nincs.");
     }finally{setBusy(false);}
   };
-  return <section className="premium-panel" aria-label="Hivatalos ASA API CORE telepítés" style={{marginTop:18,padding:20}}>
+  return <section className="premium-panel" aria-label={"Hivatalos ASA API CORE telepítés · "+mapName} style={{marginTop:18,padding:20}}>
     <header className="premium-panel-heading"><h2><Download size={19}/> ASA API CORE · hivatalos GitHub frissítő</h2></header>
-    <p>Csak saját, leállított, nem Store-v1 ASA telepítésen végez célzott binárisfrissítést. A hivatalos kiadás GitHub SHA-256 ellenőrzése és a régi DLL/EXE bájtpontos megőrzése kötelező. Pluginbeállítások, mentések és a világfájlok nem módosulnak.</p>
+    <p>Csak saját, igazoltan leállított friss ASA vagy külön regisztrált új Store mapon végez célzott binárisfrissítést. Az eredetileg importált Store-v1 mapok védettek. A hivatalos kiadás GitHub SHA-256 ellenőrzése és a régi DLL/EXE bájtpontos megőrzése kötelező. Pluginbeállítások, mentések és a világfájlok nem módosulnak.</p>
     <button className="secondary" type="button" disabled={busy}
       onClick={()=>{void refresh();}}>
       <RefreshCcw size={15}/>{busy?"Hivatalos kiadás ellenőrzése...":"Hivatalos ASA API kiadás lekérdezése"}

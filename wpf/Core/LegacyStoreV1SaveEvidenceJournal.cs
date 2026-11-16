@@ -86,9 +86,16 @@ public static class LegacyStoreV1SaveEvidenceJournal
         if(mapId==Guid.Empty)throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-MAP");
         string root=VaultReadSnapshot.LocalPath(managerProfileRoot,true);
         string folder=System.IO.Path.Combine(root,"historical-save-evidence-v1");
-        // This is a dedicated Manager-owned local folder, not any Kova path.
-        if(Directory.Exists(folder)&&
-           (File.GetAttributes(folder)&FileAttributes.ReparsePoint)!=0)
+        // This is a dedicated Manager-owned local folder, not any original
+        // Store path. Directory.Exists silently returns false on access
+        // denial or for an unexpected file/reparse point at the directory
+        // slot. Neither is evidence that a previously prepared receipt is
+        // absent: only an actually missing directory is allowed.
+        var folderAttributes=AttributesIfPresent(folder);
+        if(folderAttributes.HasValue&&
+           (folderAttributes.Value&
+             (FileAttributes.Directory|FileAttributes.ReparsePoint))!=
+             FileAttributes.Directory)
             throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-LINKED");
         return System.IO.Path.Combine(folder,mapId.ToString("N")+".json");
     }
@@ -110,12 +117,27 @@ public static class LegacyStoreV1SaveEvidenceJournal
             throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-SCHEMA");
     }
 
+    private static FileAttributes? AttributesIfPresent(string path)
+    {
+        // File.Exists/Directory.Exists silently return false on access
+        // errors. That is not safe for a SaveWorld intent which gates
+        // later RCON/Stop/Restart; only an explicitly missing file or
+        // parent may mean "no pending receipt".
+        try{return File.GetAttributes(path);}
+        catch(FileNotFoundException){return null;}
+        catch(DirectoryNotFoundException){return null;}
+    }
+
     private static LegacyStoreV1SaveEvidence? Load(string file)
     {
-        if(File.Exists(file+".next"))
+        // A crash or filesystem tamper may leave either a file OR a
+        // directory at the atomic .next slot. Neither may be interpreted as
+        // an absent receipt while a new Stop/Restart/RCON mutation proceeds.
+        if(AttributesIfPresent(file+".next").HasValue)
             throw new IOException("UM-ORIGINAL-SAVE-JOURNAL-INTERRUPTED");
-        if(!File.Exists(file))return null;
-        if((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0||
+        var attrs=AttributesIfPresent(file);
+        if(!attrs.HasValue)return null;
+        if((attrs.Value&(FileAttributes.Directory|FileAttributes.ReparsePoint))!=0||
            new FileInfo(file).Length is <64 or >4096)
             throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-UNSAFE");
         var envelope=JsonSerializer.Deserialize<Sealed>(File.ReadAllText(file),Json)
@@ -136,6 +158,25 @@ public static class LegacyStoreV1SaveEvidenceJournal
         if(data!=null&&data.MapId!=mapId)
             throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-OTHER-MAP");
         return data;
+    }
+
+    /// <summary>
+    /// Operator-facing READ-ONLY diagnosis. An interrupted, tampered or
+    /// inaccessible receipt must be visible as an explicit blocker instead
+    /// of crashing the Stop/Restart/SaveWorld recovery screen. This helper
+    /// NEVER changes journal bytes, marks an operation reviewed or grants
+    /// permission to issue an RCON command. Mutating preflights continue
+    /// to use the strict, exception-throwing Inspect() entry point.
+    /// </summary>
+    public static (LegacyStoreV1SaveEvidence? Evidence,bool Unreadable)
+        InspectReadOnly(string managerProfileRoot,Guid mapId)
+    {
+        try{return(Inspect(managerProfileRoot,mapId),false);}
+        catch(Exception ex) when(ex is IOException or InvalidDataException or
+            UnauthorizedAccessException or JsonException)
+        {
+            return(null,true);
+        }
     }
 
     private static void Publish(string file,LegacyStoreV1SaveEvidence evidence)
@@ -159,6 +200,59 @@ public static class LegacyStoreV1SaveEvidenceJournal
         File.Move(next,file,overwrite:true);
     }
 
+    private static void ArchivePreviousBeforeNewAttempt(
+        string file,LegacyStoreV1SaveEvidence prior)
+    {
+        // Preserve the completed/reviewed receipt byte-for-byte BEFORE the
+        // latest map-scoped receipt is replaced by the next approved save.
+        // The original source/Store/ASA paths are never touched.
+        if(prior.Phase is not ("completed" or "reviewed"))
+            throw new InvalidOperationException(
+                "UM-ORIGINAL-SAVE-JOURNAL-NEEDS-REVIEW");
+        string archiveFolder=Path.Combine(Path.GetDirectoryName(file)!,"history");
+        var before=AttributesIfPresent(archiveFolder);
+        if(before.HasValue&&(before.Value&(FileAttributes.ReparsePoint|
+            FileAttributes.Directory))!=FileAttributes.Directory)
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-HISTORY-UNSAFE");
+        Directory.CreateDirectory(archiveFolder);
+        if((File.GetAttributes(archiveFolder)&
+            (FileAttributes.ReparsePoint|FileAttributes.Directory))!=
+            FileAttributes.Directory)
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-HISTORY-UNSAFE");
+        string archived=Path.Combine(archiveFolder,prior.MapId.ToString("N")+
+            "-"+prior.OperationId.ToString("N")+"-"+prior.Phase+".json");
+        // Another process cannot replace the file via the Manager APIs:
+        // the map-scoped cross-process journal write lease is already held.
+        byte[] original=File.ReadAllBytes(file);
+        if(original.Length is <64 or >4096)
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-HISTORY-UNSAFE");
+        // Revalidate the exact sealed evidence being archived, rather than
+        // trusting metadata captured before a filesystem race.
+        var now=Load(file);
+        if(now==null||now!=prior)
+            throw new InvalidOperationException(
+                "UM-ORIGINAL-SAVE-HISTORY-RECEIPT-CHANGED");
+        var attrs=AttributesIfPresent(archived);
+        if(attrs.HasValue)
+        {
+            if((attrs.Value&(FileAttributes.Directory|FileAttributes.ReparsePoint))!=0||
+               new FileInfo(archived).Length is <64 or >4096||
+               !CryptographicOperations.FixedTimeEquals(
+                   SHA256.HashData(File.ReadAllBytes(archived)),
+                   SHA256.HashData(original)))
+                throw new InvalidDataException(
+                    "UM-ORIGINAL-SAVE-HISTORY-ARCHIVE-MISMATCH");
+            return;
+        }
+        // Creating a new immutable history slot is never an overwrite.
+        // An interrupted write leaves a mismatching slot that FAILS CLOSED
+        // on the next attempt; it cannot silently erase old evidence.
+        using var writer=new FileStream(archived,FileMode.CreateNew,
+            FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough);
+        writer.Write(original);
+        writer.Flush(flushToDisk:true);
+    }
+
     public static LegacyStoreV1SaveEvidence Begin(string managerProfileRoot,
         Guid operationId,Guid mapId,int pid,DateTimeOffset startedUtc,
         string originalSourceSha256)
@@ -171,6 +265,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
         var prior=Load(file);
         if(prior!=null&&prior.Phase is not ("completed" or "reviewed"))
             throw new InvalidOperationException("UM-ORIGINAL-SAVE-JOURNAL-NEEDS-REVIEW");
+        if(prior!=null)ArchivePreviousBeforeNewAttempt(file,prior);
         var evidence=new LegacyStoreV1SaveEvidence(Schema,operationId,mapId,pid,
             startedUtc,originalSourceSha256,"prepared",DateTimeOffset.UtcNow,null);
         Publish(file,evidence);

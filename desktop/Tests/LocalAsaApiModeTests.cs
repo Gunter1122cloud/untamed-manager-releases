@@ -87,11 +87,49 @@ internal static class LocalAsaApiModeTests
         Check(!cluster.Config.LocalMaps.Single(m=>m.Id==map.Id).StartWithAsaApi,
             "unapproved checkbox does not modify persisted map setting");
         var token=preview.GetProperty("data").GetProperty("token").GetString()!;
+        // Two independent local maps can prepare an ASA API choice at once.
+        // This uses only synthetic PE64 files in the isolated test folder.
+        string siblingRoot=Path.Combine(testsRoot,"local-api-mode-sibling");
+        string siblingBin=Path.Combine(siblingRoot,"ShooterGame","Binaries","Win64");
+        string siblingExe=Path.Combine(siblingBin,"ArkAscendedServer.exe");
+        FakePe64(siblingExe);
+        FakePe64(Path.Combine(siblingBin,"AsaApiLoader.exe"));
+        FakePe64(Path.Combine(siblingBin,"ArkApi","AsaApi.dll"));
+        File.WriteAllText(Path.Combine(siblingBin,"config.json"),"{}");
+        Directory.CreateDirectory(Path.Combine(siblingBin,"ArkApi","Plugins"));
+        var sibling=new LocalMap{
+            Id=Guid.NewGuid(),Name="Ragnarok",InstallationPath=siblingRoot,
+            ExecutablePath=siblingExe,Arguments="Ragnarok_WP?listen -log",
+            GamePort=7837,QueryPort=27077
+        };
+        cluster.AddMap(sibling);
+        var siblingPreview=await Call(handler,"servers.apiModePreview",
+            new{mapId=sibling.Id,useApi=true});
+        Check(siblingPreview.GetProperty("ok").GetBoolean()&&
+              siblingPreview.GetProperty("data").GetProperty("mapId").GetGuid()==sibling.Id,
+            "independent sibling ASA API toggle retains its own approved preview");
+        string siblingToken=siblingPreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        var rejectedReplacement=await Call(handler,"servers.apiModePreview",
+            new{mapId=sibling.Id,useApi=false});
+        Check(!rejectedReplacement.GetProperty("ok").GetBoolean()&&
+              rejectedReplacement.GetProperty("error").GetString()=="UM-LOCAL-API-NO-CHANGE",
+            "invalid same-map API choice does not cancel either valid map approval");
+        var declined=await Call(handler,"servers.apiModeApply",
+            new{token=siblingToken,confirm=false});
+        Check(!declined.GetProperty("ok").GetBoolean()&&
+              declined.GetProperty("error").GetString()=="UM-LOCAL-API-APPROVAL-REQUIRED",
+            "declined API switch preserves sibling one-shot ticket");
         var applied=await Call(handler,"servers.apiModeApply",new{token,confirm=true});
         Check(applied.GetProperty("ok").GetBoolean()&&
               applied.GetProperty("data").GetProperty("useApi").GetBoolean()&&
               cluster.Config.LocalMaps.Single(m=>m.Id==map.Id).StartWithAsaApi,
             "one-shot approval persists API Loader launch choice in local Manager");
+        var siblingApply=await Call(handler,"servers.apiModeApply",
+            new{token=siblingToken,confirm=true});
+        Check(siblingApply.GetProperty("ok").GetBoolean()&&
+              cluster.Config.LocalMaps.Single(x=>x.Id==sibling.Id).StartWithAsaApi,
+            "second independent API Loader choice commits after first map without replay");
         var registered=cluster.Config.LocalMaps.Single(m=>m.Id==map.Id);
         var plan=AsaApiLaunchPolicy.Resolve(registered);
         Check(plan.UseApi&&Path.GetFullPath(plan.ExecutablePath)==

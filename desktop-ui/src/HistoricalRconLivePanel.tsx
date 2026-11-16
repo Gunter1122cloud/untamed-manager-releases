@@ -1,4 +1,4 @@
-import {useEffect,useState} from "react";
+import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,FileText,RefreshCw,Shield,Users} from "lucide-react";
 import {managerBridge,type HistoricalRconLiveStatus,
   type HistoricalRconReadResponse} from "./bridge";
@@ -12,40 +12,69 @@ export function HistoricalRconLivePanel({mapId,running}:{
 }){
   const [status,setStatus]=useState<HistoricalRconLiveStatus|null>(null);
   const [result,setResult]=useState<HistoricalRconReadResponse|null>(null);
+  const currentMap=useRef(mapId);
+  currentMap.current=mapId;
+  const generation=useRef(0);
+  const belongs=(requested:string,epoch:number)=>
+    currentMap.current===requested&&generation.current===epoch;
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const refresh=async()=>{
+    if(busy)return;
+    const requested=mapId,epoch=generation.current;
     setBusy(true);setError("");setResult(null);
-    try{setStatus(await managerBridge.historicalRconLiveStatus(mapId));}
-    catch{setStatus(null);setError("A történeti Store-v1 RCON tulajdonosa nem ellenőrizhető.");}
-    finally{setBusy(false);}
+    try{
+      const next=await managerBridge.historicalRconLiveStatus(requested);
+      if(!belongs(requested,epoch))return;
+      if(next.mapId.toLowerCase()!==requested.toLowerCase())
+        throw new Error("UM-STORE-RCON-STATUS-MAP-MISMATCH");
+      setStatus(next);
+    }catch{
+      if(belongs(requested,epoch)){
+        setStatus(null);
+        setError("A Store-v1 RCON folyamata vagy helyi TCP-portja nem ellenőrizhető.");
+      }
+    }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   useEffect(()=>{
     let active=true;
-    setStatus(null);setResult(null);setError("");
+    const epoch=++generation.current;
+    setStatus(null);setResult(null);setError("");setBusy(false);
     managerBridge.historicalRconLiveStatus(mapId).then(v=>{
-      if(active)setStatus(v);
+      if(!active||!belongs(mapId,epoch))return;
+      if(v.mapId.toLowerCase()!==mapId.toLowerCase())
+        throw new Error("UM-STORE-RCON-STATUS-MAP-MISMATCH");
+      setStatus(v);
     }).catch(()=>{
-      if(active)setError("A történeti RCON port tulajdonosa vagy a session nem igazolható.");
+      if(active&&belongs(mapId,epoch))
+        setError("A helyi ASA PID/RCON-port vagy a kiválasztott map azonossága nem igazolható.");
     });
-    return ()=>{active=false;};
+    return ()=>{active=false;++generation.current;};
   },[mapId,running]);
   const read=async(kind:"players"|"game"|"chat")=>{
-    if(busy||!status?.permitted)return;
+    if(busy||!status?.permitted||status.mapId.toLowerCase()!==mapId.toLowerCase())
+      return;
+    const requested=mapId,epoch=generation.current;
+    const command=kind==="players"?"ListPlayers":kind==="game"?"GetGameLog":"GetChat";
     setBusy(true);setResult(null);setError("");
     try{
       const response=kind==="players"
-        ?await managerBridge.historicalRconPlayers(mapId)
+        ?await managerBridge.historicalRconPlayers(requested)
         :kind==="game"
-        ?await managerBridge.historicalRconGameLog(mapId)
-        :await managerBridge.historicalRconChatLog(mapId);
+        ?await managerBridge.historicalRconGameLog(requested)
+        :await managerBridge.historicalRconChatLog(requested);
+      if(!belongs(requested,epoch))return;
+      if(response.mapId.toLowerCase()!==requested.toLowerCase()||
+         response.command!==command||!response.readOnly||response.storeTouched)
+        throw new Error("UM-STORE-RCON-REPLY-IDENTITY-MISMATCH");
       setResult(response);
     }catch{
-      setStatus(null);
-      setError("A Store-v1 peer/session, a valódi Windows PID vagy a "+
-        "hozzá tartozó TCP RCON-port időközben megváltozott. "+
-        "Nem küldtünk további parancsot.");
-    }finally{setBusy(false);}
+      if(belongs(requested,epoch)){
+        setStatus(null);
+        setError("A helyi ASA PID, RCON-port vagy a válasz mapazonossága "+
+          "nem igazolható. Új parancs nem indult.");
+      }
+    }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   return <section className="glass panel historical-rcon-live"
     aria-label="Eredeti Store-v1 RCON konzol">
@@ -53,10 +82,10 @@ export function HistoricalRconLivePanel({mapId,running}:{
       <span className="mod-tag grey"><Shield size={13}/> Kizárólag olvasás</span>
     </div>
     <div className="panel-inner">
-      <p className="muted small">Csak a helyi, eredeti ACTIVE/DONE sessionhez
-        kapcsolt ASA-folyamat és a Windows szerint hozzá tartozó
-        RCON TCP-port kérdezhető le. A két gép közötti távoli parancsküldés
-        és az önálló Store-írás tiltott.</p>
+      <p className="muted small">A Managerhez átvett map saját helyi ASA-folyamata
+        és a hozzá tartozó ellenőrzött RCON TCP-port kérdezhető le.
+        A másik gép elérhetősége nem szükséges a helyi olvasáshoz;
+        távoli parancsküldés vagy Store-írás nem történik.</p>
       <div className="details-line"><span>Natív RCON-tulajdonosi ellenőrzés</span>
         <b>{status?.permitted?"Igazolt · PID "+status.pid:
           status?"Nem igazolt":"Ellenőrzés alatt"}</b></div>
@@ -79,8 +108,8 @@ export function HistoricalRconLivePanel({mapId,running}:{
         </button>
       </div>
       {status?.permitted&&<div className="success-inline" role="status">
-        <CheckCircle2 size={16}/> A helyi PID, TCP port, eredeti INI és a két peer
-        Store-v1 állapota ellenőrizve.
+        <CheckCircle2 size={16}/> A kiválasztott map helyi ASA PID-je,
+        TCP RCON-portja és az INI azonosítva. A kétgépes karakterutazás külön ellenőrzendő.
       </div>}
       {result&&<div className="premium-log-view" role="region"
         aria-label="Eredeti Store-v1 RCON válasz">

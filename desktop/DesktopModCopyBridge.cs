@@ -20,7 +20,8 @@ public sealed class DesktopModCopyBridge : IDisposable
     private sealed record Approval(Guid Token,LocalModCopyPlan Plan,DateTimeOffset ExpiresUtc);
     private readonly ClusterService cluster;
     private readonly SemaphoreSlim serial=new(1,1);
-    private Approval? pending;
+    // Mod-copy batches are independently approved per source map.
+    private readonly Dictionary<Guid,Approval> pendingBySource=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     public DesktopModCopyBridge(ClusterService source)=>
         cluster=source??throw new ArgumentNullException(nameof(source));
@@ -60,9 +61,11 @@ public sealed class DesktopModCopyBridge : IDisposable
             await serial.WaitAsync();
             try
             {
+                foreach(var expired in pendingBySource.Where(x=>
+                    x.Value.ExpiresUtc<DateTimeOffset.UtcNow)
+                    .Select(x=>x.Key).ToArray())pendingBySource.Remove(expired);
                 if(method=="mods.copyPreview")
                 {
-                    pending=null;
                     if(!data.TryGetProperty("sourceMapId",out var source) ||
                        source.ValueKind!=JsonValueKind.String ||
                        !Guid.TryParse(source.GetString(),out var sourceId) ||
@@ -89,8 +92,10 @@ public sealed class DesktopModCopyBridge : IDisposable
                     }
                     var plan=LocalModCopyPlanner.Preview(cluster,sourceId,ids,mode);
                     DemandHistoricalTargetsStopped(plan);
+                    if(!pendingBySource.ContainsKey(sourceId)&&pendingBySource.Count>=25)
+                        return Fail(id,"UM-MOD-COPY-PREVIEW-CAPACITY");
                     var token=Guid.NewGuid();
-                    pending=new(token,plan,DateTimeOffset.UtcNow.AddMinutes(5));
+                    pendingBySource[sourceId]=new(token,plan,DateTimeOffset.UtcNow.AddMinutes(5));
                     return Ok(id,new {
                         token,sourceMapId=sourceId,mode=copyMode.GetString(),
                         targets=plan.Targets.Select(t=>new {
@@ -115,10 +120,10 @@ public sealed class DesktopModCopyBridge : IDisposable
                    !Guid.TryParse(supplied.GetString(),out var tokenId) ||
                    !data.TryGetProperty("confirm",out var confirmed) ||
                    confirmed.ValueKind!=JsonValueKind.True ||
-                   pending==null || pending.Token!=tokenId)
+                   !pendingBySource.Values.Any(p=>p.Token==tokenId))
                     return Fail(id,"UM-MOD-COPY-APPROVAL-REQUIRED");
-                var approved=pending;
-                pending=null; // No replay, including failed CAS or interrupted writes.
+                var approved=pendingBySource.Values.Single(p=>p.Token==tokenId);
+                pendingBySource.Remove(approved.Plan.SourceMapId); // One-shot per source.
                 if(approved.ExpiresUtc<DateTimeOffset.UtcNow)
                     return Fail(id,"UM-MOD-COPY-PREVIEW-EXPIRED");
                 if(!approved.Plan.Changed)

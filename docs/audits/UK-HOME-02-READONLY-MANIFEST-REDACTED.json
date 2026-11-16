@@ -9,12 +9,12 @@
     "Pr1Head": "62dea92ce52e8270e57833fc976356ce199026d5",
     "Pr3Head": "3b8b448fb906a02d45615a466ef2900ca40200f0",
     "PriorApplicationCI": "41795392001",
-    "AuditBranch": "codex/read-only-kova-gap-audit"
+    "AuditBranch": "codex/read-only-legacy-gap-audit"
   },
   "Scope": {
     "FunctionGroups": 41,
     "Operations": 61,
-    "OwnKovaModules": 44,
+    "OwnLegacyModules": 44,
     "OwnIdeas": 42,
     "BacklogTasks": 33,
     "SourceTextFiles": 139,
@@ -38,7 +38,7 @@
     "SmallFileReadSharing": "ReadWrite|Delete",
     "NoExclusiveSnapshotOnLiveFiles": true
   },
-  "InstalledKova": {
+  "InstalledLegacy": {
     "Version": "1.8.3",
     "OwnModulesByteIdenticalToHistoricalReference": 44,
     "Modules": [
@@ -267,7 +267,7 @@
   "Processes": [
     {
       "Map": "Ragnarok_WP",
-      "LoaderParentIsKova": true,
+      "LoaderParentIsLegacy": true,
       "AsaParentIsLoader": true,
       "RootMatchesProfile": true,
       "UseStore": true,
@@ -281,7 +281,7 @@
     },
     {
       "Map": "LostColony_WP",
-      "LoaderParentIsKova": true,
+      "LoaderParentIsLegacy": true,
       "AsaParentIsLoader": true,
       "RootMatchesProfile": true,
       "UseStore": true,
@@ -295,7 +295,7 @@
     },
     {
       "Map": "ScorchedEarth_WP",
-      "LoaderParentIsKova": true,
+      "LoaderParentIsLegacy": true,
       "AsaParentIsLoader": true,
       "RootMatchesProfile": true,
       "UseStore": true,
@@ -309,7 +309,7 @@
     },
     {
       "Map": "TheCenter_WP",
-      "LoaderParentIsKova": true,
+      "LoaderParentIsLegacy": true,
       "AsaParentIsLoader": true,
       "RootMatchesProfile": true,
       "UseStore": true,
@@ -323,7 +323,7 @@
     },
     {
       "Map": "Aberration_WP",
-      "LoaderParentIsKova": true,
+      "LoaderParentIsLegacy": true,
       "AsaParentIsLoader": true,
       "RootMatchesProfile": true,
       "UseStore": true,

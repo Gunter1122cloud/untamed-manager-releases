@@ -1,11 +1,30 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, CheckCircle2, FolderOpen, HardDrive, Shield } from "lucide-react";
 import { managerBridge, type FreshInstallJob } from "./bridge";
+import { InitialMapSetup } from "./InitialMapSetup";
 
 const mapNames = [
   "The Island","The Center","Scorched Earth","Aberration","Extinction",
   "Genesis Part 1","Valguero","Ragnarok","Astraeos","Lost Colony"
 ];
+
+// Unapproved SteamCMD wizard choices are transient UI drafts. Preserve
+// navigation between tabs without ever persisting them to a server, profile,
+// localStorage or an ASA/korábbi Manager file. Native SteamCMD job ID, not this draft,
+// remains authoritative once an actual installation starts.
+type SteamWizardDraft=Partial<{
+  mapName:string;customMapName:string;customLevel:string;
+  installRoot:string;steamExe:string;explicitRetry:boolean;
+}>;
+const steamWizardDrafts=new Map<string,SteamWizardDraft>();
+function rememberSteamWizardDraft(scope:string,patch:SteamWizardDraft){
+  const old=steamWizardDrafts.get(scope);
+  if(!old&&steamWizardDrafts.size>=16){
+    const oldest=steamWizardDrafts.keys().next().value;
+    if(oldest)steamWizardDrafts.delete(oldest);
+  }
+  steamWizardDrafts.set(scope,{...old,...patch});
+}
 
 /**
  * Operator workflow: choose map, choose an empty folder, click Download.
@@ -13,31 +32,78 @@ const mapNames = [
  * job. No permission gate is removed; Core still checks root, Store,
  * journals and disk, then uses official Valve SteamCMD.
  */
-export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",onImport}:{
-  onRegistered:()=>Promise<void>;initialMapName?:string;onImport?:()=>void
+export function FreshAsaSteamWizard({
+  onRegistered,initialMapName="The Island",onImport,onOpenMap
+}:{
+  onRegistered:()=>Promise<void>;initialMapName?:string;
+  onImport?:()=>void;onOpenMap?:(mapId:string)=>void
 }) {
-  const [mapName,setMapName]=useState(
-    mapNames.includes(initialMapName)?initialMapName:"__custom__");
-  const [customMapName,setCustomMapName]=useState(
-    mapNames.includes(initialMapName)?"":initialMapName);
-  const [customLevel,setCustomLevel]=useState("");
+  const [mapName,setMapName]=useState(()=>
+    steamWizardDrafts.get(initialMapName)?.mapName??
+    (mapNames.includes(initialMapName)?initialMapName:"__custom__"));
+  const [customMapName,setCustomMapName]=useState(()=>
+    steamWizardDrafts.get(initialMapName)?.customMapName??
+    (mapNames.includes(initialMapName)?"":initialMapName));
+  const [customLevel,setCustomLevel]=useState(()=>
+    steamWizardDrafts.get(initialMapName)?.customLevel??"");
   const resolvedMapName=mapName==="__custom__"?customMapName.trim():mapName;
-  const [installRoot,setInstallRoot]=useState("");
-  const [steamExe,setSteamExe]=useState("");
-  const [explicitRetry,setExplicitRetry]=useState(false);
+  const [installRoot,setInstallRoot]=useState(()=>
+    steamWizardDrafts.get(initialMapName)?.installRoot??"");
+  const [steamExe,setSteamExe]=useState(()=>
+    steamWizardDrafts.get(initialMapName)?.steamExe??"");
+  const [explicitRetry,setExplicitRetry]=useState(()=>
+    steamWizardDrafts.get(initialMapName)?.explicitRetry??false);
+  const [recoveryPreview,setRecoveryPreview]=useState<{
+    token:string;mapId:string;mapName:string;mapLevel:string;buildId:string
+  }|null>(null);
+  const [recoveryPhrase,setRecoveryPhrase]=useState("");
   const [job,setJob]=useState<FreshInstallJob|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [message,setMessage]=useState("");
+  const [registeredMapId,setRegisteredMapId]=useState<string|null>(null);
+  const [firstConfigurationSaved,setFirstConfigurationSaved]=useState(false);
   const autoRegisterId=useRef<string|null>(null);
+  // A late initial current-job response must not replace a job started
+  // or registered during this WebView session.
+  const jobMutationGeneration=useRef(0);
 
   useEffect(()=>{
     let active=true;
+    const generation=jobMutationGeneration.current;
     managerBridge.freshCurrent().then(data=>{
-      if(active && data.current)setJob(data.current);
+      if(active && generation===jobMutationGeneration.current && data.current){
+        setJob(data.current);
+        // Native source ID survives reopening the wizard during this
+        // Manager session. Never guess the map ID from its display name.
+        if(data.current.registered && data.current.mapId){
+          steamWizardDrafts.delete(initialMapName);
+          setRegisteredMapId(data.current.mapId);
+        }
+      }
     }).catch(()=>{});
     return ()=>{active=false;};
   },[]);
+
+  // The post-install wizard may be closed and reopened at any time.
+  // Reconstruct the completed step from the NATIVE persisted map profile,
+  // never a local boolean or a guessed display name. This is read-only and
+  // does not issue a second registration, INI write, Start or RCON.
+  const resumedMapId=registeredMapId||(job?.registered?job.mapId:null);
+  useEffect(()=>{
+    if(!job?.registered||!resumedMapId)return;
+    let active=true;
+    managerBridge.initialStatus(resumedMapId).then(status=>{
+      if(active && status.mapId===resumedMapId &&
+         status.blocker==="PROFILE_ALREADY_CONFIGURED_OR_PROTECTED" &&
+         status.gamePort>0 && status.queryPort>0 && status.hasServerExecutable)
+        setFirstConfigurationSaved(true);
+    }).catch(()=>{
+      // Read-only status unavailable: keep the native initial setup panel
+      // available instead of fabricating a completed configuration.
+    });
+    return ()=>{active=false;};
+  },[job?.registered,resumedMapId]);
 
   useEffect(()=>{
     if(!job||job.registered||job.verified||!!job.errorCode)return;
@@ -57,10 +123,18 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
           setBusy(true);
           try{
             const receipt=await managerBridge.freshRegister(state.jobId);
+            jobMutationGeneration.current++;
             if(!active)return;
-            setJob({...state,registered:true,stage:"registered"});
-            setMessage(receipt.mapName+" letöltve és hozzáadva a Managerhez. A portok, RCON és modok később állíthatók be.");
-            await onRegistered();
+            setJob({...state,registered:true,mapId:receipt.mapId,stage:"registered"});
+            setRegisteredMapId(receipt.mapId);
+            steamWizardDrafts.delete(initialMapName);
+            setFirstConfigurationSaved(false);
+            setMessage(receipt.mapName+" letöltve és hozzáadva a Managerhez. Következő lépés: első konfiguráció, majd RCON/mod/API/cluster és külön jóváhagyott Start.");
+            try {
+              await onRegistered();
+            } catch {
+              if(active)setError("A map regisztrációja sikerült, de a szerverlista frissítése nem. Ne regisztráld újra; nyisd meg a Szerverek oldalt, vagy frissítsd az állapotot.");
+            }
           }catch{
             if(active){
               setJob(state);
@@ -90,12 +164,78 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
       const result=await managerBridge.freshBrowse();
       if(result.selected && result.installRoot) {
         setInstallRoot(result.installRoot);
+        rememberSteamWizardDraft(initialMapName,{installRoot:result.installRoot});
+        setRecoveryPreview(null);setRecoveryPhrase("");
         setMessage("Célmappa kiválasztva. Az ASA letöltését az alábbi zöld gomb indítja.");
       }
     }catch{
       setError("A Windows-mappaválasztó nem érhető el. A teljes elérési utat kézzel is megadhatod.");
     }finally{setBusy(false);}
   };
+  const previewCompletedRecovery=async()=>{
+    if(busy||running)return;
+    if(!installRoot.trim()||!resolvedMapName){
+      setError("Add meg a befejezett telepítés mapnevét és teljes helyi mappáját.");
+      return;
+    }
+    setBusy(true);invalidate();setRecoveryPreview(null);setRecoveryPhrase("");
+    try{
+      const proof=await managerBridge.freshRecoverPreview(resolvedMapName,
+        installRoot.trim(),mapName==="__custom__"?customLevel.trim():undefined);
+      setRecoveryPreview(proof);
+      setMessage("A befejezett SteamCMD-napló, az ASA EXE és az appmanifest ellenőrizve. "+
+        "Nem történt új letöltés vagy regisztráció. A mapazonosító megőrzéséhez külön jóváhagyás szükséges.");
+    }catch(e){
+      const code=e instanceof Error?e.message:"UM-FRESH-RECOVERY-NOT-VERIFIED";
+      const detail:Record<string,string>={
+        "UM-FRESH-RECOVERY-UNPINNED-COMPLETION":
+          "A régi befejezett telepítési napló nem tartalmaz SHA-256 bizonyítékot. "+
+          "A szervert a meglévő ASA-könyvtár kézi importálásával veheted át.",
+        "UM-FRESH-RECOVERY-COMPLETED-FILES-CHANGED":
+          "Az ASA EXE vagy a Steam appmanifest eltér a befejezéskor ellenőrzött "+
+          "fájltól. Automatikus átvétel tilos; ellenőrizd a telepítést.",
+        "UM-FRESH-RECOVERY-NO-COMPLETE-JOURNAL":
+          "Nincs befejezett SteamCMD-napló ehhez a mappához. A megszakadt "+
+          "letöltést a külön tudatos folytatással kezeld.",
+        "UM-FRESH-RECOVERY-ALREADY-REGISTERED":
+          "Ez a map vagy telepítési mappa már szerepel a Manager profiljában."
+      };
+      setError(detail[code]??("Befejezett ASA-telepítés nem vehető át ("+
+        code+"). A meglévő fájlokat nem módosítottuk."));
+    }finally{setBusy(false);}
+  };
+  const registerCompletedRecovery=async()=>{
+    if(busy||!recoveryPreview||recoveryPhrase!=="ASA TELEPÍTÉS ÁTVÉTEL")return;
+    const proof=recoveryPreview;
+    setBusy(true);invalidate();setRecoveryPreview(null);setRecoveryPhrase("");
+    try{
+      const restored=await managerBridge.freshRecoverRegister(
+        proof.token,"ASA TELEPÍTÉS ÁTVÉTEL");
+      jobMutationGeneration.current++;
+      autoRegisterId.current=null;
+      setJob({
+        jobId:restored.jobId,mapId:restored.mapId,mapName:restored.mapName,
+        stage:"registered",detail:"Korábban ellenőrzött ASA-fájlok regisztrálva",
+        percent:100,verified:true,registered:true,errorCode:null,
+        evidence:"NATIVE_STEAMCMD_JOB_STATE"
+      });
+      setRegisteredMapId(restored.mapId);
+      steamWizardDrafts.delete(initialMapName);
+      setFirstConfigurationSaved(false);
+      setMessage(restored.mapName+
+        " eredeti mapazonosítóval regisztrálva, letöltés és szerverindítás nélkül. "+
+        "Folytasd az első konfigurációval.");
+      try{await onRegistered();}catch{
+        setError("A map átvétele sikerült, de a szerverlista frissítése nem. "+
+          "Ne ismételd a regisztrációt; nyisd meg újra a Szerverek oldalt.");
+      }
+    }catch(e){
+      setError("A befejezett telepítés regisztrációja nem sikerült ("+
+        (e instanceof Error?e.message:"UM-FRESH-RECOVERY-FAILED")+
+        "). A már telepített ASA-fájlokat nem módosítottuk.");
+    }finally{setBusy(false);}
+  };
+
   const startDownload=async(e:FormEvent)=>{
     e.preventDefault();
     if(busy||running)return;
@@ -109,6 +249,8 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
       setError("Egyedi maphoz add meg a megjelenített nevet és a pontos, legfeljebb 80 karakteres Unreal level azonosítót. Nem fogadunk el indítási kapcsolót vagy szóközt.");
       return;
     }
+    jobMutationGeneration.current++;
+    setRecoveryPreview(null);setRecoveryPhrase("");
     setBusy(true);invalidate();
     try{
       // Missing Valve SteamCMD is downloaded automatically; the clicked
@@ -120,6 +262,7 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
       });
       const started=await managerBridge.freshStart(checked.token);
       autoRegisterId.current=started.jobId;
+      setRegisteredMapId(null);setFirstConfigurationSaved(false);
       setJob({jobId:started.jobId,mapName:resolvedMapName,stage:"prepared",
         detail:"Hivatalos Valve SteamCMD és ASA 2430930 előkészítése",
         percent:null,verified:false,registered:false,errorCode:null,
@@ -168,9 +311,17 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
     setBusy(true);setError("");
     try{
       const receipt=await managerBridge.freshRegister(job.jobId);
-      setJob(current=>current?{...current,registered:true,stage:"registered"}:null);
-      setMessage(receipt.mapName+" regisztrálva. Az indítás, portok, RCON és modok külön konfigurálhatók.");
-      await onRegistered();
+      jobMutationGeneration.current++;
+      setJob(current=>current?{...current,registered:true,mapId:receipt.mapId,stage:"registered"}:null);
+      setRegisteredMapId(receipt.mapId);
+      steamWizardDrafts.delete(initialMapName);
+      setFirstConfigurationSaved(false);
+      setMessage(receipt.mapName+" regisztrálva. Folytasd az alábbi első mapbeállítással, utána a mapadatlap RCON/mod/API/cluster lépéseivel.");
+      try {
+        await onRegistered();
+      } catch {
+        setError("A map regisztrációja sikerült, de a szerverlista frissítése nem. Ne próbáld újra regisztrálni; frissítsd a nézetet.");
+      }
     }catch(e){
       setError("A Manager nem regisztrálta az ellenőrzött fájlokat ("+
         (e instanceof Error?e.message:"UM-FRESH-OPERATION-FAILED")+").");
@@ -181,7 +332,7 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
     setBusy(true);setError("");
     try{
       await managerBridge.freshDiscard(job.jobId);
-      setJob(null);
+      setJob(null);setRegisteredMapId(null);setFirstConfigurationSaved(false);
       setMessage("A feladatkövetés lezárult. A fájlok a lemezen maradtak.");
     }catch{setError("A feladatot nem lehet lezárni, amíg SteamCMD írhat a lemezre.");}
     finally{setBusy(false);}
@@ -192,9 +343,15 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
   // Do not change the active job or an in-progress download.
   useEffect(()=>{
     if(running||busy)return;
-    setMapName(mapNames.includes(initialMapName)?initialMapName:"__custom__");
-    setCustomMapName(mapNames.includes(initialMapName)?"":initialMapName);
-    setCustomLevel("");
+    const draft=steamWizardDrafts.get(initialMapName);
+    setMapName(draft?.mapName??
+      (mapNames.includes(initialMapName)?initialMapName:"__custom__"));
+    setCustomMapName(draft?.customMapName??
+      (mapNames.includes(initialMapName)?"":initialMapName));
+    setCustomLevel(draft?.customLevel??"");
+    setInstallRoot(draft?.installRoot??"");
+    setSteamExe(draft?.steamExe??"");
+    setExplicitRetry(draft?.explicitRetry??false);
   },[initialMapName]);
   return <section className="glass panel fresh-wizard">
     <div className="panel-head"><h2>Új ASA szerver · SteamCMD telepítés</h2>
@@ -206,7 +363,9 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
       <form className="fresh-wizard-form" onSubmit={e=>{void startDownload(e);}}>
         <label>ASA map
           <select aria-label="Új ASA map" value={mapName} disabled={running||busy}
-            onChange={e=>{setMapName(e.target.value);invalidate();}}>
+            onChange={e=>{setMapName(e.target.value);
+              rememberSteamWizardDraft(initialMapName,{mapName:e.target.value});
+              setRecoveryPreview(null);setRecoveryPhrase("");invalidate();}}>
             {mapNames.map(map=><option key={map} value={map}>{map}</option>)}
             <option value="__custom__">Egyedi / modolt ASA map</option>
           </select>
@@ -216,13 +375,17 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
             <input aria-label="Egyedi ASA map neve" value={customMapName}
               maxLength={100} disabled={running||busy}
               placeholder="Például: Atlantis"
-              onChange={e=>{setCustomMapName(e.target.value);invalidate();}}/>
+              onChange={e=>{setCustomMapName(e.target.value);
+                 rememberSteamWizardDraft(initialMapName,{customMapName:e.target.value});
+                 setRecoveryPreview(null);setRecoveryPhrase("");invalidate();}}/>
           </label>
           <label>Pontos Unreal map level
             <input aria-label="Egyedi ASA level azonosító" value={customLevel}
               maxLength={80} disabled={running||busy} spellCheck={false}
               placeholder="A mod készítőjétől kapott tényleges level"
-              onChange={e=>{setCustomLevel(e.target.value);invalidate();}}/>
+              onChange={e=>{setCustomLevel(e.target.value);
+                 rememberSteamWizardDraft(initialMapName,{customLevel:e.target.value});
+                 setRecoveryPreview(null);setRecoveryPhrase("");invalidate();}}/>
           </label>
           <p className="muted small">A SteamCMD a közös ASA 2430930 szerverfájlokat telepíti.
             Az egyedi pálya modjait később a Mod Centerben kell megadni.
@@ -231,7 +394,9 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
         <label>Új, üres helyi telepítési könyvtár
           <span className="fresh-folder-row">
             <input aria-label="Új ASA célmappa" value={installRoot}
-              onChange={e=>{setInstallRoot(e.target.value);invalidate();}}
+              onChange={e=>{setInstallRoot(e.target.value);
+                rememberSteamWizardDraft(initialMapName,{installRoot:e.target.value});
+                setRecoveryPreview(null);setRecoveryPhrase("");invalidate();}}
               placeholder="D:\ASA-Servers\TheIsland" maxLength={520} disabled={running||busy}/>
             <button type="button" className="secondary" disabled={running||busy}
               onClick={()=>{void chooseFolder();}}><FolderOpen size={16}/> Mappa kiválasztása</button>
@@ -241,16 +406,25 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
           <summary>Speciális beállítások (általában nem szükségesek)</summary>
           <label>SteamCMD.exe helyi elérési út (opcionális)
             <input aria-label="SteamCMD EXE" value={steamExe}
-              onChange={e=>{setSteamExe(e.target.value);invalidate();}}
+              onChange={e=>{setSteamExe(e.target.value);
+                  rememberSteamWizardDraft(initialMapName,{steamExe:e.target.value});
+                  invalidate();}}
               placeholder="Üresen: a Manager automatikusan beszerzi" maxLength={520}
               disabled={running||busy}/>
           </label>
           <label><input type="checkbox" checked={explicitRetry} disabled={running||busy}
-            onChange={e=>{setExplicitRetry(e.target.checked);invalidate();}}/>
+            onChange={e=>{setExplicitRetry(e.target.checked);
+                rememberSteamWizardDraft(initialMapName,{explicitRetry:e.target.checked});
+                invalidate();}}/>
             Korábban megszakadt telepítés tudatos folytatása (ugyanaz a map, mappa, SteamCMD)</label>
         </details>
         <button type="submit" className="primary" disabled={running||busy}>
           <HardDrive size={17}/>{busy?"Előkészítés...":running?"Letöltés folyamatban":"ASA letöltés indítása"}
+        </button>
+        <button type="button" className="secondary"
+          disabled={busy||running||!installRoot.trim()}
+          onClick={()=>{void previewCompletedRecovery();}}>
+          <Shield size={16}/> Befejezett SteamCMD-telepítés visszavétele (újraindítás után)
         </button>
         {onImport&&<button type="button" className="secondary"
           disabled={busy||running} onClick={onImport}>
@@ -259,6 +433,28 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
         <p className="muted tiny">A „Letöltés indítása” gomb jóváhagyja az új mappába történő valódi lemezírást.
           A beépített ellenőrzés megállítja a telepítést ütköző, nem üres vagy Store-v1-védett hely esetén.</p>
       </form>
+      {recoveryPreview&&<div className="fresh-job" role="region"
+        aria-label="Befejezett SteamCMD telepítés jóváhagyása">
+        <h3>Ellenőrzött telepítés visszavétele</h3>
+        <p>Map: {recoveryPreview.mapName} · Level: {recoveryPreview.mapLevel} ·
+          Build: {recoveryPreview.buildId}</p>
+        <p className="muted small">A Manager korábbi befejezett telepítési
+          naplójából az eredeti map GUID kerül regisztrálásra, új SteamCMD
+          futtatás, ASA-indítás, INI- vagy Store-v1-módosítás nélkül.
+          A szervernév, portok és RCON külön első konfigurációt igényelnek.</p>
+        <label htmlFor="fresh-complete-recovery-approval">
+          Jóváhagyás – írd be: ASA TELEPÍTÉS ÁTVÉTEL
+        </label>
+        <input id="fresh-complete-recovery-approval" type="text"
+          aria-label="Befejezett telepítés jóváhagyó szöveg"
+          value={recoveryPhrase} autoComplete="off" spellCheck={false}
+          onChange={e=>setRecoveryPhrase(e.target.value)}/>
+        <button type="button" className="primary"
+          disabled={busy||recoveryPhrase!=="ASA TELEPÍTÉS ÁTVÉTEL"}
+          onClick={()=>{void registerCompletedRecovery();}}>
+          Ellenőrzött ASA-fájlok regisztrálása az eredeti GUID-dal
+        </button>
+      </div>}
       {job&&<div className="fresh-job">
         <div className="fresh-job-head"><h3>{job.mapName}</h3><span className="mod-tag amber">
           {job.registered?"Regisztrálva":job.verified?"Ellenőrzött ASA-fájlok":job.errorCode?"Megszakadt":"SteamCMD folyamatban"}</span></div>
@@ -278,6 +474,29 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
           {!running&&!job.registered&&<button className="secondary" disabled={busy}
             onClick={()=>{void discard();}}>Feladatkövetés lezárása (fájlok megmaradnak)</button>}
         </div>
+      </div>}
+      {job?.registered && (registeredMapId||job.mapId) && <div
+        className="fresh-registered-next" role="region" aria-label="Telepítés utáni ASA konfiguráció">
+        <h3>2. Első konfiguráció – natív jóváhagyással</h3>
+        <p className="muted small">A szervernév, Game/Query UDP-portok és az egyedi map
+          azonosítója itt állítható be. Ez nem indít ASA-folyamatot, és nem
+          nyúl a eredeti Store-v1 karakteradatokhoz.</p>
+        {!firstConfigurationSaved&&<InitialMapSetup
+          mapId={registeredMapId||job.mapId!}
+          onConfigured={async()=>{setFirstConfigurationSaved(true);
+            await onRegistered();}}/>}
+        {firstConfigurationSaved&&<div role="status" className="success-inline">
+          <CheckCircle2 size={16}/> Az első indítási profil mentve.
+          A további lépések a mapadatlap meglévő, natív funkciói.
+        </div>}
+        <h3>3. RCON, modok, opcionális ASA API, cluster és indítás</h3>
+        <p className="muted small">A mapadatlapról folytathatod az INI,
+          mod- és pluginbeállítást, az RCON-t és a cluster-tagságot.
+          Az ASA Start külön előnézetet és jóváhagyást igényel.</p>
+        {onOpenMap&&<button type="button" className="primary"
+          onClick={()=>onOpenMap(registeredMapId||job.mapId!)}>
+          Mapadatlap megnyitása – további konfiguráció
+        </button>}
       </div>}
       {error&&<div role="alert" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
       {message&&<div role="status" className="success-inline"><CheckCircle2 size={17}/>{message}</div>}

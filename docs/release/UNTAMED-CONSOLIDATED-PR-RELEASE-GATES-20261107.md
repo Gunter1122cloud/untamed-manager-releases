@@ -7,7 +7,7 @@
 |---|---|---|
 | #1 | ASA/Store log- és indítási paritás, RCON tesztek | Megtartva a közös ősfán |
 | #3 | Store-v1 kétgépes, csak olvasó metadata-/ZIP-paritás | Megtartva |
-| #5 | Kova/ASA read-only leltár és hibajegyzék | Referenciaként megtartva; nem éles aktiváló funkció |
+| #5 | Legacy/ASA read-only leltár és hibajegyzék | Referenciaként megtartva; nem éles aktiváló funkció |
 | #6 | Műveleti zárolás, Store-másolatok, SQL | Műveleti védelem megtartva; SQL/MariaDB **nem része a kiadott desktopnak** |
 | #7 | WPF Core, SteamCMD, Save, RCON, vizuális elemek | Átvéve; a PR #7 utólagos 9 commitjában érintett 7 fájlból hat bitazonos a PR #13-mal, a hetedik PR #13-ban további LAN-javításokat tartalmaz |
 | #9 | CurseForge DPAPI, kulcs ellenőrzés, hivatalos API | Megtartva; titkok nem kerülnek kiadásba |

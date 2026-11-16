@@ -17,23 +17,36 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const finished=useRef(false);
+  const currentMap=useRef(mapId);
+  currentMap.current=mapId;
+  const belongs=(requested:string)=>currentMap.current===requested;
   useEffect(()=>{
     let alive=true;
     finished.current=false;setChecked(false);setRecovery(null);
     setPreview(null);setPhrase("");setBusy(false);setJobId("");setJob(null);
     setError("");setNotice("");
     managerBridge.historicalRestartRecovery(mapId).then(result=>{
-      if(!alive)return;
+      if(!alive||!belongs(mapId))return;
+      if(result.mapId.toLowerCase()!==mapId.toLowerCase())
+        throw new Error("UM-STORE-RESTART-RECOVERY-WRONG-MAP");
       setChecked(true);setRecovery(result);
       if(result.inMemoryRunning&&result.jobId){
         setJobId(result.jobId);
         setNotice("A meglévő eredeti Store-v1 újraindítás állapotához visszacsatlakozva; nincs új RCON-küldés.");
       }else if(result.requiresOperator||result.blocked){
-        setError("Befejezetlen Store-v1 újraindítás vagy másik natív művelet: "+
-          "a PID és a helyi napló kézi ellenőrzéséig nincs új indítás.");
+        setError(result.saveEvidenceUnreadable
+          ? "Sérült vagy félbeszakadt Store-v1 SaveWorld-bizonylat "+
+            "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). Az eredeti napló megmarad; "+
+            "nincs Restart, RCON-küldés vagy automatikus feloldás."
+          : result.saveEvidencePending
+            ? "Befejezetlen vagy bizonytalan Store-v1 SaveWorld-bizonylat: "+
+              "előbb a SaveWorld panelen ellenőrizd a mentés állapotát. "+
+              "Nincs újraindítás, RCON vagy automatikus ismétlés."
+            : "Befejezetlen Store-v1 újraindítás vagy másik natív művelet: "+
+              "a PID és a helyi napló kézi ellenőrzéséig nincs új indítás.");
       }
     }).catch(()=>{
-      if(alive){setChecked(true);setError("A helyi Store-v1 újraindítási napló nem ellenőrizhető; újraindítás tiltva.");}
+      if(alive&&belongs(mapId)){setChecked(true);setError("A helyi Store-v1 újraindítási napló nem ellenőrizhető; újraindítás tiltva.");}
     });
     return ()=>{alive=false;};
   },[mapId]);
@@ -45,7 +58,7 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
       polling=true;
       try{
         const result=await managerBridge.historicalRestartStatus(jobId);
-        if(!alive)return;
+        if(!alive||!belongs(mapId))return;
         if(result.mapId.toLowerCase()!==mapId.toLowerCase())
           throw new Error("Wrong native map");
         setJob(result);
@@ -56,44 +69,90 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
             "A játékbeli csatlakozás és karakterutazás külön igazolandó.");
           try{setRecovery(await managerBridge.historicalRestartRecovery(mapId));}
           catch{/* No inferred unlock when native recovery is unavailable. */}
-          await onRestarted();
+          try{await onRestarted();}
+          catch{
+            if(alive&&belongs(mapId))
+              setError("Az új ASA PID natív visszaigazolása megvan, de a dashboard nem frissült; nem indítjuk újra a műveletet.");
+          }
         }else if(result.state==="needsOperator"&&!finished.current){
           finished.current=true;
           setError("A Store-v1 Restart megszakadt. Nincs automatikus ismétlés. "+
             "Ellenőrizd az eredeti ASA PID-et és az újraindítási naplót.");
         }
       }catch{
-        if(alive)setError("A natív Store-v1 Restart állapota nem olvasható; ne indítsd újra.");
+        if(alive&&belongs(mapId))setError("A natív Store-v1 Restart állapota nem olvasható; ne indítsd újra.");
       }finally{polling=false;}
     };
     void poll();
     const interval=window.setInterval(()=>{void poll();},1800);
     return ()=>{alive=false;window.clearInterval(interval);};
   },[jobId,mapId,onRestarted]);
+  const refreshRecovery=async()=>{
+    // Read-only check: clearing a SaveWorld recovery receipt in its own
+    // panel must not require closing/restarting this Manager or repeating RCON.
+    if(busy)return;
+    const requested=mapId;
+    setBusy(true);setChecked(false);setError("");setNotice("");
+    setPreview(null);setPhrase("");
+    try{
+      const result=await managerBridge.historicalRestartRecovery(requested);
+      if(!belongs(requested))return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase())
+        throw new Error("UM-STORE-RESTART-RECOVERY-WRONG-MAP");
+      setRecovery(result);setChecked(true);
+      if(result.inMemoryRunning&&result.jobId){
+        setJobId(result.jobId);
+        setNotice("A már futó újraindítás állapotához visszacsatlakozva; nincs új RCON.");
+      }else if(result.saveEvidenceUnreadable){
+        setError("Sérült vagy félbeszakadt SaveWorld-bizonylat "+
+          "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). Kézi naplóellenőrzés szükséges; "+
+          "nincs automatikus feloldás.");
+      }else if(result.saveEvidencePending){
+        setError("Befejezetlen vagy bizonytalan Store-v1 SaveWorld-bizonylat. "+
+          "Ellenőrizd a SaveWorld panelen, majd frissítsd itt az állapotot.");
+      }else if(result.blocked||result.requiresOperator){
+        setError("A tartós Store-v1 napló további kézi ellenőrzést igényel.");
+      }else{
+        setNotice("A helyi naplók nem jeleznek függő műveletet. "+
+          "Ez még nem igazolja a szerver játékbeli készenlétét.");
+      }
+    }catch{
+      if(belongs(requested)){
+        setRecovery(null);setError("A helyi Store-v1 műveleti naplók nem "+
+          "ellenőrizhetők; Restart továbbra is tiltva.");
+      }
+    }finally{if(belongs(requested))setBusy(false);}
+  };
   const inspect=async()=>{
     if(busy||!running||!checked||!recovery||recovery.blocked||
        recovery.inMemoryRunning||jobId)return;
+    const requested=mapId;
     setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
-    try{setPreview(await managerBridge.historicalRestartPreview(mapId));}
-    catch{setError("Az eredeti ACTIVE/DONE session, PID/RCON-tulajdonlás, "+
-      "az indítási konfiguráció vagy a műveleti napló nem igazolható. "+
-      "Az ASA szerverhez nem nyúltunk.");}
-    finally{setBusy(false);}
+    try{
+      const result=await managerBridge.historicalRestartPreview(requested);
+      if(!belongs(requested))return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase())
+        throw new Error("UM-STORE-RESTART-PREVIEW-MAP-MISMATCH");
+      setPreview(result);
+    }catch{
+      if(belongs(requested))setError("A helyi Store-v1 ASA PID/RCON, indítási konfiguráció vagy műveleti napló nem igazolható. Nem küldtünk RCON-parancsot.");
+    }finally{if(belongs(requested))setBusy(false);}
   };
   const apply=async()=>{
-    if(busy||!preview||phrase!=="STORE-V1 SAVEWORLD DOEXIT START")return;
-    const token=preview.token;setPreview(null);setPhrase("");setBusy(true);
-    setError("");setNotice("");
+    if(busy||!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
+       phrase!=="STORE-V1 SAVEWORLD DOEXIT START")return;
+    const requested=mapId,token=preview.token;
+    setPreview(null);setPhrase("");setBusy(true);setError("");setNotice("");
     try{
       const result=await managerBridge.historicalRestartApply(
         token,"STORE-V1 SAVEWORLD DOEXIT START");
+      if(!belongs(requested))return;
+      if(!result.jobId)throw new Error("UM-STORE-RESTART-JOB-MISSING");
       setJobId(result.jobId);
-      setNotice("Natív, naplózott Store-v1 Restart elindult. SaveWorld/DoExit "+
-        "mentésigazolás és régi PID-kilépés nélkül nincs új ASA Process.Start.");
+      setNotice("Store-v1 Restart elindult. SaveWorld/DoExit mentésigazolás és régi PID-kilépés nélkül nem indít új ASA-t.");
     }catch{
-      setError("A Store-v1 Restart jóváhagyása vagy előellenőrzése meghiúsult. "+
-        "Nincs automatikus RCON-küldés, retry vagy naplófeloldás.");
-    }finally{setBusy(false);}
+      if(belongs(requested))setError("A Restart eredménye nem igazolt; a háttérfeladat már elindulhatott. Ne indítsd újra, ellenőrizd a naplót.");
+    }finally{if(belongs(requested))setBusy(false);}
   };
   return <section className="glass panel historical-store-restart"
     aria-label="Eredeti Store-v1 manuális újraindítás">
@@ -107,6 +166,10 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
         indítás újbóli ellenőrzése → új helyi ASA PID. Az opcionális ASA API Loader
         módnál a gyermek ASA PID és RCON-tulajdonlás külön igazolandó.
         A kétgépes Store session/lock változatlan. Nincs automatikus újrapróbálás vagy konverzió.</p>
+      <button type="button" className="secondary" disabled={busy}
+        onClick={()=>{void refreshRecovery();}}>
+        <RefreshCw size={16}/> Store-v1 napló újraellenőrzése
+      </button>
       <button type="button" className="secondary"
         disabled={busy||!running||!checked||!recovery||recovery.blocked||
           recovery.inMemoryRunning||!!jobId||!!preview||!!error}
@@ -114,8 +177,15 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
         <Shield size={16}/> Store-v1 újraindítás előellenőrzése
       </button>
       {recovery?.blocked&&<div className="warning-inline" role="status">
-        <AlertTriangle size={17}/> Tartós újraindítási vagy másik műveleti napló:
-        {recovery.phase} · automatikus folytatás tiltva.
+        <AlertTriangle size={17}/>
+        {recovery.saveEvidenceUnreadable
+          ? <>Sérült Store-v1 SaveWorld-bizonylat ({recovery.saveEvidencePhase}).
+              A napló megmarad; kézi ellenőrzés és külön helyreállítás szükséges.</>
+          : recovery.saveEvidencePending
+          ? <>Függő Store-v1 SaveWorld-bizonylat ({recovery.saveEvidencePhase}).
+              Előbb a SaveWorld panelen ellenőrizd; nincs automatikus folytatás.</>
+          : <>Tartós újraindítási vagy másik műveleti napló:
+              {recovery.phase} · automatikus folytatás tiltva.</>}
       </div>}
       {preview&&<div className="warning-inline" role="region"
         aria-label="Store-v1 újraindítás jóváhagyása">

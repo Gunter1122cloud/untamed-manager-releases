@@ -1,4 +1,4 @@
-import {useEffect,useState} from "react";
+import {useCallback,useEffect,useRef,useState} from "react";
 import {AlertTriangle,Archive,CheckCircle2,FolderOpen,HardDriveDownload,RefreshCw,Shield} from "lucide-react";
 import {managerBridge,type MultiHostClusterBackupPreview,
   type MultiHostClusterRestorePreview,type MultiHostClusterBackupStatus,
@@ -27,20 +27,41 @@ export function MultiHostBackupPanel(){
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  const currentJob=useRef(jobId);
+  currentJob.current=jobId;
 
+  const inspectJob=useCallback(async(id:string,
+    kind:"backup"|"restore"|"hoststage"|"")=>{
+    if(!id||!kind||currentJob.current!==id)return;
+    try{
+      const reply=kind==="restore"
+        ?await managerBridge.multiHostRestoreStatus(id):
+        kind==="hoststage"?await managerBridge.multiHostHostStageStatus(id):
+          await managerBridge.multiHostBackupStatus(id);
+      if(currentJob.current!==id)return;
+      if(reply.jobId!==id||reply.kind!==kind){
+        setError("A mentés/visszaállítás eredménye másik feladathoz tartozik. Nem tekinthető igazoltnak.");
+        return;
+      }
+      setStatus(reply);
+    }catch{
+      if(currentJob.current===id)
+        setError("A művelet állapota nem olvasható; az archívumot ne használd ellenőrzés nélkül.");
+    }
+  },[]);
   useEffect(()=>{
-    if(!jobId||status?.state==="completed"||status?.state==="needsOperator")return;
+    if(!jobId||!jobKind||
+       status?.state==="completed"||status?.state==="needsOperator")return;
+    let active=true,inFlight=false;
     const poll=()=>{
-      const read=jobKind==="restore"?
-        managerBridge.multiHostRestoreStatus(jobId):
-        jobKind==="hoststage"?managerBridge.multiHostHostStageStatus(jobId):
-        managerBridge.multiHostBackupStatus(jobId);
-      void read.then(setStatus).catch(()=>setError("A művelet állapota nem olvasható; az archívumot ne használd ellenőrzés nélkül."));
+      if(!active||inFlight||currentJob.current!==jobId)return;
+      inFlight=true;
+      void inspectJob(jobId,jobKind).finally(()=>{inFlight=false;});
     };
     poll();
     const timer=window.setInterval(poll,1500);
-    return ()=>window.clearInterval(timer);
-  },[jobId,jobKind,status?.state]);
+    return ()=>{active=false;window.clearInterval(timer);};
+  },[jobId,jobKind,status?.state,inspectJob]);
 
   async function previewHostStage(){
     if(busy||(jobId&&status?.state!=="completed"&&status?.state!=="needsOperator"))return;
@@ -58,7 +79,7 @@ export function MultiHostBackupPanel(){
     setBusy(true);setError("");setNotice("");
     try{
       const result=await managerBridge.multiHostHostStageApply(token,"HOST RESTORE TEST");
-      if(!result.started||result.productionRestoreAllowed||
+      if(!result.started||!result.jobId||result.productionRestoreAllowed||
          result.remoteHostWritten||result.originalStoreTouched)
         throw new Error("UM-HOSTRESTORE-NATIVE-RECEIPT-MISMATCH");
       setJobId(result.jobId);setJobKind("hoststage");setStatus(null);
@@ -109,7 +130,7 @@ export function MultiHostBackupPanel(){
     setBackupRecoveryPreview(null);setBackupRecoveryApproved(false);
     try{
       const started=await managerBridge.multiHostBackupRecoveryApply(token);
-      if(!started.started||!started.previousStageWillBeRetained||
+      if(!started.started||!started.jobId||!started.previousStageWillBeRetained||
          started.productionRestoreAllowed||started.serverProcessTouched)
         throw new Error("A natív helyreállítás visszaigazolása érvénytelen");
       setJobId(started.jobId);setJobKind("backup");setStatus(null);
@@ -164,8 +185,11 @@ export function MultiHostBackupPanel(){
     setBusy(true);setError("");setNotice("");
     try{
       const started=await managerBridge.multiHostBackupApply(backupPreview.token);
+      if(!started.started||!started.jobId||started.productionRestoreAllowed||
+         started.rconUsed||started.serverProcessTouched)
+        throw new Error("UM-MULTIHOST-BACKUP-START-RECEIPT-MISMATCH");
       setJobId(started.jobId);setJobKind("backup");setBackupPreview(null);setApproved(false);
-      setNotice("Az elkülönített offline másolatok archiválása elindult. A futó ASA/Kova és a Store-v1 források nem módosulnak.");
+      setNotice("Az elkülönített offline másolatok archiválása elindult. A futó ASA/korábbi Manager és a Store-v1 források nem módosulnak.");
     }catch{setError("A natív Manager elutasította a mentés-jóváhagyást vagy a registry időközben megváltozott.");}
     finally{setBusy(false);}
   }
@@ -177,6 +201,10 @@ export function MultiHostBackupPanel(){
       const started=replaces
         ?await managerBridge.multiHostRestoreReplaceApply(restorePreview.token)
         :await managerBridge.multiHostRestoreApply(restorePreview.token);
+      if(!started.started||!started.jobId||started.productionRestoreAllowed||
+         started.rconUsed||started.serverProcessTouched||
+         started.target!==restorePreview.restoreTarget)
+        throw new Error("UM-MULTIHOST-RESTORE-START-RECEIPT-MISMATCH");
       setJobId(started.jobId);setJobKind("restore");setRestorePreview(null);setApproved(false);
       setNotice(replaces
         ?"A TEMP sandbox cseréje elindult; a korábbi ellenőrzött sandbox rollback-másolata megmarad. Éles adat nem íródik."
@@ -189,9 +217,32 @@ export function MultiHostBackupPanel(){
     setBusy(true);setError("");setNotice("");
     try{
       const started=await managerBridge.multiHostRestoreRecoveryApply(recoveryPreview.token);
+      if(!started.started||!started.jobId||started.productionRestoreAllowed||
+         started.rconUsed||started.serverProcessTouched||
+         started.target!=="TEMP SANDBOX ROLLBACK ONLY")
+        throw new Error("UM-MULTIHOST-ROLLBACK-START-RECEIPT-MISMATCH");
       setJobId(started.jobId);setJobKind("restore");setRecoveryListing(null);setRecoveryCandidateName("");setRecoveryPreview(null);setApproved(false);
       setNotice("A kiválasztott TEMP sandbox rollbackje elindult; az újabb példány megőrzött quarantine mappába kerül.");
     }catch{setError("A TEMP rollback jóváhagyását vagy a tranzakció aktuális állapotát a natív Manager elutasította.");}
+    finally{setBusy(false);}
+  }
+
+  async function requestJobCancellation(){
+    if(busy||!jobId||status?.state==="completed"||
+       status?.state==="needsOperator")return;
+    setBusy(true);setError("");setNotice("");
+    try{
+      const receipt=await managerBridge.multiHostCancel(jobId);
+      if(receipt.jobId!==jobId||!receipt.cancelRequested||
+         receipt.completed!==false||receipt.automaticRollback!==false||
+         receipt.journalDeleted!==false)
+        throw new Error("UM-MULTIHOST-CANCEL-RECEIPT-MISMATCH");
+      setNotice("Megszakítási kérés elküldve a pontos offline feladatra. "+
+        "Ez nem igazolt leállítás: a státuszt ellenőrizni kell. "+
+        "Félbeszakadt archívum/TEMP stage esetén kézi helyreállítás szükséges; "+
+        "nincs automatikus rollback, ASA/RCON-művelet vagy naplótörlés.");
+    }catch(e){setError("A feladat megszakítási kérelmét a natív Manager elutasította ("+
+      (e instanceof Error?e.message:"UM-MULTIHOST-CANCEL-FAILED")+").");}
     finally{setBusy(false);}
   }
 
@@ -261,7 +312,7 @@ export function MultiHostBackupPanel(){
       <p><b>Korábbi állapot nem törlődik:</b> a teljes .incomplete könyvtár megőrzött
         másolatba kerül. A változatlan offline host-, Store-, világ- és transferfájlokból
         új teljes archívum készül a már működő motorral. Ez nem automatikus folytatás
-        és nem érinti a futó ASA-t vagy az eredeti Kova-adatokat.</p>
+        és nem érinti a futó ASA-t vagy az eredeti korábbi Manager-adatokat.</p>
       <label><input type="checkbox" checked={backupRecoveryApproved}
         disabled={busy} onChange={e=>setBackupRecoveryApproved(e.target.checked)}/>
         Jóváhagyom a naplóval ellenőrzött régi részleges archívum megtartását
@@ -287,7 +338,7 @@ export function MultiHostBackupPanel(){
       <p>A meglévő teljes N-host archívum igazolt TEMP restore fájljaiból készül
         el a helyi host teljes map-, profil-, tribe-, inventory-, tribute-,
         dino-, INI-, mod-, plugin- és Store/transfer tesztcsomagja.</p>
-      <p><b>Nem történik éles restore:</b> nincs ASA vagy Kova írás, nincs
+      <p><b>Nem történik éles restore:</b> nincs ASA vagy korábbi Manager írás, nincs
         távoli host-művelet, és nem kap jogot a Store writer újranyitására.</p>
       <label><input type="checkbox" disabled={busy} checked={hostStageApproved}
         onChange={e=>setHostStageApproved(e.target.checked)}/>
@@ -406,10 +457,11 @@ export function MultiHostBackupPanel(){
         <p><AlertTriangle size={16}/>
           A művelet nem fejeződött be ellenőrzötten. A részleges archívum vagy TEMP stage kézi felülvizsgálatot igényel; nincs automatikus újrapróbálás.</p>}
       {!finished&&<button className="secondary" type="button" disabled={busy}
-        onClick={()=>{const read=jobKind==="restore"?managerBridge.multiHostRestoreStatus(jobId):
-          jobKind==="hoststage"?managerBridge.multiHostHostStageStatus(jobId):
-          managerBridge.multiHostBackupStatus(jobId);
-          void read.then(setStatus).catch(()=>setError("A státusz nem elérhető."));}}>
+        onClick={()=>{void requestJobCancellation();}}>
+        Megszakítás kérése – csak ez az offline feladat
+      </button>}
+      {!finished&&<button className="secondary" type="button" disabled={busy}
+        onClick={()=>{void inspectJob(jobId,jobKind);}}>
         <RefreshCw size={15}/> Státusz frissítése</button>}
       {finished&&<button type="button" className="secondary" disabled={busy}
         onClick={()=>{setJobId("");setJobKind("");setStatus(null);setNotice("");setError("");}}>Új művelet</button>}

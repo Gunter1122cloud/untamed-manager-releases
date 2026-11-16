@@ -11,8 +11,10 @@ namespace UntamedDesktop;
 
 /// <summary>
 /// Operator-approved batch maintenance for ONLY locally owned, positively
-/// STOPPED, non-Store ASA installations. Delegates every write to the
-/// existing SteamStoppedMapUpdater.UpdateAllStoppedAsync/Core queue, with a
+/// STOPPED ASA installations, including original Store-v1 maps whose
+/// source identity and stopped ASA/Loader process family are proved natively.
+/// Delegates all writes to SteamStoppedMapUpdater.UpdateAllStoppedAsync/Core
+/// queue, with a
 /// single-use preview receipt and no auto-retry after interruption.
 /// </summary>
 public sealed class DesktopStoppedSteamBatchBridge : IDisposable
@@ -33,6 +35,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
     private readonly Func<IReadOnlyList<LocalMap>,IProgress<SteamQueueProgress>,
         Task<IReadOnlyList<SteamStoppedMapUpdater.Receipt>>> runBatch;
     private readonly Func<LocalMap,SteamUpdatePreview> plan;
+    private readonly Func<LocalMap,bool,ProcessCheck> observeOriginal;
     private readonly SemaphoreSlim gate=new(1,1);
     private readonly object sync=new();
     private const long Reserve=10L*1024*1024*1024;
@@ -43,17 +46,30 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
     public DesktopStoppedSteamBatchBridge(ClusterService owner,
         Func<IReadOnlyList<LocalMap>,IProgress<SteamQueueProgress>,
             Task<IReadOnlyList<SteamStoppedMapUpdater.Receipt>>>? isolatedRunner=null,
-        Func<LocalMap,SteamUpdatePreview>? isolatedPlanner=null)
+        Func<LocalMap,SteamUpdatePreview>? isolatedPlanner=null,
+        Func<LocalMap,bool,ProcessCheck>? isolatedOriginalObserver=null)
     {
         cluster=owner??throw new ArgumentNullException(nameof(owner));
+        // Production always uses the exact native stopped-family guard; an
+        // injected process fixture is not a route exposed to WebView2.
+        observeOriginal=isolatedOriginalObserver??((map,underOwnOperation)=>
+            HistoricalLocalConfigGuard.DemandStopped(cluster,map,underOwnOperation));
         runBatch=isolatedRunner??((maps,progress)=>
             SteamStoppedMapUpdater.UpdateAllStoppedAsync(cluster,maps,
                 cluster.Config.SteamCmdExecutable,Reserve,
-                TimeSpan.FromHours(2),progress));
+                TimeSpan.FromHours(2),progress,
+                originalStoppedObserver:member=>ObserveForSteam(member),
+                originalStoppedObserverUnderLease:
+                    member=>ObserveForSteam(member,true)));
         plan=isolatedPlanner??(map=>SteamUpdateDryRun.Plan(
             cluster.Config.SteamCmdExecutable,map.InstallationPath,
-            cluster.Config.LocalMaps.ToArray(),cluster.Check,Reserve));
+            cluster.Config.LocalMaps.ToArray(),
+            member=>ObserveForSteam(member),Reserve));
     }
+
+    private ProcessCheck ObserveForSteam(LocalMap map,bool underOwnOperation=false)=>
+        map.HistoricalStoreProtected?
+            observeOriginal(map,underOwnOperation):cluster.Check(map);
 
     private static string Ok(string? id,object data)=>
         JsonSerializer.Serialize(new{id,ok=true,data},Json);
@@ -121,16 +137,28 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
             var local=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
             if(local==null)
                 throw new UnauthorizedAccessException("UM-STEAM-BATCH-NOT-LOCAL");
-            if(local.HistoricalStoreProtected || local.Maintenance ||
-               !string.IsNullOrWhiteSpace(local.HistoricalArchiveSha256) ||
-               !string.IsNullOrWhiteSpace(local.HistoricalMapKey) ||
-               !string.IsNullOrWhiteSpace(local.FreshStoreClusterId) ||
-               !string.IsNullOrWhiteSpace(local.FreshStoreTransferDirectory) ||
-               !string.IsNullOrWhiteSpace(local.StoreTestRoot) ||
-               KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(local) ||
+            if(local.Maintenance||
                !AsaReadyProbe.IsRegisteredServerBinary(local))
                 throw new UnauthorizedAccessException("UM-STEAM-BATCH-PROTECTED");
-            var process=cluster.Check(local);
+            if(local.HistoricalStoreProtected)
+            {
+                // Existing, approved offline Store profile, checked with
+                // its own stopped-family Windows observer. No session/write.
+                _=ObserveForSteam(local);
+            }
+            else if(FreshStoreEnrollmentPolicy.IsEnrolled(local))
+            {
+                // Exact local enrollment, never inferred from a UI toggle.
+                FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,local);
+            }
+            else if(!string.IsNullOrWhiteSpace(local.HistoricalArchiveSha256) ||
+                !string.IsNullOrWhiteSpace(local.HistoricalMapKey) ||
+                !string.IsNullOrWhiteSpace(local.FreshStoreClusterId) ||
+                !string.IsNullOrWhiteSpace(local.FreshStoreTransferDirectory) ||
+                !string.IsNullOrWhiteSpace(local.StoreTestRoot) ||
+                KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(local))
+                throw new UnauthorizedAccessException("UM-STEAM-BATCH-PROTECTED");
+            var process=ObserveForSteam(local);
             if(!process.ConfirmedStopped||process.Running||
                process.Identity!=null||process.LoaderIdentity!=null)
                 throw new InvalidOperationException("UM-STEAM-BATCH-NOT-STOPPED");
@@ -161,23 +189,27 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
             // Keep the React batch preflight identical to the Core updater;
             // mixed Store or nested unselected ownership must fail before
             // an approval token is issued.
-            SteamStoppedMapUpdater.DemandSafeLocalInstallation(cluster,map);
+            SteamStoppedMapUpdater.DemandSafeLocalInstallation(
+                cluster,map,member=>ObserveForSteam(member));
             string root=Path.GetFullPath(map.InstallationPath);
             foreach(var sibling in cluster.Config.LocalMaps.Where(m=>
                 !string.IsNullOrWhiteSpace(m.InstallationPath) &&
                 string.Equals(Path.GetFullPath(m.InstallationPath),
                     root,StringComparison.OrdinalIgnoreCase)))
             {
-                var state=cluster.Check(sibling);
+                var state=ObserveForSteam(sibling);
                 if(state.Running||!state.ConfirmedStopped||
                    state.Identity!=null||state.LoaderIdentity!=null||
-                   sibling.HistoricalStoreProtected||sibling.Maintenance||
-                   !string.IsNullOrWhiteSpace(sibling.HistoricalMapKey)||
-                   !string.IsNullOrWhiteSpace(sibling.HistoricalArchiveSha256)||
-                   !string.IsNullOrWhiteSpace(sibling.FreshStoreClusterId)||
-                   !string.IsNullOrWhiteSpace(sibling.FreshStoreTransferDirectory)||
-                   !string.IsNullOrWhiteSpace(sibling.StoreTestRoot)||
-                   KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(sibling))
+                   sibling.Maintenance||
+                   sibling.HistoricalStoreProtected!=map.HistoricalStoreProtected||
+                   (!sibling.HistoricalStoreProtected&&
+                    !FreshStoreEnrollmentPolicy.IsEnrolled(sibling)&&(
+                       !string.IsNullOrWhiteSpace(sibling.HistoricalMapKey)||
+                       !string.IsNullOrWhiteSpace(sibling.HistoricalArchiveSha256)||
+                       !string.IsNullOrWhiteSpace(sibling.FreshStoreClusterId)||
+                       !string.IsNullOrWhiteSpace(sibling.FreshStoreTransferDirectory)||
+                       !string.IsNullOrWhiteSpace(sibling.StoreTestRoot)||
+                       KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(sibling))))
                     throw new InvalidOperationException(
                         "UM-STEAM-BATCH-SHARED-INSTALL-BLOCKED");
             }

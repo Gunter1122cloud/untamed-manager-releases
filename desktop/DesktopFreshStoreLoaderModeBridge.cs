@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -20,7 +21,9 @@ public sealed class DesktopFreshStoreLoaderModeBridge : IDisposable
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private readonly ClusterService cluster;
     private readonly SemaphoreSlim serial=new(1,1);
-    private Approval? pending;
+    // Configuration-only API/direct choice is independently approved on
+    // each map. A second map's preview cannot revoke the first ticket.
+    private readonly Dictionary<Guid,Approval> pendingByMap=new();
 
     public DesktopFreshStoreLoaderModeBridge(ClusterService service)=>
         cluster=service??throw new ArgumentNullException(nameof(service));
@@ -106,6 +109,9 @@ public sealed class DesktopFreshStoreLoaderModeBridge : IDisposable
             await serial.WaitAsync();
             try
             {
+                foreach(var expired in pendingByMap.Where(x=>
+                    DateTimeOffset.UtcNow-x.Value.Created>TimeSpan.FromMinutes(3))
+                    .Select(x=>x.Key).ToArray())pendingByMap.Remove(expired);
                 if(method=="freshStore.loaderModeStatus")
                 {
                     if(!ReadGuid(req,"mapId",out var mapId))
@@ -138,7 +144,6 @@ public sealed class DesktopFreshStoreLoaderModeBridge : IDisposable
                 }
                 if(method=="freshStore.loaderModePreview")
                 {
-                    pending=null;
                     if(!ReadGuid(req,"mapId",out var mapId)||
                        !req.TryGetProperty("useApi",out var choice)||
                        choice.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
@@ -148,10 +153,13 @@ public sealed class DesktopFreshStoreLoaderModeBridge : IDisposable
                     if(map==null||map.StartWithAsaApi==useApi)
                         return Fail(id,"UM-FRESH-STORE-API-UNCHANGED");
                     var (loader,cache)=await Task.Run(()=>Preflight(map,useApi));
-                    pending=new Approval(Guid.NewGuid(),map.Id,
+                    if(!pendingByMap.ContainsKey(mapId)&&pendingByMap.Count>=25)
+                        return Fail(id,"UM-FRESH-STORE-API-PREVIEW-CAPACITY");
+                    var previewApproval=new Approval(Guid.NewGuid(),map.Id,
                         JsonSerializer.Serialize(map),useApi,loader,DateTimeOffset.UtcNow);
+                    pendingByMap[map.Id]=previewApproval;
                     return Ok(id,new{
-                        token=pending.Token,mapId,mapName=map.Name,useApi,
+                        token=previewApproval.Token,mapId,mapName=map.Name,useApi,
                         mode=useApi?"asaApiLoader":"directAsa",
                         cacheState=cache,cacheRuntimeCertified=false,
                         startsServer=false,changesStore=false,
@@ -160,18 +168,22 @@ public sealed class DesktopFreshStoreLoaderModeBridge : IDisposable
                     });
                 }
 
-                if(!ReadGuid(req,"token",out var token)||pending==null||
-                   pending.Token!=token||
-                   DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(3))
+                if(!ReadGuid(req,"token",out var token)||
+                   !pendingByMap.Values.Any(p=>p.Token==token))
                     return Fail(id,"UM-FRESH-STORE-API-APPROVAL-EXPIRED");
+                var approval=pendingByMap.Values.Single(p=>p.Token==token);
+                if(DateTimeOffset.UtcNow-approval.Created>TimeSpan.FromMinutes(3))
+                {
+                    pendingByMap.Remove(approval.MapId);
+                    return Fail(id,"UM-FRESH-STORE-API-APPROVAL-EXPIRED");
+                }
                 if(!req.TryGetProperty("confirm",out var confirmed)||
                    confirmed.ValueKind!=JsonValueKind.True||
                    !req.TryGetProperty("typedApproval",out var phrase)||
                    phrase.ValueKind!=JsonValueKind.String||
                    phrase.GetString()!="FRESH STORE API MODE")
                     return Fail(id,"UM-FRESH-STORE-API-APPROVAL-REQUIRED");
-                var approval=pending;
-                pending=null; // one-shot, even when something changed
+                pendingByMap.Remove(approval.MapId); // one-shot, even when something changed
                 var original=Owned(approval.MapId);
                 if(original==null||original.StartWithAsaApi==approval.UseApi||
                    JsonSerializer.Serialize(original)!=approval.Profile)

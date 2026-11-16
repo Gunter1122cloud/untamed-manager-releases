@@ -25,7 +25,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
       const memberships=registry.clusterRegistry.mapAssignments.filter(x=>
         x.mapId.toLowerCase()===mapId.toLowerCase());
       const options=memberships.length===1?registry.clusterRegistry.clusters.filter(x=>
-        x.clusterId===memberships[0].clusterId&&x.clusterId!=="kovacluster"):[];
+        x.clusterId===memberships[0].clusterId&&x.clusterId.toLowerCase()!=="kovacluster"):[];
       setClusters(options);setSelected(options[0]?.clusterId??"");
     }).catch(()=>{
       if(active)setError("A helyi map és a clusterhozzárendelés nem igazolható. Nem történt módosítás.");
@@ -37,9 +37,27 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
     if(!selected||busy)return;
     reset();setBusy(true);
     try{setPreview(await managerBridge.freshStoreEnrollmentPreview(mapId,selected));}
-    catch(e){setError("Új, üres Store-map nem készíthető elő ("+
-      (e instanceof Error?e.message:"UM-FRESH-STORE-PREFLIGHT")+
-      "). Ellenőrizd a teljesen üres SteamCMD-telepítést, a leállított folyamatot és a helyi cluster tagságát.");}
+    catch(e){
+      const code=e instanceof Error?e.message:"UM-FRESH-STORE-PREFLIGHT";
+      const hints:Record<string,string>={
+        "UM-FRESH-STORE-KOVA-CLUSTER-RESERVED":
+          "Az eredeti történeti cluster nem érhető el az új, üres Store-map általános regisztrációjával. Az eredeti kétgazdás transferazonosságot külön kell igazolni; az eredeti világot nem módosítottuk.",
+        "UM-FRESH-STORE-RCON-SETUP-REQUIRED-BEFORE-ENROLLMENT":
+          "Először a map RCON fülén konfiguráld a helyi RCON-portot és jelszót, utána kérj új Store-előellenőrzést.",
+        "UM-FRESH-STORE-MAP-MEMBERSHIP-REQUIRED":
+          "A map nincs pontosan egyszer hozzárendelve a kiválasztott clusterhez. Nyisd meg a Cluster fület és mentsd a hozzárendelést.",
+        "UM-FRESH-STORE-REMOTE-TRANSFER-NOT-CERTIFIED":
+          "Többgépes Store átviteli könyvtár azonossága még nem igazolt. Az UNC-útvonal önmagában nem bizonyít közös Store-t.",
+        "UM-FRESH-STORE-NEW-STEAM-INSTALL-REQUIRED":
+          "A map nem igazoltan új, üres SteamCMD-telepítés. Meglévő mapot a külön importvarázslóval vegyél át.",
+        "UM-FRESH-STORE-EXISTING-SAVE-OR-REPARSE":
+          "A map mappájában már vannak világ-, játékos- vagy tribe-adatok, vagy nem biztonságos hivatkozás. A Manager ezeket nem konvertálja.",
+        "UM-FRESH-STORE-ASA-NOT-PROVEN-STOPPED":
+          "A map teljes ASA/Loader folyamata nem igazoltan állt le. Nem történt Store-regisztráció."
+      };
+      setError(hints[code]??("Új, üres Store-map nem készíthető elő ("+
+        code+"). A meglévő ASA és Store fájlokat nem módosítottuk."));
+    }
     finally{setBusy(false);}
   };
   const apply=async()=>{
@@ -63,14 +81,14 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
       <span className="mod-tag amber">Külön jóváhagyás</span></div>
     <div className="panel-inner">
       {status?.historicalProtected?<div className="warning-inline" role="alert">
-        Eredeti Kova Store-map: az új mapos regisztráció itt tiltva.</div>:
+        Eredeti korábbi kezelőalkalmazás Store-map: az új mapos regisztráció itt tiltva.</div>:
       status?.enrolled?<div className="success-inline" role="status">
         <CheckCircle2 size={16}/> Store-profil regisztrálva: {status.clusterId}.
         A tényleges játékbeli utazás még nem igazolt.</div>:<>
         <p className="muted small">Csak soha nem indított, mentés nélküli SteamCMD-maphoz.
           A Store-regisztráció ELŐTT készítsd el a helyi RCON/INI-beállítást a
           RCON fülön, majd a Cluster fülön rendeld hozzá egy létrehozott clusterhez.
-          A KovaCluster és az igazolatlan többgépes megosztás továbbra is védett.</p>
+          A történeti cluster és az igazolatlan többgépes megosztás továbbra is védett.</p>
         <label><span>Jóváhagyott helyi cluster</span>
           <select aria-label="Új Store-map cluster" value={selected}
             disabled={busy||clusters.length===0}
@@ -112,7 +130,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
       </>}
       {notice&&<div role="status" className="success-inline"><CheckCircle2 size={16}/>{notice}</div>}
       {error&&<div role="alert" className="error-inline"><AlertTriangle size={16}/>{error}</div>}
-      <p className="muted tiny">Nem fut -converttostore, nem módosul a Kova-session vagy a cluster-átviteli fájl, és nincs automatikus indítás. Többgazdás adatvédelem külön elfogadást igényel.</p>
+      <p className="muted tiny">Nem fut -converttostore, nem módosul a eredeti session vagy a cluster-átviteli fájl, és nincs automatikus indítás. Többgazdás adatvédelem külön elfogadást igényel.</p>
     </div>
   </section>;
 }

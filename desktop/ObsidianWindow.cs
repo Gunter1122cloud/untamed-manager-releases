@@ -43,8 +43,12 @@ public sealed class ObsidianWindow : Form
         "historical.originalRegister" or
         "historical.originalBatchPreview" or "historical.originalBatchRegister" or
         "historical.originalLiveBatchPreview" or
-        "historical.originalLiveOperationBlockers" or "historical.originalLiveBatchApply" or
+        "historical.originalLiveOperationBlockers" or "historical.operationJournalInventory" or
+        "historical.originalLiveBatchApply" or
         "historical.originalClusterPreview" or "historical.originalClusterApply" or
+        "historical.sourcePinPreview" or "historical.sourcePinApply" or
+        "historical.runtimeSettingsStatus" or
+        "historical.runtimeSettingsPreview" or "historical.runtimeSettingsApply" or
         "historical.pairedEvidence" or "historical.launchEvidence" or
         "historical.liveGuard";
 
@@ -77,12 +81,13 @@ public sealed class ObsidianWindow : Form
             "servers.lifecycleRecoveryPreview" or
             "operations.snapshot" or "operations.map" or
             "schedule.nativeStatus" or "schedule.nativeOverview" or
-            "servers.gracefulStopStatus" or "servers.restartStatus" or
+            "servers.gracefulStopStatus" or "servers.gracefulStopCurrent" or "servers.restartStatus" or
             "servers.restartCurrent" or "servers.freshStartStatus" or
             "historical.restartStatus" or "historical.restartRecovery" or
             "historical.gracefulStopStatus" or "historical.gracefulStopRecovery" or
             "historical.saveWorldStatus" or "historical.saveWorldEvidence" or
             "historical.activeStartStatus" or
+            "historical.operationJournalInventory" or
             "rcon.status" or "rcon.listPlayers" or "rcon.gameLog" or "rcon.chatLog" or
             "historical.rconPlayers" or "historical.rconGameLog" or
             "historical.rconChatLog" or "historical.rconLiveStatus" or
@@ -92,7 +97,19 @@ public sealed class ObsidianWindow : Form
     // A malformed bridge request must never escape an async-void WebView2
     // event handler and terminate the Windows Manager. Keep native exception
     // details and private machine paths out of renderer responses.
-    internal static string NativeErrorResponse(string raw)
+    // Plugin management is intentionally MANUAL: only map-owned folder
+    // opening and on-disk inventory are available in the shipping Manager.
+    // Retired editor/ZIP/toggle handler classes are not an executable route
+    // from WebView2, even if an old client directly posts their method names.
+    internal static bool IsManualOnlyDeniedPluginMethod(string? method) =>
+        method is "plugins.togglePreview" or "plugins.toggleApply" or
+            "plugins.zipSelect" or "plugins.zipApply" or
+            "plugins.zipRollbackSelect" or "plugins.zipRollbackApply" or
+            "plugins.jsonOpen" or "plugins.jsonPreview" or
+            "plugins.jsonSave" or "plugins.jsonClose";
+
+    internal static string NativeErrorResponse(string raw,
+        string error="UM-NATIVE-UNEXPECTED-FAILURE")
     {
         string? id=null;
         try
@@ -108,7 +125,7 @@ public sealed class ObsidianWindow : Form
             }
         }
         catch(JsonException) { /* Untrusted syntax: return an uncorrelated error */ }
-        return JsonSerializer.Serialize(new{id,ok=false,error="UM-NATIVE-UNEXPECTED-FAILURE"});
+        return JsonSerializer.Serialize(new{id,ok=false,error});
     }
 
     // Windows-native chrome is styled through DWM. Keep the regular system
@@ -207,12 +224,15 @@ public sealed class ObsidianWindow : Form
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
     private readonly bool _smokeTest;
+    private readonly bool _suppressScheduledMutations;
     private readonly string? _smokeRoot;
     private bool _smokeCompleted;
 
-    public ObsidianWindow(bool smokeTest = false,string? isolatedProfileRoot = null)
+    public ObsidianWindow(bool smokeTest = false,string? isolatedProfileRoot = null,
+        bool suppressScheduledMutations = false)
     {
         _smokeTest = smokeTest;
+        _suppressScheduledMutations = suppressScheduledMutations;
         if(smokeTest)
         {
             _smokeRoot=string.IsNullOrWhiteSpace(isolatedProfileRoot)
@@ -278,7 +298,9 @@ public sealed class ObsidianWindow : Form
         _scheduledBackups = new DesktopScheduledStoppedBackupSupervisor(_bridge.LocalCluster);
         _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster,
             scheduledBackups:_scheduledBackups);
-        Text = "Untamed Kingdom — Obsidian Command";
+        Text = suppressScheduledMutations&&!smokeTest
+            ? "Untamed Kingdom — Obsidian Command [MANUÁLIS TESZT]"
+            : "Untamed Kingdom — Obsidian Command";
         Width = 1510;
         Height = 880;
         MinimumSize = new Size(940, 620);
@@ -291,7 +313,9 @@ public sealed class ObsidianWindow : Form
         Controls.Add(_browser);
 
         _tray.Icon = Icon;
-        _tray.Text = "Untamed Kingdom — Obsidian Command";
+        _tray.Text = suppressScheduledMutations&&!smokeTest
+            ? "Obsidian Command — MANUÁLIS TESZT"
+            : "Untamed Kingdom — Obsidian Command";
         _tray.Visible = true;
         var menu = new ContextMenuStrip();
         menu.Items.Add("Megnyitás", null, (_, _) => RestoreWindow());
@@ -313,9 +337,15 @@ public sealed class ObsidianWindow : Form
                 // never starts/stops any ARK server or touches shared Store.
                 _asaDiscovery.Start();
                 _readOnlySupervisor.Start();
-                _scheduledBackups.Start();
+                // Installation acceptance never silently executes a
+                // previously configured ASA Restart/SaveWorld or backup.
+                // Explicit native manual commands remain fully available.
+                if(!_suppressScheduledMutations)
+                {
+                    _scheduledBackups.Start();
+                    _nativeSchedules.Start();
+                }
                 _scheduledSteam.Start();
-                _nativeSchedules.Start();
                 try { await _bridge.LocalCluster.BeginLanAsync(); }
                 catch (Exception) { /* UI remains usable; peer status stays unknown */ }
             }
@@ -518,10 +548,13 @@ public sealed class ObsidianWindow : Form
                         rconConfigRoute = name is "rcon.configStatus" or "rcon.configPreview" or "rcon.configApply";
                         freshStartRoute = name is "servers.freshStartPreview" or "servers.freshStartApply" or
                             "servers.freshStartStatus" or "servers.freshReadiness";
-                        freshStopRoute = name is "servers.gracefulStopPreview" or "servers.gracefulStopApply" or "servers.gracefulStopStatus";
+                        freshStopRoute = name is "servers.gracefulStopPreview" or "servers.gracefulStopApply" or
+                            "servers.gracefulStopStatus" or "servers.gracefulStopCurrent" or
+                            "servers.gracefulStopReview";
                         ownedKillRoute = name is "servers.ownedKillPreview" or "servers.ownedKillApply";
                         freshRestartRoute = name is "servers.restartPreview" or "servers.restartApply" or
-                            "servers.restartStatus" or "servers.restartCurrent";
+                            "servers.restartStatus" or "servers.restartCurrent" or
+                            "servers.restartReviewPreview" or "servers.restartReviewApply";
                         lifecycleJournalRoute = name is "servers.lifecycleJournal" or
                             "servers.lifecycleRecoveryPreview" or
                             "servers.lifecycleRecoveryApply";
@@ -548,7 +581,8 @@ public sealed class ObsidianWindow : Form
                             "backup.originalBatchJournalRepairPreview" or
                             "backup.originalBatchJournalRepairApply";
                         pluginStateRoute = name is
-                            "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
+                            "plugins.state" or "plugins.openFolder" or
+                            "plugins.togglePreview" or "plugins.toggleApply";
                         pluginZipRoute = name is "plugins.zipSelect" or "plugins.zipApply" or
                             "plugins.zipRollbackSelect" or "plugins.zipRollbackApply";
                         pluginJsonRoute = name is "plugins.jsonOpen" or "plugins.jsonPreview" or
@@ -575,18 +609,19 @@ public sealed class ObsidianWindow : Form
                             "cluster.multiHostRestoreReplacePreview" or "cluster.multiHostRestoreReplaceApply" or
                             "cluster.multiHostRestoreRecoveryList" or
                             "cluster.multiHostRestoreRecoveryPreview" or "cluster.multiHostRestoreRecoveryApply" or
-                            "cluster.multiHostRestoreStatus";
+                            "cluster.multiHostRestoreStatus" or "cluster.multiHostCancel";
                         draftRoute = name is
                             "mods.draftStart" or "mods.draftStage" or
                             "mods.draftUndo" or "mods.draftRedo" or
                             "mods.draftDiscard" or "mods.draftSave";
                         iniRoute = name is "ini.open" or "ini.preview" or
-                            "ini.save" or "ini.close" or
+                            "ini.rebasePreview" or "ini.save" or "ini.close" or
                             "ini.createGamePreview" or "ini.createGameApply";
                         registryRoute = name is "servers.inspectLocal" or
                             "servers.importLocal";
                         runningAsaRegistrationRoute = name is "servers.runningPreview" or
-                            "servers.runningRegister";
+                            "servers.runningRegister" or
+                            "servers.runningBatchPreview" or "servers.runningBatchRegister";
                         runningAsaAdoptionRoute = name is "servers.runningAdoptPreview" or
                             "servers.runningAdoptApply";
                         clusterRegistryRoute = name is "cluster.registry.snapshot" or
@@ -600,7 +635,8 @@ public sealed class ObsidianWindow : Form
                         freshRoute = name is "steam.freshPreflight" or "steam.freshStart" or
                             "steam.freshStatus" or "steam.freshCurrent" or
                             "steam.freshCancel" or "steam.freshDiscard" or
-                            "steam.freshRegister" or "steam.freshBrowse";
+                            "steam.freshRegister" or "steam.freshBrowse" or
+                            "steam.freshRecoverPreview" or "steam.freshRecoverRegister";
                         initialRoute = name is "servers.initialStatus" or
                             "servers.initialPreview" or "servers.initialApply";
                         freshStoreEnrollmentRoute = name is "freshStore.enrollmentStatus" or
@@ -628,7 +664,8 @@ public sealed class ObsidianWindow : Form
                             "historical.loaderModeStatus" or "historical.loaderModePreview" or
                             "historical.loaderModeApply";
                         historicalRconRoute = name is "historical.rconStatus" or
-                            "historical.rconPreview" or "historical.rconApply";
+                            "historical.rconPreview" or
+                            "historical.rconExistingPreview" or "historical.rconApply";
                     }
                 }
                 catch (JsonException) { /* read-only bridge will safely reject invalid messages */ }
@@ -636,7 +673,9 @@ public sealed class ObsidianWindow : Form
                 if (requireGlobalGate) await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = apiCoreRoute ? await _apiCore.HandleAsync(incoming)
+                    string response = IsManualOnlyDeniedPluginMethod(methodName)
+                        ? NativeErrorResponse(incoming,"UM-PLUGIN-MANUAL-FOLDER-ONLY")
+                        : apiCoreRoute ? await _apiCore.HandleAsync(incoming)
                         : lanRoute ? await _lan.HandleAsync(incoming)
                         : nativeScheduleRoute ? await _nativeSchedules.HandleAsync(incoming)
                         : mapMaintenanceRoute ? await _mapMaintenance.HandleAsync(incoming)
