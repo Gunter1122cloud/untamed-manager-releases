@@ -56,6 +56,7 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
     private readonly Func<Guid,string,bool,ProcessIdentity> start;
     private readonly bool nativeLauncher;
     private readonly Func<LocalMap,bool,bool> modePreflight;
+    private readonly bool usesPhysicalModePreflight;
     private readonly SemaphoreSlim serial=new(1,1);
     // Both the Start and API Loader mode approvals belong to a single map.
     // Selecting a different local map cannot revoke another map's token.
@@ -78,6 +79,7 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
         nativeLauncher=launcher==null;
         start=launcher??((map,fingerprint,approved)=>
             cluster.LaunchOriginalActiveStoreAsa(map,fingerprint,approved));
+        usesPhysicalModePreflight=loaderModePreflight==null;
         modePreflight=loaderModePreflight??PhysicalModePreflight;
     }
 
@@ -111,16 +113,30 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
         string.IsNullOrWhiteSpace(map.Arguments)&&
         string.IsNullOrWhiteSpace(map.ApiLoaderArguments);
 
-    private bool PhysicalModePreflight(LocalMap map,bool useApi)
+    private bool PhysicalModePreflight(LocalMap map,bool useApi)=>
+        PhysicalModePreflight(map,useApi,underOwnLease:false);
+
+    private bool PhysicalModePreflight(LocalMap map,bool useApi,bool underOwnLease)
     {
         if(!AsaReadyProbe.IsRegisteredServerBinary(map)||
            KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             return false;
         new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
-        var existing=cluster.Operations.Observe(map.InstallationPath);
-        if(existing?.Phase is UntamedOperationPhase.Prepared or
-            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
-            return false;
+        // The approved Configuration lease itself is Prepared during apply;
+        // never interpret that journal as an unrelated operation. Before
+        // acquiring the lease, keep the ordinary fail-closed journal check.
+        if(!underOwnLease)
+        {
+            var existing=cluster.Operations.Observe(map.InstallationPath);
+            if(existing?.Phase is UntamedOperationPhase.Prepared or
+                UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
+                return false;
+        }
+        // A SaveWorld-only receipt is a separate durable intent created
+        // before its asynchronous RCON worker acquires an operation lease.
+        var save=LegacyStoreV1SaveEvidenceJournal.Inspect(
+            cluster.Store.Root,map.Id);
+        if(save?.Phase is "prepared" or "needsOperator")return false;
         // A settings change may be committed ONLY while the registered local
         // process family is unequivocally stopped. No synthetic UI status.
         var stopped=LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
@@ -234,7 +250,6 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                        DateTimeOffset.UtcNow-requested.Created>TimeSpan.FromMinutes(3))
                         return Fail(id,"UM-STORE-LOADER-MODE-APPROVAL");
                     modeApprovalsByMap.Remove(requested.MapId);
-                    startApprovalsByMap.Remove(requested.MapId);
                     var map=Owned(requested.MapId);
                     if(!ModeOwned(map)||
                        (map!.StartWithAsaApi==requested.UseApi&&
@@ -246,7 +261,9 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                     using var operation=cluster.Operations.Acquire(
                         map.InstallationPath,UntamedOperationKind.Configuration);
                     if(JsonSerializer.Serialize(map)!=requested.Profile||
-                       !modePreflight(map,requested.UseApi))
+                       !(usesPhysicalModePreflight
+                            ? PhysicalModePreflight(map,requested.UseApi,underOwnLease:true)
+                            : modePreflight(map,requested.UseApi)))
                         return Fail(id,"UM-STORE-LOADER-MODE-LEASE-CHANGED");
                     bool before=map.StartWithAsaApi;
                     bool neededApproval=map.HistoricalLaunchModeNeedsApproval;
@@ -264,6 +281,9 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         throw;
                     }
                     operation.Complete();
+                    // A failed mode change must not erase an independently
+                    // approved same-map Start plan.
+                    startApprovalsByMap.Remove(map.Id);
                     return Ok(id,new{
                         mapId=map.Id,mapName=map.Name,
                         useApi=map.StartWithAsaApi,
