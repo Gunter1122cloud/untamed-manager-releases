@@ -269,6 +269,18 @@ test.beforeEach(async ({ page }) => {
       .__UNTAMED_STEAM_BATCH_APPLIES__=()=>steamBatchApplyCount;
     let freshStarted=false;
     let freshWrongPreviewMap=false,freshWrongReceiptMap=false;
+    let freshBadProcessRole=false,freshBadLoaderPid=false,freshUseLoader=false;
+    (window as typeof window & {
+      __UNTAMED_FRESH_BAD_PROCESS_ROLE__?:()=>void;
+      __UNTAMED_FRESH_BAD_LOADER_PID__?:()=>void;
+      __UNTAMED_FRESH_USE_LOADER__?:()=>void;
+    }).__UNTAMED_FRESH_BAD_PROCESS_ROLE__=()=>{freshBadProcessRole=true;};
+    (window as typeof window & {
+      __UNTAMED_FRESH_BAD_LOADER_PID__?:()=>void;
+    }).__UNTAMED_FRESH_BAD_LOADER_PID__=()=>{freshBadLoaderPid=true;};
+    (window as typeof window & {
+      __UNTAMED_FRESH_USE_LOADER__?:()=>void;
+    }).__UNTAMED_FRESH_USE_LOADER__=()=>{freshUseLoader=true;};
     (window as typeof window & {
       __UNTAMED_FRESH_WRONG_PREVIEW_MAP__?:()=>void;
       __UNTAMED_FRESH_WRONG_RECEIPT_MAP__?:()=>void;
@@ -2907,6 +2919,7 @@ test.beforeEach(async ({ page }) => {
           mapId:freshWrongPreviewMap?one:m.mapId,mapName:"Astraeos",steamBuild:"123456",
           gamePort:7847,queryPort:27085,rconConfigured:true,
           confirmedStopped:true,serverStarted:false,
+          launchMode:freshUseLoader?"asaApiLoader":"directAsa",
           evidence:"FRESH_LOCAL_ASA_START_PREVIEW_NO_WRITE"
         };
         case "servers.freshReadiness":
@@ -2927,6 +2940,12 @@ test.beforeEach(async ({ page }) => {
           return {mapId:freshWrongReceiptMap?one:two,mapName:"Astraeos",pid:45678,
             createdUtc:"2026-11-06T10:01:00Z",startRequested:true,
             readyCertified:false,requiresRconReadiness:true,storeTouched:false,
+            launchMode:freshUseLoader?"asaApiLoader":"directAsa",
+            processRole:freshBadProcessRole
+              ?(freshUseLoader?"asaServer":"loaderParent")
+              :(freshUseLoader?"loaderParent":"asaServer"),
+            loaderPid:freshUseLoader?(freshBadLoaderPid?45679:45678):null,
+            serverPid:freshUseLoader?null:45678,
             evidence:"LOCAL_REAL_ASA_PROCESS_STARTED_NOT_READY"};
         case "servers.restartCurrent": return {
           inMemoryJobId:lifecycleRestartIssued?
@@ -8136,6 +8155,72 @@ test("fresh ASA map starts a real local process only after explicit approval",as
   await expect(page.getByText("Várakozás vagy hiba – a natív bizonyíték nem teljes", {exact:true})).toBeVisible();
   await expect(page.getByText(/A szerverhirdetés és RCON még nem bizonyítja/)).toBeVisible();
   await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
+});
+
+test("fresh ASA Loader start requires matching parent PID without asserting child readiness",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_USE_LOADER__?:()=>void;
+  }).__UNTAMED_FRESH_USE_LOADER__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"}))
+    .toContainText("ASA API Loader szülőfolyamat");
+  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
+  await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
+  await expect(page.getByText(/ASA API Loader szülőfolyamat indítva, PID: 45678/))
+    .toBeVisible();
+  await expect(page.getByText(/ASA gyermekfolyamat és RCON még nem igazolt/))
+    .toBeVisible();
+  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+    .toBeDisabled();
+});
+
+test("fresh ASA Start rejects contradictory native process role and blocks blind replay",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_BAD_PROCESS_ROLE__?:()=>void;
+  }).__UNTAMED_FRESH_BAD_PROCESS_ROLE__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
+  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
+  await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
+  await expect(page.getByText(/UM-FRESH-START-RECEIPT-INVALID/)).toBeVisible();
+  await expect(page.getByText(/A korábbi ASA Start kimenetele nem igazolt/))
+    .toBeVisible();
+  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+    .toBeDisabled();
+  await page.getByRole("button",{name:"Állapotfrissítés"}).click();
+  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+    .toBeDisabled();
+  await expect(page.locator(".success-inline").filter({hasText:"PID: 45678"}))
+    .toHaveCount(0);
+});
+
+test("fresh ASA API Loader PID mismatch fails closed without claiming launched child",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>{
+    const testWindow=window as typeof window & {
+      __UNTAMED_FRESH_USE_LOADER__?:()=>void;
+      __UNTAMED_FRESH_BAD_LOADER_PID__?:()=>void;
+    };
+    testWindow.__UNTAMED_FRESH_USE_LOADER__?.();
+    testWindow.__UNTAMED_FRESH_BAD_LOADER_PID__?.();
+  });
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
+  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
+  await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
+  await expect(page.getByText(/UM-FRESH-START-RECEIPT-INVALID/)).toBeVisible();
+  await expect(page.getByText(/A korábbi ASA Start kimenetele nem igazolt/))
+    .toBeVisible();
+  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+    .toBeDisabled();
+  await expect(page.locator(".success-inline").filter({hasText:"PID: 45678"}))
+    .toHaveCount(0);
 });
 
 test("fresh ASA start automatically observes RCON without retrying a failed readiness proof",async({page})=>{
