@@ -8467,7 +8467,7 @@ test("durable interrupted Stop survives native Manager memory loss and requires 
     __UNTAMED_STOP_REVIEW_OS_STOPPED__?:()=>void;
   }).__UNTAMED_STOP_REVIEW_OS_STOPPED__?.());
   await review.getByRole("button",{name:"Igazoltan leállított Stop-napló felülvizsgálata"}).click();
-  await expect(panel).toContainText("nem történt új SaveWorld, DoExit, Kill vagy Start");
+  await expect(panel).toContainText("Nem történt új SaveWorld, DoExit, Kill vagy Start");
   await expect(review).toHaveCount(0);
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_STOP_REVIEWS__?:()=>number;
