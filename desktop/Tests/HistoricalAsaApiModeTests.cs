@@ -60,6 +60,25 @@ internal static class HistoricalAsaApiModeTests
         // Only the explicit stopped-family check is injected for this fixture.
         using var bridge=new DesktopHistoricalActiveStartBridge(
             cluster,null,null,loaderModePreflight:(_,_)=>true);
+        // The actual Core Configuration lease transitions its own journal
+        // to Prepared. It must not be mistaken for another Manager's
+        // unfinished operation during the second physical mode preflight.
+        var ownLeaseGuard=typeof(DesktopHistoricalActiveStartBridge).GetMethod(
+            "ModeOperationJournalAllows",
+            System.Reflection.BindingFlags.NonPublic|
+            System.Reflection.BindingFlags.Instance)??throw new InvalidOperationException(
+                "Historical Loader own-lease preflight guard missing");
+        using(var lease=cluster.Operations.Acquire(
+            map.InstallationPath,UntamedOperationKind.Configuration))
+        {
+            bool outside=(bool)(ownLeaseGuard.Invoke(bridge,new object[]{map,false}) ??
+                throw new InvalidOperationException("No pre-lease journal result"));
+            bool inside=(bool)(ownLeaseGuard.Invoke(bridge,new object[]{map,true}) ??
+                throw new InvalidOperationException("No inside-lease journal result"));
+            Check(!outside&&inside,
+                "own Prepared Configuration journal blocks foreign preview but not approved under-lease mode apply");
+            lease.Complete();
+        }
         var status=await Call(bridge,"historical.loaderModeStatus",
             new{mapId=map.Id});
         Check(status.GetProperty("ok").GetBoolean()&&
