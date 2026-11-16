@@ -270,6 +270,10 @@ internal static class MapScopedNativeLifecycleJobsTests
         // already dispatched an irreversible SaveWorld/DoExit. No actual
         // game process, network socket or live character file is used here.
         string root=Path.Combine(baseRoot,"durable-stop-crash-recovery");
+        // Production Core and both native bridge instances must observe the
+        // SAME machine-local journal root in this isolated Windows fixture.
+        using var isolatedRoot=UntamedOperationCoordinator.UseIsolatedRootForTests(
+            Path.Combine(root,"operations"));
         string install=Path.Combine(root,"synthetic-asa");
         string binary=Path.Combine(install,
             "ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
@@ -296,7 +300,8 @@ internal static class MapScopedNativeLifecycleJobsTests
                 ?new ProcessCheck(false,"physically stopped",null,true)
                 :new ProcessCheck(true,"owned synthetic ASA",pid));
         cluster.AddMap(map);
-        string journals=Path.Combine(root,"StopJournal");
+        string journals=Path.Combine(
+            UntamedOperationCoordinator.DefaultRoot,"GracefulStop-v1");
         var released=new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         int sent=0;
@@ -335,6 +340,14 @@ internal static class MapScopedNativeLifecycleJobsTests
         }
         Check(launchRejected,
             "Start and Restart shared Core gate reject persisted in-flight Stop");
+        bool actualCoreLaunchRejected=false;
+        try{cluster.LaunchFreshAsa(map.Id,true);}
+        catch(InvalidOperationException ex){
+            actualCoreLaunchRejected=
+                ex.Message=="UM-ASA-STOP-JOURNAL-NEEDS-OPERATOR";
+        }
+        Check(actualCoreLaunchRejected&&sent<=1,
+            "actual shared Core LaunchFreshAsa rejects unknown Stop before Process.Start");
         var blocked=await Call(second.HandleAsync,
             "servers.gracefulStopPreview",new{mapId=map.Id});
         Check(!blocked.GetProperty("ok").GetBoolean()&&
