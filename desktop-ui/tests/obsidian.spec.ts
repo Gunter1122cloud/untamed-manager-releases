@@ -289,6 +289,9 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_STEAM_BATCH_APPLIES__?:()=>number})
       .__UNTAMED_STEAM_BATCH_APPLIES__=()=>steamBatchApplyCount;
     let freshStarted=false;
+    (window as typeof window & {
+      __UNTAMED_FRESH_SIMULATE_STOPPED__?:()=>void;
+    }).__UNTAMED_FRESH_SIMULATE_STOPPED__=()=>{freshStarted=false;};
     let freshWrongPreviewMap=false,freshWrongReceiptMap=false;
     let freshBadProcessRole=false,freshBadLoaderPid=false,freshUseLoader=false;
     (window as typeof window & {
@@ -8260,6 +8263,38 @@ test("fresh ASA API Loader PID mismatch fails closed without claiming launched c
     .toBeDisabled();
   await expect(page.locator(".success-inline").filter({hasText:"PID: 45678"}))
     .toHaveCount(0);
+});
+
+test("confirmed fresh ASA Start stays pinned across map navigation until manual stopped proof",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  let panel=page.getByRole("region",{name:"Valódi ASA első indítása"});
+  await panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
+  await panel.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
+  await panel.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
+  await expect(panel.getByText(/ASA szerverfolyamat indítva, PID: 45678/))
+    .toBeVisible();
+  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+    .toBeDisabled();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  panel=page.getByRole("region",{name:"Valódi ASA első indítása"});
+  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+    .toBeDisabled();
+  // Merely revisiting the same already-running process may not clear the
+  // successful one-shot Start receipt.
+  await panel.getByRole("button",{name:"Állapotfrissítés"}).click();
+  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+    .toBeDisabled();
+  // Only a deliberately requested, physical confirmedStopped recheck clears
+  // the client guard. Native Start preflight still decides eligibility.
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_SIMULATE_STOPPED__?:()=>void;
+  }).__UNTAMED_FRESH_SIMULATE_STOPPED__?.());
+  await panel.getByRole("button",{name:"Állapotfrissítés"}).click();
+  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+    .toBeEnabled();
 });
 
 test("fresh ASA start automatically observes RCON without retrying a failed readiness proof",async({page})=>{
