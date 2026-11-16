@@ -179,31 +179,31 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                         return Error(id,"UM-ASA-STOP-MAP");
                     var owned=Owned(mapId);
                     if(owned==null)return Error(id,"UM-MAP-NOT-OWNED");
-                    var durable=Journal(owned).Observe();
-                    if(durable!=null&&durable.MapId!=mapId)
+                    var currentDurable=Journal(owned).Observe();
+                    if(currentDurable!=null&&currentDurable.MapId!=mapId)
                         return Error(id,"UM-ASA-STOP-JOURNAL-MAP-MISMATCH");
                     lock(sync)
                     {
                         if(jobsByMap.TryGetValue(mapId,out var tracked)&&
                            !(tracked.State=="needsOperator"&&
-                             durable?.Phase==AsaStopPhase.OperatorReviewed))
+                             currentDurable?.Phase==AsaStopPhase.OperatorReviewed))
                             return Ok(id,new{
                                 mapId,jobId=(Guid?)tracked.JobId,
                                 state=(string?)tracked.State,
                                 active=tracked.State is "queued" or "running",
-                                journalId=(Guid?)durable?.Id,
-                                durablePhase=durable?.Phase.ToString(),
+                                journalId=(Guid?)currentDurable?.Id,
+                                durablePhase=currentDurable?.Phase.ToString(),
                                 evidence="LOCAL_ASA_STOP_MEMORY_AND_DURABLE_JOURNAL_OBSERVATION_NO_DISPATCH"
                             });
                         return Ok(id,new{
                             mapId,jobId=(Guid?)null,
-                            state=durable?.Phase is
+                            state=currentDurable?.Phase is
                                 (AsaStopPhase.Pending or AsaStopPhase.NeedsOperator)
-                                ?"needsOperator":durable?.Phase==AsaStopPhase.Completed
+                                ?"needsOperator":currentDurable?.Phase==AsaStopPhase.Completed
                                     ?"completed":(string?)null,
                             active=false,
-                            journalId=(Guid?)durable?.Id,
-                            durablePhase=durable?.Phase.ToString(),
+                            journalId=(Guid?)currentDurable?.Id,
+                            durablePhase=currentDurable?.Phase.ToString(),
                             evidence="LOCAL_ASA_STOP_MEMORY_AND_DURABLE_JOURNAL_OBSERVATION_NO_DISPATCH"
                         });
                     }
@@ -229,19 +229,19 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                        typed.ValueKind!=JsonValueKind.String||
                        typed.GetString()!="REVIEW STOPPED ASA")
                         return Error(id,"UM-ASA-STOP-REVIEW-APPROVAL");
-                    var map=Owned(reviewMapId);
-                    if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
+                    var reviewMap=Owned(reviewMapId);
+                    if(reviewMap==null)return Error(id,"UM-MAP-NOT-OWNED");
                     lock(sync)
                         if(jobsByMap.TryGetValue(reviewMapId,out var task)&&
                            task.State is ("queued" or "running"))
                             return Error(id,"UM-ASA-STOP-REVIEW-ACTIVE");
-                    var observed=cluster.Check(map);
+                    var observed=cluster.Check(reviewMap);
                     // Only the Windows OS's explicit stopped proof can release
                     // a lost SaveWorld/DoExit journal; no process is touched.
                     if(observed.Running||!observed.ConfirmedStopped||
                        observed.Identity!=null||observed.LoaderIdentity!=null)
                         return Error(id,"UM-ASA-STOP-REVIEW-NOT-STOPPED");
-                    var journal=Journal(map);
+                    var journal=Journal(reviewMap);
                     var currentJournal=journal.Observe();
                     if(currentJournal==null||currentJournal.Id!=reviewId||
                        currentJournal.MapId!=reviewMapId)
