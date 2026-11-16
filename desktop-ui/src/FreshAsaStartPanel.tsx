@@ -129,7 +129,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
   };
   const start=async()=>{
     if(!preview || !approved || busy || journalBlocked)return;
-    const token=preview.token;
+    const token=preview.token,requested=mapId,revision=readinessGeneration.current;
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
     try{
       const receipt=await managerBridge.freshAsaStartApply(token);
@@ -138,11 +138,17 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
           receipt.loaderPid+". Az ASA gyermekfolyamat és RCON még nem igazolt.":
         receipt.mapName+" · ASA szerverfolyamat indítva, PID: "+(receipt.serverPid??receipt.pid)+
           ". A folyamatindítás még nem bizonyítja a játék és az RCON készenlétét.";
-      recentStartReceipts.set(mapId,summary);
+      // The native one-shot Start may finish after the operator has opened
+      // another map. Retain its nonsecret receipt under the ORIGINAL map,
+      // but never show it as a result for the currently selected map or
+      // start a second readiness worker on the wrong tab.
+      recentStartReceipts.set(requested,summary);
+      if(!belongs(requested,revision))return;
       setMessage(summary);
       try{await onStarted();}catch{/* Process receipt remains visible even if dashboard refresh fails. */}
+      if(!belongs(requested,revision))return;
       await observe();
-      void observeStartedServer(mapId);
+      if(belongs(requested,revision))void observeStartedServer(requested);
     }catch(cause){
       const code=cause instanceof Error?cause.message:"";
       const safe:Record<string,string>={
@@ -152,8 +158,9 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
         "UM-FRESH-START-APPROVAL":"Az indításhoz külön kezelői jóváhagyás szükséges.",
         "UM-FRESH-START-NOT-READY":"A helyi telepítés, RCON INI, portok vagy leállított folyamat előfeltételei már nem teljesülnek."
       };
-      setError(safe[code]??"Az ASA elindítása nem igazolható. Ellenőrizd a helyi naplókat és a folyamatállapotot; automatikus ismétlés nem történt.");
-    }finally{setBusy(false);}
+      if(belongs(requested,revision))
+        setError(safe[code]??"Az ASA elindítása nem igazolható. Ellenőrizd a helyi naplókat és a folyamatállapotot; automatikus ismétlés nem történt.");
+    }finally{if(belongs(requested,revision))setBusy(false);}
   };
 
   return <section className="premium-panel" aria-label="Valódi ASA első indítása" style={{marginBlock:18,padding:20}}>
