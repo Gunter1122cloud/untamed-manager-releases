@@ -215,6 +215,42 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                     if(tracked==null)return Error(id,"UM-ASA-STOP-JOB-NOT-FOUND");
                     return Ok(id,Snapshot(tracked));
                 }
+                if(method=="servers.gracefulStopReview")
+                {
+                    if(!GuidProperty(request,"mapId",out var reviewMapId)||
+                       !GuidProperty(request,"journalId",out var reviewId))
+                        return Error(id,"UM-ASA-STOP-REVIEW-ID");
+                    if(!request.TryGetProperty("confirm",out var consent)||
+                       consent.ValueKind!=JsonValueKind.True||
+                       !request.TryGetProperty("typedApproval",out var typed)||
+                       typed.ValueKind!=JsonValueKind.String||
+                       typed.GetString()!="REVIEW STOPPED ASA")
+                        return Error(id,"UM-ASA-STOP-REVIEW-APPROVAL");
+                    var map=Owned(reviewMapId);
+                    if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
+                    lock(sync)
+                        if(jobsByMap.TryGetValue(reviewMapId,out var task)&&
+                           task.State is ("queued" or "running"))
+                            return Error(id,"UM-ASA-STOP-REVIEW-ACTIVE");
+                    var observed=cluster.Check(map);
+                    // Only the Windows OS's explicit stopped proof can release
+                    // a lost SaveWorld/DoExit journal; no process is touched.
+                    if(observed.Running||!observed.ConfirmedStopped||
+                       observed.Identity!=null||observed.LoaderIdentity!=null)
+                        return Error(id,"UM-ASA-STOP-REVIEW-NOT-STOPPED");
+                    var journal=Journal(map);
+                    var currentJournal=journal.Observe();
+                    if(currentJournal==null||currentJournal.Id!=reviewId||
+                       currentJournal.MapId!=reviewMapId)
+                        return Error(id,"UM-ASA-STOP-REVIEW-JOURNAL-MISMATCH");
+                    journal.ReviewStopped(reviewMapId,reviewId);
+                    return Ok(id,new{
+                        mapId=reviewMapId,journalId=reviewId,reviewed=true,
+                        rconDispatched=false,serverStarted=false,
+                        storeTouched=false,
+                        evidence="LOCAL_ASA_STOP_JOURNAL_OPERATOR_REVIEW_NO_DISPATCH"
+                    });
+                }
                 if(method=="servers.gracefulStopPreview")
                 {
                     if(!GuidProperty(request,"mapId",out var mapId))
