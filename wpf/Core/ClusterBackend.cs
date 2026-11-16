@@ -1704,6 +1704,10 @@ public sealed partial class ClusterService : IAsyncDisposable
         string root=Path.GetFullPath(map.InstallationPath);
         var restartJournal=new AsaManualRestartJournal(root);
         restartJournal.DemandAuthorizedStart(approvedRestartId);
+        // A different native bridge, CLI or Manager process cannot bypass a
+        // pending graceful SaveWorld/DoExit by calling shared Core directly.
+        var stopJournal=new AsaManualStopJournal(root);
+        stopJournal.DemandNoPending(id);
         string server=Path.Combine(root,"ShooterGame","Binaries","Win64",
             "ArkAscendedServer.exe");
         if(!string.Equals(Path.GetFullPath(map.ExecutablePath),server,
@@ -1734,6 +1738,9 @@ public sealed partial class ClusterService : IAsyncDisposable
             throw new InvalidOperationException("Unresolved restore prevents ASA start");
         using var lease=Operations.Acquire(root,UntamedOperationKind.Launch);
         restartJournal.DemandAuthorizedStart(approvedRestartId);
+        // Recheck while holding the installation mutation lease, immediately
+        // before the OS process spawn. Fail closed; never retry/force-kill.
+        stopJournal.DemandNoPending(id);
         // Reject changed disk/host conditions after the installation-wide
         // operation lock, immediately before spawning any process.
         if(newlyEnrolledStore)FreshStoreEnrollmentPolicy.DemandEnrolled(this,map);
