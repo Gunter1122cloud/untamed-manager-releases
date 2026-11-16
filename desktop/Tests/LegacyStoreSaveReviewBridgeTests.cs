@@ -49,6 +49,13 @@ internal static class LegacyStoreSaveReviewBridgeTests
             HistoricalStoreProtected=true,HistoricalMapKey="TheIsland_WP",
             AutoStart=false,RconPort=0};
         cluster.AddMap(map);
+        string secondInstallation=Path.Combine(root,"second-store-installation");
+        Directory.CreateDirectory(secondInstallation);
+        var secondMap=new LocalMap{Id=Guid.NewGuid(),Name="SyntheticStoreReview2",
+            InstallationPath=secondInstallation,
+            HistoricalStoreProtected=true,HistoricalMapKey="Ragnarok_WP",
+            AutoStart=false,RconPort=0};
+        cluster.AddMap(secondMap);
         Guid oldReceipt=Guid.NewGuid();
         var started=DateTimeOffset.UtcNow.AddMinutes(-4);
         LegacyStoreV1SaveEvidenceJournal.Begin(cluster.Store.Root,oldReceipt,
@@ -58,6 +65,14 @@ internal static class LegacyStoreSaveReviewBridgeTests
         using(var interrupted=cluster.Operations.Acquire(installation,
             UntamedOperationKind.Backup))
             interrupted.MarkMutationStarted();
+        Guid secondReceipt=Guid.NewGuid();
+        LegacyStoreV1SaveEvidenceJournal.Begin(cluster.Store.Root,secondReceipt,
+            secondMap.Id,50123,started,SourceSha);
+        LegacyStoreV1SaveEvidenceJournal.MarkUncertain(cluster.Store.Root,
+            secondReceipt,secondMap.Id,50123,started,SourceSha);
+        using(var secondInterrupted=cluster.Operations.Acquire(
+            secondInstallation,UntamedOperationKind.Backup))
+            secondInterrupted.MarkMutationStarted();
         var oldGlobal=cluster.Operations.Observe(installation);
         Check(oldGlobal?.Phase==UntamedOperationPhase.NeedsOperator,
             "crashed Backup writer is durably blocked");
@@ -65,7 +80,8 @@ internal static class LegacyStoreSaveReviewBridgeTests
         bool isStoppedAndOriginal=false;
         using var bridge=new DesktopHistoricalGracefulStopBridge(
             cluster,null,null,reviewVerifier:(id,sha)=>
-                isStoppedAndOriginal&&id==map.Id&&sha==SourceSha);
+                isStoppedAndOriginal&&
+                (id==map.Id||id==secondMap.Id)&&sha==SourceSha);
         var denied=await Call(bridge,"historical.saveWorldReviewPreview",
             new{mapId=map.Id});
         Check(!denied.GetProperty("ok").GetBoolean(),
@@ -77,6 +93,18 @@ internal static class LegacyStoreSaveReviewBridgeTests
             preview.GetProperty("data").GetProperty("confirmedStopped").GetBoolean(),
             "fresh verified stopped source creates one-time review preview");
         string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+        var invalidSecondPreview=await Call(bridge,
+            "historical.saveWorldReviewPreview",new{mapId=Guid.NewGuid()});
+        Check(!invalidSecondPreview.GetProperty("ok").GetBoolean(),
+            "failed review preview for an unrelated map preserves first map token");
+        var secondPreview=await Call(bridge,"historical.saveWorldReviewPreview",
+            new{mapId=secondMap.Id});
+        Check(secondPreview.GetProperty("ok").GetBoolean(),
+            "separate original Store map has independent pending SaveWorld review");
+        string secondToken=secondPreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        Check(token!=secondToken,
+            "independent pending operator reviews never share approval tokens");
         var noConsent=await Call(bridge,"historical.saveWorldReviewApply",
             new{token,confirm=true,confirmation="WRONG"});
         Check(!noConsent.GetProperty("ok").GetBoolean(),
@@ -87,6 +115,11 @@ internal static class LegacyStoreSaveReviewBridgeTests
             approved.GetProperty("data").GetProperty("reviewed").GetBoolean()&&
             approved.GetProperty("data").GetProperty("oldReceiptArchived").GetBoolean(),
             "explicit consent reviews both native journals without sending RCON");
+        var secondApproved=await Call(bridge,"historical.saveWorldReviewApply",
+            new{token=secondToken,confirm=true,confirmation="REVIEW STORE SAVE"});
+        Check(secondApproved.GetProperty("ok").GetBoolean()&&
+              secondApproved.GetProperty("data").GetProperty("mapId").GetGuid()==secondMap.Id,
+            "second map's review succeeds after first map commit, without replay");
         var evidence=LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id);
         Check(evidence?.Phase=="reviewed"&&!evidence.LocalSaveCompleteObserved&&
               !evidence.ProductionRestoreAllowed&&
