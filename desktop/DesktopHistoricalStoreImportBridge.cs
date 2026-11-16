@@ -1166,9 +1166,23 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         // the standard installation lease. Check only that independent
         // receipt here; scanning a generic Prepared lease during takeover
         // would incorrectly reject the current takeover's OWN journal.
-        return maps.Any(map=>
-            LegacyStoreV1SaveEvidenceJournal.Inspect(
-                cluster.Store.Root,map.Id)?.Phase is "prepared" or "needsOperator");
+        foreach(var map in maps)
+        {
+            try
+            {
+                var save=LegacyStoreV1SaveEvidenceJournal.Inspect(
+                    cluster.Store.Root,map.Id);
+                if(save?.Phase is "prepared" or "needsOperator")return true;
+            }
+            catch(Exception ex) when(ex is IOException or InvalidDataException or
+                UnauthorizedAccessException or JsonException)
+            {
+                // A corrupted or interrupted receipt cannot be treated as
+                // completed merely because its current phase is unreadable.
+                return true;
+            }
+        }
+        return false;
     }
 
     private OriginalLiveJournalBlocker[] OriginalLiveOperationBlockers(
@@ -1186,8 +1200,20 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             // SaveWorld-only has a separate durable intent saved before
             // asynchronous RCON begins. The generic journal may still
             // report Completed while this receipt is unresolved.
-            var save=LegacyStoreV1SaveEvidenceJournal.Inspect(
-                cluster.Store.Root,map.Id);
+            LegacyStoreV1SaveEvidence? save=null;
+            bool unreadableSave=false;
+            try
+            {
+                save=LegacyStoreV1SaveEvidenceJournal.Inspect(
+                    cluster.Store.Root,map.Id);
+            }
+            catch(Exception ex) when(ex is IOException or InvalidDataException or
+                UnauthorizedAccessException or JsonException)
+            {
+                // Return an exact affected map without trusting a malformed
+                // receipt or exposing its contents/path to the WebView.
+                unreadableSave=true;
+            }
             var existing=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==map.Id);
             bool launchPending=journal?.Phase is (UntamedOperationPhase.Prepared or
                 UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator);
@@ -1208,6 +1234,10 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         "UM-ORIGINAL-LIVE-OTHER-JOURNAL-REQUIRES-REVIEW",
                     existing!=null,supported));
             }
+            if(unreadableSave)
+                blocked.Add(new(map.Id,map.Name,"SaveWorld-v1",
+                    "Unreadable",Guid.Empty,"UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE",
+                    existing!=null,false));
             if(save?.Phase is "prepared" or "needsOperator")
             {
                 bool supported=existing?.HistoricalStoreProtected==true;
