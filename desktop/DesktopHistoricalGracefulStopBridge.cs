@@ -180,7 +180,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         // second, Manager-local crash-recovery signal, not Kova ownership.
         bool pendingSaveEvidence=unreadableSaveEvidence||
             saveEvidence?.Phase is "prepared" or "needsOperator";
-        bool blocked=operationBlocked||restartPending||pendingSaveEvidence;
+        bool blocked=operationBlocked||restartPending||pendingSaveEvidence||running!=null;
         bool needsOperator=unreadableSaveEvidence||pendingSaveEvidence||(journal!=null&&(
             journal.Phase==UntamedOperationPhase.NeedsOperator||
             operationBlocked&&running==null))||
