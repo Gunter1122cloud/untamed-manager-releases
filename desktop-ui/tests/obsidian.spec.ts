@@ -69,6 +69,23 @@ test.beforeEach(async ({ page }) => {
     let lifecycleRestartIssued=false;
     let lifecycleRestartHeld=false;
     let lifecycleRestartApplies=0;
+    let stopWrongJob=false,stopMissingExit=false;
+    let restartWrongJob=false,restartMissingNewPid=false;
+    (window as typeof window & {
+      __UNTAMED_STOP_WRONG_JOB__?:()=>void;
+      __UNTAMED_STOP_MISSING_EXIT__?:()=>void;
+      __UNTAMED_RESTART_WRONG_JOB__?:()=>void;
+      __UNTAMED_RESTART_MISSING_PID__?:()=>void;
+    }).__UNTAMED_STOP_WRONG_JOB__=()=>{stopWrongJob=true;};
+    (window as typeof window & {
+      __UNTAMED_STOP_MISSING_EXIT__?:()=>void;
+    }).__UNTAMED_STOP_MISSING_EXIT__=()=>{stopMissingExit=true;};
+    (window as typeof window & {
+      __UNTAMED_RESTART_WRONG_JOB__?:()=>void;
+    }).__UNTAMED_RESTART_WRONG_JOB__=()=>{restartWrongJob=true;};
+    (window as typeof window & {
+      __UNTAMED_RESTART_MISSING_PID__?:()=>void;
+    }).__UNTAMED_RESTART_MISSING_PID__=()=>{restartMissingNewPid=true;};
     (window as typeof window & {
       __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number;
       __UNTAMED_LOCAL_RESTART_APPLIES__?:()=>number;
@@ -2999,9 +3016,11 @@ test.beforeEach(async ({ page }) => {
             started:true,autoRetry:false,killPerformed:false,
             storeTouched:false,evidence:"REAL_LOCAL_ASA_RESTART_JOB_QUEUED"};
         case "servers.restartStatus": return {
-          jobId:"00000000-0000-4000-8000-000000009777",
+          jobId:restartWrongJob
+            ?"00000000-0000-4000-8000-000000009778"
+            :"00000000-0000-4000-8000-000000009777",
           state:lifecycleRestartHeld?"running":"completed",stage:"New Windows process started; readiness unverified",
-          oldPid:44117,newPid:44118,changedUtc:"2026-11-06T11:30:00Z",
+          oldPid:44117,newPid:restartMissingNewPid?0:44118,changedUtc:"2026-11-06T11:30:00Z",
           saveCompleteProven:false,readinessCertified:false,
           killPerformed:false,storeTouched:false,autoRetry:false
         };
@@ -3047,9 +3066,11 @@ test.beforeEach(async ({ page }) => {
           evidence:"LOCAL_ASA_STOP_IN_MEMORY_JOB_OBSERVATION_NO_DISPATCH"
         };
         case "servers.gracefulStopStatus": return {
-          jobId:"00000000-0000-4000-8000-000000009555",
+          jobId:stopWrongJob
+            ?"00000000-0000-4000-8000-000000009556"
+            :"00000000-0000-4000-8000-000000009555",
           state:lifecycleStopHeld?"running":"completed",step:"Windows process verified stopped",
-          changedUtc:"2026-11-06T11:00:00Z",confirmedStopped:true,
+          changedUtc:"2026-11-06T11:00:00Z",confirmedStopped:!stopMissingExit,
           saveCompleteProven:false,killPerformed:false,
           restartPerformed:false,storeTouched:false
         };
@@ -8262,6 +8283,72 @@ test("changed ASA binary after preview surfaces exact reapproval without auto-st
   await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
   await expect(page.locator(".success-inline").filter({hasText:"PID: 45678"})).toHaveCount(0);
   await expect(page.getByText(/Igazoltan leállítva/)).toBeVisible();
+});
+
+test("fresh Stop refuses a different job status without reporting server exit",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STOP_WRONG_JOB__?:()=>void;
+  }).__UNTAMED_STOP_WRONG_JOB__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
+  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
+  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
+  await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
+  await expect(panel).toContainText("UM-ASA-STOP-STATUS-INVALID");
+  await expect(panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+    .toBeDisabled();
+  await expect(panel.locator(".success-inline").filter({hasText:"ASA-folyamat kilépett"}))
+    .toHaveCount(0);
+});
+
+test("fresh Stop requires confirmed process exit before saying completed",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STOP_MISSING_EXIT__?:()=>void;
+  }).__UNTAMED_STOP_MISSING_EXIT__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
+  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
+  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
+  await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
+  await expect(panel).toContainText("UM-ASA-STOP-STATUS-INVALID");
+  await expect(panel.locator(".success-inline").filter({hasText:"ASA-folyamat kilépett"}))
+    .toHaveCount(0);
+});
+
+test("fresh Restart rejects a completed receipt from another native job",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RESTART_WRONG_JOB__?:()=>void;
+  }).__UNTAMED_RESTART_WRONG_JOB__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
+  await panel.getByRole("button",{name:"Újraindítás előellenőrzése"}).click();
+  await panel.getByText(/Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását/).click();
+  await panel.getByRole("button",{name:"Szerver újraindítása"}).click();
+  await expect(panel).toContainText("UM-ASA-RESTART-STATUS-INVALID");
+  await expect(panel).not.toContainText("44117 → 44118");
+  await expect(panel.getByRole("button",{name:"Újraindítás előellenőrzése"}))
+    .toBeDisabled();
+});
+
+test("fresh Restart cannot claim success without an observed new PID",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RESTART_MISSING_PID__?:()=>void;
+  }).__UNTAMED_RESTART_MISSING_PID__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
+  await panel.getByRole("button",{name:"Újraindítás előellenőrzése"}).click();
+  await panel.getByText(/Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását/).click();
+  await panel.getByRole("button",{name:"Szerver újraindítása"}).click();
+  await expect(panel).toContainText("UM-ASA-RESTART-STATUS-INVALID");
+  await expect(panel.locator(".success-inline")).toHaveCount(0);
 });
 
 test("ASA normal Stop requires approval and never force-kills or claims SaveComplete",async({page})=>{
