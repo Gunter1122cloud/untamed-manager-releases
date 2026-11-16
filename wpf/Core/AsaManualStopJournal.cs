@@ -126,6 +126,18 @@ public sealed class AsaManualStopJournal
         });
     }
 
+    public void DemandNoPending(Guid mapId)
+    {
+        if(mapId==Guid.Empty)
+            throw new InvalidDataException("UM-ASA-STOP-JOURNAL-MAP");
+        var current=Observe();
+        if(current!=null&&current.MapId!=mapId)
+            throw new InvalidDataException("UM-ASA-STOP-JOURNAL-MAP-MISMATCH");
+        if(current?.Phase is AsaStopPhase.Pending or AsaStopPhase.NeedsOperator)
+            throw new InvalidOperationException(
+                "UM-ASA-STOP-JOURNAL-NEEDS-OPERATOR");
+    }
+
     /// <summary>
     /// Explicit manual audit only after the original ASA process is
     /// physically confirmed stopped. The caller MUST check Windows process
