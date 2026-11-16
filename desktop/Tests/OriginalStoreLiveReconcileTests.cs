@@ -160,6 +160,22 @@ internal static class OriginalStoreLiveReconcileTests
         var again=cluster.ReconcileOriginalStoreLiveFive(live,()=>true);
         Check(again.Unchanged==5&&again.Added==0,
             "same process IDs reattach idempotently without map duplication");
+        using var bridge=new DesktopHistoricalStoreImportBridge(cluster);
+        var pendingOnly=typeof(DesktopHistoricalStoreImportBridge).GetMethod(
+            "HasPendingOriginalSaveEvidence",
+            System.Reflection.BindingFlags.NonPublic|
+            System.Reflection.BindingFlags.Instance)??throw new InvalidOperationException(
+                "Pending SaveWorld receipt guard missing");
+        bool NoPendingSaveUnderLease()=>!(bool)(pendingOnly.Invoke(
+            bridge,new object[]{live})??throw new InvalidOperationException(
+                "Pending SaveWorld scan did not return a bool"));
+        // The current five-map import owns Prepared Configuration journals.
+        // The extra SaveWorld-only check must not misidentify those as foreign
+        // operations or permanently deny every valid live takeover.
+        var selfLease=cluster.ReconcileOriginalStoreLiveFive(
+            live,NoPendingSaveUnderLease);
+        Check(selfLease.Unchanged==5,
+            "five-map own Prepared lease does not trigger false SaveWorld blockage");
         foreach(var (file,bytes) in originalFiles)
             Check(File.ReadAllBytes(file).SequenceEqual(bytes),
                 "the synthetic original ASA/INI source file is byte-identical");
@@ -184,7 +200,6 @@ internal static class OriginalStoreLiveReconcileTests
         var restartOnly=new AsaManualRestartJournal(live[1].InstallationPath);
         var restartEntry=restartOnly.Begin(live[1].Id,live[1].LastProcess!.Pid);
         restartOnly.Change(restartEntry.Id,AsaRestartPhase.NeedsOperator);
-        using var bridge=new DesktopHistoricalStoreImportBridge(cluster);
         var inspect=typeof(DesktopHistoricalStoreImportBridge).GetMethod(
             "OriginalLiveOperationBlockers",
             System.Reflection.BindingFlags.NonPublic|
@@ -214,6 +229,8 @@ internal static class OriginalStoreLiveReconcileTests
             cluster.Store.Root,Guid.NewGuid(),live[2].Id,
             live[2].LastProcess!.Pid,live[2].LastProcess!.StartedUtc,
             new string('E',64));
+        Check(!NoPendingSaveUnderLease(),
+            "five-map under-lease receipt guard detects prepared SaveWorld without RCON");
         var withSave=((System.Collections.IEnumerable)(inspect.Invoke(
             bridge,new object[]{live})??throw new InvalidOperationException(
                 "SaveWorld receipt blocker scan failed")))
