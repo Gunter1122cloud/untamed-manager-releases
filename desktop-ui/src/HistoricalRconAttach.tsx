@@ -2,6 +2,13 @@ import {useEffect,useRef,useState,type FormEvent} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,Shield,RadioTower} from "lucide-react";
 import {managerBridge,type HistoricalRconPreview,type HistoricalRconStatus} from "./bridge";
 
+function verifiedRconStatus(mapId:string,value:HistoricalRconStatus):boolean {
+  return typeof value.mapId==="string"&&
+    value.mapId.toLowerCase()===mapId.toLowerCase()&&
+    value.originalStoreTouched===false&&
+    value.evidence==="HISTORICAL_RCON_MANAGER_PROFILE_STATUS_ONLY";
+}
+
 function saveWorldAttachmentConflict(error:unknown):string|null {
   const code=error instanceof Error?error.message:"";
   if(code!=="UM-HISTORICAL-RCON-SAVEWORLD-IN-PROGRESS")return null;
@@ -34,7 +41,12 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
     ++mapGeneration.current;
     setStatus(null);setPort("");setPreview(null);setPassword("");setConfirm(false);setBusy(false);setError("");setNotice("");
     managerBridge.historicalRconStatus(mapId).then(v=>{
-      if(active){setStatus(v);setPort(v.suggestedPort>0?String(v.suggestedPort):"");}
+      if(!active)return;
+      if(!verifiedRconStatus(mapId,v)){
+        setError("UM-HISTORICAL-RCON-STATUS-MAP-MISMATCH: A natív RCON-állapot másik maphoz tartozik vagy nem igazolható.");
+        return;
+      }
+      setStatus(v);setPort(v.suggestedPort>0?String(v.suggestedPort):"");
     }).catch(()=>{if(active)setError("Az eredeti Store-v1 RCON-beállítás állapota nem olvasható.");});
     return ()=>{active=false;++mapGeneration.current;};
   },[mapId]);
@@ -115,6 +127,8 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
       try{
         const current=await managerBridge.historicalRconStatus(mapId);
         if(mapGeneration.current!==generation)return;
+        if(!verifiedRconStatus(mapId,current))
+          throw new Error("UM-HISTORICAL-RCON-STATUS-MAP-MISMATCH");
         setStatus(current);
         await onConfigured();
       }catch{
