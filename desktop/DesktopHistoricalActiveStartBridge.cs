@@ -210,9 +210,8 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         return Fail(id,"UM-STORE-LOADER-MODE-PROCESS-OR-API-UNVERIFIED");
                     var permit=new ModePending(Guid.NewGuid(),map.Id,
                         JsonSerializer.Serialize(map),useApi,loader,DateTimeOffset.UtcNow);
-                    // Only an accepted preference change invalidates an
-                    // earlier Start plan for this same map.
-                    startApprovalsByMap.Remove(map.Id);
+                    // A mode PREVIEW cannot revoke an already approved Start
+                    // of this map. Only the committed mode change does that.
                     modeApprovalsByMap[map.Id]=permit;
                     return Ok(id,new{
                         token=permit.Token,mapId,mapName=map.Name,useApi,
