@@ -449,7 +449,13 @@ test.beforeEach(async ({ page }) => {
     let originalSaveUnreadable=false;
     (window as typeof window & {
       __UNTAMED_SAVE_UNREADABLE_RECEIPT__?:()=>void;
+      __UNTAMED_CLEAR_SAVE_UNREADABLE_RECEIPT__?:()=>void;
     }).__UNTAMED_SAVE_UNREADABLE_RECEIPT__=()=>{originalSaveUnreadable=true;};
+    (window as typeof window & {
+      __UNTAMED_CLEAR_SAVE_UNREADABLE_RECEIPT__?:()=>void;
+    }).__UNTAMED_CLEAR_SAVE_UNREADABLE_RECEIPT__=()=>{
+      originalSaveUnreadable=false;
+    };
     let originalSaveRecoveryFixture=false;
     let originalSaveReviewed=false;
     (window as typeof window & {__UNTAMED_SAVE_REVIEW_FIXTURE__?:()=>void})
@@ -6016,6 +6022,20 @@ test("unreadable original Store SaveWorld is visible on Save and Restart without
   })).toBeDisabled();
   await restartPanel.getByRole("button",{name:"Store-v1 napló újraellenőrzése"}).click();
   await expect(restartPanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_CLEAR_SAVE_UNREADABLE_RECEIPT__?:()=>void;
+  }).__UNTAMED_CLEAR_SAVE_UNREADABLE_RECEIPT__?.());
+  await savePanel.getByRole("button",{
+    name:"Store-v1 mentési napló újraellenőrzése"
+  }).click();
+  await expect(savePanel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Nincs igazolt helyi SaveComplete napló");
+  await expect(savePanel.getByRole("button",{name:"Mentés előellenőrzése"}))
+    .toBeEnabled();
+  await restartPanel.getByRole("button",{name:"Store-v1 napló újraellenőrzése"}).click();
+  await expect(restartPanel.getByRole("button",{
+    name:"Store-v1 újraindítás előellenőrzése"
+  })).toBeEnabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
     __UNTAMED_RESTART_SENDS__?:()=>number;
