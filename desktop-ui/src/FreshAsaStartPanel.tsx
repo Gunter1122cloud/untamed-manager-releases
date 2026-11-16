@@ -83,7 +83,11 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
   // most ten minutes. This never retries Start, sends mutating RCON, or
   // stops an unresponsive server. UI teardown/map switch cancels the loop.
   const observeStartedServer=async(targetMapId:string)=>{
-    const generation=++readinessGeneration.current;
+    // Use the existing view epoch. Advancing it on the same map would
+    // invalidate an in-flight explicit manual RCON check, potentially
+    // leaving its busy flag stuck while the automatic observer continues.
+    // Map switching/unmount still advances the epoch in useEffect cleanup.
+    const generation=readinessGeneration.current;
     setAwaitingStartup(true);
     let finished=false;
     try{
