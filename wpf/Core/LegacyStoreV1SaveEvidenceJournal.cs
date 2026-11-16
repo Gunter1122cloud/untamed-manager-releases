@@ -138,6 +138,25 @@ public static class LegacyStoreV1SaveEvidenceJournal
         return data;
     }
 
+    /// <summary>
+    /// Operator-facing READ-ONLY diagnosis. An interrupted, tampered or
+    /// inaccessible receipt must be visible as an explicit blocker instead
+    /// of crashing the Stop/Restart/SaveWorld recovery screen. This helper
+    /// NEVER changes journal bytes, marks an operation reviewed or grants
+    /// permission to issue an RCON command. Mutating preflights continue
+    /// to use the strict, exception-throwing Inspect() entry point.
+    /// </summary>
+    public static (LegacyStoreV1SaveEvidence? Evidence,bool Unreadable)
+        InspectReadOnly(string managerProfileRoot,Guid mapId)
+    {
+        try{return(Inspect(managerProfileRoot,mapId),false);}
+        catch(Exception ex) when(ex is IOException or InvalidDataException or
+            UnauthorizedAccessException or JsonException)
+        {
+            return(null,true);
+        }
+    }
+
     private static void Publish(string file,LegacyStoreV1SaveEvidence evidence)
     {
         Validate(evidence);
