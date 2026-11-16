@@ -193,6 +193,59 @@ public static class LegacyStoreV1SaveEvidenceJournal
         File.Move(next,file,overwrite:true);
     }
 
+    private static void ArchivePreviousBeforeNewAttempt(
+        string file,LegacyStoreV1SaveEvidence prior)
+    {
+        // Preserve the completed/reviewed receipt byte-for-byte BEFORE the
+        // latest map-scoped receipt is replaced by the next approved save.
+        // The original source/Store/ASA paths are never touched.
+        if(prior.Phase is not ("completed" or "reviewed"))
+            throw new InvalidOperationException(
+                "UM-ORIGINAL-SAVE-JOURNAL-NEEDS-REVIEW");
+        string archiveFolder=Path.Combine(Path.GetDirectoryName(file)!,"history");
+        var before=AttributesIfPresent(archiveFolder);
+        if(before.HasValue&&(before.Value&(FileAttributes.ReparsePoint|
+            FileAttributes.Directory))!=FileAttributes.Directory)
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-HISTORY-UNSAFE");
+        Directory.CreateDirectory(archiveFolder);
+        if((File.GetAttributes(archiveFolder)&
+            (FileAttributes.ReparsePoint|FileAttributes.Directory))!=
+            FileAttributes.Directory)
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-HISTORY-UNSAFE");
+        string archived=Path.Combine(archiveFolder,prior.MapId.ToString("N")+
+            "-"+prior.OperationId.ToString("N")+"-"+prior.Phase+".json");
+        // Another process cannot replace the file via the Manager APIs:
+        // the map-scoped cross-process journal write lease is already held.
+        byte[] original=File.ReadAllBytes(file);
+        if(original.Length is <64 or >4096)
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-HISTORY-UNSAFE");
+        // Revalidate the exact sealed evidence being archived, rather than
+        // trusting metadata captured before a filesystem race.
+        var now=Load(file);
+        if(now==null||now!=prior)
+            throw new InvalidOperationException(
+                "UM-ORIGINAL-SAVE-HISTORY-RECEIPT-CHANGED");
+        var attrs=AttributesIfPresent(archived);
+        if(attrs.HasValue)
+        {
+            if((attrs.Value&(FileAttributes.Directory|FileAttributes.ReparsePoint))!=0||
+               new FileInfo(archived).Length is <64 or >4096||
+               !CryptographicOperations.FixedTimeEquals(
+                   SHA256.HashData(File.ReadAllBytes(archived)),
+                   SHA256.HashData(original)))
+                throw new InvalidDataException(
+                    "UM-ORIGINAL-SAVE-HISTORY-ARCHIVE-MISMATCH");
+            return;
+        }
+        // Creating a new immutable history slot is never an overwrite.
+        // An interrupted write leaves a mismatching slot that FAILS CLOSED
+        // on the next attempt; it cannot silently erase old evidence.
+        using var writer=new FileStream(archived,FileMode.CreateNew,
+            FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough);
+        writer.Write(original);
+        writer.Flush(flushToDisk:true);
+    }
+
     public static LegacyStoreV1SaveEvidence Begin(string managerProfileRoot,
         Guid operationId,Guid mapId,int pid,DateTimeOffset startedUtc,
         string originalSourceSha256)
@@ -205,6 +258,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
         var prior=Load(file);
         if(prior!=null&&prior.Phase is not ("completed" or "reviewed"))
             throw new InvalidOperationException("UM-ORIGINAL-SAVE-JOURNAL-NEEDS-REVIEW");
+        if(prior!=null)ArchivePreviousBeforeNewAttempt(file,prior);
         var evidence=new LegacyStoreV1SaveEvidence(Schema,operationId,mapId,pid,
             startedUtc,originalSourceSha256,"prepared",DateTimeOffset.UtcNow,null);
         Publish(file,evidence);
