@@ -86,9 +86,16 @@ public static class LegacyStoreV1SaveEvidenceJournal
         if(mapId==Guid.Empty)throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-MAP");
         string root=VaultReadSnapshot.LocalPath(managerProfileRoot,true);
         string folder=System.IO.Path.Combine(root,"historical-save-evidence-v1");
-        // This is a dedicated Manager-owned local folder, not any Kova path.
-        if(Directory.Exists(folder)&&
-           (File.GetAttributes(folder)&FileAttributes.ReparsePoint)!=0)
+        // This is a dedicated Manager-owned local folder, not any original
+        // Store path. Directory.Exists silently returns false on access
+        // denial or for an unexpected file/reparse point at the directory
+        // slot. Neither is evidence that a previously prepared receipt is
+        // absent: only an actually missing directory is allowed.
+        var folderAttributes=AttributesIfPresent(folder);
+        if(folderAttributes.HasValue&&
+           (folderAttributes.Value&
+             (FileAttributes.Directory|FileAttributes.ReparsePoint))!=
+             FileAttributes.Directory)
             throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-LINKED");
         return System.IO.Path.Combine(folder,mapId.ToString("N")+".json");
     }
