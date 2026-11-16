@@ -31,6 +31,9 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly object sync=new();
     private readonly Func<int,int,bool> ownsPort;
+    private readonly string? journalRoot;
+    private AsaManualStopJournal Journal(LocalMap map)=>
+        new(map.InstallationPath,journalRoot);
     private readonly Func<Guid,ProcessIdentity,Action<string>,Task<AsaGracefulStopReceipt>> stop;
     // One pending one-time approval per map; another map's preflight
     // must not silently invalidate a still-current local approval.
@@ -38,20 +41,23 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     // Retain a separate Stop receipt for every registered local ASA map.
     private readonly Dictionary<Guid,Job> jobsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
-    private string? PendingStopBlocker(Guid mapId)
+    private string? PendingStopBlocker(LocalMap map)
     {
         lock(sync)
-        {
-            if(!jobsByMap.TryGetValue(mapId,out var existing))return null;
-            // An uncertain SaveWorld/DoExit outcome must not become a
-            // fresh dispatch authorization simply because its worker ended.
-            return existing.State switch
+            if(jobsByMap.TryGetValue(map.Id,out var active))
             {
-                "queued" or "running"=>"UM-ASA-STOP-BUSY",
-                "needsOperator"=>"UM-ASA-STOP-NEEDS-OPERATOR",
-                _=>null
-            };
-        }
+                if(active.State is "queued" or "running")
+                    return "UM-ASA-STOP-BUSY";
+                if(active.State=="needsOperator")
+                    return "UM-ASA-STOP-NEEDS-OPERATOR";
+            }
+        // A new Manager process does not inherit the old in-memory job.
+        // Read its machine-local journal BEFORE issuing a fresh preview.
+        var durable=Journal(map).Observe();
+        if(durable!=null&&durable.MapId!=map.Id)
+            return "UM-ASA-STOP-JOURNAL-MAP-MISMATCH";
+        return durable?.Phase is AsaStopPhase.Pending or AsaStopPhase.NeedsOperator
+            ?"UM-ASA-STOP-JOURNAL-NEEDS-OPERATOR":null;
     }
 
     public DesktopFreshAsaStopBridge(ClusterService service,
@@ -64,9 +70,11 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     internal DesktopFreshAsaStopBridge(ClusterService service,
         Func<int,int,bool>? owner,
         Func<Guid,ProcessIdentity,Task<AsaGracefulStopReceipt>>? execute,
-        Func<Guid,ProcessIdentity,Action<string>,Task<AsaGracefulStopReceipt>>? progressRunner)
+        Func<Guid,ProcessIdentity,Action<string>,Task<AsaGracefulStopReceipt>>? progressRunner,
+        string? journalRoot=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
+        this.journalRoot=journalRoot;
         ownsPort=owner??RconPortOwnership.IsOwnedListener;
         stop=progressRunner??(execute==null
             ?(map,identity,stage)=>AsaGracefulStop.StopAsync(
@@ -157,7 +165,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
             var method=methodElement.GetString();
             if(method is not ("servers.gracefulStopPreview" or
                 "servers.gracefulStopApply" or "servers.gracefulStopStatus" or
-                "servers.gracefulStopCurrent"))
+                "servers.gracefulStopCurrent" or "servers.gracefulStopReview"))
                 return Error(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
@@ -199,7 +207,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                         return Error(id,"UM-ASA-STOP-MAP");
                     var owned=Owned(mapId);
                     if(owned==null)return Error(id,"UM-MAP-NOT-OWNED");
-                    if(PendingStopBlocker(mapId) is { } blocker)
+                    if(PendingStopBlocker(owned) is { } blocker)
                         return Error(id,blocker);
                     var process=Require(owned);
                     var permit=new Approval(Guid.NewGuid(),owned.Id,process.Pid,
@@ -228,7 +236,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                 if(map==null || map.InstallationPath!=approved.Root ||
                    map.RconPort!=approved.RconPort)
                     return Error(id,"UM-ASA-STOP-CHANGED");
-                if(PendingStopBlocker(map.Id) is { } applyBlocker)
+                if(PendingStopBlocker(map) is { } applyBlocker)
                     return Error(id,applyBlocker);
                 var current=Require(map);
                 if(current.Pid!=approved.Pid||
