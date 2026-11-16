@@ -19,6 +19,8 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
   const [reconciling,setReconciling]=useState(true);
   const [reconcileFailed,setReconcileFailed]=useState(false);
   const [reconcileNonce,setReconcileNonce]=useState(0);
+  const [reviewJournalId,setReviewJournalId]=useState<string|null>(null);
+  const [reviewTyped,setReviewTyped]=useState("");
   const mapRef=useRef(mapId);
   mapRef.current=mapId;
   const mounted=useRef(false);
@@ -29,7 +31,7 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
   useEffect(()=>{
     ++actionRevision.current;
     setPreview(null);setApproved(false);setError("");setBusy(false);
-    setJobId(null);setStatus(null);
+    setJobId(null);setStatus(null);setReviewJournalId(null);setReviewTyped("");
     setMessage(recentStopReceipts.get(mapId)??"");
   },[mapId]);
   // Reattach only a verified, in-memory running job. A finished Stop is NOT
@@ -41,13 +43,17 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
     managerBridge.freshAsaStopCurrent(mapId).then(current=>{
       if(!active||!belongs(mapId)||revision!==actionRevision.current)return;
       if(current.mapId.toLowerCase()!==mapId.toLowerCase()||
-         current.evidence!=="LOCAL_ASA_STOP_IN_MEMORY_JOB_OBSERVATION_NO_DISPATCH"||
+         current.evidence!=="LOCAL_ASA_STOP_MEMORY_AND_DURABLE_JOURNAL_OBSERVATION_NO_DISPATCH"||
          (current.active&&!current.jobId))
         throw new Error("UM-ASA-STOP-RECONNECT-MISMATCH");
-      // A native terminal NeedsOperator is NOT a free Stop slot. After UI
-      // navigation keep this map blocked until operator reconciliation.
-      if(current.state==="needsOperator")
-        throw new Error("UM-ASA-STOP-NEEDS-OPERATOR");
+      // Interrupted SaveWorld/DoExit survives even a native Manager restart.
+      if(current.state==="needsOperator"){
+        setReviewJournalId(current.journalId);
+        setReconcileFailed(true);
+        setError("UM-ASA-STOP-NEEDS-OPERATOR: A korábbi Stop eredménye bizonytalan. Új Stop nem indítható. A felülvizsgálat csak igazoltan leállított ASA mellett engedélyezett.");
+        return;
+      }
+      setReviewJournalId(null);
       if(current.active&&current.jobId)setJobId(current.jobId);
     }).catch(e=>{
       if(active&&belongs(mapId)&&revision===actionRevision.current){
@@ -93,6 +99,7 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
           setJobId(null);
           setReconcileFailed(true);
           setError("UM-ASA-STOP-NEEDS-OPERATOR: A leállítás elakadt. Ellenőrizd a folyamatot és a mentési naplót; új Stop, automatikus Kill vagy ismétlés nem engedélyezett.");
+          setReconcileNonce(n=>n+1);
         }
       }catch{
         if(active&&belongs(mapId)){
@@ -151,6 +158,32 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
     }finally{if(belongs(requested))setBusy(false);}
   };
 
+  const reviewStopped=async()=>{
+    if(!reviewJournalId||reviewTyped!=="REVIEW STOPPED ASA"||
+       busy||jobId||reconciling)return;
+    const requested=mapId,reviewId=reviewJournalId;
+    setBusy(true);setError("");
+    try{
+      const receipt=await managerBridge.freshAsaStopReview(
+        requested,reviewId,reviewTyped);
+      if(!belongs(requested))return;
+      if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||
+         receipt.journalId.toLowerCase()!==reviewId.toLowerCase()||
+         receipt.reviewed!==true||receipt.rconDispatched!==false||
+         receipt.serverStarted!==false||receipt.storeTouched!==false||
+         receipt.evidence!=="LOCAL_ASA_STOP_JOURNAL_OPERATOR_REVIEW_NO_DISPATCH")
+        throw new Error("UM-ASA-STOP-REVIEW-RECEIPT-MISMATCH");
+      setReviewJournalId(null);setReviewTyped("");
+      setReconcileNonce(n=>n+1);
+      setMessage("A korábbi Stop-napló felülvizsgálata rögzítve. Nem történt új SaveWorld, DoExit, Kill vagy Start. A mentés épségét ez nem tanúsítja.");
+    }catch{
+      if(belongs(requested)){
+        setReconcileFailed(true);
+        setError("UM-ASA-STOP-REVIEW-UNVERIFIED: A natív felülvizsgálat nem igazolt. Nem küldünk új Stopot; ellenőrizd a Windows-folyamatot és a naplót.");
+      }
+    }finally{if(belongs(requested))setBusy(false);}
+  };
+
   return <section className="premium-panel" aria-label="Valódi ASA biztonságos leállítása" style={{marginBlock:18,padding:20}}>
     <header className="premium-panel-heading"><h2><Octagon size={18}/> ASA szerver normál leállítása</h2></header>
     <p>A helyi C# Manager tényleges RCON SaveWorld és DoExit műveletet küld, megvárja a Windows-folyamat kilépését. A folyamatot nem lövi ki.</p>
@@ -159,6 +192,20 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
     {reconciling&&<p role="status">Korábbi Stop-feladat ellenőrzése…</p>}
     {reconcileFailed&&<button type="button" className="secondary"
       onClick={()=>setReconcileNonce(n=>n+1)}>Leállítási állapot újraellenőrzése</button>}
+    {reviewJournalId&&!jobId&&<div className="historical-preview" role="region"
+      aria-label="Megszakadt Stop-napló felülvizsgálata">
+      <p><b>Korábbi Stop nem igazolható.</b> Csak akkor lehet felülvizsgálni,
+      ha a natív Windows-folyamatellenőrzés igazoltan leállított állapotot ad.
+      Ez nem küld SaveWorld, DoExit, Kill vagy Start parancsot, és nem igazolja
+      a lemezre mentett világot.</p>
+      <label>Jóváhagyó szöveg: REVIEW STOPPED ASA
+        <input type="text" value={reviewTyped} disabled={busy||reconciling}
+          onChange={e=>setReviewTyped(e.target.value)} autoComplete="off"/>
+      </label>
+      <button type="button" className="secondary"
+        disabled={busy||reconciling||reviewTyped!=="REVIEW STOPPED ASA"}
+        onClick={()=>{void reviewStopped();}}>Igazoltan leállított Stop-napló felülvizsgálata</button>
+    </div>}
     {preview&&<div className="historical-preview" role="region" aria-label="ASA leállítás jóváhagyása">
       <h3>{preview.mapName} – PID: {preview.pid}</h3>
       <p>RCON: SaveWorld → új, stabil .ark megfigyelése (SaveComplete naplósor, ha létezik) → DoExit → PID-ellenőrzés. Fájlbizonyíték nélkül nincs DoExit vagy automatikus újrapróbálás.</p>
