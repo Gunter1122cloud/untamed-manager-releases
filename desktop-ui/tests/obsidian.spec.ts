@@ -7835,6 +7835,48 @@ test("interrupted SteamCMD queue survives UI restart and blocks accidental retry
   await expect(page.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
 });
 
+test("delayed native ASA Start preview cannot reopen approval after map navigation",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await expect(page.getByRole("region",{name:"Valódi ASA első indítása"})).toBeVisible();
+  await page.evaluate(()=>{
+    const host=window as unknown as {
+      chrome:{webview:{postMessage:(message:{method:string})=>void}};
+      releaseFreshStartPreview?:()=>void
+    };
+    const webview=host.chrome.webview;
+    const original=webview.postMessage.bind(webview);
+    let held:{method:string}|null=null;
+    webview.postMessage=(message)=>{
+      if(message.method==="servers.freshStartPreview"&&!held){
+        held=message;return;
+      }
+      original(message);
+    };
+    host.releaseFreshStartPreview=()=>{
+      const pending=held;held=null;
+      if(pending)original(pending);
+    };
+  });
+  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"}))
+    .toHaveCount(0);
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.evaluate(()=>(window as typeof window & {
+    releaseFreshStartPreview?:()=>void;
+  }).releaseFreshStartPreview?.());
+  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"}))
+    .toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+    .toBeEnabled();
+  await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true}))
+    .toHaveCount(0);
+});
+
 test("fresh ASA map starts a real local process only after explicit approval",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
