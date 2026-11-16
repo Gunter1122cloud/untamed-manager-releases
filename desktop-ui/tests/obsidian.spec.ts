@@ -8433,6 +8433,50 @@ test("fresh Restart cannot claim success without an observed new PID",async({pag
   await expect(panel.locator(".success-inline")).toHaveCount(0);
 });
 
+test("durable interrupted Stop survives native Manager memory loss and requires physical-stop review",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STOP_NEEDS_OPERATOR__?:()=>void;
+    __UNTAMED_STOP_FORGET_IN_MEMORY__?:()=>void;
+  }).__UNTAMED_STOP_NEEDS_OPERATOR__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STOP_FORGET_IN_MEMORY__?:()=>void;
+  }).__UNTAMED_STOP_FORGET_IN_MEMORY__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  let panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
+  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
+  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
+  await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
+  await expect(panel.getByRole("region",{
+    name:"Megszakadt Stop-napló felülvizsgálata"
+  })).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+    .toBeDisabled();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
+  const review=panel.getByRole("region",{name:"Megszakadt Stop-napló felülvizsgálata"});
+  await expect(review).toBeVisible();
+  await review.getByLabel(/Jóváhagyó szöveg/).fill("REVIEW STOPPED ASA");
+  await review.getByRole("button",{name:"Igazoltan leállított Stop-napló felülvizsgálata"}).click();
+  await expect(panel).toContainText("UM-ASA-STOP-REVIEW-UNVERIFIED");
+  await expect(panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+    .toBeDisabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STOP_REVIEW_OS_STOPPED__?:()=>void;
+  }).__UNTAMED_STOP_REVIEW_OS_STOPPED__?.());
+  await review.getByRole("button",{name:"Igazoltan leállított Stop-napló felülvizsgálata"}).click();
+  await expect(panel).toContainText("nem történt új SaveWorld, DoExit, Kill vagy Start");
+  await expect(review).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STOP_REVIEWS__?:()=>number;
+  }).__UNTAMED_STOP_REVIEWS__?.())).toBe(1);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number;
+  }).__UNTAMED_LOCAL_STOP_APPLIES__?.())).toBe(1);
+});
+
 test("fresh Stop NeedsOperator keeps the second Stop blocked, including after navigation",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
