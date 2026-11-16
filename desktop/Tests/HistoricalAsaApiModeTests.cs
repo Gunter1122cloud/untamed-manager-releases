@@ -106,13 +106,14 @@ internal static class HistoricalAsaApiModeTests
             AutoStart=false,MonitorRcon=false
         };
         cluster.AddMap(restartable);
+        bool allowModeCommit=true;
         using var previewBridge=new DesktopHistoricalActiveStartBridge(cluster,
             preparation:(_)=>new LegacyStoreV1NativeStartPlan(
                 "Ragnarok_WP?listen -Port=7837 -QueryPort=27077 -usestore",
                 new string('A',64),7837,27077,37075,"SYNTHETIC_ONLY"),
             launcher:(_,_,_)=>throw new InvalidOperationException(
                 "SYNTHETIC START MUST NEVER BE EXECUTED"),
-            loaderModePreflight:(_,_)=>true);
+            loaderModePreflight:(_,_)=>allowModeCommit);
         var startPreview=await Call(previewBridge,"historical.activeStartPreview",
             new{mapId=restartable.Id});
         Check(startPreview.GetProperty("ok").GetBoolean(),
@@ -129,8 +130,28 @@ internal static class HistoricalAsaApiModeTests
               "UM-STORE-ACTIVE-EXPLICIT-APPROVAL",
             "Loader mode preview did not revoke original Start approval");
         var modeToken=modePreview.GetProperty("data").GetProperty("token").GetString()!;
-        var change=await Call(previewBridge,"historical.loaderModeApply",
+        // Refuse a stale mode transition after preview. The Start ticket
+        // must still exist: there was NO committed change to launch mode.
+        allowModeCommit=false;
+        var rejectedMode=await Call(previewBridge,"historical.loaderModeApply",
             new{token=modeToken,confirm=true});
+        Check(!rejectedMode.GetProperty("ok").GetBoolean()&&
+              rejectedMode.GetProperty("error").GetString()==
+                "UM-STORE-LOADER-MODE-STATE-CHANGED",
+            "stale Loader-mode approval is rejected before profile mutation");
+        var retainedStart=await Call(previewBridge,"historical.activeStartApply",
+            new{token=startToken,confirm=false,typedApproval="STORE-V1 ACTIVE START"});
+        Check(retainedStart.GetProperty("error").GetString()==
+                "UM-STORE-ACTIVE-EXPLICIT-APPROVAL",
+            "rejected Loader mode apply preserves unchanged approved Start ticket");
+        allowModeCommit=true;
+        var newMode=await Call(previewBridge,"historical.loaderModePreview",
+            new{mapId=restartable.Id,useApi=true});
+        Check(newMode.GetProperty("ok").GetBoolean(),
+            "new review is available after a rejected Loader transition");
+        var freshToken=newMode.GetProperty("data").GetProperty("token").GetString()!;
+        var change=await Call(previewBridge,"historical.loaderModeApply",
+            new{token=freshToken,confirm=true});
         Check(change.GetProperty("ok").GetBoolean(),
             "committed Loader choice changes only historical Manager preference");
         var oldStart=await Call(previewBridge,"historical.activeStartApply",
