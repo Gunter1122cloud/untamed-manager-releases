@@ -253,7 +253,7 @@ internal static class OriginalStoreLiveReconcileTests
             bridge,new object[]{live})??throw new InvalidOperationException(
                 "SaveWorld uncertain receipt scan failed")))
             .Cast<object>().Where(x=>
-                (string)x.GetType().GetProperty("Kind")!.GetValue(x)!=="SaveWorld-v1")
+                (string)x.GetType().GetProperty("Kind")!.GetValue(x)=="SaveWorld-v1")
             .Select(x=>(
                 Map:(Guid)x.GetType().GetProperty("MapId")!.GetValue(x)!,
                 Phase:(string)x.GetType().GetProperty("Phase")!.GetValue(x)!))
