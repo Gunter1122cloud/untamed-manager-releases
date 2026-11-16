@@ -3212,6 +3212,8 @@ test.beforeEach(async ({ page }) => {
                   e.message.startsWith("UM-INITIAL-PORT-")||
                   e.message.startsWith("UM-ORIGINAL-LIVE-APPROVAL-")||
                   e.message==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"||
+                  e.message==="UM-ORIGINAL-STOP-INSTALLATION-BUSY"||
+                  e.message==="UM-ORIGINAL-SAVE-HISTORY-REVIEW-REQUIRED"||
                   e.message.startsWith("UM-RECOVERY-"))
                 ?e.message:"UM-METHOD-DENIED";
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));
