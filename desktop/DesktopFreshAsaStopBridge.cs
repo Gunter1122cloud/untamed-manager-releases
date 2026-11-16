@@ -38,10 +38,20 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     // Retain a separate Stop receipt for every registered local ASA map.
     private readonly Dictionary<Guid,Job> jobsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
-    private bool HasActive(Guid mapId)
+    private string? PendingStopBlocker(Guid mapId)
     {
-        lock(sync)return jobsByMap.TryGetValue(mapId,out var existing)&&
-            existing.State is ("queued" or "running");
+        lock(sync)
+        {
+            if(!jobsByMap.TryGetValue(mapId,out var existing))return null;
+            // An uncertain SaveWorld/DoExit outcome must not become a
+            // fresh dispatch authorization simply because its worker ended.
+            return existing.State switch
+            {
+                "queued" or "running"=>"UM-ASA-STOP-BUSY",
+                "needsOperator"=>"UM-ASA-STOP-NEEDS-OPERATOR",
+                _=>null
+            };
+        }
     }
 
     public DesktopFreshAsaStopBridge(ClusterService service,
@@ -189,7 +199,8 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                         return Error(id,"UM-ASA-STOP-MAP");
                     var owned=Owned(mapId);
                     if(owned==null)return Error(id,"UM-MAP-NOT-OWNED");
-                    if(HasActive(mapId))return Error(id,"UM-ASA-STOP-BUSY");
+                    if(PendingStopBlocker(mapId) is { } blocker)
+                        return Error(id,blocker);
                     var process=Require(owned);
                     var permit=new Approval(Guid.NewGuid(),owned.Id,process.Pid,
                         process.StartedUtc,owned.InstallationPath,owned.RconPort,
@@ -217,7 +228,8 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                 if(map==null || map.InstallationPath!=approved.Root ||
                    map.RconPort!=approved.RconPort)
                     return Error(id,"UM-ASA-STOP-CHANGED");
-                if(HasActive(map.Id))return Error(id,"UM-ASA-STOP-BUSY");
+                if(PendingStopBlocker(map.Id) is { } blocker)
+                    return Error(id,blocker);
                 var current=Require(map);
                 if(current.Pid!=approved.Pid||
                    current.StartedUtc!=approved.StartedUtc)
