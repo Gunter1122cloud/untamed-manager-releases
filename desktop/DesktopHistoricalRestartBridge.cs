@@ -166,15 +166,24 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         var operation=cluster.Operations.Observe(map.InstallationPath);
         bool pendingOperation=operation?.Phase is UntamedOperationPhase.Prepared or
             UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator;
-        var pendingSave=PendingSaveEvidence(mapId);
+        // Recovery is read-only. A half-written/.next or tampered local
+        // SaveWorld receipt must still be reported with its exact map ID;
+        // mutating Restart preview/apply continue using strict Inspect().
+        var (saved,saveUnreadable)=LegacyStoreV1SaveEvidenceJournal.
+            InspectReadOnly(cluster.Store.Root,mapId);
+        bool pendingSave=saveUnreadable||
+            saved?.Phase is "prepared" or "needsOperator";
         bool same=entry?.MapId==mapId;
         return new{
             mapId,phase=entry?.Phase.ToString()??"None",
             entryBelongsToMap=same,
-            saveEvidencePhase=pendingSave?.Phase??"none",
-            saveEvidencePending=pendingSave!=null,
-            blocked=pendingRestart||pendingOperation||pendingSave!=null,
-            requiresOperator=(pendingRestart||pendingOperation||pendingSave!=null)&&running==null,
+            saveEvidencePhase=saveUnreadable?"unreadable":saved?.Phase??"none",
+            saveEvidencePending=pendingSave,
+            saveEvidenceUnreadable=saveUnreadable,
+            saveEvidenceErrorCode=saveUnreadable?
+                "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
+            blocked=pendingRestart||pendingOperation||pendingSave,
+            requiresOperator=(pendingRestart||pendingOperation||pendingSave)&&running==null,
             inMemoryRunning=running!=null,jobId=running?.Id,
             oldPid=entry?.OldPid,newPid=entry?.NewPid,
             automaticRecovery=false,automaticRetry=false,
