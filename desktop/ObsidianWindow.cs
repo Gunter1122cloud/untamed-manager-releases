@@ -536,7 +536,8 @@ public sealed class ObsidianWindow : Form
                         freshStartRoute = name is "servers.freshStartPreview" or "servers.freshStartApply" or
                             "servers.freshStartStatus" or "servers.freshReadiness";
                         freshStopRoute = name is "servers.gracefulStopPreview" or "servers.gracefulStopApply" or
-                            "servers.gracefulStopStatus" or "servers.gracefulStopCurrent";
+                            "servers.gracefulStopStatus" or "servers.gracefulStopCurrent" or
+                            "servers.gracefulStopReview";
                         ownedKillRoute = name is "servers.ownedKillPreview" or "servers.ownedKillApply";
                         freshRestartRoute = name is "servers.restartPreview" or "servers.restartApply" or
                             "servers.restartStatus" or "servers.restartCurrent" or
