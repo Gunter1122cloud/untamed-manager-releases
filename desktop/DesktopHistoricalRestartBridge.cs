@@ -159,9 +159,13 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             throw new UnauthorizedAccessException("UM-ORIGINAL-RESTART-LOCAL-ONLY");
         var entry=new AsaManualRestartJournal(map.InstallationPath).Observe();
         Job? running;
+        bool localNeedsOperator;
         lock(sync)
-            running=jobsByMap.TryGetValue(mapId,out var tracked)&&
-                tracked.State is ("queued" or "running")?tracked:null;
+        {
+            jobsByMap.TryGetValue(mapId,out var tracked);
+            running=tracked?.State is "queued" or "running"?tracked:null;
+            localNeedsOperator=tracked?.State=="needsOperator";
+        }
         bool pendingRestart=entry!=null&&entry.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
         var operation=cluster.Operations.Observe(map.InstallationPath);
         bool pendingOperation=operation?.Phase is UntamedOperationPhase.Prepared or
@@ -182,8 +186,10 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             saveEvidenceUnreadable=saveUnreadable,
             saveEvidenceErrorCode=saveUnreadable?
                 "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
-            blocked=pendingRestart||pendingOperation||pendingSave||running!=null,
-            requiresOperator=(pendingRestart||pendingOperation||pendingSave)&&running==null,
+            blocked=pendingRestart||pendingOperation||pendingSave||
+                running!=null||localNeedsOperator,
+            requiresOperator=localNeedsOperator||
+                (pendingRestart||pendingOperation||pendingSave)&&running==null,
             inMemoryRunning=running!=null,jobId=running?.Id,
             oldPid=entry?.OldPid,newPid=entry?.NewPid,
             automaticRecovery=false,automaticRetry=false,
