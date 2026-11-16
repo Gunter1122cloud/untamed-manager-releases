@@ -567,6 +567,86 @@ internal static class MapScopedNativeLifecycleJobsTests
         }
         Check(maps.All(map=>!map.HistoricalLaunchModeNeedsApproval),
             "Loader mode approvals are separate and consumed per original ASA map");
+
+        // A SaveWorld-only receipt can be persisted BEFORE its asynchronous
+        // executor enters the common operation lease. A historical Restart
+        // must not send SaveWorld/DoExit or create a Restart-v1 journal while
+        // that durable receipt is prepared/uncertain. A sibling map is
+        // independently eligible until its own receipt becomes pending.
+        for(int attempt=0;attempt<90;attempt++)
+        {
+            var second=Data(await Call(bridge.HandleAsync,
+                "historical.saveWorldStatus",new{jobId=jobIds[1]}),
+                "second original Store SaveWorld completion can be inspected");
+            if(second.GetProperty("state").GetString()=="completed")break;
+            await Task.Delay(25);
+        }
+        var stopPreview=Data(await Call(bridge.HandleAsync,
+            "historical.gracefulStopPreview",new{mapId=maps[1].Id}),
+            "old Stop token can be prepared before a new SaveWorld begins");
+        int restartStopCalls=0,restartStartCalls=0;
+        using(var restarts=new DesktopHistoricalRestartBridge(cluster,Probe,
+            (mapId,pid,started,source,restartId,stage)=>{
+                restartStopCalls++;
+                return Task.FromException<AsaGracefulStopReceipt>(
+                    new InvalidOperationException("test must never send DoExit"));
+            },
+            (mapId,restartId,stage)=>{
+                restartStartCalls++;
+                throw new InvalidOperationException("test must never launch ASA");
+            }))
+        {
+            var siblingBefore=Data(await Call(restarts.HandleAsync,
+                "historical.restartPreview",new{mapId=maps[1].Id}),
+                "sibling Restart preview succeeds with completed SaveWorld receipt");
+            string pendingRestartToken=siblingBefore.GetProperty("token").GetString()!;
+            var pending0=LegacyStoreV1SaveEvidenceJournal.Begin(
+                cluster.Store.Root,Guid.NewGuid(),maps[0].Id,
+                processes[0].Pid,processes[0].StartedUtc,sourceSha);
+            var firstRecovery=Data(await Call(restarts.HandleAsync,
+                "historical.restartRecovery",new{mapId=maps[0].Id}),
+                "pending SaveWorld recovery is visible in Restart status");
+            Check(firstRecovery.GetProperty("blocked").GetBoolean()&&
+                  firstRecovery.GetProperty("saveEvidencePending").GetBoolean()&&
+                  firstRecovery.GetProperty("saveEvidencePhase").GetString()=="prepared",
+                "prepared map A SaveWorld blocks only map A Restart");
+            var blockedPreview=await Call(restarts.HandleAsync,
+                "historical.restartPreview",new{mapId=maps[0].Id});
+            Check(!blockedPreview.GetProperty("ok").GetBoolean()&&
+                  blockedPreview.GetProperty("error").GetString()==
+                    "UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW",
+                "Restart preview refuses prepared SaveWorld without dispatching RCON");
+            var siblingRecovery=Data(await Call(restarts.HandleAsync,
+                "historical.restartRecovery",new{mapId=maps[1].Id}),
+                "sibling Restart recovery is independent of map A");
+            Check(!siblingRecovery.GetProperty("blocked").GetBoolean()&&
+                  !siblingRecovery.GetProperty("saveEvidencePending").GetBoolean(),
+                "map B remains unblocked by map A's pending receipt");
+            // Stale approval: another SaveWorld is prepared AFTER preview.
+            var pending1=LegacyStoreV1SaveEvidenceJournal.Begin(
+                cluster.Store.Root,Guid.NewGuid(),maps[1].Id,
+                processes[1].Pid,processes[1].StartedUtc,sourceSha);
+            var deniedRestart=await Call(restarts.HandleAsync,
+                "historical.restartApply",new{token=pendingRestartToken,
+                    confirm=true,typedApproval="STORE-V1 SAVEWORLD DOEXIT START"});
+            Check(!deniedRestart.GetProperty("ok").GetBoolean()&&
+                  deniedRestart.GetProperty("error").GetString()==
+                    "UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW",
+                "Restart apply rechecks a newly pending SaveWorld receipt");
+            Check(new AsaManualRestartJournal(maps[1].InstallationPath)
+                      .Observe()==null&&restartStopCalls==0&&restartStartCalls==0,
+                "denied Restart creates no journal, RCON or ASA process");
+            var deniedStop=await Call(bridge.HandleAsync,
+                "historical.gracefulStopApply",
+                new{token=stopPreview.GetProperty("token").GetString(),
+                    confirm=true,typedApproval="STORE-V1 SAVEWORLD DOEXIT"});
+            Check(!deniedStop.GetProperty("ok").GetBoolean()&&
+                  deniedStop.GetProperty("error").GetString()==
+                    "UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW",
+                "Stop apply rechecks SaveWorld after its original preview");
+            Check(pending0.Phase=="prepared"&&pending1.Phase=="prepared",
+                "denied cross-operations do not overwrite durable SaveWorld receipts");
+        }
     }
 
     private static async Task VerifyFreshRestartJobs(string baseRoot)
