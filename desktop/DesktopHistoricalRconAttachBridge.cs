@@ -300,6 +300,16 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
         if(!Historical(map)||port is <1024 or >65535 ||
            !AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new InvalidDataException("UM-HISTORICAL-RCON-UNSAFE-MAP");
+        // A SaveWorld-only command records a durable prepared receipt
+        // BEFORE its RCON worker obtains the generic installation lease.
+        // Attaching credentials must not update the Manager profile while
+        // that separate local SaveWorld intent remains unresolved. Demand()
+        // runs both at preview and under the final Configuration lease.
+        var save=LegacyStoreV1SaveEvidenceJournal.Inspect(
+            cluster.Store.Root,map.Id);
+        if(save?.Phase is "prepared" or "needsOperator")
+            throw new InvalidDataException(
+                "UM-HISTORICAL-RCON-SAVEWORLD-IN-PROGRESS");
         var candidate=WithRcon(map,port,protectedPassword);
         LocalMapPortPolicy.RequireNoConflicts(candidate,cluster.Config.LocalMaps);
         if(!rconProof(candidate)||IniHash(map)!=iniHash)
@@ -458,7 +468,8 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
         catch(InvalidDataException ex) when(ex.Message is
             "UM-HISTORICAL-RCON-INI-CHANGED" or
             "UM-HISTORICAL-RCON-ORIGINAL-STORE-INVALID" or
-            "UM-HISTORICAL-RCON-API-CHILD-UNVERIFIED")
+            "UM-HISTORICAL-RCON-API-CHILD-UNVERIFIED" or
+            "UM-HISTORICAL-RCON-SAVEWORLD-IN-PROGRESS")
         {
             // Only these static, credential-free native reasons are exposed.
             // In particular, INI mismatch does not imply the disk file
