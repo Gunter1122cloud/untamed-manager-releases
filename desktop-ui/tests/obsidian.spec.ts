@@ -358,6 +358,22 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_FIVE_BACKUP_COPIES__?:()=>number})
       .__UNTAMED_FIVE_BACKUP_COPIES__=()=>originalFiveBackupCopies;
     let historicalRconAttached=false;
+    let historicalRconSavePending=false,historicalRconAttachmentCommits=0;
+    (window as typeof window & {
+      __UNTAMED_RCON_ATTACH_SAVE_PENDING__?:()=>void;
+      __UNTAMED_RCON_ATTACH_SAVE_CLEAR__?:()=>void;
+      __UNTAMED_RCON_ATTACH_COUNT__?:()=>number;
+    }).__UNTAMED_RCON_ATTACH_SAVE_PENDING__=()=>{
+      historicalRconSavePending=true;
+    };
+    (window as typeof window & {
+      __UNTAMED_RCON_ATTACH_SAVE_CLEAR__?:()=>void;
+    }).__UNTAMED_RCON_ATTACH_SAVE_CLEAR__=()=>{
+      historicalRconSavePending=false;
+    };
+    (window as typeof window & {
+      __UNTAMED_RCON_ATTACH_COUNT__?:()=>number;
+    }).__UNTAMED_RCON_ATTACH_COUNT__=()=>historicalRconAttachmentCommits;
     let wrongHistoricalAdminPreviewMap=false;
     let wrongHistoricalRconReadMap=false;
     (window as typeof window & {
@@ -1192,6 +1208,8 @@ test.beforeEach(async ({ page }) => {
         }
         case "historical.rconExistingPreview":
         case "historical.rconPreview": {
+          if(historicalRconSavePending)
+            throw new Error("UM-HISTORICAL-RCON-SAVEWORLD-IN-PROGRESS");
           if(m.mapId!==two||
              (m.method==="historical.rconPreview"&&
               (m.rconPort!==37145||m.password!=="HistoricalRconPass!2026")))
@@ -1206,9 +1224,12 @@ test.beforeEach(async ({ page }) => {
           };
         }
         case "historical.rconApply": {
+          if(historicalRconSavePending)
+            throw new Error("UM-HISTORICAL-RCON-SAVEWORLD-IN-PROGRESS");
           if(m.token!==historicalRconToken||m.confirm!==true||historicalRconAttached)
             throw new Error("Synthetic one-shot RCON approval required");
           historicalRconAttached=true;
+          historicalRconAttachmentCommits++;
           state.local.maps[1].rconConfigured=true;
           return {mapId:two,mapName:"Astraeos",configured:true,rconPort:37145,
             originalStoreTouched:false,iniModified:false,serverStarted:false,
@@ -3242,6 +3263,7 @@ test.beforeEach(async ({ page }) => {
                   e.message==="UM-ORIGINAL-ADMIN-SAVEWORLD-IN-PROGRESS"||
                   e.message==="UM-ORIGINAL-ADMIN-LIFECYCLE-JOURNAL-REVIEW-REQUIRED"||
                   e.message==="UM-ORIGINAL-ADMIN-INSTALLATION-BUSY"||
+                  e.message==="UM-HISTORICAL-RCON-SAVEWORLD-IN-PROGRESS"||
                   e.message.startsWith("UM-RECOVERY-"))
                 ?e.message:"UM-METHOD-DENIED";
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));
@@ -5518,6 +5540,46 @@ test("historical Store RCON attaches only existing INI with native approval and 
   await expect(attach.getByText(/RCON-port: 37145/)).toBeVisible();
   await expect(attach.getByText(/Store-fájlok nem módosultak/)).toBeVisible();
   await expect(attach.getByRole("button",{name:"RCON átvétel véglegesítése"})).toHaveCount(0);
+});
+
+test("original RCON attachment refuses pending SaveWorld both before and after explicit approval",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void;
+    __UNTAMED_RCON_ATTACH_SAVE_PENDING__?:()=>void;
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const attach=page.getByRole("region",{
+    name:"Történeti Store-v1 RCON csatlakoztatás"
+  });
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_ATTACH_SAVE_PENDING__?:()=>void;
+  }).__UNTAMED_RCON_ATTACH_SAVE_PENDING__?.());
+  await attach.getByRole("button",{
+    name:"Meglévő RCON átvétele az ASA INI-ből"
+  }).click();
+  await expect(attach).toContainText("UM-HISTORICAL-RCON-SAVEWORLD-IN-PROGRESS");
+  await expect(attach.getByRole("region",{name:"Store-v1 RCON jóváhagyása"}))
+    .toHaveCount(0);
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_ATTACH_SAVE_CLEAR__?:()=>void;
+  }).__UNTAMED_RCON_ATTACH_SAVE_CLEAR__?.());
+  await attach.getByRole("button",{
+    name:"Meglévő RCON átvétele az ASA INI-ből"
+  }).click();
+  const approval=attach.getByRole("region",{name:"Store-v1 RCON jóváhagyása"});
+  await approval.getByText(/Jóváhagyom az eredeti RCON-kapcsolat/).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_ATTACH_SAVE_PENDING__?:()=>void;
+  }).__UNTAMED_RCON_ATTACH_SAVE_PENDING__?.());
+  await approval.getByRole("button",{name:"RCON átvétel véglegesítése"}).click();
+  await expect(attach).toContainText("UM-HISTORICAL-RCON-SAVEWORLD-IN-PROGRESS");
+  await expect(attach.getByText(/RCON-port: 37145/)).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_ATTACH_COUNT__?:()=>number;
+  }).__UNTAMED_RCON_ATTACH_COUNT__?.())).toBe(0);
 });
 
 test("original Store RCON native commit survives a failing follow-up status refresh without suggesting replay",async({page})=>{
