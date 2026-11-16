@@ -140,6 +140,49 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
     const handle=window.setInterval(()=>{void poll();},1700);
     return ()=>{active=false;window.clearInterval(handle);};
   },[jobId,mapId,onSaved]);
+  const refreshDurable=async()=>{
+    // Read-only evidence refresh after the operator has inspected the
+    // local journal externally. Never retry SaveWorld or clear a receipt.
+    if(busy||jobId)return;
+    const requested=mapId,revision=epoch.current;
+    setBusy(true);setPreview(null);setPhrase("");
+    setReviewPreview(null);setReviewPhrase("");setError("");setNotice("");
+    try{
+      const [evidence,review]=await Promise.all([
+        managerBridge.historicalSaveWorldEvidence(requested),
+        managerBridge.historicalGracefulStopRecovery(requested)
+      ]);
+      if(!belongs(requested,revision))return;
+      if(evidence.mapId.toLowerCase()!==requested.toLowerCase()||
+         review.mapId.toLowerCase()!==requested.toLowerCase()||
+         evidence.productionRestoreAllowed||
+         evidence.bothHostsSaveCompleteCertified||
+         evidence.sharedStoreWriterCertified||
+         review.sharedStoreMutated||review.lockCleared)
+        throw new Error("UM-ORIGINAL-SAVE-READONLY-MAP-MISMATCH");
+      setDurableSave(evidence);setDurableChecked(true);
+      setDurableUnknown(evidence.unreadable===true||evidence.phase==="unreadable");
+      setRecovery(review);setChecked(true);
+      if(evidence.unreadable||review.saveEvidenceUnreadable)
+        setError("Sérült vagy félbeszakadt SaveWorld-bizonylat "+
+          "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). A helyi fájlok változatlanok; "+
+          "automatikus feloldás nincs.");
+      else if(review.blocked)
+        setError("A helyi műveleti napló még függő állapotban van. "+
+          "Külön operátori ellenőrzés szükséges; nem küldtünk új SaveWorld parancsot.");
+      else
+        setNotice("A helyi Store-v1 naplók újraellenőrizve, új SaveWorld nem indult. "+
+          "Az ASA állapotának és az eredeti Store-forrásnak az új művelet előtt "+
+          "ismét külön igazoltnak kell lennie.");
+    }catch{
+      if(belongs(requested,revision)){
+        setRecovery(null);setDurableSave(null);setDurableUnknown(true);
+        setChecked(true);setDurableChecked(true);
+        setError("A helyi Store-v1 naplók nem ellenőrizhetők. Új mentés és "+
+          "automatikus RCON-ismétlés továbbra is tiltva.");
+      }
+    }finally{if(belongs(requested,revision))setBusy(false);}
+  };
   const inspect=async()=>{
     if(busy||!checked||!durableChecked||durableUnknown||
        durableSave?.phase==="prepared"||durableSave?.phase==="needsOperator"||
@@ -243,6 +286,10 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
         Az ellenőrzött helyi ASA PID-nek egyszer küldi a SaveWorld
         parancsot. A log és világfájl ellenőrzése után sincs DoExit, konverzió vagy
         karakter-, tribe- és tribute-fájlmódosítás a Managerből.</p>
+      <button type="button" className="secondary" disabled={busy||!!jobId}
+        onClick={()=>{void refreshDurable();}}>
+        <RefreshCw size={16}/> Store-v1 mentési napló újraellenőrzése
+      </button>
       <button type="button" className="secondary" disabled={busy||!running||
           !checked||!durableChecked||durableUnknown||
           durableSave?.phase==="prepared"||durableSave?.phase==="needsOperator"||
