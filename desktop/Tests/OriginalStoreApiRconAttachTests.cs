@@ -160,6 +160,40 @@ internal static class OriginalStoreApiRconAttachTests
             "unverified imported API Loader is not promoted to RCON owner");
         map.LastLoader.Arguments="HISTORICAL_STORE_V1_API_LOADER_VERIFIED";
 
+        // A Store SaveWorld-only intent uses an independent durable
+        // receipt and may appear after the first RCON attachment approval,
+        // before the generic installation operation lease is acquired.
+        // Neither read-only preview nor stale approved Apply may attach the
+        // DPAPI profile during such an uncertain save.
+        var stalePreview=await Call(bridge,"historical.rconPreview",
+            new{mapId=map.Id,rconPort=port,password});
+        Check(stalePreview.GetProperty("ok").GetBoolean(),
+            "original RCON profile can prepare a fresh separate approval before SaveWorld");
+        string staleToken=stalePreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        var localSaveId=Guid.NewGuid();
+        string saveSource=new string('F',64);
+        var pendingSave=LegacyStoreV1SaveEvidenceJournal.Begin(
+            cluster.Store.Root,localSaveId,map.Id,child.Pid,
+            child.StartedUtc,saveSource);
+        var deniedWhileSave=await Call(bridge,"historical.rconExistingPreview",
+            new{mapId=map.Id});
+        var deniedApply=await Call(bridge,"historical.rconApply",
+            new{token=staleToken,confirm=true});
+        Check(!deniedWhileSave.GetProperty("ok").GetBoolean()&&
+              deniedWhileSave.GetProperty("error").GetString()==
+                "UM-HISTORICAL-RCON-SAVEWORLD-IN-PROGRESS"&&
+              !deniedApply.GetProperty("ok").GetBoolean()&&
+              deniedApply.GetProperty("error").GetString()==
+                "UM-HISTORICAL-RCON-SAVEWORLD-IN-PROGRESS"&&
+              cluster.Config.LocalMaps.Single().RconPort==0&&
+              LegacyStoreV1SaveEvidenceJournal.Inspect(
+                  cluster.Store.Root,map.Id)==pendingSave&&
+              File.ReadAllBytes(ini).SequenceEqual(iniBefore),
+            "pending SaveWorld blocks old RCON attachment approval without changing original INI or profile");
+        LegacyStoreV1SaveEvidenceJournal.Complete(
+            cluster.Store.Root,localSaveId,map.Id,child.Pid,
+            child.StartedUtc,saveSource,DateTimeOffset.UtcNow,true,false);
         preview=await Call(bridge,"historical.rconPreview",
             new{mapId=map.Id,rconPort=port,password});
         Check(preview.GetProperty("ok").GetBoolean(),
