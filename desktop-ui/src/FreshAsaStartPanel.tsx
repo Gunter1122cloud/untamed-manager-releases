@@ -20,6 +20,9 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
   currentMap.current=mapId;
   const belongs=(requested:string,revision:number)=>
     currentMap.current===requested&&readinessGeneration.current===revision;
+  const sameMap=(receipt:{mapId:string},requested:string)=>
+    typeof receipt.mapId==="string"&&
+    receipt.mapId.toLowerCase()===requested.toLowerCase();
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState(()=>recentStartReceipts.get(mapId)??"");
   const [error,setError]=useState("");
@@ -31,8 +34,11 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     setReadiness(null);
     setMessage(recentStartReceipts.get(mapId)??"");
     managerBridge.freshAsaStartStatus(mapId)
-      .then(s=>{if(active)setObserved(s);})
-      .catch(()=>{});
+      .then(s=>{
+        if(!active)return;
+        if(sameMap(s,mapId))setObserved(s);
+        else setError("UM-FRESH-START-STATUS-OTHER-MAP: a natív állapot nem a kiválasztott maphoz tartozik.");
+      }).catch(()=>{});
     return ()=>{active=false;readinessGeneration.current++;};
   },[mapId]);
 
@@ -41,6 +47,8 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     setError("");
     try{
       const status=await managerBridge.freshAsaStartStatus(requested);
+      if(!sameMap(status,requested))
+        throw new Error("UM-FRESH-START-STATUS-OTHER-MAP");
       if(belongs(requested,revision))setObserved(status);
     }catch{
       if(belongs(requested,revision))
@@ -53,6 +61,8 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     setCheckingReady(true);setReadiness(null);setError("");
     try{
       const status=await managerBridge.freshAsaReadiness(requested);
+      if(!sameMap(status,requested)||status.storeTouched)
+        throw new Error("UM-FRESH-READINESS-OTHER-MAP");
       if(belongs(requested,revision))setReadiness(status);
     }catch{
       if(belongs(requested,revision))
@@ -75,6 +85,10 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
         try{status=await managerBridge.freshAsaStartStatus(targetMapId);}
         catch{continue;}
         if(readinessGeneration.current!==generation)return;
+        if(!sameMap(status,targetMapId)){
+          setError("A natív ASA-folyamat állapota másik maphoz tartozik. Az indított folyamatot nem állítjuk le, és nem küldünk új Start parancsot.");
+          finished=true;break;
+        }
         setObserved(status);
         if(status.confirmedStopped){
           setError("Az indított ASA-folyamat leállt, mielőtt RCON-készenlétet igazolhattunk volna. Nem indítottunk második szervert.");
@@ -85,6 +99,10 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
         try{
           const result=await managerBridge.freshAsaReadiness(targetMapId);
           if(readinessGeneration.current!==generation)return;
+          if(!sameMap(result,targetMapId)||result.storeTouched){
+            setError("Az ASA/RCON készenléti válasz nem a jóváhagyott mapé. Nincs automatikus újraindítás.");
+            finished=true;break;
+          }
           setReadiness(result);
           if(result.productionReady){
             const readyMessage="ASA PID + RCON + indítási napló alapján futásra kész. A tényleges játékoscsatlakozás és karakterutazás külön ellenőrzendő.";
@@ -121,6 +139,9 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
     try{
       const candidate=await managerBridge.freshAsaStartPreview(requested);
+      if(!sameMap(candidate,requested)||!candidate.confirmedStopped||
+         candidate.serverStarted)
+        throw new Error("UM-FRESH-START-PREVIEW-OTHER-MAP");
       if(belongs(requested,revision))setPreview(candidate);
     }catch{
       if(belongs(requested,revision))
@@ -133,6 +154,9 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
     try{
       const receipt=await managerBridge.freshAsaStartApply(token);
+      if(!sameMap(receipt,requested)||!receipt.startRequested||
+         receipt.storeTouched||receipt.readyCertified||receipt.pid<=0)
+        throw new Error("UM-FRESH-START-RECEIPT-OTHER-MAP");
       const summary=receipt.processRole==="loaderParent"?
         receipt.mapName+" · ASA API Loader szülőfolyamat indítva, PID: "+
           receipt.loaderPid+". Az ASA gyermekfolyamat és RCON még nem igazolt.":
