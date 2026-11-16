@@ -258,9 +258,130 @@ internal static class MapScopedNativeLifecycleJobsTests
                 "servers.gracefulStopPreview",new{mapId=maps[1].Id}),
                 "a different local ASA map remains independently eligible");
         }
+        await VerifyDurableStopCrashRecovery(root);
         await VerifyOriginalStoreSaveWorldIsolated(root);
         await VerifyFreshRestartJobs(root);
         await VerifyFreshAdminCapacity(root);
+    }
+
+    private static async Task VerifyDurableStopCrashRecovery(string baseRoot)
+    {
+        // A lost Manager/UI instance must never silently forget that it
+        // already dispatched an irreversible SaveWorld/DoExit. No actual
+        // game process, network socket or live character file is used here.
+        string root=Path.Combine(baseRoot,"durable-stop-crash-recovery");
+        string install=Path.Combine(root,"synthetic-asa");
+        string binary=Path.Combine(install,
+            "ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+        File.WriteAllBytes(binary,new byte[]{0x4d,0x5a,0x90,0x00});
+        var map=new LocalMap{
+            Id=Guid.NewGuid(),Name="Synthetic Stop crash map",
+            InstallationPath=install,ExecutablePath=binary,
+            Arguments="TheIsland_WP?listen -port=8097 -QueryPort=27097",
+            GamePort=8097,QueryPort=27097,RconPort=37997,
+            RconHost="127.0.0.1",
+            RconPasswordProtected=SecureStore.Protect(
+                "SYNTHETIC-STOP-JOURNAL-CREDENTIAL")
+        };
+        var pid=new ProcessIdentity{
+            Pid=44977,StartedUtc=DateTimeOffset.UtcNow.AddMinutes(-10),
+            ExecutablePath=binary,Arguments=map.Arguments
+        };
+        bool stopped=false;
+        await using var cluster=new ClusterService(
+            "synthetic-stop-crash-recovery",
+            Path.Combine(root,"profile"),
+            _=>stopped
+                ?new ProcessCheck(false,"physically stopped",null,true)
+                :new ProcessCheck(true,"owned synthetic ASA",pid));
+        cluster.AddMap(map);
+        string journals=Path.Combine(root,"StopJournal");
+        var released=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        int sent=0;
+        using var first=new DesktopFreshAsaStopBridge(cluster,
+            (port,owner)=>port==map.RconPort&&owner==pid.Pid,null,
+            async (_map,_identity,_stage)=>{
+                sent++;
+                await released.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                throw new InvalidOperationException(
+                    "synthetic interrupted Stop without proven exit");
+            },journals);
+        var preview=Data(await Call(first.HandleAsync,
+            "servers.gracefulStopPreview",new{mapId=map.Id}),
+            "pre-crash Stop preview uses the real native approval");
+        string token=preview.GetProperty("token").GetString()!;
+        var receipt=Data(await Call(first.HandleAsync,
+            "servers.gracefulStopApply",new{token,confirm=true}),
+            "pre-crash Stop creates one durable job before sending RCON");
+        string jobId=receipt.GetProperty("jobId").GetString()!;
+        using var second=new DesktopFreshAsaStopBridge(cluster,
+            (port,owner)=>port==map.RconPort&&owner==pid.Pid,null,
+            null,journals);
+        var reopened=Data(await Call(second.HandleAsync,
+            "servers.gracefulStopCurrent",new{mapId=map.Id}),
+            "new Manager instance reads old pending Stop journal");
+        Check(reopened.GetProperty("state").GetString()=="needsOperator"&&
+              !reopened.GetProperty("active").GetBoolean()&&
+              reopened.GetProperty("jobId").ValueKind==JsonValueKind.Null,
+            "post-crash native Stop is conservatively NeedsOperator, never replayed");
+        string journalId=reopened.GetProperty("journalId").GetString()!;
+        var blocked=await Call(second.HandleAsync,
+            "servers.gracefulStopPreview",new{mapId=map.Id});
+        Check(!blocked.GetProperty("ok").GetBoolean()&&
+              blocked.GetProperty("error").GetString()==
+                "UM-ASA-STOP-JOURNAL-NEEDS-OPERATOR",
+            "second Manager cannot queue a duplicate Stop while first is uncertain");
+        var early=await Call(second.HandleAsync,
+            "servers.gracefulStopReview",new{
+                mapId=map.Id,journalId,confirm=true,
+                typedApproval="REVIEW STOPPED ASA"});
+        Check(!early.GetProperty("ok").GetBoolean()&&
+              early.GetProperty("error").GetString()==
+                "UM-ASA-STOP-REVIEW-NOT-STOPPED",
+            "operator cannot clear a Stop journal while ASA still runs");
+        released.TrySetResult(true);
+        for(int n=0;n<120;n++)
+        {
+            var existing=Data(await Call(first.HandleAsync,
+                "servers.gracefulStopStatus",new{jobId}),
+                "interrupted Stop retains its original status endpoint");
+            if(existing.GetProperty("state").GetString()=="needsOperator")
+                break;
+            await Task.Delay(25);
+        }
+        var durable=Data(await Call(second.HandleAsync,
+            "servers.gracefulStopCurrent",new{mapId=map.Id}),
+            "second Manager sees terminal failed Stop journal");
+        Check(durable.GetProperty("state").GetString()=="needsOperator"&&
+              durable.GetProperty("durablePhase").GetString()=="NeedsOperator"&&
+              sent==1,
+            "native crash receipt remains durable without another RCON dispatch");
+        stopped=true;
+        var wrong=await Call(second.HandleAsync,
+            "servers.gracefulStopReview",new{
+                mapId=map.Id,journalId,confirm=true,
+                typedApproval="REVIEW"});
+        Check(!wrong.GetProperty("ok").GetBoolean()&&
+              sent==1,
+            "incorrect operator approval cannot release durable Stop");
+        var reviewed=Data(await Call(second.HandleAsync,
+            "servers.gracefulStopReview",new{
+                mapId=map.Id,journalId,confirm=true,
+                typedApproval="REVIEW STOPPED ASA"}),
+            "physical stopped proof plus typed consent reviews journal");
+        Check(reviewed.GetProperty("reviewed").GetBoolean()&&
+              !reviewed.GetProperty("rconDispatched").GetBoolean()&&
+              !reviewed.GetProperty("serverStarted").GetBoolean()&&
+              sent==1,
+            "review writes only journal, never SaveWorld, DoExit, Kill or Start");
+        var final=Data(await Call(second.HandleAsync,
+            "servers.gracefulStopCurrent",new{mapId=map.Id}),
+            "reviewed Stop remains observable after native reconciliation");
+        Check(final.GetProperty("durablePhase").GetString()=="OperatorReviewed"&&
+              final.GetProperty("state").ValueKind==JsonValueKind.Null,
+            "reviewed journal is terminal without falsely certifying prior Stop");
     }
 
     private static async Task VerifyFreshAdminCapacity(string baseRoot)
