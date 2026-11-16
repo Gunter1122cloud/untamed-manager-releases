@@ -36,6 +36,88 @@ internal static class LegacyStoreSaveReviewBridgeTests
         return parsed.RootElement.Clone();
     }
 
+    private static async Task VerifyNativeOriginalStopMemoryRecovery(string root)
+    {
+        // The native worker may be queued/running before it writes the
+        // cross-process coordinator journal. Recovery must not advertise a
+        // free Store-v1 lifecycle slot during that window, or after an
+        // in-memory failure whose durable outcome is not yet readable.
+        string install=Path.Combine(root,"held-original-stop");
+        string profile=Path.Combine(root,"held-stop-profile");
+        Directory.CreateDirectory(install);
+        await using var cluster=new ClusterService("held-original-stop",profile,
+            _=>new ProcessCheck(true,"isolated synthetic running ASA",null,false));
+        var map=new LocalMap{
+            Id=Guid.NewGuid(),Name="Isolated original Stop worker",
+            HistoricalStoreProtected=true,HistoricalMapKey="TheIsland_WP",
+            InstallationPath=install,RconPort=37179
+        };
+        cluster.AddMap(map);
+        var owner=new ProcessIdentity{
+            Pid=55179,StartedUtc=DateTimeOffset.UtcNow.AddMinutes(-4),
+            ExecutablePath=Path.Combine(install,"synthetic-ArkAscendedServer.exe"),
+            Arguments="TheIsland_WP?listen"
+        };
+        var started=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var release=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var stop=new DesktopHistoricalGracefulStopBridge(cluster,
+            _=>new LegacyStoreV1GracefulStop.Owned(map,owner,SourceSha),
+            async (_,_,_,_,_)=>{
+                started.TrySetResult(true);
+                await release.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                throw new InvalidOperationException(
+                    "isolated worker failed before coordinator journal");
+            });
+        var preview=await Call(stop,"historical.gracefulStopPreview",
+            new{mapId=map.Id});
+        Check(preview.GetProperty("ok").GetBoolean(),
+            "synthetic original Stop offers an explicit owned-map approval");
+        string token=preview.GetProperty("data").GetProperty("token")
+            .GetString()!;
+        var apply=await Call(stop,"historical.gracefulStopApply",
+            new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD DOEXIT"});
+        Check(apply.GetProperty("ok").GetBoolean(),
+            "one original Stop request queues the isolated native job");
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Check(cluster.Operations.Observe(install)==null,
+            "synthetic Stop worker has no durable coordinator receipt yet");
+        var pending=await Call(stop,"historical.gracefulStopRecovery",
+            new{mapId=map.Id});
+        var pendingData=pending.GetProperty("data");
+        Check(pending.GetProperty("ok").GetBoolean()&&
+              pendingData.GetProperty("blocked").GetBoolean()&&
+              pendingData.GetProperty("inMemoryRunning").GetBoolean()&&
+              !pendingData.GetProperty("requiresOperator").GetBoolean(),
+            "original Stop recovery blocks while in-memory RCON worker runs");
+        var duplicate=await Call(stop,"historical.gracefulStopPreview",
+            new{mapId=map.Id});
+        Check(!duplicate.GetProperty("ok").GetBoolean(),
+            "a second original Store Stop preview is refused while work runs");
+        release.TrySetResult(true);
+        string jobId=apply.GetProperty("data").GetProperty("jobId").GetString()!;
+        JsonElement result=default;
+        for(int i=0;i<120;i++)
+        {
+            result=await Call(stop,"historical.gracefulStopStatus",
+                new{jobId});
+            if(result.GetProperty("data").GetProperty("state")
+                .GetString()=="needsOperator")break;
+            await Task.Delay(25);
+        }
+        Check(result.GetProperty("data").GetProperty("state")
+            .GetString()=="needsOperator",
+            "failed synthetic original Stop remains NeedsOperator");
+        var after=await Call(stop,"historical.gracefulStopRecovery",
+            new{mapId=map.Id});
+        Check(after.GetProperty("ok").GetBoolean()&&
+              after.GetProperty("data").GetProperty("blocked").GetBoolean()&&
+              after.GetProperty("data").GetProperty("requiresOperator").GetBoolean()&&
+              !after.GetProperty("data").GetProperty("inMemoryRunning").GetBoolean(),
+            "original Store Stop recovery preserves failed in-memory state");
+    }
+
     public static async Task Run(string testRoot)
     {
         string root=Path.Combine(testRoot,"synthetic-reviewed-store-save");
@@ -251,5 +333,6 @@ internal static class LegacyStoreSaveReviewBridgeTests
             "directory masquerading as canonical SaveWorld receipt never counts as absent");
         Directory.Delete(canonicalReceipt);
         File.Move(preservedReceipt,canonicalReceipt);
+        await VerifyNativeOriginalStopMemoryRecovery(root);
     }
 }
