@@ -207,6 +207,44 @@ internal static class OriginalStoreLiveReconcileTests
               rows.Any(x=>x.Map==live[1].Id&&x.Kind=="Restart-v1"&&
                   x.Code=="UM-RECOVERY-RESTART-ONLY-REVIEW-AVAILABLE"),
             "five-map preflight reports paired and restart-only NeedsOperator separately");
+        // SaveWorld-only is the third durable lifecycle signal. Its receipt
+        // may be prepared before a separate operation lease has begun, so
+        // the five-map diagnostic must not wrongly offer batch takeover.
+        var saveReceipt=LegacyStoreV1SaveEvidenceJournal.Begin(
+            cluster.Store.Root,Guid.NewGuid(),live[2].Id,
+            live[2].LastProcess!.Pid,live[2].LastProcess!.StartedUtc,
+            new string('E',64));
+        var withSave=((System.Collections.IEnumerable)(inspect.Invoke(
+            bridge,new object[]{live})??throw new InvalidOperationException(
+                "SaveWorld receipt blocker scan failed")))
+            .Cast<object>().Select(x=>(
+                Map:(Guid)x.GetType().GetProperty("MapId")!.GetValue(x)!,
+                Kind:(string)x.GetType().GetProperty("Kind")!.GetValue(x)!,
+                Phase:(string)x.GetType().GetProperty("Phase")!.GetValue(x)!,
+                Code:(string)x.GetType().GetProperty("BlockingCode")!.GetValue(x)!))
+            .ToArray();
+        Check(withSave.Length==4&&
+              withSave.Count(x=>x.Map==live[2].Id)==1&&
+              withSave.Any(x=>x.Map==live[2].Id&&
+                x.Kind=="SaveWorld-v1"&&x.Phase=="prepared"&&
+                x.Code=="UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW"),
+            "five-map takeover reveals map-scoped prepared SaveWorld receipt");
+        LegacyStoreV1SaveEvidenceJournal.MarkUncertain(cluster.Store.Root,
+            saveReceipt.OperationId,live[2].Id,live[2].LastProcess!.Pid,
+            live[2].LastProcess!.StartedUtc,new string('E',64));
+        var afterUncertain=((System.Collections.IEnumerable)(inspect.Invoke(
+            bridge,new object[]{live})??throw new InvalidOperationException(
+                "SaveWorld uncertain receipt scan failed")))
+            .Cast<object>().Where(x=>
+                (string)x.GetType().GetProperty("Kind")!.GetValue(x)!=="SaveWorld-v1")
+            .Select(x=>(
+                Map:(Guid)x.GetType().GetProperty("MapId")!.GetValue(x)!,
+                Phase:(string)x.GetType().GetProperty("Phase")!.GetValue(x)!))
+            .ToArray();
+        Check(afterUncertain.Length==1&&
+              afterUncertain[0].Map==live[2].Id&&
+              afterUncertain[0].Phase=="needsOperator",
+            "uncertain SaveWorld remains an explicit blocker only for its own map");
         Check(Denies(()=>cluster.ReconcileOriginalStoreLiveFive(live,()=>true)),
             "an unresolved original Launch journal cannot be bypassed by a successful preview");
     }
