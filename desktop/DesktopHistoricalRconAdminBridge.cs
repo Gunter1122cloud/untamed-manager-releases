@@ -87,6 +87,21 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
         string.Equals(first.ExecutablePath,second.ExecutablePath,
             StringComparison.OrdinalIgnoreCase);
 
+    private void DemandNoConcurrentSave(Guid mapId)
+    {
+        // SaveWorld-only writes a separate durable intent BEFORE its native
+        // RCON worker acquires the generic installation lease. The generic
+        // journal may still say Completed at that point: do not let admin
+        // Broadcast/WildWipe/custom RCON overlap an uncertain SaveWorld.
+        // Strict Inspect also denies corrupt, interrupted or inaccessible
+        // evidence; only an actual completed/reviewed receipt is eligible.
+        var save=LegacyStoreV1SaveEvidenceJournal.Inspect(
+            cluster.Store.Root,mapId);
+        if(save?.Phase is "prepared" or "needsOperator")
+            throw new InvalidOperationException(
+                "UM-ORIGINAL-ADMIN-SAVEWORLD-IN-PROGRESS");
+    }
+
     private LegacyStoreV1GracefulStop.Owned Require(Guid mapId)
     {
         var original=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId)
@@ -94,6 +109,7 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
         if(!original.HistoricalStoreProtected||original.Maintenance||
            !string.IsNullOrWhiteSpace(original.Arguments))
             throw new InvalidOperationException("UM-ORIGINAL-ADMIN-HISTORICAL-ONLY");
+        DemandNoConcurrentSave(mapId);
         var journal=cluster.Operations.Observe(original.InstallationPath);
         if(journal?.Phase is UntamedOperationPhase.Prepared or
             UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
@@ -200,6 +216,7 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                     // not just the in-memory native approval.
                     new AsaManualRestartJournal(locked.Map.InstallationPath)
                         .DemandNoPending();
+                    DemandNoConcurrentSave(approved.MapId);
                     var now=inspect(approved.MapId);
                     if(!ReferenceEquals(now.Map,locked.Map)||
                        !Identical(now.Process,locked.Process)||
