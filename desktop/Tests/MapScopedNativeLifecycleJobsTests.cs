@@ -206,6 +206,58 @@ internal static class MapScopedNativeLifecycleJobsTests
             dispatched.Contains(maps[0].Id)&&
             dispatched.Contains(maps[1].Id),
             "both ASA processes receive only their own one approved action");
+        // An in-memory terminal NeedsOperator is still an unresolved native
+        // Stop outcome. Neither WebView navigation nor a new approval may
+        // bypass it. The failing worker below is isolated and never uses TCP.
+        int uncertainStopDispatches=0;
+        using(var uncertain=new DesktopFreshAsaStopBridge(cluster,
+            (port,pid)=>(port==37570&&pid==44801)||
+                        (port==37571&&pid==44802),
+            (map,identity)=>{
+                uncertainStopDispatches++;
+                return Task.FromException<AsaGracefulStopReceipt>(
+                    new InvalidOperationException(
+                        "synthetic pre-exit Stop failure, outcome unknown"));
+            }))
+        {
+            var safePreview=Data(await Call(uncertain.HandleAsync,
+                "servers.gracefulStopPreview",new{mapId=maps[0].Id}),
+                "synthetic first Stop preview before uncertain worker");
+            string approval=safePreview.GetProperty("token").GetString()!;
+            var initial=Data(await Call(uncertain.HandleAsync,
+                "servers.gracefulStopApply",new{token=approval,confirm=true}),
+                "single synthetic Stop queued before worker failure");
+            string interruptedJob=initial.GetProperty("jobId").GetString()!;
+            JsonElement terminal=default;
+            for(int n=0;n<120;n++)
+            {
+                terminal=Data(await Call(uncertain.HandleAsync,
+                    "servers.gracefulStopStatus",new{jobId=interruptedJob}),
+                    "uncertain synthetic Stop status remains readable");
+                if(terminal.GetProperty("state").GetString()=="needsOperator")
+                    break;
+                await Task.Delay(25);
+            }
+            Check(terminal.GetProperty("state").GetString()=="needsOperator",
+                "failed native SaveWorld/DoExit stays terminal NeedsOperator");
+            var pending=Data(await Call(uncertain.HandleAsync,
+                "servers.gracefulStopCurrent",new{mapId=maps[0].Id}),
+                "uncertain Stop journal remains observable without replay");
+            Check(pending.GetProperty("state").GetString()=="needsOperator"&&
+                  !pending.GetProperty("active").GetBoolean(),
+                "NeedsOperator is terminal, not an active worker or completed Stop");
+            var blocked=await Call(uncertain.HandleAsync,
+                "servers.gracefulStopPreview",new{mapId=maps[0].Id});
+            Check(!blocked.GetProperty("ok").GetBoolean()&&
+                  blocked.GetProperty("error").GetString()==
+                    "UM-ASA-STOP-NEEDS-OPERATOR",
+                "native Stop cannot re-issue a preview after uncertain outcome");
+            Check(uncertainStopDispatches==1,
+                "failed native Stop sends no automatic second SaveWorld/DoExit");
+            Data(await Call(uncertain.HandleAsync,
+                "servers.gracefulStopPreview",new{mapId=maps[1].Id}),
+                "a different local ASA map remains independently eligible");
+        }
         await VerifyOriginalStoreSaveWorldIsolated(root);
         await VerifyFreshRestartJobs(root);
         await VerifyFreshAdminCapacity(root);
