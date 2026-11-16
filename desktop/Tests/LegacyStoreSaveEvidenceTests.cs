@@ -176,6 +176,18 @@ internal static class LegacyStoreSaveEvidenceTests
             "new SaveWorld preserves both the uncertain original and reviewed receipt bytes");
         Check(File.ReadAllBytes(immutableOriginal).SequenceEqual(original),
             "operator journal recovery never touches original Kova-shaped bytes");
+        string blockedFolderRoot=Path.Combine(sandbox,"malformed-save-evidence-folder");
+        Directory.CreateDirectory(blockedFolderRoot);
+        string folderSlot=Path.Combine(blockedFolderRoot,"historical-save-evidence-v1");
+        File.WriteAllText(folderSlot,"MALFORMED_MANAGER_LOCAL_RECEIPT_FOLDER");
+        var blockedMap=Guid.NewGuid();
+        var diagnosis=LegacyStoreV1SaveEvidenceJournal.InspectReadOnly(
+            blockedFolderRoot,blockedMap);
+        Check(Rejects(()=>LegacyStoreV1SaveEvidenceJournal.Inspect(
+                  blockedFolderRoot,blockedMap))&&
+              diagnosis.Unreadable&&diagnosis.Evidence==null&&
+              File.ReadAllText(folderSlot)=="MALFORMED_MANAGER_LOCAL_RECEIPT_FOLDER",
+            "a file occupying the receipt directory is never mistaken for an absent SaveWorld intent");
 
         // A conflicting historical archive must never be silently overwritten.
         // The last completed receipt remains byte-identical after rejection.
