@@ -112,8 +112,13 @@ public static class LegacyStoreV1SaveEvidenceJournal
 
     private static LegacyStoreV1SaveEvidence? Load(string file)
     {
-        if(File.Exists(file+".next"))
+        // A crash or filesystem tamper may leave either a file OR a
+        // directory at the atomic .next slot. Neither may be interpreted as
+        // an absent receipt while a new Stop/Restart/RCON mutation proceeds.
+        if(File.Exists(file+".next")||Directory.Exists(file+".next"))
             throw new IOException("UM-ORIGINAL-SAVE-JOURNAL-INTERRUPTED");
+        if(Directory.Exists(file))
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-UNSAFE");
         if(!File.Exists(file))return null;
         if((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0||
            new FileInfo(file).Length is <64 or >4096)
