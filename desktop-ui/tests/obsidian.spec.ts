@@ -5916,6 +5916,36 @@ test("Store SaveComplete UI distinguishes durable local log evidence from live c
   await expect(evidence).toContainText("nem igazolja a jelenlegi Store-írójogot");
 });
 
+test("completed Store-v1 SaveWorld permits a fresh separately approved preview after durable read-only refresh",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
+  const first=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
+  await first.getByLabel("Store-v1 mentés jóváhagyó szöveg").fill("STORE-V1 SAVEWORLD");
+  await first.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Korábbi helyi ASA naplójelzés + stabil világfájl rögzítve");
+  const refresh=panel.getByRole("button",{
+    name:"Store-v1 mentési napló újraellenőrzése"
+  });
+  await expect(refresh).toBeEnabled();
+  await refresh.click();
+  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"}))
+    .toBeEnabled();
+  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
+  await expect(panel.getByRole("region",{
+    name:"Store-v1 SaveWorld jóváhagyása"
+  })).toBeVisible();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(1);
+});
+
 test("corrupt native SaveComplete receipt fails closed without a SaveWorld button",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
