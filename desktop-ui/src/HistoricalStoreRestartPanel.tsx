@@ -34,8 +34,12 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
         setJobId(result.jobId);
         setNotice("A meglévő eredeti Store-v1 újraindítás állapotához visszacsatlakozva; nincs új RCON-küldés.");
       }else if(result.requiresOperator||result.blocked){
-        setError("Befejezetlen Store-v1 újraindítás vagy másik natív művelet: "+
-          "a PID és a helyi napló kézi ellenőrzéséig nincs új indítás.");
+        setError(result.saveEvidencePending
+          ? "Befejezetlen vagy bizonytalan Store-v1 SaveWorld-bizonylat: "+
+            "előbb a SaveWorld panelen ellenőrizd a mentés állapotát. "+
+            "Nincs újraindítás, RCON vagy automatikus ismétlés."
+          : "Befejezetlen Store-v1 újraindítás vagy másik natív művelet: "+
+            "a PID és a helyi napló kézi ellenőrzéséig nincs új indítás.");
       }
     }).catch(()=>{
       if(alive&&belongs(mapId)){setChecked(true);setError("A helyi Store-v1 újraindítási napló nem ellenőrizhető; újraindítás tiltva.");}
@@ -129,9 +133,13 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
         <Shield size={16}/> Store-v1 újraindítás előellenőrzése
       </button>
       {recovery?.blocked&&<div className="warning-inline" role="status">
-        <AlertTriangle size={17}/> Tartós újraindítási vagy másik műveleti napló:
-        {recovery.phase} · automatikus folytatás tiltva.
-      </div>}
+        <AlertTriangle size={17}/>
+        {recovery.saveEvidencePending
+          ? <>Függő Store-v1 SaveWorld-bizonylat ({recovery.saveEvidencePhase}).
+              Előbb a SaveWorld panelen ellenőrizd; nincs automatikus folytatás.</>
+          : <>Tartós újraindítási vagy másik műveleti napló:
+              {recovery.phase} · automatikus folytatás tiltva.</>}
+      </div>
       {preview&&<div className="warning-inline" role="region"
         aria-label="Store-v1 újraindítás jóváhagyása">
         <AlertTriangle size={18}/>
