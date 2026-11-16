@@ -7939,7 +7939,16 @@ test("fresh ASA map starts a real local process only after explicit approval",as
   await expect(page.locator(".success-inline").filter({hasText:"PID: 45678"}))
     .toBeVisible({timeout:12000});
   await expect(page.locator(".success-inline").filter({hasText:"folyamatindítás még nem bizonyítja"})).toBeVisible();
-  await page.getByRole("button",{name:"ASA / RCON készenlét ellenőrzése"}).click();
+  // The native process receipt completes the mutating one-shot action.
+  // A slow dashboard refresh must NOT block a read-only readiness query or
+  // re-enable a second Start while that PID is still being observed.
+  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+    .toBeDisabled();
+  const manualReadiness=page.getByRole("button",{
+    name:"ASA / RCON készenlét ellenőrzése"
+  });
+  await expect(manualReadiness).toBeEnabled();
+  await manualReadiness.click();
   await expect(page.getByText("ASA készenléti szint: RconAuthenticated")).toBeVisible();
   await expect(page.getByText("RCON hitelesítve", {exact:true})).toBeVisible();
   await expect(page.getByText("Közvetlen ASA mód – Loader nem szükséges", {exact:true})).toBeVisible();
