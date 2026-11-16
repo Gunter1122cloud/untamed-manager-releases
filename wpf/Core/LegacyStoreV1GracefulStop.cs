@@ -147,6 +147,18 @@ internal static class LegacyStoreV1GracefulStop
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(maximum);
         var ct=deadline.Token;
+        void DemandNoConcurrentSave()
+        {
+            // SaveWorld-only stores its durable intent before scheduling the
+            // RCON worker, so a generic installation lease alone cannot
+            // prevent a Stop/Restart from overtaking that pending save.
+            var receipt=LegacyStoreV1SaveEvidenceJournal.Inspect(
+                cluster.Store.Root,mapId);
+            if(receipt?.Phase is "prepared" or "needsOperator")
+                throw new InvalidOperationException(
+                    "UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW");
+        }
+        DemandNoConcurrentSave();
         var initial=Require(cluster,mapId,inspect,source,portOwner,approvedRestartId);
         if(initial.Process.Pid!=approvedPid||
            initial.Process.StartedUtc!=approvedStart||
@@ -154,6 +166,7 @@ internal static class LegacyStoreV1GracefulStop
             throw new InvalidDataException("UM-ORIGINAL-STOP-SOURCE-OR-PID-CHANGED");
         using var lease=cluster.Operations.Acquire(initial.Map.InstallationPath,
             UntamedOperationKind.Launch);
+        DemandNoConcurrentSave();
         var locked=Require(cluster,mapId,inspect,source,portOwner,approvedRestartId);
         if(!ReferenceEquals(locked.Map,initial.Map)||
            !Same(locked.Process,initial.Process)||
@@ -162,6 +175,7 @@ internal static class LegacyStoreV1GracefulStop
         void Verify()
         {
             ct.ThrowIfCancellationRequested();
+            DemandNoConcurrentSave();
             var now=Require(cluster,mapId,inspect,source,portOwner,approvedRestartId);
             if(!ReferenceEquals(now.Map,locked.Map)||
                !Same(now.Process,locked.Process)||
