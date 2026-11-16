@@ -45,6 +45,9 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     managerBridge.freshAsaRestartCurrent(mapId)
       .then(current=>{
         if(!active||!belongs(mapId)||revision!==actionRevision.current)return;
+        if(current.evidence!=="DURABLE_MACHINE_LOCAL_MANUAL_ASA_RESTART"||
+           (current.exists&&!current.belongsToMap))
+          throw new Error("UM-ASA-RESTART-CURRENT-MAP-MISMATCH");
         setDurable(current);
         if(current.inMemoryRunning&&!current.inMemoryJobId)
           throw new Error("UM-ASA-RESTART-CURRENT-MISSING-ID");
@@ -113,9 +116,10 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     return ()=>{active=false;window.clearInterval(timer);};
   },[jobId,mapId,onRestarted]);
 
+  const pendingJournalReview=durable?.needsOperatorReview===true&&!auditConfirmed;
   const check=async()=>{
     if(!mapId||!running||busy||jobId||journalBlocked||
-       needsLocalReview||reconciling||reconcileFailed)return;
+       needsLocalReview||pendingJournalReview||reconciling||reconcileFailed)return;
     const requested=mapId;
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
     try{
@@ -131,7 +135,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
   const run=async()=>{
     if(!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
        !approved||busy||jobId||journalBlocked||needsLocalReview||
-       reconciling||reconcileFailed)return;
+       pendingJournalReview||reconciling||reconcileFailed)return;
     const token=preview.token,requested=mapId;
     ++actionRevision.current;
     setBusy(true);setPreview(null);setApproved(false);setError("");
@@ -230,7 +234,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     </header>
     <p>A C# Manager a régi szerveren új, stabil .ark mentési bizonyítékot figyel, naplójelzéssel, ha az ASA naplózza. DoExit és a régi PID megszűnése után egyszer indítja el az új folyamatot. ASA API módban a Loader gyermekének és az RCON tulajdonosának ellenőrzése is szükséges. Csak saját, helyi normál vagy újonnan regisztrált Store-mapokhoz; a történeti korábbi Manager Store-mapok külön védett műveleteket használnak.</p>
     <button type="button" className="secondary"
-      disabled={!running||busy||!!jobId||journalBlocked||needsLocalReview||reconciling||reconcileFailed}
+      disabled={!running||busy||!!jobId||journalBlocked||needsLocalReview||pendingJournalReview||reconciling||reconcileFailed}
       onClick={()=>{void check();}}><RefreshCw size={16}/> Újraindítás előellenőrzése</button>
     {reconciling&&<p role="status">Korábbi Restart-feladat ellenőrzése…</p>}
     {reconcileFailed&&<button type="button" className="secondary"
@@ -257,7 +261,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
           onChange={e=>setApproved(e.target.checked)} disabled={busy}/>
         Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását.
       </label>
-      <button type="button" className="primary" disabled={!approved||busy||journalBlocked||needsLocalReview||reconciling||reconcileFailed}
+      <button type="button" className="primary" disabled={!approved||busy||journalBlocked||needsLocalReview||pendingJournalReview||reconciling||reconcileFailed}
         onClick={()=>{void run();}}>Szerver újraindítása</button>
       <button type="button" className="secondary" disabled={busy}
         onClick={()=>setPreview(null)}>Mégsem</button>
