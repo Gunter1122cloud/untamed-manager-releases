@@ -118,6 +118,10 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         if(restart!=null&&restart.Phase is not
             (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed))
             return false;
+        // A failed/cancelled Stop cannot silently turn into an independent
+        // Start after Manager restart. No RCON or launcher is dispatched.
+        try{new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);}
+        catch(Exception){return false;}
         LocalMapPortPolicy.RequireNoConflicts(map,cluster.Config.LocalMaps);
         if(!AsaLocalPortPreflight.CanStart(map))return false;
         AsaApiLaunchPolicy.Resolve(map);
