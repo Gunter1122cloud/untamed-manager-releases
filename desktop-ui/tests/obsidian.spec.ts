@@ -416,6 +416,12 @@ test.beforeEach(async ({ page }) => {
     const originalSaveJob="00000000-0000-4000-8000-000000001693";
     let originalSaveQueued=false;
     let originalSavePending=false;
+    let originalSaveLeaseBusy=false;
+    (window as typeof window & {
+      __UNTAMED_SAVE_INSTALLATION_BUSY__?:()=>void;
+    }).__UNTAMED_SAVE_INSTALLATION_BUSY__=()=>{
+      originalSaveLeaseBusy=true;
+    };
     let originalRestartPendingSaveReceipt=false;
     (window as typeof window & {
       __UNTAMED_RESTART_PENDING_SAVE__?:()=>void;
@@ -1444,6 +1450,8 @@ test.beforeEach(async ({ page }) => {
           };
         }
         case "historical.saveWorldApply": {
+          if(originalSaveLeaseBusy)
+            throw new Error("UM-ORIGINAL-STOP-INSTALLATION-BUSY");
           if(m.token!==originalSaveToken||m.confirm!==true||
              m.typedApproval!=="STORE-V1 SAVEWORLD"||originalSaveQueued||
              !originalSavePending||!historicalActiveStarted||oldStopNeedsOperator)
@@ -5914,6 +5922,31 @@ test("Store SaveComplete UI distinguishes durable local log evidence from live c
   await expect(panel).toContainText("Helyi SaveComplete napló tartósan igazolt");
   await expect(evidence).not.toContainText("Két gép SaveComplete igazolva");
   await expect(evidence).toContainText("nem igazolja a jelenlegi Store-írójogot");
+});
+
+test("Store-v1 SaveWorld explains competing installation lease and sends no RCON",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_INSTALLATION_BUSY__?:()=>void;
+  }).__UNTAMED_SAVE_INSTALLATION_BUSY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
+  const approval=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
+  await approval.getByLabel("Store-v1 mentés jóváhagyó szöveg")
+    .fill("STORE-V1 SAVEWORLD");
+  await approval.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
+  await expect(panel).toContainText("Másik natív művelet már zárolja");
+  await expect(panel).toContainText("nem küldtünk RCON-parancsot");
+  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"}))
+    .toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
 });
 
 test("completed Store-v1 SaveWorld permits a fresh separately approved preview after durable read-only refresh",async({page})=>{
