@@ -603,6 +603,29 @@ internal static class MapScopedNativeLifecycleJobsTests
             var pending0=LegacyStoreV1SaveEvidenceJournal.Begin(
                 cluster.Store.Root,Guid.NewGuid(),maps[0].Id,
                 processes[0].Pid,processes[0].StartedUtc,sourceSha);
+            bool coreStartDenied=false,coreStopDenied=false;
+            try
+            {
+                LegacyStoreV1NativeStartPlanner.Prepare(cluster,maps[0]);
+            }
+            catch(InvalidOperationException ex)
+            {
+                coreStartDenied=ex.Message=="UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW";
+            }
+            Check(coreStartDenied,
+                "native original Store Start rejects unfinished SaveWorld before Process.Start");
+            try
+            {
+                await LegacyStoreV1GracefulStop.StopAsync(
+                    cluster,maps[0].Id,processes[0].Pid,
+                    processes[0].StartedUtc,sourceSha,TimeSpan.FromSeconds(10));
+            }
+            catch(InvalidOperationException ex)
+            {
+                coreStopDenied=ex.Message=="UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW";
+            }
+            Check(coreStopDenied,
+                "shared Core Stop prevents RCON while SaveWorld receipt is pending");
             var firstRecovery=Data(await Call(restarts.HandleAsync,
                 "historical.restartRecovery",new{mapId=maps[0].Id}),
                 "pending SaveWorld recovery is visible in Restart status");
