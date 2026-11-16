@@ -8,6 +8,9 @@ const recentStartReceipts=new Map<string,string>();
 // A lost or contradictory native Start response must not enable a blind
 // second launch merely because its transport acknowledgement was missing.
 const startReconciliationRequired=new Set<string>();
+// Exact one-shot Start receipts remain pinned across React remounts until a
+// deliberate read-only native recheck proves the original process stopped.
+const acceptedStartPending=new Set<string>();
 
 function verifiedStartReceipt(receipt:FreshAsaStartReceipt,
   requested:string,mode:FreshAsaStartPreview["launchMode"]):boolean {
@@ -47,7 +50,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
   // One validated native Start receipt is sufficient to permit read-only
   // RCON readiness checks. Dashboard refresh may be slow and must not keep
   // the command UI permanently busy or allow another Start request.
-  const [acceptedStart,setAcceptedStart]=useState(false);
+  const [acceptedStart,setAcceptedStart]=useState(()=>acceptedStartPending.has(mapId));
   const [needsReconcile,setNeedsReconcile]=useState(()=>startReconciliationRequired.has(mapId));
   const [message,setMessage]=useState(()=>recentStartReceipts.get(mapId)??"");
   const [error,setError]=useState("");
@@ -55,7 +58,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     let active=true;
     readinessGeneration.current++;
     setAwaitingStartup(false);setBusy(false);setCheckingReady(false);
-    setAcceptedStart(false);
+    setAcceptedStart(acceptedStartPending.has(mapId));
     setNeedsReconcile(startReconciliationRequired.has(mapId));
     setPreview(null);setApproved(false);setObserved(null);setError("");
     setReadiness(null);
@@ -69,7 +72,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     return ()=>{active=false;readinessGeneration.current++;};
   },[mapId]);
 
-  const observe=async()=>{
+  const observe=async(manual=false)=>{
     const requested=mapId,revision=readinessGeneration.current;
     setError("");
     try{
@@ -80,8 +83,10 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
         setObserved(status);
         // Only a fresh native observation of a physically stopped map can
         // clear a possibly committed Start with an uncertain response.
-        if(status.confirmedStopped&&!status.running){
+        if(manual&&status.confirmedStopped&&!status.running){
           startReconciliationRequired.delete(requested);
+          acceptedStartPending.delete(requested);
+          setAcceptedStart(false);
           setNeedsReconcile(false);
         }
       }
@@ -210,6 +215,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
       // but never show it as a result for the currently selected map or
       // start a second readiness worker on the wrong tab.
       recentStartReceipts.set(requested,summary);
+      acceptedStartPending.add(requested);
       startReconciliationRequired.delete(requested);
       if(!belongs(requested,revision))return;
       setNeedsReconcile(false);
@@ -248,7 +254,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
   return <section className="premium-panel" aria-label="Valódi ASA első indítása" style={{marginBlock:18,padding:20}}>
     <header className="premium-panel-heading">
       <h2><Play size={19}/> Új ASA-szerver indítása</h2>
-      <button type="button" className="quiet" onClick={()=>{void observe();}} disabled={busy}>
+      <button type="button" className="quiet" onClick={()=>{void observe(true);}} disabled={busy}>
         <RefreshCw size={16}/> Állapotfrissítés
       </button>
     </header>
