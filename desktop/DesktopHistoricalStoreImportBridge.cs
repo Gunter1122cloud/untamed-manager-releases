@@ -551,7 +551,10 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                                 now.ProcessSha256==approved.ProcessHash&&
                                 peer==approved.SharedStateHash&&
                                 OriginalLiveRegistryHash(again)==approved.RegistryHash&&
-                                now.Maps.Select(m=>m.Id).SequenceEqual(approved.MapIds);
+                                now.Maps.Select(m=>m.Id).SequenceEqual(approved.MapIds)&&
+                                // Verify the independent SaveWorld receipt while
+                                // holding the installation operation leases.
+                                OriginalLiveOperationBlockers(now.Maps).Length==0;
                         });
                     return Ok(id,new {
                         importedMaps=observed.Maps.Length,
@@ -1167,6 +1170,11 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             // and block the apply/next Stop with no actionable explanation.
             var journal=cluster.Operations.Observe(map.InstallationPath);
             var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
+            // SaveWorld-only has a separate durable intent saved before
+            // asynchronous RCON begins. The generic journal may still
+            // report Completed while this receipt is unresolved.
+            var save=LegacyStoreV1SaveEvidenceJournal.Inspect(
+                cluster.Store.Root,map.Id);
             var existing=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==map.Id);
             bool launchPending=journal?.Phase is (UntamedOperationPhase.Prepared or
                 UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator);
@@ -1185,6 +1193,14 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     journal.Phase.ToString(),journal.Operation,
                     supported?"UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE":
                         "UM-ORIGINAL-LIVE-OTHER-JOURNAL-REQUIRES-REVIEW",
+                    existing!=null,supported));
+            }
+            if(save?.Phase is "prepared" or "needsOperator")
+            {
+                bool supported=existing?.HistoricalStoreProtected==true;
+                blocked.Add(new(map.Id,map.Name,"SaveWorld-v1",
+                    save.Phase,save.OperationId,
+                    "UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW",
                     existing!=null,supported));
             }
             if(restartPending)
