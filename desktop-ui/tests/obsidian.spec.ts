@@ -6041,6 +6041,11 @@ test("unreadable original Store SaveWorld is visible on Save and Restart without
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const savePanel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   const restartPanel=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"});
+  const stopPanel=page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"});
+  await expect(stopPanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
+  await expect(stopPanel.getByRole("button",{
+    name:"Eredeti SaveWorld/DoExit előellenőrzése"
+  })).toBeDisabled();
   await expect(savePanel.getByTestId("store-durable-save-evidence"))
     .toContainText("Tartós napló nem ellenőrizhető");
   await expect(savePanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
@@ -6065,6 +6070,12 @@ test("unreadable original Store SaveWorld is visible on Save and Restart without
   await restartPanel.getByRole("button",{name:"Store-v1 napló újraellenőrzése"}).click();
   await expect(restartPanel.getByRole("button",{
     name:"Store-v1 újraindítás előellenőrzése"
+  })).toBeEnabled();
+  await stopPanel.getByRole("button",{
+    name:"Store-v1 leállítási napló újraellenőrzése"
+  }).click();
+  await expect(stopPanel.getByRole("button",{
+    name:"Eredeti SaveWorld/DoExit előellenőrzése"
   })).toBeEnabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
