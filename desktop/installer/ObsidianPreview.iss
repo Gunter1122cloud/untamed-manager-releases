@@ -30,9 +30,12 @@ Source: "{#BuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs c
 
 [Icons]
 Name: "{group}\Untamed Obsidian PREVIEW"; Filename: "{app}\UntamedDesktop.exe"
+; Operators testing on an actual ASA host can use real manual bridges
+; without triggering previously persisted automatic schedules on launch.
+Name: "{group}\Obsidian MANUÁLIS TESZT"; Filename: "{app}\UntamedDesktop.exe"; Parameters: "--manual-test"
 
 [Run]
-Filename: "{app}\UntamedDesktop.exe"; Description: "Untamed Obsidian Desktop megnyitása"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\UntamedDesktop.exe"; Parameters: "--manual-test"; Description: "Obsidian indítása MANUÁLIS TESZT módban"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\ui"
