@@ -5576,7 +5576,11 @@ test("original RCON attachment refuses pending SaveWorld both before and after e
   }).__UNTAMED_RCON_ATTACH_SAVE_PENDING__?.());
   await approval.getByRole("button",{name:"RCON átvétel véglegesítése"}).click();
   await expect(attach).toContainText("UM-HISTORICAL-RCON-SAVEWORLD-IN-PROGRESS");
-  await expect(attach.getByText(/RCON-port: 37145/)).toHaveCount(0);
+  // The initial ASA INI port hint may remain visible: it is not proof of a
+  // committed Manager RCON profile. Assert the actual success state is absent.
+  await expect(attach.getByText(/Az eredeti ASA INI alapján felismert TCP RCON-port: 37145/)).toBeVisible();
+  await expect(attach.locator(".success-inline")).toHaveCount(0);
+  await expect(attach.getByRole("region",{name:"Store-v1 RCON jóváhagyása"})).toHaveCount(0);
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_RCON_ATTACH_COUNT__?:()=>number;
   }).__UNTAMED_RCON_ATTACH_COUNT__?.())).toBe(0);
