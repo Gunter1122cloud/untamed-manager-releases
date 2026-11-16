@@ -43,6 +43,10 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
          result.sharedStoreWriterCertified)
         throw new Error("UM-STORE-SAVE-EVIDENCE-MAP-MISMATCH");
       setDurableSave(result);setDurableChecked(true);
+      if(result.unreadable||result.phase==="unreadable")
+        {setDurableUnknown(true);setError("A Store-v1 SaveWorld-bizonylat sérült vagy félbeszakadt "+
+          "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). A napló változatlan; "+
+          "új mentés és automatikus feloldás tiltva.");}
     }).catch(()=>{
       if(active&&belongs(mapId,revision))
         {setDurableUnknown(true);setDurableChecked(true);}
@@ -62,7 +66,11 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       }else if(result.inMemoryRunning){
         setError("Másik Store-v1 művelet fut. Mentést nem indítunk és nem küldünk újra.");
       }else if(result.blocked){
-        setError("Befejezetlen Store-v1 műveleti napló: kézi ellenőrzésig nincs új SaveWorld.");
+        setError(result.saveEvidenceUnreadable?
+          "Sérült vagy félbeszakadt helyi SaveWorld-bizonylat "+
+          "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). A map naplója megmarad; "+
+          "helyreállítás csak külön operátori ellenőrzéssel lehetséges.":
+          "Befejezetlen Store-v1 műveleti napló: kézi ellenőrzésig nincs új SaveWorld.");
       }
     }).catch(()=>{
       if(active&&belongs(mapId,revision))
@@ -319,7 +327,9 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       {notice&&<div className="success-inline" role="status"><CheckCircle2 size={17}/>{notice}</div>}
       {error&&<div className="warning-inline" role="alert"><AlertTriangle size={17}/>{error}</div>}
       {recovery?.blocked&&<p className="muted small">Tartós journal: {recovery.phase}.
-        Új mutáló művelet csak operátori ellenőrzés után lehetséges.</p>}
+        {recovery.saveEvidenceUnreadable?
+          " A SaveWorld-bizonylat nem olvasható, a sérült napló megőrzendő; automatikus feloldás nincs.":
+          " Új mutáló művelet csak operátori ellenőrzés után lehetséges."}</p>}
     </div>
   </section>;
 }
