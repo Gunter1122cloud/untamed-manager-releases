@@ -45,9 +45,13 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     {
         // Durable review remains authoritative across a prior in-memory
         // NeedsOperator record (including another Manager instance).
-        var durable=Journal(map).Observe();
+        var journal=Journal(map);
+        var durable=journal.Observe();
         if(durable!=null&&durable.MapId!=map.Id)
             return "UM-ASA-STOP-JOURNAL-MAP-MISMATCH";
+        // An OperatorReviewed bit cannot bypass a missing/tampered audit.
+        if(durable?.Phase==AsaStopPhase.OperatorReviewed)
+            journal.DemandNoPending(map.Id);
         lock(sync)
             if(jobsByMap.TryGetValue(map.Id,out var active))
             {
@@ -179,9 +183,12 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                         return Error(id,"UM-ASA-STOP-MAP");
                     var owned=Owned(mapId);
                     if(owned==null)return Error(id,"UM-MAP-NOT-OWNED");
-                    var currentDurable=Journal(owned).Observe();
+                    var currentJournal=Journal(owned);
+                    var currentDurable=currentJournal.Observe();
                     if(currentDurable!=null&&currentDurable.MapId!=mapId)
                         return Error(id,"UM-ASA-STOP-JOURNAL-MAP-MISMATCH");
+                    if(currentDurable?.Phase==AsaStopPhase.OperatorReviewed)
+                        currentJournal.DemandNoPending(mapId);
                     lock(sync)
                     {
                         if(jobsByMap.TryGetValue(mapId,out var tracked)&&
