@@ -359,6 +359,14 @@ test.beforeEach(async ({ page }) => {
       .__UNTAMED_FIVE_BACKUP_COPIES__=()=>originalFiveBackupCopies;
     let historicalRconAttached=false;
     let historicalRconSavePending=false,historicalRconAttachmentCommits=0;
+    let historicalRconBadApplyReceipt=false,historicalRconApplyReplyLost=false;
+    (window as typeof window & {
+      __UNTAMED_RCON_ATTACH_BAD_RECEIPT__?:()=>void;
+      __UNTAMED_RCON_ATTACH_REPLY_LOST__?:()=>void;
+    }).__UNTAMED_RCON_ATTACH_BAD_RECEIPT__=()=>{historicalRconBadApplyReceipt=true;};
+    (window as typeof window & {
+      __UNTAMED_RCON_ATTACH_REPLY_LOST__?:()=>void;
+    }).__UNTAMED_RCON_ATTACH_REPLY_LOST__=()=>{historicalRconApplyReplyLost=true;};
     (window as typeof window & {
       __UNTAMED_RCON_ATTACH_SAVE_PENDING__?:()=>void;
       __UNTAMED_RCON_ATTACH_SAVE_CLEAR__?:()=>void;
@@ -1231,7 +1239,11 @@ test.beforeEach(async ({ page }) => {
           historicalRconAttached=true;
           historicalRconAttachmentCommits++;
           state.local.maps[1].rconConfigured=true;
-          return {mapId:two,mapName:"Astraeos",configured:true,rconPort:37145,
+          if(historicalRconApplyReplyLost)
+            throw new Error("UM-SYNTHETIC-RCON-APPLY-RESPONSE-LOST");
+          return {mapId:historicalRconBadApplyReceipt
+              ?"00000000-0000-4000-8000-000000002222":two,
+            mapName:"Astraeos",configured:true,rconPort:37145,
             originalStoreTouched:false,iniModified:false,serverStarted:false,
             evidence:"HISTORICAL_RCON_DPAPI_PROFILE_ATTACHED"};
         }
@@ -5584,6 +5596,58 @@ test("original RCON attachment refuses pending SaveWorld both before and after e
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_RCON_ATTACH_COUNT__?:()=>number;
   }).__UNTAMED_RCON_ATTACH_COUNT__?.())).toBe(0);
+});
+
+test("original RCON attach rejects a mismatched native commit receipt without inviting replay",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void;
+    __UNTAMED_RCON_ATTACH_BAD_RECEIPT__?:()=>void;
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Történeti Store-v1 RCON csatlakoztatás"});
+  await panel.getByRole("button",{name:"Meglévő RCON átvétele az ASA INI-ből"}).click();
+  await panel.getByRole("region",{name:"Store-v1 RCON jóváhagyása"})
+    .getByRole("checkbox").check();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_ATTACH_BAD_RECEIPT__?:()=>void;
+  }).__UNTAMED_RCON_ATTACH_BAD_RECEIPT__?.());
+  await panel.getByRole("button",{name:"RCON átvétel véglegesítése"}).click();
+  await expect(panel).toContainText("UM-HISTORICAL-RCON-ATTACH-RECEIPT-MISMATCH");
+  await expect(panel).toContainText("Ne küldd újra");
+  await expect(panel.locator(".success-inline")).toHaveCount(0);
+  await expect(panel.getByRole("region",{name:"Store-v1 RCON jóváhagyása"})).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_ATTACH_COUNT__?:()=>number;
+  }).__UNTAMED_RCON_ATTACH_COUNT__?.())).toBe(1);
+});
+
+test("original RCON attach reports uncertain outcome after a lost native apply response",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void;
+    __UNTAMED_RCON_ATTACH_REPLY_LOST__?:()=>void;
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Történeti Store-v1 RCON csatlakoztatás"});
+  await panel.getByRole("button",{name:"Meglévő RCON átvétele az ASA INI-ből"}).click();
+  await panel.getByRole("region",{name:"Store-v1 RCON jóváhagyása"})
+    .getByRole("checkbox").check();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_ATTACH_REPLY_LOST__?:()=>void;
+  }).__UNTAMED_RCON_ATTACH_REPLY_LOST__?.());
+  await panel.getByRole("button",{name:"RCON átvétel véglegesítése"}).click();
+  await expect(panel).toContainText("A natív RCON-átvétel kimenetele nem igazolható");
+  await expect(panel).toContainText("Ne küldd újra");
+  await expect(panel.locator(".success-inline")).toHaveCount(0);
+  await expect(panel.getByRole("region",{name:"Store-v1 RCON jóváhagyása"})).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_ATTACH_COUNT__?:()=>number;
+  }).__UNTAMED_RCON_ATTACH_COUNT__?.())).toBe(1);
 });
 
 test("original Store RCON native commit survives a failing follow-up status refresh without suggesting replay",async({page})=>{
