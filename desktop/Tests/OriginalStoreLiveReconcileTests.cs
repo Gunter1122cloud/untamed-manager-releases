@@ -262,6 +262,31 @@ internal static class OriginalStoreLiveReconcileTests
               afterUncertain[0].Map==live[2].Id&&
               afterUncertain[0].Phase=="needsOperator",
             "uncertain SaveWorld remains an explicit blocker only for its own map");
+        // Simulate a Windows crash leaving a half-published SaveWorld receipt
+        // under this isolated CI profile. Never delete or auto-repair it.
+        string interruptedReceipt=Path.Combine(cluster.Store.Root,
+            "historical-save-evidence-v1",live[2].Id.ToString("N")+".json.next");
+        File.WriteAllText(interruptedReceipt,"SYNTHETIC_INTERRUPTED_SAVEWORLD_RECEIPT");
+        var unreadable=((System.Collections.IEnumerable)(inspect.Invoke(
+            bridge,new object[]{live})??throw new InvalidOperationException(
+                "Interrupted SaveWorld receipt scan failed")))
+            .Cast<object>().Where(x=>
+                (string)x.GetType().GetProperty("Kind")!.GetValue(x)=="SaveWorld-v1")
+            .Select(x=>(
+                Map:(Guid)x.GetType().GetProperty("MapId")!.GetValue(x)!,
+                Phase:(string)x.GetType().GetProperty("Phase")!.GetValue(x)!,
+                Code:(string)x.GetType().GetProperty("BlockingCode")!.GetValue(x)!,
+                CanReview:(bool)x.GetType().GetProperty(
+                    "SupportedReviewInMapDetails")!.GetValue(x)!))
+            .ToArray();
+        Check(unreadable.Length==1&&unreadable[0].Map==live[2].Id&&
+              unreadable[0].Phase=="Unreadable"&&
+              unreadable[0].Code=="UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE"&&
+              !unreadable[0].CanReview&&
+              File.Exists(interruptedReceipt),
+            "corrupt SaveWorld receipt is map-scoped, unaltered, and never marked reviewable");
+        Check(!NoPendingSaveUnderLease(),
+            "unreadable SaveWorld receipt fails closed during five-map lease");
         Check(Denies(()=>cluster.ReconcileOriginalStoreLiveFive(live,()=>true)),
             "an unresolved original Launch journal cannot be bypassed by a successful preview");
     }
