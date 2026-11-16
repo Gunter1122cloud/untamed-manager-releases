@@ -389,13 +389,14 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         }
         if(epoch!==directEpoch.current)return;
         setDirectError(code==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"?
-          "Az ötmapos újracsatlakoztatást egy korábbi ASA Launch/Stop "+
-          "NeedsOperator napló zárolja. Nyisd meg az érintett Store-v1 map "+
-          "adatlapját, válaszd a 'Helyreállítás előellenőrzése' műveletet, "+
-          "ellenőrizd a PID-et, indításiidőt, RCON-portot és ACTIVE/DONE "+
-          "sessiont, majd külön hagyd jóvá az auditált helyreállítást. "+
-          "Az eredeti napló megmarad; ezután új ötmapos felismerés szükséges. "+
-          "Nem küldünk új Startot vagy RCON parancsot ("+code+").":
+          "Az ötmapos újracsatlakoztatást egy befejezetlen ASA Launch, "+
+          "Restart vagy SaveWorld-bizonylat zárolja. Nyisd meg az érintett "+
+          "map adatlapját; SaveWorld-v1 esetén a SaveWorld panelen kérj "+
+          "olvasási ellenőrzést, más naplónál a megfelelő Helyreállítás "+
+          "előellenőrzését. A korábbi ASA PID-et és naplót külön igazolni "+
+          "kell; automatikus feloldás vagy RCON-parancsismétlés nincs. "+
+          "Az eredeti naplók megmaradnak. Ezután kérj új ötmapos "+
+          "felismerést ("+code+").":
           code==="UM-ORIGINAL-LIVE-OTHER-MANAGER-OPERATION-IN-PROGRESS"?
           "Másik helyi Manager-művelet birtokolja az ASA telepítési zárolását. "+
           "Az ötmapos átvétel nem kezdődött meg. Az aktív művelet állapotát "+
@@ -797,6 +798,8 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
               <Shield size={15}/>
               <span><b>{blocker.mapName}</b> – {blocker.kind} / {blocker.phase}
                 {" · "}{blocker.blockingCode}
+                {blocker.kind==="SaveWorld-v1"&&
+                  " · SaveWorld-bizonylat: az adatlap mentési helyreállításánál ellenőrizhető."}
                 {" · "}{blocker.supportedReviewInMapDetails?
                   "Nyisd meg a map adatlapját: auditált helyreállítás, majd új felismerés.":
                   "Külön natív helyreállítás szükséges; automatikus feloldás nincs."}
