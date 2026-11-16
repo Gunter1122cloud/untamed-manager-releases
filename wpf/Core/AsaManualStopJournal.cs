@@ -92,6 +92,47 @@ public sealed class AsaManualStopJournal
         finally{mutex.Release();}
     }
 
+    // An OperatorReviewed flag is NOT proof by itself: before releasing
+    // future Start/Stop/Restart require the pinned, immutable original
+    // journal bytes to still exist and match the recorded operation.
+    private void DemandReviewedAudit(AsaManualStopRecord reviewed)
+    {
+        if(reviewed.Phase!=AsaStopPhase.OperatorReviewed)return;
+        ValidateFolder();
+        string audit=Path.Combine(folder,key+"-"+
+            reviewed.Id.ToString("N")+".operator-reviewed.json");
+        if(!File.Exists(audit))
+            throw new InvalidDataException(
+                "UM-ASA-STOP-REVIEW-AUDIT-MISSING");
+        var file=new FileInfo(audit);
+        if(file.Length is <=0 or >8192 ||
+           (file.Attributes&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException(
+                "UM-ASA-STOP-REVIEW-AUDIT-MISMATCH");
+        byte[] original=File.ReadAllBytes(audit);
+        if(original.Length is <=0 or >8192)
+            throw new InvalidDataException(
+                "UM-ASA-STOP-REVIEW-AUDIT-MISMATCH");
+        AsaManualStopRecord? evidence;
+        try{evidence=JsonSerializer.Deserialize<AsaManualStopRecord>(
+            original,Json);}
+        catch(JsonException){
+            throw new InvalidDataException(
+                "UM-ASA-STOP-REVIEW-AUDIT-MISMATCH");
+        }
+        if(evidence==null||evidence.Schema!=1||
+           evidence.Phase is not
+               (AsaStopPhase.Pending or AsaStopPhase.NeedsOperator)||
+           evidence.Id!=reviewed.Id||evidence.MapId!=reviewed.MapId||
+           evidence.Resource!=key||evidence.OldPid!=reviewed.OldPid||
+           evidence.OldStartedUtc!=reviewed.OldStartedUtc||
+           evidence.CreatedUtc!=reviewed.CreatedUtc||
+           evidence.ChangedUtc<evidence.CreatedUtc||
+           evidence.ChangedUtc>reviewed.ChangedUtc)
+            throw new InvalidDataException(
+                "UM-ASA-STOP-REVIEW-AUDIT-MISMATCH");
+    }
+
     public AsaManualStopRecord Begin(Guid mapId,int oldPid,
         DateTimeOffset oldStartedUtc)
     {
@@ -102,6 +143,7 @@ public sealed class AsaManualStopJournal
             if(existing!=null&&existing.Phase is
                 (AsaStopPhase.Pending or AsaStopPhase.NeedsOperator))
                 throw new IOException("UM-ASA-STOP-JOURNAL-NEEDS-OPERATOR");
+            if(existing!=null)DemandReviewedAudit(existing);
             var now=DateTimeOffset.UtcNow;
             var record=new AsaManualStopRecord(1,Guid.NewGuid(),mapId,
                 key,oldPid,oldStartedUtc,AsaStopPhase.Pending,now,now);
@@ -137,6 +179,7 @@ public sealed class AsaManualStopJournal
         if(current?.Phase is AsaStopPhase.Pending or AsaStopPhase.NeedsOperator)
             throw new InvalidOperationException(
                 "UM-ASA-STOP-JOURNAL-NEEDS-OPERATOR");
+        if(current!=null)DemandReviewedAudit(current);
     }
 
     /// <summary>
