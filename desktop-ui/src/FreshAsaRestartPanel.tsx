@@ -71,7 +71,16 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
       try{
         const state=await managerBridge.freshAsaRestartStatus(jobId);
         if(!active||!belongs(mapId))return;
-        setStatus(state);
+        if(state.jobId!==jobId||state.killPerformed!==false||
+           state.storeTouched!==false||state.autoRetry!==false||
+           (state.state==="completed"&&(!Number.isSafeInteger(state.newPid)||
+             state.newPid<=0||!Number.isSafeInteger(state.oldPid)||
+             state.oldPid<=0))){
+          setReconcileFailed(true);
+          setError("UM-ASA-RESTART-STATUS-INVALID: A natív Restart jobazonosítója vagy új PID-je nem igazolt. A régi műveletet nem ismételjük meg.");
+          return;
+        }
+        setReconcileFailed(false);setError("");setStatus(state);
         if(state.state==="completed"){
           setJobId(null);
           const summary=state.newProcessRole==="loaderParent"?
@@ -129,6 +138,11 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     try{
       const job=await managerBridge.freshAsaRestartApply(token);
       if(!belongs(requested))return;
+      if(!job.started||typeof job.jobId!=="string"||
+         !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(job.jobId)||
+         job.autoRetry!==false||job.killPerformed!==false||
+         job.storeTouched!==false||job.evidence!=="REAL_LOCAL_ASA_RESTART_JOB_QUEUED")
+        throw new Error("UM-ASA-RESTART-APPLY-RECEIPT-INVALID");
       setJobId(job.jobId);
       setStatus({
         jobId:job.jobId,state:"queued",stage:"preflight",
