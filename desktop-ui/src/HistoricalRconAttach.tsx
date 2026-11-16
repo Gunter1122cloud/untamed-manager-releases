@@ -124,9 +124,16 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
           "frissítsd a maplistát. Az ASA és a Store-fájlok nem módosultak.");
       }
     }catch(e){
-      if(mapGeneration.current===generation && !committed)
-        setError(saveWorldAttachmentConflict(e)??
-          "Az eredeti RCON-kapcsolat átvétele nem fejezhető be, vagy a profil közben megváltozott. Ellenőrizd az aktuális állapotot.");
+      if(mapGeneration.current!==generation)return;
+      // Once Apply was submitted, a lost transport response may conceal a
+      // committed profile. A resolved but contradictory native receipt is
+      // equally unsafe: neither outcome authorizes an automatic retry.
+      setError(saveWorldAttachmentConflict(e)??(committed
+        ?"UM-HISTORICAL-RCON-ATTACH-RECEIPT-MISMATCH: A natív RCON-visszaigazolás ellentmondásos. "
+         +"A helyi profil állapota nem igazolt. Ne küldd újra a jóváhagyást; "
+         +"előbb frissítsd az RCON-állapotot csak olvasással."
+        :"A natív RCON-átvétel kimenetele nem igazolható (elutasítás vagy megszakadt válasz). "
+         +"Ne küldd újra a jóváhagyást; előbb frissítsd az RCON-állapotot csak olvasással."));
     }finally{if(mapGeneration.current===generation)setBusy(false);}
   };
   return <section className="glass panel historical-rcon-attach"
