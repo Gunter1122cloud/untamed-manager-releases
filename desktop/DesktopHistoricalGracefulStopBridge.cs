@@ -172,14 +172,16 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         bool operationBlocked=journal!=null&&journal.Phase is
             UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
             UntamedOperationPhase.NeedsOperator;
-        var saveEvidence=LegacyStoreV1SaveEvidenceJournal.Inspect(
-            cluster.Store.Root,mapId);
+        var (saveEvidence,unreadableSaveEvidence)=
+            LegacyStoreV1SaveEvidenceJournal.InspectReadOnly(
+                cluster.Store.Root,mapId);
         // Never accept a successful *previous* operation journal as a
         // substitute for the pending SaveComplete receipt. This is a
         // second, Manager-local crash-recovery signal, not Kova ownership.
-        bool pendingSaveEvidence=saveEvidence?.Phase is "prepared" or "needsOperator";
+        bool pendingSaveEvidence=unreadableSaveEvidence||
+            saveEvidence?.Phase is "prepared" or "needsOperator";
         bool blocked=operationBlocked||restartPending||pendingSaveEvidence;
-        bool needsOperator=pendingSaveEvidence||(journal!=null&&(
+        bool needsOperator=unreadableSaveEvidence||pendingSaveEvidence||(journal!=null&&(
             journal.Phase==UntamedOperationPhase.NeedsOperator||
             operationBlocked&&running==null))||
             restart?.Phase==AsaRestartPhase.NeedsOperator;
@@ -194,7 +196,11 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             // Distinguish the live task kind without exposing Store secrets.
             // Durable journal state alone cannot safely infer a resumed RCON action.
             activeJobKind=running?.Kind,
-            saveEvidencePhase=saveEvidence?.Phase??"none",
+            saveEvidencePhase=unreadableSaveEvidence?"unreadable":
+                saveEvidence?.Phase??"none",
+            saveEvidenceUnreadable=unreadableSaveEvidence,
+            saveEvidenceErrorCode=unreadableSaveEvidence?
+                "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
             localSaveCompleteObserved=saveEvidence?.LocalSaveCompleteObserved==true,
             bothHostsSaveCompleteCertified=false,
             storeWriterCertified=false,
@@ -325,11 +331,15 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                     if(!GuidValue(request,"mapId",out var evidenceMapId)||
                        Owned(evidenceMapId) is not {HistoricalStoreProtected:true})
                         return Fail(id,"UM-ORIGINAL-SAVE-EVIDENCE-LOCAL-ONLY");
-                    var evidence=LegacyStoreV1SaveEvidenceJournal.Inspect(
-                        cluster.Store.Root,evidenceMapId);
+                    var (evidence,unreadable)=
+                        LegacyStoreV1SaveEvidenceJournal.InspectReadOnly(
+                            cluster.Store.Root,evidenceMapId);
                     return Ok(id,new{
                         mapId=evidenceMapId,
-                        phase=evidence?.Phase??"none",
+                        phase=unreadable?"unreadable":evidence?.Phase??"none",
+                        unreadable,
+                        errorCode=unreadable?
+                            "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
                         operationId=evidence?.OperationId,
                         pid=evidence?.Pid,
                         pidStartedUtc=evidence?.PidStartedUtc,
