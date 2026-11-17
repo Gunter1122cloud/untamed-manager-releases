@@ -472,6 +472,7 @@ test.beforeEach(async ({ page }) => {
     const historicalRconToken="00000000-0000-4000-8000-000000001699";
     const historicalStartToken="00000000-0000-4000-8000-000000001698";
     let historicalActiveStarted=false;
+    let historicalPeerDoneInvalid=false;
     let failOneHistoricalStartStatus=false;
     (window as typeof window & {
       __UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?:()=>void;
@@ -481,6 +482,15 @@ test.beforeEach(async ({ page }) => {
     let historicalApiEnabled=false;
     let historicalApiPreviewRequested:boolean|null=null;
     const historicalApiToken="00000000-0000-4000-8000-000000009914";
+    (window as typeof window & {__UNTAMED_ORIGINAL_PEER_DONE_INVALID__?:()=>void})
+      .__UNTAMED_ORIGINAL_PEER_DONE_INVALID__=()=>{
+        historicalPeerDoneInvalid=true;
+        Object.assign(state.local.maps[1],{
+          storeProtected:true,rconConfigured:true,
+          running:false,status:"Leállítva",storeLifecycleState:"preflightRequired"
+        });
+        historicalRconAttached=true;historicalActiveStarted=false;
+      };
     (window as typeof window & {__UNTAMED_ORIGINAL_API_MODE_READY__?:()=>void})
       .__UNTAMED_ORIGINAL_API_MODE_READY__=()=>{
         Object.assign(state.local.maps[1],{storeProtected:true,rconConfigured:true,
@@ -1373,6 +1383,8 @@ test.beforeEach(async ({ page }) => {
         case "historical.activeStartPreview": {
           if(!historicalRconAttached||historicalActiveStarted||m.mapId!==two)
             throw new Error("Original Store ACTIVE/DONE source proof required");
+          if(historicalPeerDoneInvalid)
+            throw new Error("UM-STORE-LIVE-PEER-DONE-INVALID");
           return {
             token:historicalStartToken,mapId:two,mapName:"Astraeos",
             gamePort:7847,queryPort:27025,rconPort:37145,
@@ -5889,6 +5901,23 @@ test("original Store mode can be selected before RCON without unlocking actual A
   await expect(panel).toContainText("Az ASA API Loader indítási mód mentve");
   await expect(start).toBeDisabled();
   await expect(panel).toContainText("Előbb add meg az eredeti RCON-t");
+});
+
+test("2966 invalid DONE peer error is visible without starting any ASA process",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_PEER_DONE_INVALID__?:()=>void
+  }).__UNTAMED_ORIGINAL_PEER_DONE_INVALID__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const historic=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
+  const preflight=historic.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
+  await expect(preflight).toBeEnabled();
+  await preflight.click();
+  await expect(historic.getByRole("alert")).toContainText("UM-STORE-LIVE-PEER-DONE-INVALID");
+  await expect(historic.getByRole("region",{
+    name:"Eredeti Store-v1 ASA indítás jóváhagyása"
+  })).toHaveCount(0);
 });
 
 test("original two-host ACTIVE Store-v1 ASA Start is real native approved operation, not a fresh-demo button",async({page})=>{
