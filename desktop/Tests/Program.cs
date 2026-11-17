@@ -8094,13 +8094,14 @@ try
                   !preview.ToString().Contains("Ragnarok_WP?listen",StringComparison.Ordinal),
                 "original Store Start preview proves source shape without exposing command line or source paths");
             string token=preview.GetProperty("data").GetProperty("token").GetString()!;
-            var withoutPhrase=await Call(bridge.HandleAsync,"historical.activeStartApply",
-                new{token,confirm=true,typedApproval="START"});
-            Check(!withoutPhrase.GetProperty("ok").GetBoolean()&&launches==0,
-                "historical two-host Store Start cannot run without exact typed operator phrase");
+            // The exact named Start click now consumes the one-use native
+            // token without an extra typed phrase. Do not call Apply with a
+            // fake phrase to test denial: that would actually launch ASA.
+            // Test source-mutation denial first, using isolated synthetic
+            // launcher, with NO process creation and no live RCON.
             changedPlan=true;
             var moved=await Call(bridge.HandleAsync,"historical.activeStartApply",
-                new{token,confirm=true,typedApproval="STORE-V1 ACTIVE START"});
+                new{token});
             Check(!moved.GetProperty("ok").GetBoolean()&&launches==0,
                 "changed original two-host source fingerprint blocks Start before spawning");
             changedPlan=false;
@@ -8111,8 +8112,8 @@ try
             IsOk(newPreview,"operator can start a fresh source-verification attempt");
             token=newPreview.GetProperty("data").GetProperty("token").GetString()!;
             var started=await Call(bridge.HandleAsync,"historical.activeStartApply",
-                new{token,confirm=true,typedApproval="STORE-V1 ACTIVE START"});
-            IsOk(started,"native original Store-v1 Start calls owned executor only with valid typed consent");
+                new{token});
+            IsOk(started,"native original Store-v1 Start calls owned executor with its map-bound one-use token");
             var receipt=started.GetProperty("data");
             Check(receipt.GetProperty("pid").GetInt32()==42101&&
                   !receipt.GetProperty("readyCertified").GetBoolean()&&
@@ -8121,7 +8122,7 @@ try
                   !receipt.GetProperty("gameClientRejoinVerified").GetBoolean(),
                 "native historical Start reports real PID only and never invents gameplay, Store conversion or travel proof");
             var replay=await Call(bridge.HandleAsync,"historical.activeStartApply",
-                new{token,confirm=true,typedApproval="STORE-V1 ACTIVE START"});
+                new{token});
             Check(!replay.GetProperty("ok").GetBoolean()&&launches==1,
                 "original Store-v1 Start token is one-shot and never silently retries a process");
             Check(prepared>=4,
