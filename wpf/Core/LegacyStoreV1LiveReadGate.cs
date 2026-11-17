@@ -169,11 +169,15 @@ public static class LegacyStoreV1LiveReadGate
            !Str(Need(localLock,"config"),"id",VaultProtocol.ClusterId)||
            !Str(Need(localLock,"config"),"path",path)||
            !StoreV1Fingerprint.Matches(Need(localLock,"config"),Text(localLock,"configHash"))||
-           // The durable lock's original configHash must also equal the
-           // CURRENT local cluster config, not merely its own saved copy.
-           // Otherwise a self-consistent forged/stale lock could authorize
-           // a different active map list under the same source session.
-           !StoreV1Fingerprint.Matches(cluster,Text(localLock,"configHash")))
+           // An expanded local roster may retain the original five-member
+           // lock. Require exact identity for those five historical members
+           // while independently validating every current extra member.
+           !(StoreV1Fingerprint.Matches(cluster,Text(localLock,"configHash"))||
+             (report.CurrentLocalMemberCount>5&&
+              LegacyStoreV1LocalReader.MatchesPinnedHistoricalSubset(
+                  cluster,Need(localLock,"config"),
+                  Need(localLock,"selected").EnumerateArray()
+                    .Select(x=>x.GetString()??"").ToArray())))
             throw new InvalidDataException("UM-STORE-LIVE-LOCAL-LOCK-MISMATCH");
         string share=Path.Combine(path,".kova-store-v1");
         if(!Directory.Exists(share)||
@@ -215,14 +219,21 @@ public static class LegacyStoreV1LiveReadGate
                !LegacyStoreV1PeerTopology.SameOriginalUncDirectory(
                    path,SharedRoot(Text(config,"path")))||
                !StoreV1Fingerprint.Matches(config,Text(peer,"configHash"))||
-               owned.ValueKind!=JsonValueKind.Array||owned.GetArrayLength()!=5||
+               owned.ValueKind!=JsonValueKind.Array||
+               owned.GetArrayLength() is <5 or >32||
                selected.ValueKind!=JsonValueKind.Array||selected.GetArrayLength()!=5||
                StoreV1Fingerprint.Compute(Need(config,"members"))!=
                    StoreV1Fingerprint.Compute(owned))
                 throw new InvalidDataException("UM-STORE-LIVE-PEER-DONE-INVALID");
             var ids=owned.EnumerateArray().Select(x=>Text(x,"id")).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if(ids.Count!=5||selected.EnumerateArray().Any(x=>
-               !ids.Contains(x.GetString()??"")))
+            // Exactly five original selected writers; any additional
+            // current member is independent, not an extra Store writer.
+            var selectedIds=selected.EnumerateArray()
+                .Select(x=>x.ValueKind==JsonValueKind.String?x.GetString()??"":"")
+                .ToArray();
+            if(ids.Count!=owned.GetArrayLength()||
+               selectedIds.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=5||
+               selectedIds.Any(x=>!ids.Contains(x)))
                 throw new InvalidDataException("UM-STORE-LIVE-PEER-SELECTED-MISMATCH");
             topology.Add(new LegacyStoreV1PeerTopology.Peer(
                 peerIds[i],
