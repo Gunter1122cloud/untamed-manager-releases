@@ -102,7 +102,9 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       try{
         const result=await managerBridge.historicalSaveWorldStatus(expectedJob);
         if(!active||!belongs(requested,revision))return;
-        if(result.jobId!==expectedJob||result.kind!=="SaveWorldOnly"||
+        if(!canonicalSaveId(expectedJob)||
+           canonicalSaveId(result.jobId)!==canonicalSaveId(expectedJob)||
+           result.kind!=="SaveWorldOnly"||
            result.storeTouched||result.forceKill||result.confirmedStopped||
            result.finalDoExitSaveCertified)
           throw new Error("UM-STORE-SAVE-STATUS-RECEIPT-MISMATCH");
@@ -118,7 +120,9 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
             if(recovered.mapId.toLowerCase()!==requested.toLowerCase()||
                recovered.sharedStoreMutated||recovered.lockCleared||
                receipt.mapId.toLowerCase()!==requested.toLowerCase()||
-               receipt.phase!=="completed"||receipt.operationId!==expectedJob||
+               receipt.phase!=="completed"||
+               !canonicalSaveId(receipt.operationId)||
+               canonicalSaveId(receipt.operationId)!==canonicalSaveId(expectedJob)||
                !receipt.localSaveCompleteObserved||receipt.productionRestoreAllowed||
                receipt.bothHostsSaveCompleteCertified||receipt.sharedStoreWriterCertified)
               throw new Error("UM-STORE-SAVE-DURABLE-RECEIPT-MISMATCH");
@@ -183,7 +187,8 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       // saved journal or reissues a command.
       const completedVerified=job?.state==="completed"&&
         evidence.phase==="completed"&&evidence.localSaveCompleteObserved&&
-        evidence.operationId===jobId;
+        canonicalSaveId(evidence.operationId)!==null&&
+        canonicalSaveId(evidence.operationId)===canonicalSaveId(jobId);
       const manuallyReviewed=(job?.state==="needsOperator"||
           job?.state==="reviewed")&&evidence.phase==="reviewed"&&
         evidence.operationId===jobId;
@@ -412,7 +417,8 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
          newRecovery.blocked||newRecovery.sharedStoreMutated||newRecovery.lockCleared)
         throw new Error("UM-STORE-SAVE-REVIEW-STATUS-MISMATCH");
       setDurableSave(newEvidence);setRecovery(newRecovery);
-      if(jobId&&newEvidence.operationId===jobId){
+      if(jobId&&canonicalSaveId(newEvidence.operationId)!==null&&
+         canonicalSaveId(newEvidence.operationId)===canonicalSaveId(jobId)){
         setJobId("");setJob(null);finished.current=false;
       }
       setNotice("A korábbi SaveWorld kimenetele továbbra is ISMERETLEN. "+
