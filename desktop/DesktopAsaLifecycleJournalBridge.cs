@@ -262,44 +262,69 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         return Error(id,"UM-RECOVERY-OPERATION-TOO-RECENT");
                     if(!restartReviewable)
                         return Error(id,"UM-RECOVERY-RESTART-PHASE-NOT-REVIEWABLE");
-                    var witness=await Task.Run(()=>Proof(mapId));
+                    LegacyStoreV1GracefulStop.Owned? running=null;
+                    StoppedProof? stopped=null;
+                    if(stoppedReviewEnabled&&isOriginalPending&&
+                       restart?.OldPid>0&&restart.NewPid==0&&
+                       restart.Phase is (AsaRestartPhase.Stopping or
+                           AsaRestartPhase.NeedsOperator or AsaRestartPhase.OperatorReviewed))
+                    {
+                        // A failed running proof is NOT a stopped proof.
+                        // The independent stopped witness must establish
+                        // Windows process-family absence and absent RCON.
+                        try{running=await Task.Run(()=>Proof(mapId));}
+                        catch(Exception ex) when(ex is InvalidDataException or
+                            InvalidOperationException or UnauthorizedAccessException or IOException)
+                        {stopped=await Task.Run(()=>VerifyStopped(mapId,restart.OldPid));}
+                    }
+                    else running=await Task.Run(()=>Proof(mapId));
+                    int oldPid=stopped?.OldPid??running!.Process.Pid;
+                    DateTimeOffset oldStart=running?.Process.StartedUtc??default;
+                    string sourceSha=stopped?.SourceSha??running!.SourceSha;
                     bool sourcePinned=LegacyStoreV1PinnedSource.HasApprovedLocalSource(
                         cluster.Store.Root,map);
                     if(restart!=null&&restart.Phase is not AsaRestartPhase.Completed &&
-                       (restart.MapId!=mapId||restart.OldPid!=witness.Process.Pid||
+                       (restart.MapId!=mapId||restart.OldPid!=oldPid||
                         restart.NewPid!=0))
                         return Error(id,"UM-RECOVERY-RESTART-OLD-PID-MISMATCH");
                     var token=Guid.NewGuid();
                     pending=new(token,mapId,old?.Operation??Guid.Empty,
-                        witness.Process.Pid,witness.Process.StartedUtc,
-                        witness.SourceSha,JsonSerializer.Serialize(witness.Map),
+                        oldPid,oldStart,sourceSha,JsonSerializer.Serialize(map),
                         restart?.Phase==AsaRestartPhase.Completed?null:restart?.Id,
                         restart?.Phase==AsaRestartPhase.Completed?null:
                             JsonSerializer.Serialize(restart),
-                        restartOnlyReviewable,DateTimeOffset.UtcNow.AddMinutes(3));
+                        restartOnlyReviewable,DateTimeOffset.UtcNow.AddMinutes(3),
+                        StoppedReview:stopped!=null);
                     return Ok(id,new{
                         token,mapId,mapName=map.Name,
                         operationId=old?.Operation??Guid.Empty,
                         kind=restartOnlyReviewable?"Restart":old?.Kind.ToString()??"Launch",
                         phase=restartOnlyReviewable?restart?.Phase.ToString():
                             old?.Phase.ToString(),
-                        pid=witness.Process.Pid,
+                        pid=oldPid,
                         restartId=pending.RestartId,
                         restartPhase=restart?.Phase.ToString(),
                         restartOldPid=restart?.OldPid,
                         restartNewPid=restart?.NewPid,
                         pairedJournals=pending.RestartId!=null&&!restartOnlyReviewable?2:1,
-                        processStartedUtc=witness.Process.StartedUtc,
+                        processStartedUtc=oldStart,
                         rconPort=map.RconPort,
                         expiresUtc=pending.ExpiresUtc,
-                        exactWindowsProcessVerified=true,
-                        originalStoreSessionVerified=!sourcePinned,
+                        reviewMode=stopped!=null?"stopped":"running",
+                        exactWindowsProcessVerified=running!=null,
+                        stoppedWindowsProcessVerified=stopped!=null,
+                        rconListenerAbsent=stopped!=null,
+                        historicalSelectedOwnerVerified=stopped!=null,
+                        originalStoreSessionVerified=running!=null&&!sourcePinned,
                         approvedObsidianSourcePinned=sourcePinned,
                         legacyPeerCheckRequiredForLocalReview=!sourcePinned,
-                        rconListenerOwnerVerified=true,priorCommandOutcomeUnknown=true,
+                        rconListenerOwnerVerified=running!=null,
+                        priorCommandOutcomeUnknown=true,
                         previousOperationWillNotBeRetried=true,requiresTypedApproval=true,
                         auditRequired=true,storeBytesModified=false,
-                        evidence="ORIGINAL_STORE_RUNNING_LAUNCH_JOURNAL_RECOVERY_PREVIEW"
+                        evidence=stopped!=null?
+                            "ORIGINAL_STORE_STOPPED_PAIRED_JOURNAL_REVIEW_PREVIEW":
+                            "ORIGINAL_STORE_RUNNING_LAUNCH_JOURNAL_RECOVERY_PREVIEW"
                     });
                 }
                 if(pending==null||pending.MapId!=mapId||
@@ -329,6 +354,18 @@ public sealed class DesktopAsaLifecycleJournalBridge
                     return Error(id,"UM-RECOVERY-RESTART-JOURNAL-CHANGED");
                 bool CheckPinned()
                 {
+                    if(pinned.StoppedReview)
+                    {
+                        try
+                        {
+                            var checkedStopped=VerifyStopped(mapId,pinned.Pid);
+                            return checkedStopped.SourceSha==pinned.SourceSha&&
+                                JsonSerializer.Serialize(map)==pinned.ProfileJson;
+                        }
+                        catch(Exception ex) when(ex is InvalidDataException or
+                            InvalidOperationException or UnauthorizedAccessException or IOException)
+                        {return false;}
+                    }
                     var now=Proof(mapId);
                     return ReferenceEquals(now.Map,map)&&
                         now.Process.Pid==pinned.Pid&&
@@ -336,7 +373,15 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         now.SourceSha==pinned.SourceSha&&
                         JsonSerializer.Serialize(now.Map)==pinned.ProfileJson;
                 }
-                if(pinned.RestartOnly)
+                if(pinned.StoppedReview)
+                {
+                    if(pinned.RestartId is not Guid stoppedRestart)
+                        return Error(id,"UM-RECOVERY-STOPPED-PAIRED-RESTART-REQUIRED");
+                    cluster.Operations.ReviewStoppedOriginalPaired(
+                        map.InstallationPath,pinned.Operation,mapId,
+                        stoppedRestart,pinned.Pid,CheckPinned);
+                }
+                else if(pinned.RestartOnly)
                 {
                     if(pinned.RestartId is not Guid restartId)
                         return Error(id,"UM-RECOVERY-RESTART-ID-MISSING");
@@ -353,11 +398,16 @@ public sealed class DesktopAsaLifecycleJournalBridge
                     restartJournalAudited=pinned.RestartId!=null,
                     pairedJournalsReviewed=pinned.RestartOnly?1:
                         pinned.RestartId!=null?2:1,
-                    restartMarkedSuccessful=false,oldRunningPid=pinned.Pid,
+                    restartMarkedSuccessful=false,
+                    oldRunningPid=pinned.StoppedReview?(int?)null:pinned.Pid,
+                    oldStoppedPid=pinned.StoppedReview?pinned.Pid:(int?)null,
+                    reviewMode=pinned.StoppedReview?"stopped":"running",
                     storeBytesModified=false,
                     processStarted=false,processStopped=false,rconCommandSent=false,
                     noAutomaticRetry=true,newOperationRequiresFreshApproval=true,
-                    evidence="ORIGINAL_STORE_EXACT_RUNNING_OWNER_AUDITED_MANUAL_JOURNAL_REVIEW"
+                    evidence=pinned.StoppedReview?
+                        "ORIGINAL_STORE_VERIFIED_STOPPED_OWNER_AUDITED_PAIRED_JOURNAL_REVIEW":
+                        "ORIGINAL_STORE_EXACT_RUNNING_OWNER_AUDITED_MANUAL_JOURNAL_REVIEW"
                 });
             }
             finally{serial.Release();}
