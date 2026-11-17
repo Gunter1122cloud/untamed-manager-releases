@@ -45,6 +45,37 @@ void ExpandedDonePeerTopologyRegression()
         catch(InvalidDataException){denied=true;}
         Check(denied,title);
     }
+
+    var sixOwned=ids1.Take(6).Select((id,i)=>new {
+        id,root=@"C:\synthetic\event"+i,map="MapB_"+i}).ToArray();
+    using var fullOwned=JsonDocument.Parse(JsonSerializer.Serialize(sixOwned));
+    using var sameConfigMembers=JsonDocument.Parse(JsonSerializer.Serialize(sixOwned));
+    using var selectedFive=JsonDocument.Parse(JsonSerializer.Serialize(ids1.Take(5).ToArray()));
+    LegacyStoreV1PeerTopology.RequireDonePeerRoster(
+        fullOwned.RootElement,selectedFive.RootElement,sameConfigMembers.RootElement);
+    Check(true,"real native DONE guard 6/6/5 exact selected roster accepted");
+    void DenyDone(string label,JsonElement owned,JsonElement selected,JsonElement config)
+    {
+        bool blocked=false;
+        try{LegacyStoreV1PeerTopology.RequireDonePeerRoster(owned,selected,config);}
+        catch(InvalidDataException){blocked=true;}
+        Check(blocked,label);
+    }
+    using var historicalFive=JsonDocument.Parse(JsonSerializer.Serialize(sixOwned.Take(5).ToArray()));
+    DenyDone("DONE guard rejects six owned vs five config",
+        fullOwned.RootElement,selectedFive.RootElement,historicalFive.RootElement);
+    using var foreignSelection=JsonDocument.Parse(JsonSerializer.Serialize(
+        ids1.Take(4).Concat(new[]{Guid.NewGuid().ToString("D")}).ToArray()));
+    DenyDone("DONE guard rejects foreign selected GUID",
+        fullOwned.RootElement,foreignSelection.RootElement,sameConfigMembers.RootElement);
+    using var duplicateSelection=JsonDocument.Parse(JsonSerializer.Serialize(
+        new[]{ids1[0],ids1[0],ids1[2],ids1[3],ids1[4]}));
+    DenyDone("DONE guard rejects duplicate selected GUID",
+        fullOwned.RootElement,duplicateSelection.RootElement,sameConfigMembers.RootElement);
+    using var invalidCount=JsonDocument.Parse(JsonSerializer.Serialize(
+        ids1.Take(4).ToArray()));
+    DenyDone("DONE guard rejects anything except five original selected",
+        fullOwned.RootElement,invalidCount.RootElement,sameConfigMembers.RootElement);
     var second=Peers(6)[1];
     Deny("DONE extra member duplicate owned ID",new[]{first,
         second with {MemberIds=second.MemberIds.Take(5).Concat(new[]{ids0[0]}).ToArray()}});
