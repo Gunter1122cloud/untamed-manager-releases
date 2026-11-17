@@ -197,10 +197,10 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
         ?historical?await managerBridge.historicalActiveStartApply(selected.token,phrase.start)
           :await managerBridge.freshAsaStartApply(selected.token)
         :selected.action==="stop"
-        ?historical?await managerBridge.historicalGracefulStopApply(selected.token,phrase.stop)
+        ?historical?await managerBridge.historicalGracefulStopApply(selected.token)
           :await managerBridge.freshAsaStopApply(selected.token)
         :selected.action==="restart"
-        ?historical?await managerBridge.historicalRestartApply(selected.token,phrase.restart)
+        ?historical?await managerBridge.historicalRestartApply(selected.token)
           :await managerBridge.freshAsaRestartApply(selected.token)
         :await managerBridge.ownedAsaKillApply(selected.token,phrase.kill);
       if(selected.action==="start"||selected.action==="kill"){
