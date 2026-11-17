@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,RefreshCw,Shield,RotateCw} from "lucide-react";
-import {managerBridge,type HistoricalRestartPreview,
-  type HistoricalRestartStatus,type HistoricalRestartRecovery} from "./bridge";
+import {managerBridge,type HistoricalRestartStatus,
+  type HistoricalRestartRecovery} from "./bridge";
 
 /** Native original ACTIVE Store-v1 Restart; no WebView arguments or RCON bytes. */
 export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
