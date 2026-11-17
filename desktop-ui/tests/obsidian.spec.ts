@@ -487,6 +487,12 @@ test.beforeEach(async ({ page }) => {
     };
     let historicalApiEnabled=false;
     let historicalApiPreviewRequested:boolean|null=null;
+    let historicalModeApplyCount=0;
+    let historicalModeReplyLost=false;
+    (window as typeof window & {__UNTAMED_HIST_MODE_APPLY_COUNT__?:()=>number})
+      .__UNTAMED_HIST_MODE_APPLY_COUNT__=()=>historicalModeApplyCount;
+    (window as typeof window & {__UNTAMED_HIST_MODE_REPLY_LOST__?:()=>void})
+      .__UNTAMED_HIST_MODE_REPLY_LOST__=()=>{historicalModeReplyLost=true;};
     const historicalApiToken="00000000-0000-4000-8000-000000009914";
     (window as typeof window & {__UNTAMED_ORIGINAL_PEER_DONE_INVALID__?:()=>void})
       .__UNTAMED_ORIGINAL_PEER_DONE_INVALID__=()=>{
@@ -1403,6 +1409,8 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-STORE-LOADER-MODE-APPROVAL");
           historicalApiEnabled=historicalApiPreviewRequested;
           historicalApiPreviewRequested=null;
+          historicalModeApplyCount++;
+          if(historicalModeReplyLost)throw new Error("UM-SYNTHETIC-MODE-REPLY-LOST");
           return {mapId:two,mapName:"Astraeos",useApi:historicalApiEnabled,
             mode:historicalApiEnabled?"asaApiLoader":"directAsa",
             serverStarted:false,originalStoreTouched:false,
@@ -5922,12 +5930,36 @@ test("original Store mode can be selected before RCON without unlocking actual A
   const mode=panel.getByRole("button",{name:"ASA API Loader mód választása"});
   await expect(mode).toBeEnabled();
   await mode.click();
-  const consent=panel.getByRole("region",{name:"Eredeti Store-v1 indítási mód módosítása"});
-  await expect(consent).toBeVisible();
-  await consent.getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
+  await expect(panel.getByRole("region",{name:"Eredeti Store-v1 indítási mód módosítása"}))
+    .toHaveCount(0);
   await expect(panel).toContainText("Az ASA API Loader indítási mód mentve");
+  const modeCount=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HIST_MODE_APPLY_COUNT__?:()=>number
+  }).__UNTAMED_HIST_MODE_APPLY_COUNT__?.());
+  expect(modeCount).toBe(1);
   await expect(start).toBeDisabled();
   await expect(panel).toContainText("Előbb add meg az eredeti RCON-t");
+});
+
+test("historical API mode unknown Apply reply blocks a second mode action",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HIST_MODE_REPLY_LOST__?:()=>void
+  }).__UNTAMED_HIST_MODE_REPLY_LOST__?.());
+  await panel.getByRole("button",{name:"ASA API Loader mód választása"}).click();
+  await expect(panel.getByRole("alert")).toContainText("módváltás kimenetele nem igazolható");
+  await expect(panel.getByRole("button",{name:"ASA API Loader mód választása"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"})).toBeDisabled();
+  const count=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HIST_MODE_APPLY_COUNT__?:()=>number
+  }).__UNTAMED_HIST_MODE_APPLY_COUNT__?.());
+  expect(count).toBe(1);
 });
 
 test("2966 invalid DONE peer error is visible without starting any ASA process",async({page})=>{
