@@ -228,6 +228,69 @@ internal static class MultiHostOfflineCatalogAssemblerTests
                     "real host world bytes preserve original identity and restore mapping");
             }
 
+            // P1: replay a crash just AFTER all SHA-256 stage verification
+            // but BEFORE its final Directory.Move, entirely in synthetic
+            // local folders. Manual finalize is one-shot and never cutover.
+            string resumeParent=Path.Combine(sandbox,"host-restore-resume");
+            Directory.CreateDirectory(resumeParent);
+            var recoveryPlan=MultiHostHostRestoreStaging.Inspect(destination,
+                hosts[0],resumeParent,expanded);
+            MultiHostHostRestoreStaging.Stage(recoveryPlan,expanded);
+            string resumeTarget=Path.Combine(resumeParent,
+                recoveryPlan.StageDirectoryName);
+            string resumePartial=resumeTarget+".incomplete";
+            Directory.Move(resumeTarget,resumePartial);
+            var inspectedPartial=MultiHostHostRestoreStaging.InspectInterrupted(
+                recoveryPlan,expanded);
+            Check(inspectedPartial.CanFinalize&&inspectedPartial.ExistingOriginalPreserved,
+                "fully sealed .incomplete host package can be independently SHA-verified");
+            bool deniedUnapproved=false;
+            try{MultiHostHostRestoreStaging.FinalizeInterrupted(
+                recoveryPlan,expanded,false);}
+            catch(UnauthorizedAccessException){deniedUnapproved=true;}
+            Check(deniedUnapproved&&Directory.Exists(resumePartial)&&
+                !Directory.Exists(resumeTarget),
+                "operator consent is mandatory before publishing verified partial");
+            var resumed=MultiHostHostRestoreStaging.FinalizeInterrupted(
+                recoveryPlan,expanded,true);
+            Check(resumed.BatchId==catalog.BatchId&&
+                MultiHostHostRestoreStaging.Verify(resumeTarget).Components.Length==
+                    recoveryPlan.Components&&
+                !Directory.Exists(resumePartial),
+                "approved same-host partial resumes once without rewriting Store or ASA");
+            bool deniedReplay=false;
+            try{MultiHostHostRestoreStaging.FinalizeInterrupted(
+                recoveryPlan,expanded,true);}
+            catch(InvalidDataException){deniedReplay=true;}
+            Check(deniedReplay,"no replay can replace an already published host package");
+
+            string corruptParent=Path.Combine(sandbox,"host-restore-corrupt-partial");
+            Directory.CreateDirectory(corruptParent);
+            var corruptPlan=MultiHostHostRestoreStaging.Inspect(destination,
+                hosts[0],corruptParent,expanded);
+            MultiHostHostRestoreStaging.Stage(corruptPlan,expanded);
+            string corruptTarget=Path.Combine(corruptParent,
+                corruptPlan.StageDirectoryName);
+            string corruptPartial=corruptTarget+".incomplete";
+            Directory.Move(corruptTarget,corruptPartial);
+            string corruptManifest=Path.Combine(corruptPartial,
+                "host-restore-stage-v1.json");
+            byte[] originalPartialManifest=File.ReadAllBytes(corruptManifest);
+            File.AppendAllText(corruptManifest,"!");
+            var unverifiedPartial=MultiHostHostRestoreStaging.InspectInterrupted(
+                corruptPlan,expanded);
+            Check(!unverifiedPartial.CanFinalize&&
+                !Directory.Exists(corruptTarget)&&
+                File.ReadAllBytes(corruptManifest).Length==
+                    originalPartialManifest.Length+1,
+                "tampered .incomplete manifest stays intact and cannot be published");
+            bool refusedCorrupt=false;
+            try{MultiHostHostRestoreStaging.FinalizeInterrupted(
+                corruptPlan,expanded,true);}
+            catch(InvalidDataException){refusedCorrupt=true;}
+            Check(refusedCorrupt&&Directory.Exists(corruptPartial),
+                "corrupt partial remains for forensic export, never overwritten");
+
             foreach(var kv in sourceHashes)
             {
                 string[] parts=kv.Key.Split('/');
