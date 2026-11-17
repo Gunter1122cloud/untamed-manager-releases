@@ -6913,12 +6913,10 @@ test("cluster bulk SteamCMD queues only explicitly approved stopped local map be
   const consent=panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"});
   await expect(consent).toContainText("Local Map 60");
   const apply=consent.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"});
-  await expect(apply).toBeDisabled();
-  await consent.getByRole("textbox",{name:"Soros SteamCMD jóváhagyó szöveg"})
-    .fill("HELYI SOROS");
-  await expect(apply).toBeDisabled();
-  await consent.getByRole("textbox",{name:"Soros SteamCMD jóváhagyó szöveg"})
-    .fill("HELYI SOROS STEAMCMD");
+  await expect(consent.getByRole("textbox",{
+    name:"Soros SteamCMD jóváhagyó szöveg"
+  })).toHaveCount(0);
+  await expect(apply).toBeEnabled();
   await apply.click();
   await expect(panel).toContainText("SteamCMD: completed");
   expect(await page.evaluate(()=>(window as typeof window & {
@@ -7798,8 +7796,9 @@ test("native serial SteamCMD batch reattaches after navigation and transient los
   await targets.getByRole("checkbox").check();
   await panel.getByRole("button",{name:/map natív frissítési előellenőrzése/}).click();
   const consent=panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"});
-  await consent.getByRole("textbox",{name:"Soros SteamCMD jóváhagyó szöveg"})
-    .fill("HELYI SOROS STEAMCMD");
+  await expect(consent.getByRole("textbox",{
+    name:"Soros SteamCMD jóváhagyó szöveg"
+  })).toHaveCount(0);
   await consent.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"}).click();
   await expect(panel).toContainText("SteamCMD: running");
   await page.evaluate(()=>(window as typeof window & {
@@ -7838,12 +7837,13 @@ test("stopped original Store-v1 ASA map participates in explicitly approved seri
   await panel.getByRole("button",{name:/map natív frissítési előellenőrzése/}).click();
   const proof=panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"});
   await expect(proof).toContainText("Astraeos");
-  await expect(proof.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"})).toBeDisabled();
+  await expect(proof.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"})).toBeEnabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_STEAM_BATCH_APPLIES__?:()=>number
   }).__UNTAMED_STEAM_BATCH_APPLIES__?.())).toBe(0);
-  await proof.getByRole("textbox",{name:"Soros SteamCMD jóváhagyó szöveg"})
-    .fill("HELYI SOROS STEAMCMD");
+  await expect(proof.getByRole("textbox",{
+    name:"Soros SteamCMD jóváhagyó szöveg"
+  })).toHaveCount(0);
   await proof.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"}).click();
   await expect(panel).toContainText("SteamCMD: completed");
   expect(await page.evaluate(()=>(window as typeof window & {
@@ -8479,7 +8479,7 @@ test("durable interrupted Stop survives native Manager memory loss and requires 
   panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
   const review=panel.getByRole("region",{name:"Megszakadt Stop-napló felülvizsgálata"});
   await expect(review).toBeVisible();
-  await review.getByLabel(/Jóváhagyó szöveg/).fill("REVIEW STOPPED ASA");
+  await expect(review.getByRole("textbox",{name:/Jóváhagyó szöveg/})).toHaveCount(0);
   await review.getByRole("button",{name:"Igazoltan leállított Stop-napló felülvizsgálata"}).click();
   await expect(panel).toContainText("UM-ASA-STOP-REVIEW-UNVERIFIED");
   await expect(panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
