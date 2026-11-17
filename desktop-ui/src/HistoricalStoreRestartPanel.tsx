@@ -10,7 +10,6 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
   const [recovery,setRecovery]=useState<HistoricalRestartRecovery|null>(null);
   const [checked,setChecked]=useState(false);
   const [preview,setPreview]=useState<HistoricalRestartPreview|null>(null);
-  const [phrase,setPhrase]=useState("");
   const [busy,setBusy]=useState(false);
   const [jobId,setJobId]=useState("");
   const [job,setJob]=useState<HistoricalRestartStatus|null>(null);
@@ -23,7 +22,7 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
   useEffect(()=>{
     let alive=true;
     finished.current=false;setChecked(false);setRecovery(null);
-    setPreview(null);setPhrase("");setBusy(false);setJobId("");setJob(null);
+    setPreview(null);setBusy(false);setJobId("");setJob(null);
     setError("");setNotice("");
     managerBridge.historicalRestartRecovery(mapId).then(result=>{
       if(!alive||!belongs(mapId))return;
@@ -93,7 +92,7 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
     if(busy)return;
     const requested=mapId;
     setBusy(true);setChecked(false);setError("");setNotice("");
-    setPreview(null);setPhrase("");
+    setPreview(null);
     try{
       const result=await managerBridge.historicalRestartRecovery(requested);
       if(!belongs(requested))return;
@@ -127,7 +126,7 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
     if(busy||!running||!checked||!recovery||recovery.blocked||
        recovery.inMemoryRunning||jobId)return;
     const requested=mapId;
-    setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
+    setBusy(true);setError("");setNotice("");setPreview(null);
     try{
       const result=await managerBridge.historicalRestartPreview(requested);
       if(!belongs(requested))return;
@@ -140,9 +139,9 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
   };
   const apply=async()=>{
     if(busy||!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
-       phrase!=="STORE-V1 SAVEWORLD DOEXIT START")return;
+       busy)return;
     const requested=mapId,token=preview.token;
-    setPreview(null);setPhrase("");setBusy(true);setError("");setNotice("");
+    setPreview(null);setBusy(true);setError("");setNotice("");
     try{
       const result=await managerBridge.historicalRestartApply(
         token,"STORE-V1 SAVEWORLD DOEXIT START");
@@ -192,18 +191,15 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
         <AlertTriangle size={18}/>
         <div>
           <b>{preview.mapName} · régi PID {preview.pid} · RCON {preview.rconPort} · {preview.launchMode==="asaApiLoader"?"ASA API Loader":"Közvetlen ASA"}</b>
-          <p>Ez valódi leállítás, majd új ASA-indítás. Az indítás új előellenőrzése
-            a leállítás után is meghiúsulhat, ekkor kézi beavatkozás szükséges.
-            Pontosan írd be: STORE-V1 SAVEWORLD DOEXIT START</p>
-          <input aria-label="Store-v1 újraindítás jóváhagyó szöveg"
-            value={phrase} spellCheck={false} autoComplete="off" maxLength={40}
-            onChange={e=>setPhrase(e.target.value)}/>
+          <p>Ez valódi leállítás, majd új ASA-indítás. Az indítás
+              új ellenőrzése meghiúsulhat, ekkor kézi beavatkozás
+              szükséges. A műveletet külön gombnyomással hagyod jóvá.</p>
           <div className="settings-actions">
             <button type="button" className="primary"
-              disabled={busy||phrase!=="STORE-V1 SAVEWORLD DOEXIT START"}
+              disabled={busy}
               onClick={()=>{void apply();}}><RotateCw size={16}/> Store-v1 Restart végrehajtása</button>
             <button type="button" className="secondary" disabled={busy}
-              onClick={()=>{setPreview(null);setPhrase("");}}>Mégse</button>
+              onClick={()=>{setPreview(null);}}>Mégse</button>
           </div>
         </div>
       </div>}
