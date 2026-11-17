@@ -1221,14 +1221,17 @@ export type HistoricalSaveEvidenceStatus={
 export type HistoricalSaveReviewPreview={
   token:string;mapId:string;phase:"prepared"|"needsOperator"|"reviewed";
   operationId:string;coordinatorPhase:string;
-  originalSourceRevalidated:true;confirmedStopped:true;
+  originalSourceRevalidated:true;confirmedStopped:boolean;
+  runningOwned:boolean;previousOutcomeStillUnknown:true;
   preservesOriginalReceipt:true;originalStoreFilesWritten:false;
   automaticRetry:false;requiresTypedApproval:true;
-  evidence:"OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE";
+  evidence:"OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"|
+    "OPERATOR_REVIEW_RUNNING_OWNED_ASA_SAVE_UNKNOWN";
 };
 export type HistoricalSaveReviewReceipt={
   mapId:string;phase:"reviewed";reviewed:true;oldReceiptArchived:true;
   originalStoreFilesWritten:false;autoRetry:false;serverStarted:false;
+  previousOutcomeStillUnknown:true;ownerRemainedRunning:boolean;rconSent:false;
   nextOperationRequiresNewApproval:true;
   evidence:"OPERATOR_REVIEW_DURABLE_LOCAL_JOURNALS_NO_STORE_MUTATION";
 };
@@ -1252,7 +1255,7 @@ export type HistoricalGracefulStopRecovery = {
   evidence:"ORIGINAL_STORE_V1_DURABLE_LOCAL_OPERATION_RECOVERY_READ_ONLY";
 };
 export type HistoricalGracefulStopStatus = {
-  jobId:string;kind:"Stop"|"SaveWorldOnly";state:"queued"|"running"|"completed"|"needsOperator";
+  jobId:string;kind:"Stop"|"SaveWorldOnly";state:"queued"|"running"|"completed"|"needsOperator"|"reviewed";
   step:string;changedUtc:string;confirmedStopped:boolean;
   preExitSaveLogAndWorldObserved:boolean;
   preExitWorldMetadataObserved?:boolean;
