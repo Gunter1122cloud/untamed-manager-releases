@@ -24,6 +24,7 @@ public sealed record LegacyStoreV1SaveEvidence(
         SaveObservedUtc.HasValue;
     // Same .ark file changed after dispatch, but the ASA log pair is absent.
     // This does NOT certify the RCON command caused the file update.
+    [System.Text.Json.Serialization.JsonIgnore]
     public bool LocalWorldMetadataObserved => Phase=="metadataObserved" &&
         SaveObservedUtc.HasValue;
     public bool SharedStoreWriterCertified=>false;
