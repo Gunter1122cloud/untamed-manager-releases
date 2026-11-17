@@ -6402,7 +6402,7 @@ test("Store-v1 SaveWorld reattaches to exactly the original native job without r
   const stop=page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"});
   await expect(save.getByText(/visszacsatlakozva; nincs új RCON-küldés/)).toBeVisible();
   await expect(stop.getByText(/Másik Store-v1 művelet fut/)).toBeVisible();
-  await expect(stop.getByRole("button",{name:"Eredeti SaveWorld\/DoExit előellenőrzése"}))
+  await expect(stop.getByRole("button",{name:"SaveWorld + szabályos DoExit indítása"}))
     .toBeDisabled();
   await expect(save.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
   const dispatches=await page.evaluate(()=>(window as typeof window & {
@@ -6510,8 +6510,10 @@ test("P0 running Store-v1 SaveWorld: owner-pinned unknown receipt can be reviewe
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
   }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
+  // Operator reviewed the unknown previous SaveWorld, but did not send a new
+  // command. A new, separately clicked native preflight is now available.
   await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
-    .toBeDisabled();
+    .toBeEnabled();
 });
 
 test("unreadable original Store SaveWorld is visible on Save and Restart without any RCON retry",async({page})=>{
