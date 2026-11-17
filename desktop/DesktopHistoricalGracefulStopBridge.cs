@@ -792,7 +792,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                 "UM-ORIGINAL-SAVE-HISTORY-RECEIPT-CHANGED" or
                 "UM-ORIGINAL-SAVE-HISTORY-UNSAFE"=>
                     "UM-ORIGINAL-SAVE-HISTORY-REVIEW-REQUIRED",
-                _=>"UM-ORIGINAL-STOP-SAFETY-CHECK-FAILED"
+                _=>NativeLifecycleFailureCode.From(ex)
             });
         }
     }
