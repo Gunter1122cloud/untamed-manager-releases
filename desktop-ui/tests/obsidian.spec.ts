@@ -5315,19 +5315,10 @@ test("P0 every local map has a real per-map ASA API checkbox in Plugin Center",a
   await expect(option).toBeEnabled();
   await expect(option).not.toBeChecked();
   await option.click();
-  const review=group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"});
-  await expect(option).not.toBeChecked();
-  await expect(review).toContainText("Astraeos");
-  await review.getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(option).toBeChecked();
+  await expect(group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})).toHaveCount(0);
   await expect(group).toContainText("AsaApiLoader.exe");
   await option.click();
-  await group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
-    .getByRole("button",{name:"Mégse"}).click();
-  await expect(option).toBeChecked();
-  await option.click();
-  await group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
-    .getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(option).not.toBeChecked();
 });
 
@@ -5345,9 +5336,8 @@ test("P0 historical and new Store maps use existing native Loader selection, nev
   const option=group.getByRole("checkbox",{name:"Indítás ASA API-val"});
   await expect(option).toBeEnabled();
   await option.click();
-  await expect(option).not.toBeChecked();
-  await group.getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(option).toBeChecked();
+  await expect(group.getByRole("button",{name:"Indítási mód jóváhagyása"})).toHaveCount(0);
   await expect(group).toContainText("Nem indult szerver");
 });
 
@@ -5366,10 +5356,8 @@ test("P0 original Store-v1 ASA API switch is usable before RCON attachment",asyn
   await expect(checkbox).toBeVisible();
   await expect(checkbox).toBeEnabled();
   await checkbox.click();
-  await expect(checkbox).not.toBeChecked();
-  await panel.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
-    .getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(checkbox).toBeChecked();
+  await expect(panel.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})).toHaveCount(0);
   await expect(panel).toContainText("AsaApiLoader.exe");
 });
 
@@ -5387,9 +5375,8 @@ test("P0 new Store ASA API checkbox uses original native Store loader approval",
   const option=group.getByRole("checkbox",{name:"Indítás ASA API-val"});
   await expect(option).toBeEnabled();
   await option.click();
-  await group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
-    .getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(option).toBeChecked();
+  await expect(group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})).toHaveCount(0);
   await expect(group).toContainText("AsaApiLoader.exe");
 });
 

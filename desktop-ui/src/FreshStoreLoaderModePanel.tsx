@@ -68,7 +68,21 @@ export function FreshStoreLoaderModePanel({mapId,onConfigured}:{
          receipt.serverStarted||receipt.originalStoreTouched||
          !receipt.requiresManualStart)
         throw new Error("UM-STORE-API-MODE-RECEIPT-MISMATCH");
-      setStatus(previous=>previous?{...previous,useApi:next,mode:receipt.mode}:previous);
+      // Preserve the freshly checked cache status even before a subsequent
+      // read-only status refresh completes. A MODE switch does NOT install Core.
+      setStatus(previous=>previous?{...previous,useApi:next,
+        mode:receipt.mode,cacheState:proof.cacheState}:previous);
+      try{
+        const verified=await managerBridge.freshStoreLoaderModeStatus(requested);
+        if(selectedMap.current!==requested)return;
+        if(verified.mapId.toLowerCase()===requested.toLowerCase()&&
+           verified.useApi===next&&verified.mode===receipt.mode&&
+           !verified.serverStarted&&!verified.originalStoreTouched)
+          setStatus(verified);
+      }catch{
+        // The signed native Apply receipt remains valid even if a later
+        // read-only status query fails. Do NOT submit the change again.
+      }
       setNotice(next?"ASA API Loader indítási mód mentve. A map nem indult el.":
         "Közvetlen ASA indítási mód mentve. A map nem indult el.");
       try{await onConfigured();}

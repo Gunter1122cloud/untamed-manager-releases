@@ -1,4 +1,4 @@
-import {useEffect,useState} from "react";
+import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,Shield} from "lucide-react";
 import {managerBridge,type PublicMap} from "./bridge";
 
@@ -8,7 +8,6 @@ type ModeState={
   confirmedStopped:boolean;
   approvalRequired:boolean;
 };
-type ModePreview={token:string;mapName:string;useApi:boolean};
 
 /**
  * One per selected LOCAL map in Plugin Center / ASA API.
@@ -23,14 +22,16 @@ export function AsaApiLaunchModeSwitch({map,onSaved}:{
   const freshStore=!!map.freshStoreEnrolled;
   const observedOnly=!!map.observedReadOnlyImported;
   const [status,setStatus]=useState<ModeState|null>(null);
-  const [preview,setPreview]=useState<ModePreview|null>(null);
   const [busy,setBusy]=useState(false);
+  const [needsReconcile,setNeedsReconcile]=useState(false);
+  const inFlight=useRef(false);
+  const selectedMap=useRef(map.id);selectedMap.current=map.id;
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
 
   useEffect(()=>{
     let active=true;
-    setStatus(null);setPreview(null);setError("");setNotice("");
+    setStatus(null);setNeedsReconcile(false);setError("");setNotice("");
     if(observedOnly){
       setStatus({useApi:false,canChange:false,confirmedStopped:false,
         approvalRequired:false});
@@ -59,47 +60,86 @@ export function AsaApiLaunchModeSwitch({map,onSaved}:{
     return ()=>{active=false;};
   },[map.id,historical,freshStore,observedOnly]);
 
-  const prepare=async(next:boolean)=>{
-    if(!status?.canChange||busy||preview)return;
-    if(status.useApi===next&&!status.approvalRequired)return;
-    setBusy(true);setError("");setNotice("");
+  const nativeStatus=async(requested:string)=>historical
+    ?managerBridge.historicalLoaderModeStatus(requested).then(x=>({
+      useApi:x.useApi,canChange:x.canChangeMode,confirmedStopped:x.confirmedStopped,
+      approvalRequired:x.approvalRequired
+    }))
+    :freshStore?managerBridge.freshStoreLoaderModeStatus(requested).then(x=>({
+      useApi:x.useApi,canChange:x.canChangeMode,confirmedStopped:x.confirmedStopped,
+      approvalRequired:false
+    }))
+    :managerBridge.localAsaApiModeStatus(requested).then(x=>({
+      useApi:x.useApi,canChange:x.canChangeMode,
+      confirmedStopped:x.canChangeMode,approvalRequired:false
+    }));
+  const refresh=async()=>{
+    if(busy||inFlight.current||observedOnly)return;
+    const requested=map.id;
+    setBusy(true);setError("");
     try{
-      const result=historical
-        ?await managerBridge.historicalLoaderModePreview(map.id,next)
-        :freshStore
-          ?await managerBridge.freshStoreLoaderModePreview(map.id,next)
-          :await managerBridge.localAsaApiModePreview(map.id,next);
-      setPreview({token:result.token,mapName:result.mapName,useApi:next});
+      const next=await nativeStatus(requested);
+      if(selectedMap.current!==requested)return;
+      setStatus(next);setNeedsReconcile(false);
+      setNotice("Indítási mód natívan újraellenőrizve; nem indult ASA szerver.");
     }catch{
-      setError("A natív módváltási ellenőrzés sikertelen. Az ASA/Loader "+
-        "folyamatokat le kell állítani, és a helyi Loader/API fájloknak "+
-        "hitelesen egyezniük kell. Nem változott indítási mód.");
-    }finally{setBusy(false);}
+      if(selectedMap.current===requested)
+        setError("Nem igazolható az indítási mód. Újabb módváltás továbbra is tiltott.");
+    }finally{if(selectedMap.current===requested)setBusy(false);}
   };
-  const save=async()=>{
-    if(!preview||busy)return;
-    const request=preview;
-    setPreview(null);setBusy(true);setError("");setNotice("");
-    let committed=false;
+  const prepare=async(next:boolean)=>{
+    if(!status?.canChange||busy||inFlight.current||needsReconcile)return;
+    if(status.useApi===next&&!status.approvalRequired)return;
+    inFlight.current=true;
+    const requested=map.id;
+    setBusy(true);setError("");setNotice("");
+    let applyAttempted=false;
     try{
-      const receipt=historical
-        ?await managerBridge.historicalLoaderModeApply(request.token)
+      // One checkbox change performs the full native preflight + single-use
+      // map-bound token Apply, no second modal or checkbox.
+      const proof=historical
+        ?await managerBridge.historicalLoaderModePreview(requested,next)
         :freshStore
-          ?await managerBridge.freshStoreLoaderModeApply(request.token)
-          :await managerBridge.localAsaApiModeApply(request.token);
-      committed=true;
-      setStatus({useApi:receipt.useApi,canChange:true,
-        confirmedStopped:true,approvalRequired:false});
-      setNotice("Elmentve: "+(receipt.useApi?"ASA API Loader":"Közvetlen ASA")+
-        ". A következő külön jóváhagyott Start ezt használja. "+
-        "Nem indult szerver.");
+          ?await managerBridge.freshStoreLoaderModePreview(requested,next)
+          :await managerBridge.localAsaApiModePreview(requested,next);
+      if(selectedMap.current!==requested)return;
+      if(!proof.token||proof.mapId.toLowerCase()!==requested.toLowerCase()||
+         proof.useApi!==next||proof.mode!==(next?"asaApiLoader":"directAsa")||
+         proof.startsServer||proof.changesStore||!proof.requiresStoppedProcess)
+        throw new Error("UM-ASA-API-MODE-PREVIEW-MISMATCH");
+      applyAttempted=true;
+      const receipt=historical
+        ?await managerBridge.historicalLoaderModeApply(proof.token)
+        :freshStore
+          ?await managerBridge.freshStoreLoaderModeApply(proof.token)
+          :await managerBridge.localAsaApiModeApply(proof.token);
+      if(selectedMap.current!==requested)return;
+      if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||
+         receipt.useApi!==next||receipt.mode!==proof.mode||
+         receipt.serverStarted||receipt.originalStoreTouched)
+        throw new Error("UM-ASA-API-MODE-RECEIPT-MISMATCH");
+      setStatus(current=>current?{...current,useApi:next,
+        confirmedStopped:true,approvalRequired:false}:current);
+      setNotice("Elmentve: "+(next?"ASA API Loader":"Közvetlen ASA")+
+        ". A következő Start külön művelet; nem indult szerver.");
       try{await onSaved?.();}
-      catch{setNotice("Az indítási mód elmentve, de a maplista frissítése "+
-        "sikertelen. Ne küldd újra a módváltást.");}
-    }catch{
-      if(!committed)setError("Az indítási mód mentése nem igazolható. "+
-        "Nincs automatikus újrapróbálás vagy szerverindítás.");
-    }finally{setBusy(false);}
+      catch{if(selectedMap.current===requested)setNotice(
+        "Az indítási mód elmentve, de a maplista frissítése nem sikerült. Ne küldd újra.");}
+    }catch(e){
+      if(selectedMap.current===requested){
+        if(applyAttempted)setNeedsReconcile(true);
+        setError(applyAttempted?
+          "A módváltás kimenetele nem igazolható ("+
+            (e instanceof Error?e.message:"UM-ASA-API-MODE-APPLY-UNKNOWN")+"). "+
+            "Nem ismételjük meg; olvasd vissza a natív állapotot.":
+          "A módváltási előellenőrzés sikertelen ("+
+            (e instanceof Error?e.message:"UM-ASA-API-MODE-PREVIEW-DENIED")+"). "+
+            "Leállított szerver és ellenőrzött API/Loader fájlok szükségesek.");
+      }
+    }finally{
+      inFlight.current=false;
+      if(selectedMap.current===requested)setBusy(false);
+    }
   };
 
   return <section className="glass panel" aria-label="Maponkénti ASA API indítási kapcsoló">
@@ -111,7 +151,7 @@ export function AsaApiLaunchModeSwitch({map,onSaved}:{
       <label className="historical-approval">
         <input type="checkbox" aria-label="Indítás ASA API-val"
           checked={status?.useApi??false}
-          disabled={!status?.canChange||busy||!!preview}
+          disabled={!status?.canChange||busy||needsReconcile}
           onChange={e=>{void prepare(e.target.checked);}}/>
         Indítás ASA API-val
       </label>
@@ -121,11 +161,11 @@ export function AsaApiLaunchModeSwitch({map,onSaved}:{
         indítást érinti; az aktuális szervert nem állítja le és nem indítja újra.
       </p>
       {status?.approvalRequired&&<div className="warning-inline">
-        A korábbi korábbi Manager indítási módját még külön jóvá kell hagyni.
+        A korábbi kezelő indítási módját külön natív művelettel kell rögzíteni.
         {!status.useApi&&<button type="button" className="secondary"
-          disabled={!status.canChange||busy||!!preview}
+          disabled={!status.canChange||busy||needsReconcile}
           onClick={()=>{void prepare(false);}}>
-          Közvetlen ASA mód jóváhagyása
+          Közvetlen ASA mód rögzítése
         </button>}
       </div>}
       {!status?.canChange&&<p className="warning-inline" role="status">
@@ -134,18 +174,10 @@ export function AsaApiLaunchModeSwitch({map,onSaved}:{
           "A mód csak igazoltan leállított helyi mapon, ellenőrzött Loader/API "+
           "fájlokkal és rendezett műveleti naplóval módosítható."}
       </p>}
-      {preview&&<div className="warning-inline" role="region"
-        aria-label="ASA API indítási mód jóváhagyása">
-        <b>{preview.mapName} – {preview.useApi?"ASA API Loader":"Közvetlen ASA"}</b>
-        <p>Ez kizárólag a Manager maponkénti indítási beállítását menti.
-          A következő Start külön művelet, a Store és karakteradatok változatlanok.</p>
-        <div className="settings-actions">
-          <button type="button" className="primary" disabled={busy}
-            onClick={()=>{void save();}}>Indítási mód jóváhagyása</button>
-          <button type="button" className="secondary" disabled={busy}
-            onClick={()=>setPreview(null)}>Mégse</button>
-        </div>
-      </div>}
+      {needsReconcile&&<button type="button" className="secondary"
+        disabled={busy} onClick={()=>{void refresh();}}>
+        Indítási mód natív újraellenőrzése
+      </button>}
       {notice&&<div role="status" className="success-inline">
         <CheckCircle2 size={16}/>{notice}</div>}
       {error&&<div role="alert" className="error-inline">
