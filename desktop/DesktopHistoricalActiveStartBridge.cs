@@ -505,12 +505,15 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
         }
         catch(Exception e)
         {
-            // Never suppress actionable native codes from the source-pin,
-            // peer, PID or multi-journal planner just because a local
-            // hard-coded allowlist has not yet been updated. Only strictly
-            // ASCII-safe symbolic codes survive the central sanitizer.
-            // No paths, server arguments, credentials or raw exceptions.
-            return Fail(id,NativeLifecycleFailureCode.From(e));
+            // Preserve precise, sanitized UM-* codes that were explicitly
+            // raised by the native preflight (including wrapped exceptions).
+            // A generic IO/access/other exception must not masquerade as an
+            // actionable Start code or leak filesystem/credential details.
+            string code=NativeLifecycleFailureCode.From(e);
+            for(Exception? cause=e;cause!=null;cause=cause.InnerException)
+                if(string.Equals(cause.Message,code,StringComparison.Ordinal))
+                    return Fail(id,code);
+            return Fail(id,"UM-STORE-ACTIVE-START-SAFETY-FAILED");
         }
     }
     private static string Ok(string id,object payload)=>
