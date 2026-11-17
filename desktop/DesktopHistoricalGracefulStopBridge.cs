@@ -578,7 +578,9 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         productionRestoreAllowed=false,
                         fsyncCertified=false,
                         sourceStateCertifiedForCurrentWriter=false,
-                        evidence="MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM"
+                        evidence=evidence?.LocalWorldMetadataObserved==true?
+                            "MANAGER_LOCAL_WORLD_METADATA_ONLY_NO_SHARED_STORE_QUORUM":
+                            "MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM"
                     });
                 }
                 if(method=="historical.gracefulStopRecovery")
