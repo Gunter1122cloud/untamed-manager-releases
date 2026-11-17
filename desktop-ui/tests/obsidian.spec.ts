@@ -1637,8 +1637,9 @@ test.beforeEach(async ({ page }) => {
           return {token:"00000000-0000-4000-8000-000000001694",
             mapId:two,phase:"needsOperator",operationId:originalSaveJob,
             coordinatorPhase:"NeedsOperator",originalSourceRevalidated:true,
-            confirmedStopped:true,preservesOriginalReceipt:true,
-            originalStoreFilesWritten:false,automaticRetry:false,
+            confirmedStopped:true,runningOwned:false,
+            previousOutcomeStillUnknown:true,pairedRestartReview:false,
+            preservesOriginalReceipt:true,originalStoreFilesWritten:false,automaticRetry:false,
             requiresTypedApproval:true,
             evidence:"OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"};
         }
@@ -1650,6 +1651,8 @@ test.beforeEach(async ({ page }) => {
           originalSaveReviewed=true;
           return {mapId:two,phase:"reviewed",reviewed:true,
             oldReceiptArchived:true,originalStoreFilesWritten:false,
+            previousOutcomeStillUnknown:true,ownerRemainedRunning:false,
+            pairedRestartReviewed:false,rconSent:false,
             autoRetry:false,serverStarted:false,
             nextOperationRequiresNewApproval:true,
             evidence:"OPERATOR_REVIEW_DURABLE_LOCAL_JOURNALS_NO_STORE_MUTATION"};
@@ -6413,7 +6416,8 @@ test("Store-v1 interrupted SaveWorld can be explicitly reviewed when stopped wit
   })).toHaveCount(0);
   await expect(accept).toBeEnabled();
   await accept.click();
-  await expect(panel).toContainText("a műveleti napló operátori ellenőrzéssel feloldva");
+  await expect(panel).toContainText("A korábbi SaveWorld kimenetele továbbra is ISMERETLEN");
+  await expect(panel).toContainText("nem küldtünk új parancsot.");
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Operátori felülvizsgálat megtörtént");
   await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"})).toHaveCount(0);
