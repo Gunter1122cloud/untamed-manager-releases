@@ -41,10 +41,12 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     private readonly Dictionary<Guid,Approval> approvalsByMap=new();
     private sealed record ReviewApproval(Guid Token,Guid MapId,
         Guid ReceiptOperation,Guid? CoordinatorOperation,
-        string SourceSha,DateTimeOffset Created);
+        string SourceSha,int Pid,DateTimeOffset PidStartedUtc,
+        string ProfileJson,bool OwnerRunning,DateTimeOffset Created);
     // Independent map approvals must not be superseded by another map.
     private readonly Dictionary<Guid,ReviewApproval> pendingReviewByMap=new();
     private readonly Func<Guid,string,bool> verifyReviewSource;
+    private readonly Func<Guid,int,DateTimeOffset,string,bool> verifyReviewRunning;
     // Per-map Store SaveWorld/DoExit receipts must remain observable when
     // a second independent map starts another approved native operation.
     private readonly Dictionary<Guid,Job> jobsByMap=new();
@@ -63,10 +65,12 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         Func<Guid,LegacyStoreV1GracefulStop.Owned>? probe,
         Func<Guid,int,DateTimeOffset,string,Action<string>,Task<AsaGracefulStopReceipt>>? executor,
         Func<Guid,int,DateTimeOffset,string,Action<string>,Task<LegacyStoreV1GracefulStop.SaveOnlyReceipt>>? saver=null,
-        Func<Guid,string,bool>? reviewVerifier=null)
+        Func<Guid,string,bool>? reviewVerifier=null,
+        Func<Guid,int,DateTimeOffset,string,bool>? runningReviewVerifier=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         verifyReviewSource=reviewVerifier??VerifyReviewOriginal;
+        verifyReviewRunning=runningReviewVerifier??VerifyReviewRunningOriginal;
         nativePreview=probe==null;
         preview=probe??(map=>LegacyStoreV1GracefulStop.Preview(cluster,map));
         stop=executor??((map,pid,started,source,stage)=>
@@ -150,6 +154,31 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         string source=LegacyStoreV1GracefulStop.OriginalSource(
             cluster,reviewedMap);
         return string.Equals(source,reviewedSourceSha,StringComparison.Ordinal);
+    }
+
+    private bool VerifyReviewRunningOriginal(Guid mapId,int expectedPid,
+        DateTimeOffset expectedStart,string expectedSource)
+    {
+        if(expectedPid<=0||expectedStart==default||HasActive(mapId))
+            return false;
+        try
+        {
+            // This is the same read-only, owned PID/RCON/source guard used
+            // for unfinished Restart review. It DOES NOT require the ASA to
+            // be stopped and sends no RCON command.
+            var owner=LegacyStoreV1GracefulStop.
+                PreviewForUnfinishedRestartReview(cluster,mapId);
+            return owner.Process.Pid==expectedPid&&
+                owner.Process.StartedUtc==expectedStart&&
+                string.Equals(owner.SourceSha,expectedSource,
+                    StringComparison.Ordinal);
+        }
+        catch(Exception ex) when(ex is InvalidOperationException or
+            UnauthorizedAccessException or InvalidDataException or
+            IOException or ArgumentException or NotSupportedException)
+        {
+            return false;
+        }
     }
 
     private object Recover(Guid mapId)
@@ -268,23 +297,47 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-NOT-NEEDED");
                     if(globalPending&&reviewedCoordinator?.Kind!=UntamedOperationKind.Backup)
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-OTHER-OPERATION");
-                    if(!verifyReviewSource(reviewedMapId,reviewedEvidence.OriginalSourceSha256))
-                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-STOP-OR-SOURCE-UNVERIFIED");
+                    if(HasActive(reviewedMapId))
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-WORKER-ACTIVE");
+                    // Do not review an in-flight save that merely has a
+                    // prepared receipt but no Backup lease yet.
+                    if(DateTimeOffset.UtcNow-reviewedEvidence.BeganUtc<
+                       TimeSpan.FromMinutes(3) && reviewedEvidence.Phase!="reviewed")
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-TOO-RECENT");
+                    var restart=new AsaManualRestartJournal(
+                        reviewedMap.InstallationPath).Observe();
+                    if(restart!=null&&restart.Phase is not
+                        (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed))
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-PAIRED-RESTART");
+                    bool ownedRunning=verifyReviewRunning(reviewedMapId,
+                        reviewedEvidence.Pid,reviewedEvidence.PidStartedUtc,
+                        reviewedEvidence.OriginalSourceSha256);
+                    bool ownerStopped=!ownedRunning&&
+                        verifyReviewSource(reviewedMapId,
+                            reviewedEvidence.OriginalSourceSha256);
+                    if(!ownedRunning&&!ownerStopped)
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-OWNER-UNVERIFIED");
                     var reviewToken=Guid.NewGuid();
                     if(!pendingReviewByMap.ContainsKey(reviewedMapId)&&
                        pendingReviewByMap.Count>=25)
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-PREVIEW-CAPACITY");
                     pendingReviewByMap[reviewedMapId]=new(reviewToken,reviewedMapId,
                         reviewedEvidence.OperationId,reviewedCoordinator?.Operation,
-                        reviewedEvidence.OriginalSourceSha256,DateTimeOffset.UtcNow);
+                        reviewedEvidence.OriginalSourceSha256,reviewedEvidence.Pid,
+                        reviewedEvidence.PidStartedUtc,
+                        JsonSerializer.Serialize(reviewedMap),ownedRunning,
+                        DateTimeOffset.UtcNow);
                     return Ok(id,new{
                         token=reviewToken,mapId=reviewedMapId,phase=reviewedEvidence.Phase,
                         operationId=reviewedEvidence.OperationId,
                         coordinatorPhase=reviewedCoordinator?.Phase.ToString()??"None",
-                        originalSourceRevalidated=true,confirmedStopped=true,
+                        originalSourceRevalidated=true,confirmedStopped=ownerStopped,
+                        runningOwned=ownedRunning,previousOutcomeStillUnknown=true,
                         preservesOriginalReceipt=true,originalStoreFilesWritten=false,
                         automaticRetry=false,requiresTypedApproval=true,
-                        evidence="OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"
+                        evidence=ownedRunning?
+                            "OPERATOR_REVIEW_RUNNING_OWNED_ASA_SAVE_UNKNOWN":
+                            "OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"
                     });
                 }
                 if(method=="historical.saveWorldReviewApply")
@@ -304,29 +357,63 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                     if(DateTimeOffset.UtcNow-approvedReview.Created>TimeSpan.FromMinutes(5))
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-EXPIRED");
                     var currentReviewMap=Owned(approvedReview.MapId);
-                    if(currentReviewMap is not {HistoricalStoreProtected:true})
-                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-MAP-CHANGED");
+                    if(currentReviewMap is not {HistoricalStoreProtected:true}||
+                       JsonSerializer.Serialize(currentReviewMap)!=approvedReview.ProfileJson||
+                       HasActive(approvedReview.MapId))
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-MAP-OR-WORKER-CHANGED");
                     var currentReviewReceipt=LegacyStoreV1SaveEvidenceJournal.Inspect(
                         cluster.Store.Root,approvedReview.MapId);
                     if(currentReviewReceipt?.OperationId!=approvedReview.ReceiptOperation||
+                       currentReviewReceipt.Pid!=approvedReview.Pid||
+                       currentReviewReceipt.PidStartedUtc!=approvedReview.PidStartedUtc||
                        currentReviewReceipt.OriginalSourceSha256!=approvedReview.SourceSha)
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-RECEIPT-CHANGED");
-                    cluster.Operations.ReviewStoppedBackup(
-                        currentReviewMap.InstallationPath,approvedReview.CoordinatorOperation,
-                        ()=>verifyReviewSource(approvedReview.MapId,
-                            approvedReview.SourceSha),
-                        ()=>LegacyStoreV1SaveEvidenceJournal.ReviewUncertain(
+                    bool VerifyReviewedOwner()=>
+                        !HasActive(approvedReview.MapId)&&
+                        JsonSerializer.Serialize(currentReviewMap)==approvedReview.ProfileJson&&
+                        (approvedReview.OwnerRunning?
+                            verifyReviewRunning(approvedReview.MapId,
+                                approvedReview.Pid,approvedReview.PidStartedUtc,
+                                approvedReview.SourceSha):
+                            verifyReviewSource(approvedReview.MapId,
+                                approvedReview.SourceSha));
+                    if(!VerifyReviewedOwner())
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-OWNER-CHANGED");
+                    void ReviewReceipt()=>
+                        LegacyStoreV1SaveEvidenceJournal.ReviewUncertain(
                             cluster.Store.Root,approvedReview.MapId,
                             approvedReview.ReceiptOperation,approvedReview.SourceSha,
-                            ()=>verifyReviewSource(approvedReview.MapId,
-                                approvedReview.SourceSha)));
+                            VerifyReviewedOwner);
+                    if(approvedReview.OwnerRunning)
+                        cluster.Operations.ReviewRunningBackup(
+                            currentReviewMap.InstallationPath,
+                            approvedReview.CoordinatorOperation,
+                            VerifyReviewedOwner,ReviewReceipt);
+                    else
+                        cluster.Operations.ReviewStoppedBackup(
+                            currentReviewMap.InstallationPath,
+                            approvedReview.CoordinatorOperation,
+                            VerifyReviewedOwner,ReviewReceipt);
                     var updatedReviewReceipt=LegacyStoreV1SaveEvidenceJournal.Inspect(
                         cluster.Store.Root,approvedReview.MapId);
+                    if(updatedReviewReceipt?.Phase!="reviewed")
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-NOT-FINISHED");
+                    lock(sync)
+                        if(jobsByMap.TryGetValue(approvedReview.MapId,out var previous)&&
+                           previous.Id==approvedReview.ReceiptOperation&&
+                           previous.State=="needsOperator")
+                        {
+                            previous.State="reviewed";
+                            previous.Step="Korábbi mentés kimenetele ismeretlen; napló auditálva";
+                            previous.ChangedUtc=DateTimeOffset.UtcNow;
+                        }
                     return Ok(id,new{
                         mapId=approvedReview.MapId,
-                        phase=updatedReviewReceipt?.Phase??"none",reviewed=true,
+                        phase=updatedReviewReceipt.Phase,reviewed=true,
                         oldReceiptArchived=true,originalStoreFilesWritten=false,
-                        autoRetry=false,serverStarted=false,
+                        previousOutcomeStillUnknown=true,
+                        ownerRemainedRunning=approvedReview.OwnerRunning,
+                        rconSent=false,autoRetry=false,serverStarted=false,
                         nextOperationRequiresNewApproval=true,
                         evidence="OPERATOR_REVIEW_DURABLE_LOCAL_JOURNALS_NO_STORE_MUTATION"
                     });
