@@ -170,12 +170,12 @@ internal static class LegacyStoreSaveReviewBridgeTests
             "running original ASA can preview uncertain SaveWorld without Stop");
         string token=review.GetProperty("data").GetProperty("token").GetString()!;
         var rejected=await Call(bridge,"historical.saveWorldReviewApply",
-            new{token,confirm=true,confirmation="WRONG"});
+            new{token=Guid.NewGuid()});
         Check(!rejected.GetProperty("ok").GetBoolean(),
-            "incorrect one-shot consent cannot write any running-review journal");
+            "unrecognized one-shot token cannot write any running-review journal");
         exactOwner=false;
         rejected=await Call(bridge,"historical.saveWorldReviewApply",
-            new{token,confirm=true,confirmation="REVIEW STORE SAVE"});
+            new{token});
         Check(!rejected.GetProperty("ok").GetBoolean()&&
               cluster.Operations.Observe(installation)?.Phase==
                   UntamedOperationPhase.NeedsOperator &&
@@ -183,7 +183,7 @@ internal static class LegacyStoreSaveReviewBridgeTests
                   "needsOperator",
             "changed original PID/source denies apply without changing any journal");
         rejected=await Call(bridge,"historical.saveWorldReviewApply",
-            new{token,confirm=true,confirmation="REVIEW STORE SAVE"});
+            new{token});
         Check(!rejected.GetProperty("ok").GetBoolean(),
             "failed running-review approval token cannot be replayed");
 
@@ -192,7 +192,7 @@ internal static class LegacyStoreSaveReviewBridgeTests
             new{mapId=map.Id});
         token=review.GetProperty("data").GetProperty("token").GetString()!;
         var resolved=await Call(bridge,"historical.saveWorldReviewApply",
-            new{token,confirm=true,confirmation="REVIEW STORE SAVE"});
+            new{token});
         Check(resolved.GetProperty("ok").GetBoolean()&&
               resolved.GetProperty("data").GetProperty("ownerRemainedRunning").GetBoolean()&&
               resolved.GetProperty("data").GetProperty("previousOutcomeStillUnknown").GetBoolean()&&
@@ -239,7 +239,7 @@ internal static class LegacyStoreSaveReviewBridgeTests
             "partial two-journal review is presented for explicit completion");
         var resumed=await Call(bridge,"historical.saveWorldReviewApply",
             new{token=resume.GetProperty("data").GetProperty("token").GetString(),
-                confirm=true,confirmation="REVIEW STORE SAVE"});
+                });
         Check(resumed.GetProperty("ok").GetBoolean()&&
               cluster.Operations.Observe(installation)?.Phase==
                   UntamedOperationPhase.OperatorReviewed,
@@ -292,7 +292,7 @@ internal static class LegacyStoreSaveReviewBridgeTests
             "running review inventories and binds the matching interrupted Restart");
         var pairedReceipt=await Call(bridge,"historical.saveWorldReviewApply",
             new{token=paired.GetProperty("data").GetProperty("token").GetString(),
-                confirm=true,confirmation="REVIEW STORE SAVE"});
+                });
         Check(pairedReceipt.GetProperty("ok").GetBoolean()&&
               pairedReceipt.GetProperty("data").GetProperty("pairedRestartReviewed").GetBoolean()&&
               !pairedReceipt.GetProperty("data").GetProperty("rconSent").GetBoolean()&&
@@ -373,17 +373,17 @@ internal static class LegacyStoreSaveReviewBridgeTests
         Check(token!=secondToken,
             "independent pending operator reviews never share approval tokens");
         var noConsent=await Call(bridge,"historical.saveWorldReviewApply",
-            new{token,confirm=true,confirmation="WRONG"});
+            new{token=Guid.NewGuid()});
         Check(!noConsent.GetProperty("ok").GetBoolean(),
-            "review cannot happen without exact typed confirmation");
+            "review cannot happen with a mismatched or unknown operation token");
         var approved=await Call(bridge,"historical.saveWorldReviewApply",
-            new{token,confirm=true,confirmation="REVIEW STORE SAVE"});
+            new{token});
         Check(approved.GetProperty("ok").GetBoolean()&&
             approved.GetProperty("data").GetProperty("reviewed").GetBoolean()&&
             approved.GetProperty("data").GetProperty("oldReceiptArchived").GetBoolean(),
-            "explicit consent reviews both native journals without sending RCON");
+            "scoped native token reviews both journals without sending RCON");
         var secondApproved=await Call(bridge,"historical.saveWorldReviewApply",
-            new{token=secondToken,confirm=true,confirmation="REVIEW STORE SAVE"});
+            new{token=secondToken,});
         Check(secondApproved.GetProperty("ok").GetBoolean()&&
               secondApproved.GetProperty("data").GetProperty("mapId").GetGuid()==secondMap.Id,
             "second map's review succeeds after first map commit, without replay");
@@ -398,7 +398,7 @@ internal static class LegacyStoreSaveReviewBridgeTests
         Check(File.Exists(archived)&&new FileInfo(archived).Length>64,
             "original uncertain local receipt remains durably archived");
         var replay=await Call(bridge,"historical.saveWorldReviewApply",
-            new{token,confirm=true,confirmation="REVIEW STORE SAVE"});
+            new{token});
         Check(!replay.GetProperty("ok").GetBoolean(),
             "review token cannot be replayed");
         var recovered=await Call(bridge,"historical.gracefulStopRecovery",

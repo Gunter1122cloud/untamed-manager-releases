@@ -1612,8 +1612,7 @@ test.beforeEach(async ({ page }) => {
         case "historical.saveWorldApply": {
           if(originalSaveLeaseBusy)
             throw new Error("UM-ORIGINAL-STOP-INSTALLATION-BUSY");
-          if(m.token!==originalSaveToken||m.confirm!==true||
-             m.typedApproval!=="STORE-V1 SAVEWORLD"||originalSaveQueued||
+          if(m.token!==originalSaveToken||originalSaveQueued||
              !originalSavePending||!historicalActiveStarted||oldStopNeedsOperator)
             throw new Error("Original Store SaveWorld approval denied");
           originalSavePending=false;
@@ -1679,15 +1678,14 @@ test.beforeEach(async ({ page }) => {
             runningOwned:originalSaveRecoveryRunning,
             previousOutcomeStillUnknown:true,pairedRestartReview:false,
             preservesOriginalReceipt:true,originalStoreFilesWritten:false,automaticRetry:false,
-            requiresTypedApproval:true,
+            requiresTypedApproval:false,
             evidence:originalSaveRecoveryRunning?
               "OPERATOR_REVIEW_RUNNING_OWNED_ASA_SAVE_UNKNOWN":
               "OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"};
         }
         case "historical.saveWorldReviewApply": {
           if(!originalSaveRecoveryFixture||originalSaveReviewed||
-             m.token!=="00000000-0000-4000-8000-000000001694"||
-             !m.confirm||m.confirmation!=="REVIEW STORE SAVE")
+             m.token!=="00000000-0000-4000-8000-000000001694")
             throw new Error("Store Save review approval required");
           originalSaveReviewed=true;
           return {mapId:two,phase:"reviewed",reviewed:true,
@@ -6239,7 +6237,7 @@ test("Store-v1 SaveWorld refuses a native preview bound to another map",async({p
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
-  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
+  await panel.getByRole("button",{name:"SaveWorld mentés indítása"}).click();
   await expect(panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"})).toHaveCount(0);
   await expect(panel).toContainText("kiválasztott Store-v1 map PID/RCON-ja");
   expect(await page.evaluate(()=>(window as typeof window & {
@@ -6259,9 +6257,8 @@ test("Store-v1 SaveWorld rejects another job's completed status without declarin
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
-  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
-  const preview=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
-  await preview.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
+  await panel.getByRole("button",{name:"SaveWorld mentés indítása"}).click();
+
   await expect(panel).toContainText("státusza vagy feladatazonossága nem igazolható");
   await expect(panel).not.toContainText("Helyi SaveComplete napló tartósan igazolt");
   expect(await page.evaluate(()=>(window as typeof window & {
@@ -6283,7 +6280,7 @@ test("Store-v1 SaveWorld rejects another map's durable evidence without sending 
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Tartós napló nem ellenőrizhető");
-  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number
   }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
@@ -6298,22 +6295,15 @@ test("original Store-v1 SaveWorld-only runs the real native map action without s
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await expect(panel).toBeVisible();
-  const inspect=panel.getByRole("button",{name:"Mentés előellenőrzése"});
-  await expect(inspect).toBeEnabled();
-  await inspect.click();
-  const approve=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
-  await expect(approve).toContainText("PID 42101");
-  await expect(approve).toContainText("RCON 37145");
-  await expect(approve).toContainText("nem szükséges a távoli korábbi kezelőalkalmazás peer-jelölő");
-  const save=approve.getByRole("button",{name:"SaveWorld végrehajtása"});
-  await expect(approve.getByRole("textbox",{name:"Store-v1 mentés jóváhagyó szöveg"})).toHaveCount(0);
+  const save=panel.getByRole("button",{name:"SaveWorld mentés indítása"});
   await expect(save).toBeEnabled();
+  await expect(panel).toContainText("Nem Stop, DoExit, Store-konverzió vagy restore");
   await save.click();
   await expect(panel.getByText(/A szerver tovább fut; fsync és játékbeli karakterutazás/)).toBeVisible();
   await expect(panel).toContainText("ASA tovább fut");
   await expect(page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"})).toBeVisible();
   await expect(page.getByRole("heading",{name:"Astraeos",exact:true})).toBeVisible();
-  await expect(save).toHaveCount(0);
+  await expect(save).toBeDisabled();
 });
 
 test("Store SaveComplete UI distinguishes durable local log evidence from live cross-host writer certification",async({page})=>{
@@ -6327,9 +6317,8 @@ test("Store SaveComplete UI distinguishes durable local log evidence from live c
   const evidence=panel.getByTestId("store-durable-save-evidence");
   await expect(evidence).toContainText("Nincs igazolt helyi SaveComplete napló");
   await expect(evidence).toContainText("Production restore továbbra is tiltott");
-  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
-  const approval=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
-  await approval.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
+  await panel.getByRole("button",{name:"SaveWorld mentés indítása"}).click();
+
   await expect(evidence).toContainText("Korábbi helyi ASA naplójelzés + stabil világfájl rögzítve");
   await expect(panel).toContainText("Helyi SaveComplete napló tartósan igazolt");
   await expect(evidence).not.toContainText("Két gép SaveComplete igazolva");
@@ -6347,19 +6336,18 @@ test("Store-v1 SaveWorld explains competing installation lease and sends no RCON
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
-  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
-  const approval=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
-  await approval.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
+  await panel.getByRole("button",{name:"SaveWorld mentés indítása"}).click();
+
   await expect(panel).toContainText("Másik natív művelet már zárolja");
   await expect(panel).toContainText("nem küldtünk RCON-parancsot");
-  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"}))
-    .toHaveCount(0);
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
+    .toBeDisabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
   }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
 });
 
-test("completed Store-v1 SaveWorld permits a fresh separately approved preview after durable read-only refresh",async({page})=>{
+test("completed Store-v1 SaveWorld permits a new one-click action after read-only refresh",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
@@ -6367,9 +6355,8 @@ test("completed Store-v1 SaveWorld permits a fresh separately approved preview a
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
-  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
-  const first=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
-  await first.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
+  await panel.getByRole("button",{name:"SaveWorld mentés indítása"}).click();
+
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Korábbi helyi ASA naplójelzés + stabil világfájl rögzítve");
   const refresh=panel.getByRole("button",{
@@ -6377,12 +6364,9 @@ test("completed Store-v1 SaveWorld permits a fresh separately approved preview a
   });
   await expect(refresh).toBeEnabled();
   await refresh.click();
-  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
     .toBeEnabled();
-  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
-  await expect(panel.getByRole("region",{
-    name:"Store-v1 SaveWorld jóváhagyása"
-  })).toBeVisible();
+  // Read-only refresh never starts a second native SaveWorld by itself.
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
   }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(1);
@@ -6402,8 +6386,8 @@ test("corrupt native SaveComplete receipt fails closed without a SaveWorld butto
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Tartós napló nem ellenőrizhető");
-  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
-  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"})).toHaveCount(0);
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
 });
 
 test("Store-v1 SaveWorld reattaches to exactly the original native job without redispatch after React remount",async({page})=>{
@@ -6422,7 +6406,7 @@ test("Store-v1 SaveWorld reattaches to exactly the original native job without r
   await expect(stop.getByText(/Másik Store-v1 művelet fut/)).toBeVisible();
   await expect(stop.getByRole("button",{name:"Eredeti SaveWorld\/DoExit előellenőrzése"}))
     .toBeDisabled();
-  await expect(save.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
+  await expect(save.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
   const dispatches=await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
   }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.());
@@ -6449,20 +6433,14 @@ test("Store-v1 interrupted SaveWorld can be explicitly reviewed when stopped wit
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Függőben / bizonytalan");
-  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
-  await panel.getByRole("button",{name:"Korábbi SaveWorld operátori ellenőrzése"}).click();
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
+  await panel.getByRole("button",{name:"Napló rendezése (korábbi SaveWorld, RCON nélkül)"}).click();
   const review=panel.getByRole("region",{name:"Korábbi Store-v1 mentés felülvizsgálata"});
-  const accept=review.getByRole("button",{name:"Korábbi mentési napló felülvizsgálatának jóváhagyása"});
-  await expect(review.getByRole("textbox",{
-    name:"Store-v1 mentés felülvizsgálati megerősítése"
-  })).toHaveCount(0);
-  await expect(accept).toBeEnabled();
-  await accept.click();
   await expect(panel).toContainText("A korábbi SaveWorld kimenetele továbbra is ISMERETLEN");
   await expect(panel).toContainText("nem küldtünk új parancsot.");
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Operátori felülvizsgálat megtörtént");
-  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"})).toHaveCount(0);
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
 });
 
 test("late SaveWorld evidence rebinds a replaced receipt in one UI instance, no RCON",async({page})=>{
@@ -6522,14 +6500,10 @@ test("P0 running Store-v1 SaveWorld: owner-pinned unknown receipt can be reviewe
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Függőben / bizonytalan");
-  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
     .toBeDisabled();
-  await panel.getByRole("button",{name:"Korábbi SaveWorld operátori ellenőrzése"})
-    .click();
-  const review=panel.getByRole("region",{name:"Korábbi Store-v1 mentés felülvizsgálata"});
-  await expect(review).toContainText("A régi saját ASA PID és RCON-tulajdon igazolt");
-  await review.getByRole("button",{
-    name:"Korábbi mentési napló felülvizsgálatának jóváhagyása"
+  await panel.getByRole("button",{
+    name:"Napló rendezése (korábbi SaveWorld, RCON nélkül)"
   }).click();
   await expect(panel).toContainText(
     "A korábbi SaveWorld kimenetele továbbra is ISMERETLEN");
@@ -6538,8 +6512,8 @@ test("P0 running Store-v1 SaveWorld: owner-pinned unknown receipt can be reviewe
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
   }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
-  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"}))
-    .toHaveCount(0);
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
+    .toBeDisabled();
 });
 
 test("unreadable original Store SaveWorld is visible on Save and Restart without any RCON retry",async({page})=>{
@@ -6563,7 +6537,7 @@ test("unreadable original Store SaveWorld is visible on Save and Restart without
   await expect(savePanel.getByTestId("store-durable-save-evidence"))
     .toContainText("Tartós napló nem ellenőrizhető");
   await expect(savePanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
-  await expect(savePanel.getByRole("button",{name:"Mentés előellenőrzése"}))
+  await expect(savePanel.getByRole("button",{name:"SaveWorld mentés indítása"}))
     .toBeDisabled();
   await expect(restartPanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
   await expect(restartPanel.getByRole("button",{
@@ -6579,7 +6553,7 @@ test("unreadable original Store SaveWorld is visible on Save and Restart without
   }).click();
   await expect(savePanel.getByTestId("store-durable-save-evidence"))
     .toContainText("Nincs igazolt helyi SaveComplete napló");
-  await expect(savePanel.getByRole("button",{name:"Mentés előellenőrzése"}))
+  await expect(savePanel.getByRole("button",{name:"SaveWorld mentés indítása"}))
     .toBeEnabled();
   await restartPanel.getByRole("button",{name:"Store-v1 napló újraellenőrzése"}).click();
   await expect(restartPanel.getByRole("button",{
@@ -6612,8 +6586,8 @@ test("original Store-v1 SaveWorld-only refuses unresolved durable journal withou
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await expect(panel.getByText(/Befejezetlen Store-v1 műveleti napló/)).toBeVisible();
-  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
-  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"})).toHaveCount(0);
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
 });
 
 test("original Store-v1 manual Restart requires exact two-stage approval and displays new PID without claiming gameplay readiness",async({page})=>{
