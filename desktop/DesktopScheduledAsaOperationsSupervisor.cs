@@ -374,12 +374,40 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     supportedNextAction=unknown?"schedule.nativeReviewPreview":
                         RuntimeState is "journal-write-needs-operator" or
                             "journal-recovery-needs-operator"?
-                            "OPERATOR_EXPORT_DURABLE_SCHEDULE_JOURNAL":
-                            "NEW_EXPLICIT_CONFIGURATION",
+                            "schedule.nativeResume":"NEW_EXPLICIT_CONFIGURATION",
                     restartConflicts=RestartConflicts(mapId),
                     protectedStore=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(Owned(mapId)),
                     autoUpdateAvailable=false,
                     remoteExecutionAllowed=false
+                }));
+            }
+            if(method=="schedule.nativeResume")
+            {
+                // Operator explicitly re-arms the LOCAL supervisor only
+                // after the old unknown claims were individually archived.
+                // This is NOT recovery of any old slot, SaveWorld or Restart.
+                if(!args.TryGetProperty("confirm",out var consent)||
+                   consent.ValueKind!=JsonValueKind.True)
+                    return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-RESUME-APPROVAL"));
+                if(RuntimeState is not ("journal-write-needs-operator" or
+                    "journal-recovery-needs-operator"))
+                    return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-RESUME-NOT-BLOCKED"));
+                if(tickGate.CurrentCount==0||
+                   loop is {IsCompleted:false})
+                    return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-RESUME-WORKER-STILL-ACTIVE"));
+                bool pending=Locked(()=>Read().History.Any(x=>UnknownSlot(x.Status)));
+                if(pending)
+                    return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-RESUME-PENDING-OLD-CLAIM"));
+                // Safe starting point is after missed slots have been
+                // advanced, with no catch-up or implicit task re-enable.
+                Volatile.Write(ref runtimeState,"stopped");
+                Interlocked.Exchange(ref started,0);
+                Start();
+                return Task.FromResult(Ok(id,new{
+                    supervisorResumed=RuntimeState=="active",
+                    oldSlotReplayed=false,oldTaskReenabled=false,
+                    nextTaskRequiresExplicitOptIn=true,
+                    evidence="LOCAL_SCHEDULE_SUPERVISOR_REARM_NO_OLD_DISPATCH"
                 }));
             }
             if(method is "schedule.nativeReviewPreview" or
