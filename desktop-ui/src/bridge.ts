@@ -1250,6 +1250,18 @@ export type HistoricalSaveEvidenceStatus={
   fsyncCertified:false;sourceStateCertifiedForCurrentWriter:false;
   evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM";
 };
+export type HistoricalLateSaveEvidence={
+  mapId:string;operationId:string;stage:
+    "WORLD_METADATA_LATER_CAUSALITY_UNKNOWN"|
+    "WORLD_NOT_NEWER_THAN_ORIGINAL_RECEIPT"|
+    "WORLD_FILE_UNAVAILABLE";
+  worldFilePresent:boolean;worldMetadataNewerThanAttempt:boolean;
+  worldBytes:number|null;worldWriteUtc:string|null;
+  asaLogPresent:boolean;asaLogNewerThanAttempt:boolean;
+  completionCertified:false;rconSent:false;grantsOperation:false;
+  oldSaveWorldRetried:false;
+  evidence:"ORIGINAL_ASA_LATE_METADATA_READ_ONLY_NO_CAUSAL_SAVE_PROOF";
+};
 export type HistoricalSaveForensicExportReceipt={
   mapId:string;fileName:string;sourceSlot:"current"|"next";
   failureCode:string;bytes:number;sha256:string;
@@ -2318,6 +2330,8 @@ export const managerBridge = {
     request<HistoricalSaveForensicExportReceipt>("historical.saveWorldForensicExport",{
       mapId,confirm:true
     }),
+  historicalSaveWorldLateEvidence: (mapId:string) =>
+    request<HistoricalLateSaveEvidence>("historical.saveWorldLateEvidence",{mapId}),
   historicalSaveWorldReviewPreview: (mapId:string) =>
     request<HistoricalSaveReviewPreview>("historical.saveWorldReviewPreview",{mapId}),
   historicalSaveWorldReviewApply: (token:string,confirmation:string) =>
