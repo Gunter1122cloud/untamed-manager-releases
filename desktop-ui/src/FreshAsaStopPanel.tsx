@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,Octagon,RefreshCw,Shield} from "lucide-react";
-import {managerBridge,type FreshAsaStopPreview,type FreshAsaStopStatus} from "./bridge";
+import {managerBridge,type FreshAsaStopStatus} from "./bridge";
 
 // Nonsecret operator-visible receipt stays on the map after a dashboard refresh.
 // Never store a password, launch command or character metadata in the browser.
@@ -9,8 +9,6 @@ const recentStopReceipts=new Map<string,string>();
 export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
   mapId:string;running:boolean;onStopped:()=>Promise<void>;journalBlocked:boolean
 }){
-  const [preview,setPreview]=useState<FreshAsaStopPreview|null>(null);
-  const [approved,setApproved]=useState(false);
   const [busy,setBusy]=useState(false);
   const [jobId,setJobId]=useState<string|null>(null);
   const [status,setStatus]=useState<FreshAsaStopStatus|null>(null);
@@ -24,12 +22,13 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
   mapRef.current=mapId;
   const mounted=useRef(false);
   const actionRevision=useRef(0);
+  const mutationInFlight=useRef(false);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
   const belongs=(requested:string)=>mounted.current&&mapRef.current===requested;
 
   useEffect(()=>{
     ++actionRevision.current;
-    setPreview(null);setApproved(false);setError("");setBusy(false);
+    setError("");setBusy(false);
     setJobId(null);setStatus(null);setReviewJournalId(null);
     setMessage(recentStopReceipts.get(mapId)??"");
   },[mapId]);
@@ -113,30 +112,26 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
     return ()=>{active=false;window.clearInterval(interval);};
   },[jobId,mapId,onStopped]);
 
-  const check=async()=>{
-    if(!running||busy||jobId||journalBlocked||reconciling||reconcileFailed)return;
+  const stop=async()=>{
+    if(mutationInFlight.current||!running||busy||jobId||journalBlocked||
+       reconciling||reconcileFailed)return;
+    mutationInFlight.current=true;
     const requested=mapId;
-    setBusy(true);setPreview(null);setApproved(false);setError("");setMessage("");
+    setBusy(true);setError("");setMessage("");
+    let applyAttempted=false;
     try{
+      // Exactly one named user gesture creates and consumes a fresh,
+      // map/PID/port-scoped native preflight token, with no UI checkbox.
       const proof=await managerBridge.freshAsaStopPreview(requested);
       if(!belongs(requested))return;
-      if(proof.mapId.toLowerCase()!==requested.toLowerCase())
-        throw new Error("UM-ASA-STOP-PREVIEW-MAP-MISMATCH");
-      setPreview(proof);
-    }
-    catch{
-      if(belongs(requested))setError("A leállítás előellenőrzése sikertelen: csak saját helyi, pontosan azonosított RCON-os szerver állítható le.");
-    }
-    finally{if(belongs(requested))setBusy(false);}
-  };
-  const stop=async()=>{
-    if(!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
-       !approved||busy||jobId||journalBlocked||reconciling||reconcileFailed)return;
-    const token=preview.token,requested=mapId;
-    ++actionRevision.current;
-    setBusy(true);setError("");setPreview(null);setApproved(false);
-    try{
-      const job=await managerBridge.freshAsaStopApply(token);
+      if(proof.mapId.toLowerCase()!==requested.toLowerCase()||
+         !proof.token||!Number.isSafeInteger(proof.pid)||proof.pid<=0||
+         !proof.usesSaveWorld||!proof.usesDoExit||proof.killPermitted||
+         proof.autoRestart)
+        throw new Error("UM-ASA-STOP-PREVIEW-MAP-OR-SCOPE-MISMATCH");
+      applyAttempted=true;
+      ++actionRevision.current;
+      const job=await managerBridge.freshAsaStopApply(proof.token);
       if(!belongs(requested))return;
       if(!job.started||typeof job.jobId!=="string"||
          !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(job.jobId)||
@@ -149,12 +144,20 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
         saveCompleteProven:false,preExitSaveEvidenceObserved:false,
         finalDoExitSaveCertified:false,gameClientRejoinVerified:false,
         killPerformed:false,restartPerformed:false,storeTouched:false});
-    }catch{
+    }catch(e){
       if(belongs(requested)){
-        setReconcileFailed(true);
-        setError("A Stop eredménye nem igazolható. A feladat a Windows oldalon már elindulhatott; ne küldd újra. Ellenőrizd a futó műveletet.");
+        if(applyAttempted)setReconcileFailed(true);
+        setError(applyAttempted?
+          "UM-ASA-STOP-APPLY-UNKNOWN: A Stop már elindulhatott. "+
+            "Nincs automatikus RCON-ismétlés; ellenőrizd a natív naplót.":
+          "A kiválasztott map Stop előellenőrzése elutasítva ("+
+            (e instanceof Error?e.message:"UM-ASA-STOP-PREFLIGHT-FAILED")+
+            "). Nem indult SaveWorld vagy DoExit.");
       }
-    }finally{if(belongs(requested))setBusy(false);}
+    }finally{
+      mutationInFlight.current=false;
+      if(belongs(requested))setBusy(false);
+    }
   };
 
   const reviewStopped=async()=>{
@@ -186,8 +189,9 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
   return <section className="premium-panel" aria-label="Valódi ASA biztonságos leállítása" style={{marginBlock:18,padding:20}}>
     <header className="premium-panel-heading"><h2><Octagon size={18}/> ASA szerver normál leállítása</h2></header>
     <p>A helyi C# Manager tényleges RCON SaveWorld és DoExit műveletet küld, megvárja a Windows-folyamat kilépését. A folyamatot nem lövi ki.</p>
-    <button type="button" className="secondary" disabled={!running||busy||!!jobId||journalBlocked||reconciling||reconcileFailed}
-      onClick={()=>{void check();}}><Shield size={16}/> Normál leállítás előellenőrzése</button>
+    <p className="muted small">Kizárólag a kiválasztott map ({mapId}) saját RCON-tulajdonosához: SaveWorld → szabályos DoExit → PID-kilépés. Nem Kill.</p>
+    <button type="button" className="primary" disabled={!running||busy||!!jobId||journalBlocked||reconciling||reconcileFailed}
+      onClick={()=>{void stop();}}><Octagon size={16}/> Szerver szabályos leállítása</button>
     {reconciling&&<p role="status">Korábbi Stop-feladat ellenőrzése…</p>}
     {reconcileFailed&&<button type="button" className="secondary"
       onClick={()=>setReconcileNonce(n=>n+1)}>Leállítási állapot újraellenőrzése</button>}
@@ -202,18 +206,6 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
        <button type="button" className="secondary"
         disabled={busy||reconciling}
         onClick={()=>{void reviewStopped();}}>Igazoltan leállított Stop-napló felülvizsgálata</button>
-    </div>}
-    {preview&&<div className="historical-preview" role="region" aria-label="ASA leállítás jóváhagyása">
-      <h3>{preview.mapName} – PID: {preview.pid}</h3>
-      <p>RCON: SaveWorld → új, stabil .ark megfigyelése (SaveComplete naplósor, ha létezik) → DoExit → PID-ellenőrzés. Fájlbizonyíték nélkül nincs DoExit vagy automatikus újrapróbálás.</p>
-      <label className="historical-approval"><input type="checkbox" checked={approved}
-        disabled={busy} onChange={e=>setApproved(e.target.checked)}/>
-        Jóváhagyom a kiválasztott helyi ASA szerver tényleges leállítását.
-      </label>
-      <button type="button" className="primary" disabled={!approved||busy||journalBlocked||reconciling||reconcileFailed}
-        onClick={()=>{void stop();}}>Szerver szabályos leállítása</button>
-      <button type="button" className="secondary" disabled={busy}
-        onClick={()=>setPreview(null)}>Mégsem</button>
     </div>}
     {status&&<div className="warning-inline" role="status"><RefreshCw size={16}/>
       <span>Leállítás: {status.state} – {status.step}
