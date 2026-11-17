@@ -358,6 +358,18 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
           durableSave?.phase==="reviewed"?
             "Operátori felülvizsgálat megtörtént; az előző napló archiválva":
             "Nincs igazolt helyi SaveComplete napló"}
+        {durableSave?.diagnosis&&durableSave.diagnosis.state!=="valid"&&
+          durableSave.diagnosis.state!=="missing"&&
+          <p data-testid="store-save-journal-diagnosis">
+            Naplóállapot: {durableSave.diagnosis.state}.
+            Kód: {durableSave.diagnosis.reasonCode}.
+            {durableSave.diagnosis.byteLength!==null?
+              " Bájt: "+durableSave.diagnosis.byteLength+".":""}
+            {durableSave.diagnosis.sha256?
+              " SHA-256: "+durableSave.diagnosis.sha256+".":""}
+            Az eredeti bájtok megmaradnak; jogosultsági vagy zárolási hibánál
+            nem feltételezhető tartalmi sérülés. Nincs automatikus feloldás.
+          </p>}
         <p>A helyi mentésnapló nem igazolja a jelenlegi Store-írójogot,
           a második gazdagép SaveComplete állapotát, az fsync-et vagy a teljes
           cluster visszaállíthatóságát. Production restore továbbra is tiltott.</p>
