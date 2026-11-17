@@ -117,7 +117,7 @@ internal static class OriginalStoreExpandedDonePeerTests
             historical,configMembers:five),localDevice,session)),
             "stale five-member config cannot authorize expanded six-member peer");
         Check(Denied(()=>Verified(Done(localDevice,session,six,
-            historical,share:Shared+@"\wrong"),localDevice,session)),
+            historical,share:"not-a-UNC-share"),localDevice,session)),
             "peer from a different shared root cannot authorize original session");
         Check(Denied(()=>Verified(Done(localDevice,session,six,
             new[]{historical[0],historical[0],historical[2],
