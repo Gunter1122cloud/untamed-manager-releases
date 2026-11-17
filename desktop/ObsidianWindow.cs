@@ -86,7 +86,7 @@ public sealed class ObsidianWindow : Form
             "historical.restartStatus" or "historical.restartRecovery" or
             "historical.gracefulStopStatus" or "historical.gracefulStopRecovery" or
             "historical.saveWorldStatus" or "historical.saveWorldEvidence" or
-            "historical.activeStartStatus" or
+            "historical.saveWorldLateEvidence" or "historical.activeStartStatus" or
             "historical.operationJournalInventory" or
             "rcon.status" or "rcon.listPlayers" or "rcon.gameLog" or "rcon.chatLog" or
             "historical.rconPlayers" or "historical.rconGameLog" or
@@ -562,7 +562,8 @@ public sealed class ObsidianWindow : Form
                             "operations.scheduleCreate" or "operations.scheduleDisable";
                         nativeScheduleRoute = name is "schedule.nativeStatus" or
                             "schedule.nativeSet" or "schedule.nativeDisable" or
-                            "schedule.nativeOverview";
+                            "schedule.nativeOverview" or "schedule.nativeReviewPreview" or
+                            "schedule.nativeReviewApply" or "schedule.nativeResume";
                         mapMaintenanceRoute = name is "maps.maintenanceStatus" or "maps.maintenanceSet";
                         lanRoute = name is "lan.status" or "lan.preview" or "lan.apply" or "lan.physicalStoreProbe" or "lan.historicalSaveProbe";
                         stoppedSteamRoute = name is "steam.stoppedDiagnostics" or "steam.stoppedPreview" or "steam.stoppedApply" or
@@ -653,7 +654,9 @@ public sealed class ObsidianWindow : Form
                             "historical.gracefulStopRecovery" or "historical.saveWorldPreview" or
                             "historical.saveWorldApply" or "historical.saveWorldStatus" or
                             "historical.saveWorldEvidence" or "historical.saveWorldReviewPreview" or
-                            "historical.saveWorldReviewApply";
+                            "historical.saveWorldReviewApply" or
+                            "historical.saveWorldForensicExport" or
+                            "historical.saveWorldLateEvidence";
                         historicalAdminRconRoute = name is "historical.adminPreview" or
                             "historical.adminSend";
                         historicalReadOnlyRconRoute = name is "historical.rconLiveStatus" or
