@@ -272,6 +272,8 @@ internal static class LegacyStoreV1GracefulStop
     internal sealed record SaveOnlyReceipt(Guid MapId,int Pid,
         bool SaveCompleteObserved,DateTimeOffset ObservedUtc,string Evidence)
     {
+        // Weaker .ark metadata witness, never the same as SaveComplete.
+        public bool WorldMetadataObserved {get;init;}
         public bool DoExitSent=>false;
         public bool FsyncCertified=>false;
         public bool GameClientRejoinVerified=>false;
@@ -333,7 +335,7 @@ internal static class LegacyStoreV1GracefulStop
                 ??throw new InvalidOperationException("UM-ORIGINAL-SAVE-WITNESS-MISSING"):
             null;
         lease.MarkMutationStarted(); // Crash/uncertain dispatch => NeedsOperator
-        bool observed;
+        bool observed,worldMetadataObserved=false;
         if(execute!=null)
             observed=await execute(locked.Map,locked.Process,Verify,ct).WaitAsync(ct);
         else
@@ -345,19 +347,25 @@ internal static class LegacyStoreV1GracefulStop
                 password,Verify,ct);
             var result=await AsaWorldSaveEvidence.WaitAsync(witness!,()=>{
                 try{Verify();return true;}catch{return false;}
-            },TimeSpan.FromSeconds(90),ct);
+            },TimeSpan.FromSeconds(90),ct,allowWorldMetadata:true);
             observed=result.CompletionObserved;
-            if(!observed)
+            worldMetadataObserved=!observed&&result.WorldMetadataObserved;
+            if(!observed&&!worldMetadataObserved)
                 stage?.Invoke("A mentés kimenetele bizonytalan: "+result.Stage+
                     "; nincs igazolt SaveComplete, nincs automatikus újraküldés");
         }
-        if(!observed)
+        if(!observed&&!worldMetadataObserved)
             throw new InvalidOperationException("UM-ORIGINAL-SAVE-COMPLETION-NOT-OBSERVED");
         Verify();
-        stage?.Invoke("Új ASA SaveComplete log és stabil .ark ellenőrizve; a map tovább fut");
+        stage?.Invoke(observed?
+            "Új ASA SaveComplete log és stabil .ark ellenőrizve; a map tovább fut":
+            "Saját .ark fájl frissült és stabil; ASA SaveComplete nem igazolt. "+
+            "Csak helyi fájlmetaadat-bizonyíték, nincs fsync vagy restore tanúsítás.");
         lease.Complete();
-        return new(mapId,approvedPid,true,DateTimeOffset.UtcNow,
-            "ORIGINAL_ACTIVE_STORE_SAVEWORLD_LOG_AND_STABLE_WORLD_NO_DOEXIT");
+        return new(mapId,approvedPid,observed,DateTimeOffset.UtcNow,
+            observed?"ORIGINAL_ACTIVE_STORE_SAVEWORLD_LOG_AND_STABLE_WORLD_NO_DOEXIT":
+                "ORIGINAL_ACTIVE_STORE_WORLD_METADATA_ONLY_CAUSALITY_UNKNOWN")
+        {WorldMetadataObserved=worldMetadataObserved};
     }
 
     internal static Owned PreviewForUnfinishedRestartReview(
