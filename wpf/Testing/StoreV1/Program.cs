@@ -17,6 +17,89 @@ void Check(bool ok,string label)
 string Sha(byte[] bytes)=>Convert.ToHexString(SHA256.HashData(bytes));
 var options=new JsonSerializerOptions{Encoder=JavaScriptEncoder.UnsafeRelaxedJsonEscaping};
 string Serialize(object value)=>JsonSerializer.Serialize(value,options);
+
+// Pure synthetic regressions: five historical selected Store writers per host
+// may coexist with bounded independent event maps in current DONE peer rosters.
+// No original source, shared directory, process, RCON or live configuration.
+void ExpandedDonePeerTopologyRegression()
+{
+    string local=Guid.NewGuid().ToString("D");
+    string remote=Guid.NewGuid().ToString("D");
+    string[] ids0=Enumerable.Range(0,5).Select(_=>Guid.NewGuid().ToString("D")).ToArray();
+    string[] ids1=Enumerable.Range(0,32).Select(_=>Guid.NewGuid().ToString("D")).ToArray();
+    LegacyStoreV1PeerTopology.Peer Peer(string owner,string[] ids,string tag)=>
+        new(owner,ids,Enumerable.Range(0,ids.Length).Select(i=>tag+"_"+i).ToArray(),
+            ids.Take(5).ToArray());
+    var first=Peer(local,ids0,"HistoricalA");
+    LegacyStoreV1PeerTopology.Peer[] Peers(int count)=>
+        new[]{first,Peer(remote,ids1.Take(count).ToArray(),"HistoricalB")};
+    foreach(int count in new[]{5,6,12,32})
+    {
+        LegacyStoreV1PeerTopology.Validate(local,Peers(count));
+        Check(true,"DONE 5+"+count+" retains five selected historical writers");
+    }
+    void Deny(string title,LegacyStoreV1PeerTopology.Peer[] peersToCheck)
+    {
+        bool denied=false;
+        try{LegacyStoreV1PeerTopology.Validate(local,peersToCheck);}
+        catch(InvalidDataException){denied=true;}
+        Check(denied,title);
+    }
+
+    var sixOwned=ids1.Take(6).Select((id,i)=>new {
+        id,root=@"C:\synthetic\event"+i,map="MapB_"+i}).ToArray();
+    using var fullOwned=JsonDocument.Parse(JsonSerializer.Serialize(sixOwned));
+    using var sameConfigMembers=JsonDocument.Parse(JsonSerializer.Serialize(sixOwned));
+    using var selectedFive=JsonDocument.Parse(JsonSerializer.Serialize(ids1.Take(5).ToArray()));
+    LegacyStoreV1PeerTopology.RequireDonePeerRoster(
+        fullOwned.RootElement,selectedFive.RootElement,sameConfigMembers.RootElement);
+    Check(true,"real native DONE guard 6/6/5 exact selected roster accepted");
+    void DenyDone(string label,JsonElement owned,JsonElement selected,JsonElement config)
+    {
+        bool blocked=false;
+        try{LegacyStoreV1PeerTopology.RequireDonePeerRoster(owned,selected,config);}
+        catch(InvalidDataException){blocked=true;}
+        Check(blocked,label);
+    }
+    using var historicalFive=JsonDocument.Parse(JsonSerializer.Serialize(sixOwned.Take(5).ToArray()));
+    DenyDone("DONE guard rejects six owned vs five config",
+        fullOwned.RootElement,selectedFive.RootElement,historicalFive.RootElement);
+    using var foreignSelection=JsonDocument.Parse(JsonSerializer.Serialize(
+        ids1.Take(4).Concat(new[]{Guid.NewGuid().ToString("D")}).ToArray()));
+    DenyDone("DONE guard rejects foreign selected GUID",
+        fullOwned.RootElement,foreignSelection.RootElement,sameConfigMembers.RootElement);
+    using var duplicateSelection=JsonDocument.Parse(JsonSerializer.Serialize(
+        new[]{ids1[0],ids1[0],ids1[2],ids1[3],ids1[4]}));
+    DenyDone("DONE guard rejects duplicate selected GUID",
+        fullOwned.RootElement,duplicateSelection.RootElement,sameConfigMembers.RootElement);
+    using var invalidCount=JsonDocument.Parse(JsonSerializer.Serialize(
+        ids1.Take(4).ToArray()));
+    DenyDone("DONE guard rejects anything except five original selected",
+        fullOwned.RootElement,invalidCount.RootElement,sameConfigMembers.RootElement);
+    var second=Peers(6)[1];
+    Deny("DONE extra member duplicate owned ID",new[]{first,
+        second with {MemberIds=second.MemberIds.Take(5).Concat(new[]{ids0[0]}).ToArray()}});
+    Deny("DONE extra member missing map name",new[]{first,
+        second with {MapNames=second.MapNames.Take(5).ToArray()}});
+    Deny("DONE foreign selected map",new[]{first,
+        second with {SelectedIds=second.SelectedIds.Take(4)
+            .Concat(new[]{Guid.NewGuid().ToString("D")}).ToArray()}});
+    Deny("DONE duplicated selected map",new[]{first,
+        second with {SelectedIds=new[]{ids1[0],ids1[0],ids1[2],ids1[3],ids1[4]}}});
+    Deny("DONE invalid selected writer count",new[]{first,
+        second with {SelectedIds=second.SelectedIds.Take(4).ToArray()}});
+    var extra33=Enumerable.Range(0,33).Select(_=>Guid.NewGuid().ToString("D")).ToArray();
+    Deny("DONE over 32 local members",new[]{first,Peer(remote,extra33,"Oversized")});
+    using var locked=JsonDocument.Parse(JsonSerializer.Serialize(ids0));
+    LegacyStoreV1PeerTopology.RequireOriginalLocalSelection(locked.RootElement,ids0);
+    Check(true,"original five ordered lock IDs remain identical");
+    bool badOrder=false;
+    try{LegacyStoreV1PeerTopology.RequireOriginalLocalSelection(
+        locked.RootElement,ids0.Reverse().ToArray());}
+    catch(InvalidDataException){badOrder=true;}
+    Check(badOrder,"original historical selected order may not change");
+}
+ExpandedDonePeerTopologyRegression();
 string Fingerprint(string value)
 {
     using var doc=JsonDocument.Parse(value);return StoreV1Fingerprint.Compute(doc.RootElement);

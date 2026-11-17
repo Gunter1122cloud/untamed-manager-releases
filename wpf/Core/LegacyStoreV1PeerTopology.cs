@@ -10,9 +10,8 @@ namespace UntamedManager.Core;
 /// <summary>
 /// Read-only consistency rules for the two ORIGINAL Store-v1 DONE peer records.
 /// This does not acquire or release the original durable writer lock, grant
-/// launch rights, or modify a shared Store. Both peers retain exactly five
-/// ordered historical selections; additional current members are validated
-/// without inheriting historical writer authorization.
+/// launch rights, or modify a shared Store. A completed five-plus-five source
+/// record must never assign one map identity to two writer owners.
 /// </summary>
 public static class LegacyStoreV1PeerTopology
 {
@@ -35,6 +34,34 @@ public static class LegacyStoreV1PeerTopology
             StringComparison.Ordinal);
     }
 
+    // Shared by the actual native launch gate and isolated C# regressions.
+    // Additional members are not added to the exactly five selected writers.
+    public static void RequireDonePeerRoster(JsonElement owned,
+        JsonElement selected,JsonElement configMembers)
+    {
+        if(owned.ValueKind!=JsonValueKind.Array||
+           owned.GetArrayLength() is <5 or >32||
+           selected.ValueKind!=JsonValueKind.Array||
+           selected.GetArrayLength()!=5||
+           configMembers.ValueKind!=JsonValueKind.Array||
+           StoreV1Fingerprint.Compute(configMembers)!=
+               StoreV1Fingerprint.Compute(owned))
+            throw new InvalidDataException("UM-STORE-LIVE-PEER-DONE-INVALID");
+        string[] ownedIds=owned.EnumerateArray()
+            .Select(x=>x.ValueKind==JsonValueKind.Object&&
+                x.TryGetProperty("id",out var id)&&
+                id.ValueKind==JsonValueKind.String?id.GetString()??"":"")
+            .ToArray();
+        string[] selectedIds=selected.EnumerateArray()
+            .Select(x=>x.ValueKind==JsonValueKind.String?x.GetString()??"":"")
+            .ToArray();
+        var unique=new HashSet<string>(ownedIds,StringComparer.OrdinalIgnoreCase);
+        if(unique.Count!=owned.GetArrayLength()||
+           selectedIds.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=5||
+           selectedIds.Any(x=>!unique.Contains(x)))
+            throw new InvalidDataException("UM-STORE-LIVE-PEER-SELECTED-MISMATCH");
+    }
+
     public static void Validate(string localDeviceId,IReadOnlyList<Peer> peers)
     {
         if(!IsOriginalSourceUuid(localDeviceId)||
@@ -44,7 +71,6 @@ public static class LegacyStoreV1PeerTopology
         var devices=new HashSet<Guid>();
         var mapIds=new HashSet<Guid>();
         var mapNames=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var totalSelected=0;
         foreach(var peer in peers)
         {
             if(peer==null||!IsOriginalSourceUuid(peer.DeviceId)||
@@ -52,15 +78,14 @@ public static class LegacyStoreV1PeerTopology
                !devices.Add(device)||peer.MemberIds==null||
                peer.MapNames==null||peer.SelectedIds==null||
                peer.MemberIds.Count is <5 or >32||
-               peer.MapNames.Count!=peer.MemberIds.Count||
+                peer.MapNames.Count!=peer.MemberIds.Count||
                peer.SelectedIds.Count!=5)
                 throw new InvalidDataException("UM-STORE-TOPOLOGY-PEER-INVALID");
             var owned=new HashSet<Guid>();
             for(int i=0;i<peer.MemberIds.Count;i++)
             {
                 string? name=peer.MapNames[i];
-                if(!Guid.TryParse(peer.MemberIds[i],out var mapId)||
-                   mapId==Guid.Empty||
+                if(!Guid.TryParse(peer.MemberIds[i],out var mapId)||mapId==Guid.Empty||
                    !owned.Add(mapId)||!mapIds.Add(mapId)||
                    string.IsNullOrWhiteSpace(name)||name.Length>100||
                    !name.All(c=>char.IsAsciiLetterOrDigit(c)||c is '_' or '-' or '.')||
@@ -70,16 +95,14 @@ public static class LegacyStoreV1PeerTopology
             var selected=new HashSet<Guid>();
             foreach(string selectedId in peer.SelectedIds)
             {
-                if(!Guid.TryParse(selectedId,out var parsed)||
-                   parsed==Guid.Empty||!selected.Add(parsed))
+                if(!Guid.TryParse(selectedId,out var parsed)||parsed==Guid.Empty||!selected.Add(parsed))
                     throw new InvalidDataException("UM-STORE-TOPOLOGY-DUPLICATE-SELECTION");
             }
-            if(!selected.IsSubsetOf(owned))
+            if(selected.Count!=5||!selected.IsSubsetOf(owned))
                 throw new InvalidDataException("UM-STORE-TOPOLOGY-SELECTION-MISMATCH");
-            totalSelected+=selected.Count;
         }
         if(!devices.Contains(local)||devices.Count!=2||
-           totalSelected!=10||mapIds.Count!=mapNames.Count)
+           mapIds.Count is <10 or >64||mapNames.Count!=mapIds.Count)
             throw new InvalidDataException("UM-STORE-TOPOLOGY-LOCAL-OWNER-INVALID");
     }
 

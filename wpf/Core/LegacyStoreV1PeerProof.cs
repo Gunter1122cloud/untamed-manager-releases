@@ -101,6 +101,7 @@ public static class LegacyStoreV1PairComparison
     /// shared-session, shared-path, distinct-device evidence instead.
     /// This is historical read-only metadata matching, never writer proof.
     /// </summary>
+#if !STORE_V1_ISOLATED
     public static LegacyStoreV1PairObservation CompareAcrossPeers(
         LegacyStoreV1PeerProof? local,IEnumerable<LanPeerObservation> peers)
     {
@@ -131,6 +132,8 @@ public static class LegacyStoreV1PairComparison
                 "STORE_PEER_NOT_FRESH":"STORE_ORIGINAL_PEER_NOT_FOUND"
         };
     }
+
+#endif
 
     public static LegacyStoreV1PairObservation Compare(
         LegacyStoreV1PeerProof? local,LegacyStoreV1PeerProof? remote,bool remoteFresh)

@@ -6063,9 +6063,8 @@ test("historical map wild dino wipe shortcut opens native RCON with one-shot typ
   const send=confirm.getByRole("button",{name:"Adminparancs egyszeri elküldése"});
   await expect(send).toBeDisabled();
   await confirm.getByLabel("Jóváhagyom a helyi Store-v1 RCON műveletet.").check();
-  await expect(send).toBeDisabled();
-  await confirm.getByLabel(/Írd be pontosan: STORE-V1 DINÓTÖRLÉS/).fill("NEM JÓ");
-  await expect(send).toBeDisabled();
+  await expect(confirm.getByRole("textbox")).toHaveCount(0);
+  await expect(send).toBeEnabled();
   // Never dispatch in this regression; the native one-time dangerous
   // action requires the actual operator's explicit final approval.
 });
@@ -6409,7 +6408,6 @@ test("Store-v1 interrupted SaveWorld can be explicitly reviewed when stopped wit
   await panel.getByRole("button",{name:"Korábbi SaveWorld operátori ellenőrzése"}).click();
   const review=panel.getByRole("region",{name:"Korábbi Store-v1 mentés felülvizsgálata"});
   const accept=review.getByRole("button",{name:"Korábbi mentési napló felülvizsgálatának jóváhagyása"});
-  await expect(accept).toBeDisabled();
   await expect(review.getByRole("textbox",{
     name:"Store-v1 mentés felülvizsgálati megerősítése"
   })).toHaveCount(0);

@@ -214,7 +214,12 @@ public static class LegacyStoreV1LiveReadGate
            // CURRENT local cluster config, not merely its own saved copy.
            // Otherwise a self-consistent forged/stale lock could authorize
            // a different active map list under the same source session.
-           !StoreV1Fingerprint.Matches(cluster,Text(localLock,"configHash")))
+           !(StoreV1Fingerprint.Matches(cluster,Text(localLock,"configHash"))||
+             (report.CurrentLocalMemberCount>5&&
+              LegacyStoreV1LocalReader.MatchesPinnedHistoricalSubset(
+                  cluster,Need(localLock,"config"),
+                  Need(localLock,"selected").EnumerateArray()
+                    .Select(x=>x.GetString()??"").ToArray())))
             throw new InvalidDataException("UM-STORE-LIVE-LOCAL-LOCK-MISMATCH");
         string share=Path.Combine(path,".kova-store-v1");
         if(!Directory.Exists(share)||

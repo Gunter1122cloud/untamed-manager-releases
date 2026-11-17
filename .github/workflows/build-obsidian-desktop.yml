@@ -163,6 +163,11 @@ jobs:
         run: |
           dotnet run --project wpf/Testing/MultiHostBackup/MultiHostBackup.csproj -c Release
           if ($LASTEXITCODE -ne 0) { throw "N-host offline archive Core regressions failed" }
+      - name: Validate expanded Store-v1 DONE peer topology in isolated C# suite
+        shell: pwsh
+        run: |
+          dotnet run --project wpf/Testing/StoreV1/StoreV1.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "Store-v1 expanded peer safety regressions failed" }
       - name: Run real native C# bridge integration tests (isolated synthetic Windows files)
         shell: pwsh
         run: |
