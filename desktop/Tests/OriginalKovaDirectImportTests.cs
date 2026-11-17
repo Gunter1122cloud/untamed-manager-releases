@@ -114,6 +114,150 @@ internal static class OriginalKovaDirectImportTests
               discovered.LaunchProfileSha256==launchHash,
             "five original GUIDs, map keys and installation paths remain byte-bound");
 
+        // The legacy writer lock remains an ordered FIVE-map authorization,
+        // even after another independent local map is added to the current
+        // cluster metadata. No additional Store owner/session is invented.
+        {
+            string extraId=Guid.NewGuid().ToString("D");
+            string extraRoot=Path.Combine(baseRoot,"synthetic-eventmap");
+            var currentMembers=members.Concat(new[]{
+                new{id=extraId,map="Chillhub_WP",root=extraRoot}
+            }).ToArray();
+            var currentCluster=new{
+                id=VaultProtocol.ClusterId,mode="shared",
+                path=originalCluster.path,members=currentMembers
+            };
+            var currentStore=states.ToDictionary(x=>x.Key,x=>x.Value);
+            currentStore.Add(extraId,new{
+                phase="active",sharedSession=Guid.NewGuid().ToString("D"),
+                root=extraRoot,map="Chillhub_WP",
+                backupId=Guid.NewGuid().ToString("D")
+            });
+            string expandedCluster=JsonSerializer.Serialize(currentCluster);
+            string expandedStore=JsonSerializer.Serialize(new{schema=1,maps=currentStore});
+            var eventLaunch=new{
+                id=extraId,root=extraRoot,
+                launch=new{
+                    map="Chillhub_WP",gamePort=7897,queryPort=27197,
+                    mods=new[]{"123456789","987654321"},
+                    passiveMods=new[]{"123456789"}
+                }
+            };
+            string expandedLaunch=JsonSerializer.Serialize(new{
+                version=1,rows=launchRows.Concat(new[]{eventLaunch}).ToArray()
+            });
+            string cfile=Path.Combine(local,"cluster-v1.json");
+            string sfile=Path.Combine(local,"cluster-store-v1.json");
+            string lfile=Path.Combine(local,"shared-store-lock-v1.json");
+            string oldLock=source[3];
+            void SetExpanded()
+            {
+                File.WriteAllText(cfile,expandedCluster);
+                File.WriteAllText(sfile,expandedStore);
+                File.WriteAllText(lfile,oldLock);
+                File.WriteAllText(launchProfilePath,expandedLaunch);
+            }
+            bool DeniesExpanded()
+            {
+                try
+                {
+                    var result=LegacyStoreV1OriginalImport.Inspect(local);
+                    return !result.Maps.Select(x=>x.MapId.ToString("D"))
+                        .SequenceEqual(ids);
+                }
+                catch(InvalidDataException){return true;}
+                catch(IOException){return true;}
+            }
+            try
+            {
+                SetExpanded();
+                var expandedStatus=LegacyStoreV1LocalReader.Inspect(local);
+                var expandedImport=LegacyStoreV1OriginalImport.Inspect(local);
+                Check(expandedStatus.LocalSnapshotReady&&
+                    expandedStatus.Maps.Length==5&&
+                    expandedStatus.Maps.All(x=>x.Selected)&&
+                    expandedImport.Maps.Length==5&&
+                    expandedImport.Maps.Select(x=>x.MapId.ToString("D"))
+                        .SequenceEqual(ids)&&
+                    !expandedImport.Maps.Any(x=>x.MapKey=="Chillhub_WP")&&
+                    expandedImport.FourFilesSha256!=discovered.FourFilesSha256,
+                    "six local entries preserve exactly five original selected Store owners without adding Chillhub");
+                // Even if an expanded current cluster is represented in a
+                // fresh matching lock, only its explicitly selected five
+                // original GUIDs may enter the historical adapter.
+                File.WriteAllText(lfile,JsonSerializer.Serialize(new{
+                    schema=1,session,selected=ids,
+                    configHash=StoreV1Fingerprint.Compute(
+                        JsonSerializer.SerializeToElement(currentCluster)),
+                    config=currentCluster
+                }));
+                Check(LegacyStoreV1OriginalImport.Inspect(local)
+                    .Maps.Select(x=>x.MapId.ToString("D")).SequenceEqual(ids),
+                    "newly hashed six-member metadata does not expand the five selected legacy maps");
+
+                // The old pinned five-member configuration does NOT permit
+                // reordered or foreign selected GUIDs, even though all
+                // six map records still exist.
+                SetExpanded();
+                File.WriteAllText(lfile,JsonSerializer.Serialize(new{
+                    schema=1,session,selected=ids.Reverse().ToArray(),
+                    configHash=StoreV1Fingerprint.Compute(
+                        JsonSerializer.SerializeToElement(originalCluster)),
+                    config=originalCluster
+                }));
+                Check(DeniesExpanded(),
+                    "historical five-map selected order differs from locked original configuration");
+                SetExpanded();
+                File.WriteAllText(lfile,JsonSerializer.Serialize(new{
+                    schema=1,session,
+                    selected=ids.Take(4).Concat(new[]{extraId}).ToArray(),
+                    configHash=StoreV1Fingerprint.Compute(
+                        JsonSerializer.SerializeToElement(originalCluster)),
+                    config=originalCluster
+                }));
+                Check(DeniesExpanded(),
+                    "independent event GUID cannot replace a historical selected member");
+                SetExpanded();
+                currentStore[ids[4]]=new{
+                    phase="active",sharedSession=Guid.NewGuid().ToString("D"),
+                    root=members[4].root,map=mapKeys[4],
+                    backupId=Guid.NewGuid().ToString("D")
+                };
+                File.WriteAllText(sfile,JsonSerializer.Serialize(new{
+                    schema=1,maps=currentStore
+                }));
+                Check(DeniesExpanded(),
+                    "foreign session on selected historical map remains blocked");
+                currentStore[ids[4]]=states[ids[4]];
+                SetExpanded();
+                File.WriteAllText(lfile,JsonSerializer.Serialize(new{
+                    schema=1,session,selected=ids,
+                    configHash=new string('A',64),config=originalCluster
+                }));
+                Check(DeniesExpanded(),
+                    "tampered historical config fingerprint is never treated as a valid expanded roster");
+                SetExpanded();
+                var changedMembers=currentMembers.Select(x=>x.id==ids[0]
+                    ?new{x.id,x.map,root=Path.Combine(baseRoot,"wrong-original-root")}
+                    :x).ToArray();
+                File.WriteAllText(cfile,JsonSerializer.Serialize(new{
+                    id=VaultProtocol.ClusterId,mode="shared",
+                    path=originalCluster.path,members=changedMembers
+                }));
+                Check(DeniesExpanded(),
+                    "changed historical member root cannot be hidden by an added event map");
+            }
+            finally
+            {
+                for(int i=0;i<names.Length;i++)
+                    File.WriteAllText(Path.Combine(local,names[i]),source[i]);
+                File.WriteAllText(launchProfilePath,launchBytes);
+            }
+            Check(LegacyStoreV1OriginalImport.Inspect(local).FourFilesSha256==
+                  discovered.FourFilesSha256,
+                "expanded-roster tests restore every original synthetic Store source byte");
+        }
+
         // Kova 1.8.3 explicitly accepts mod IDs of 1–12 digits. An
         // original five-map source with a short numeric ID is valid and
         // must not be refused by Obsidian solely for ID length.
