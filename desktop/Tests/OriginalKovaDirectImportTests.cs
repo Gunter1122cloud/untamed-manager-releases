@@ -304,6 +304,101 @@ internal static class OriginalKovaDirectImportTests
                 Check(hashRejected,
                     "five historical map approvals must share the immutable original source fingerprint");
 
+                // Adding a second, seventh, or many later local maps must
+                // never require editing this guard again. Only five GUIDs
+                // stay historical; every extra member/record is validated
+                // by the same source reader, including the refreshed lock.
+                foreach(int totalMaps in new[]{7,12,32,33})
+                {
+                    var further=Enumerable.Range(0,totalMaps-6).Select(n=>new{
+                        id=Guid.NewGuid().ToString("D"),
+                        map="EventMap"+n+"_WP",
+                        root=Path.Combine(baseRoot,"future-event-"+n)
+                    }).ToArray();
+                    var expandedMembers=currentMembers.Concat(further).ToArray();
+                    var expandedRecords=currentStore.ToDictionary(x=>x.Key,x=>x.Value);
+                    foreach(var newMap in further)
+                        expandedRecords.Add(newMap.id,new{
+                            phase="active",
+                            sharedSession=Guid.NewGuid().ToString("D"),
+                            root=newMap.root,map=newMap.map,
+                            backupId=Guid.NewGuid().ToString("D")
+                        });
+                    var expandedConfig=new{
+                        id=VaultProtocol.ClusterId,mode="shared",
+                        path=originalCluster.path,members=expandedMembers
+                    };
+                    var additionalLaunch=further.Select((m,n)=>new{
+                        id=m.id,root=m.root,
+                        launch=new{
+                            map=m.map,gamePort=8000+n*2,
+                            queryPort=28000+n*2,
+                            mods=new[]{"123456789","987654321"},
+                            passiveMods=new[]{"123456789"}
+                        }
+                    });
+                    File.WriteAllText(cfile,JsonSerializer.Serialize(expandedConfig));
+                    File.WriteAllText(sfile,JsonSerializer.Serialize(new{
+                        schema=1,maps=expandedRecords
+                    }));
+                    File.WriteAllText(lfile,JsonSerializer.Serialize(new{
+                        schema=1,session,selected=ids,
+                        configHash=StoreV1Fingerprint.Compute(
+                            JsonSerializer.SerializeToElement(expandedConfig)),
+                        config=expandedConfig
+                    }));
+                    File.WriteAllText(launchProfilePath,JsonSerializer.Serialize(new{
+                        version=1,rows=launchRows.Concat(new[]{eventLaunch})
+                            .Concat(additionalLaunch).ToArray()
+                    }));
+                    if(totalMaps==33)
+                    {
+                        bool boundRejected=false;
+                        try{_=LegacyStoreV1LocalReader.Inspect(local);}
+                        catch(InvalidDataException){boundRejected=true;}
+                        Check(boundRejected,
+                            "out-of-bounds 33-member current source cannot authorize historical review");
+                        continue;
+                    }
+                    var validated=LegacyStoreV1LocalReader.Inspect(local);
+                    var inspected=LegacyStoreV1OriginalImport.Inspect(local);
+                    Check(validated.LocalSnapshotReady&&
+                        validated.ClusterHashVerified&&validated.LocalLockVerified&&
+                        validated.CurrentLocalMemberCount==totalMaps&&
+                        inspected.CurrentLocalMemberCount==totalMaps&&
+                        inspected.SelectedHistoricalSubsetOfExpandedRoster&&
+                        inspected.Maps.Length==5&&
+                        inspected.Maps.Select(x=>x.MapId.ToString("D"))
+                            .SequenceEqual(ids)&&
+                        historicalProfiles.All(original=>
+                            LegacyStoreV1ExpandedSourceReview.RequireExplicitReview(
+                                original,historicalProfiles,validated,inspected))&&
+                        historicalProfiles.All(original=>
+                            original.HistoricalArchiveSha256==
+                                discovered.FourFilesSha256),
+                        "current lock supports "+totalMaps+
+                        " local maps while preserving five historical sources and separate operator approval");
+                    if(totalMaps==12)
+                    {
+                        var corrupt=expandedRecords.ToDictionary(x=>x.Key,x=>x.Value);
+                        var extra=further[0];
+                        corrupt[extra.id]=new{
+                            phase="active",sharedSession=Guid.NewGuid().ToString("D"),
+                            root=Path.Combine(baseRoot,"unauthorized-extra-map-root"),
+                            map=extra.map,backupId=Guid.NewGuid().ToString("D")
+                        };
+                        File.WriteAllText(sfile,JsonSerializer.Serialize(new{
+                            schema=1,maps=corrupt
+                        }));
+                        bool corruptDenied=false;
+                        try{_=LegacyStoreV1OriginalImport.Inspect(local);}
+                        catch(InvalidDataException){corruptDenied=true;}
+                        Check(corruptDenied,
+                            "tampered extra map root is rejected in a 12-member historical roster");
+                    }
+                }
+                SetExpanded();
+
                 // Historical selected[] and members[] may have different
                 // valid orderings; do not invent an equality rule here.
                 // Reordering selected[] still changes the FULL four-file
