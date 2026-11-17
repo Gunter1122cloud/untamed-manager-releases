@@ -33,12 +33,11 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
   mapId:string;onStarted:()=>Promise<void>;onOpenRcon?:()=>void;journalBlocked:boolean
 }){
   const [observed,setObserved]=useState<FreshAsaStartStatus|null>(null);
-  const [preview,setPreview]=useState<FreshAsaStartPreview|null>(null);
-  const [approved,setApproved]=useState(false);
   const [readiness,setReadiness]=useState<FreshAsaReadiness|null>(null);
   const [checkingReady,setCheckingReady]=useState(false);
   const [awaitingStartup,setAwaitingStartup]=useState(false);
   const readinessGeneration=useRef(0);
+  const mutationInFlight=useRef(false);
   const currentMap=useRef(mapId);
   currentMap.current=mapId;
   const belongs=(requested:string,revision:number)=>
@@ -60,7 +59,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     setAwaitingStartup(false);setBusy(false);setCheckingReady(false);
     setAcceptedStart(acceptedStartPending.has(mapId));
     setNeedsReconcile(startReconciliationRequired.has(mapId));
-    setPreview(null);setApproved(false);setObserved(null);setError("");
+    setObserved(null);setError("");
     setReadiness(null);
     setMessage(recentStartReceipts.get(mapId)??"");
     managerBridge.freshAsaStartStatus(mapId)
@@ -181,74 +180,71 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     }
   };
 
-  const check=async()=>{
-    if(busy || acceptedStart || needsReconcile || !mapId || journalBlocked)return;
+  const launch=async()=>{
+    if(mutationInFlight.current||busy||acceptedStart||needsReconcile||!mapId||
+       journalBlocked||observed?.running)return;
+    mutationInFlight.current=true;
     const requested=mapId,revision=readinessGeneration.current;
-    setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
+    setBusy(true);setError("");setMessage("");
+    let applyAttempted=false;
     try{
-      const candidate=await managerBridge.freshAsaStartPreview(requested);
-      if(!sameMap(candidate,requested)||!candidate.confirmedStopped||
-         candidate.serverStarted)
+      // One named map-specific action performs the entire read-only native
+      // preflight and immediately consumes its one-use token. No checkbox,
+      // typed phrase, preview modal, or second execution click.
+      const proof=await managerBridge.freshAsaStartPreview(requested);
+      if(!belongs(requested,revision))return;
+      if(!sameMap(proof,requested)||!proof.token||
+         !proof.confirmedStopped||proof.serverStarted||
+         !proof.rconConfigured||
+         (proof.launchMode!=="asaApiLoader"&&proof.launchMode!=="directAsa"))
         throw new Error("UM-FRESH-START-PREVIEW-OTHER-MAP");
-      if(belongs(requested,revision))setPreview(candidate);
-    }catch{
-      if(belongs(requested,revision))
-        setError("Indítás nem engedélyezett: új, érvényesen konfigurált ASA-telepítés, a Manager RCON-portjával és jelszavával egyező GameUserSettings.ini, szabad Game/Query/RCON portok, igazoltan leállított folyamat és sértetlen mentésállapot szükséges. Store-v1 történeti mapok nem indíthatók ezzel a művelettel.");
-    }finally{if(belongs(requested,revision))setBusy(false);}
-  };
-  const start=async()=>{
-    if(!preview || !approved || busy || acceptedStart || needsReconcile || journalBlocked)return;
-    const token=preview.token,requested=mapId,revision=readinessGeneration.current;
-    const requestedLaunchMode=preview.launchMode;
-    setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
-    try{
-      const receipt=await managerBridge.freshAsaStartApply(token);
-      if(!verifiedStartReceipt(receipt,requested,requestedLaunchMode))
+      applyAttempted=true;
+      const receipt=await managerBridge.freshAsaStartApply(proof.token);
+      if(!verifiedStartReceipt(receipt,requested,proof.launchMode))
         throw new Error("UM-FRESH-START-RECEIPT-INVALID");
       const summary=receipt.processRole==="loaderParent"?
         receipt.mapName+" · ASA API Loader szülőfolyamat indítva, PID: "+
           receipt.loaderPid+". Az ASA gyermekfolyamat és RCON még nem igazolt.":
-        receipt.mapName+" · ASA szerverfolyamat indítva, PID: "+(receipt.serverPid??receipt.pid)+
+        receipt.mapName+" · ASA szerverfolyamat indítva, PID: "+
+          (receipt.serverPid??receipt.pid)+
           ". A folyamatindítás még nem bizonyítja a játék és az RCON készenlétét.";
-      // The native one-shot Start may finish after the operator has opened
-      // another map. Retain its nonsecret receipt under the ORIGINAL map,
-      // but never show it as a result for the currently selected map or
-      // start a second readiness worker on the wrong tab.
+      // The original map owns this receipt even after tab navigation.
       recentStartReceipts.set(requested,summary);
       acceptedStartPending.add(requested);
       startReconciliationRequired.delete(requested);
       if(!belongs(requested,revision))return;
-      setNeedsReconcile(false);
-      setMessage(summary);
-      setAcceptedStart(true);
-      // Native Start has already returned; awaiting the dashboard refresh
-      // is not a second mutating operation and must not disable an explicit
-      // read-only RCON readiness check.
+      setNeedsReconcile(false);setMessage(summary);setAcceptedStart(true);
       setBusy(false);
-      try{await onStarted();}catch{/* Process receipt remains visible even if dashboard refresh fails. */}
+      try{await onStarted();}catch{/* Native process receipt stays authoritative. */}
       if(!belongs(requested,revision))return;
       await observe();
       if(belongs(requested,revision))void observeStartedServer(requested);
     }catch(cause){
       const code=cause instanceof Error?cause.message:"";
-      const definiteNoLaunch=["UM-FRESH-START-CHANGED",
-        "UM-FRESH-START-TOKEN-EXPIRED","UM-FRESH-START-APPROVAL",
-        "UM-FRESH-START-NOT-READY"].includes(code);
+      const definiteNoLaunch=!applyAttempted||[
+        "UM-FRESH-START-CHANGED","UM-FRESH-START-TOKEN-EXPIRED",
+        "UM-FRESH-START-APPROVAL","UM-FRESH-START-NOT-READY"
+      ].includes(code);
       if(!definiteNoLaunch){
         startReconciliationRequired.add(requested);
         if(belongs(requested,revision))setNeedsReconcile(true);
       }
       const safe:Record<string,string>={
-        "UM-FRESH-START-CHANGED":"A szerverprofil, az ASA EXE/Loader bináris vagy az INI megváltozott a jóváhagyás után. Új indítási előellenőrzés szükséges; ASA nem lett automatikusan újraindítva.",
-        "UM-FRESH-START-TOKEN-EXPIRED":"A Start jóváhagyása lejárt vagy már felhasználtad. Friss előellenőrzést kell indítani.",
-        "UM-FRESH-START-UNVERIFIED-PROCESS":"Az indított Windows folyamat nem igazolható. Nézd meg a PID-et és a tartós naplót; NE próbáld vakon újra.",
-        "UM-FRESH-START-APPROVAL":"Az indításhoz külön kezelői jóváhagyás szükséges.",
-        "UM-FRESH-START-NOT-READY":"A helyi telepítés, RCON INI, portok vagy leállított folyamat előfeltételei már nem teljesülnek.",
-        "UM-FRESH-START-RECEIPT-INVALID":"UM-FRESH-START-RECEIPT-INVALID: A natív Start-válasz map-, Loader-/szerver-PID- vagy indításimód-bizonylata nem egyezik. Új Start csak igazolt leállított állapot után engedélyezett."
+        "UM-FRESH-START-CHANGED":"Az ASA EXE/Loader bináris vagy az INI megváltozott a natív előellenőrzés után. Új indítás nem történt; ellenőrizd a profilt.",
+        "UM-FRESH-START-TOKEN-EXPIRED":"A natív Start-token lejárt vagy már felhasznált. Új Start csak friss állapotellenőrzés után engedélyezhető.",
+        "UM-FRESH-START-NOT-READY":"A telepítés, RCON INI, portok vagy leállított folyamat előfeltételei nem teljesülnek.",
+        "UM-FRESH-START-RECEIPT-INVALID":"UM-FRESH-START-RECEIPT-INVALID: A natív PID/map/Loader-folyamat bizonyíték eltér. Ne indíts vakon második szervert."
       };
-      if(belongs(requested,revision))
-        setError(safe[code]??"Az ASA elindítása nem igazolható. Ellenőrizd a helyi naplókat és a folyamatállapotot; automatikus ismétlés nem történt. Ne indíts újra a folyamat igazolásáig.");
-    }finally{if(belongs(requested,revision))setBusy(false);}
+      if(belongs(requested,revision))setError(safe[code]??(
+        applyAttempted?
+          "Az ASA Start kimenetele nem igazolható. A szerver már elindulhatott; "+
+          "nincs automatikus ismétlés. Fizikai PID-/naplóellenőrzés szükséges.":
+          "ASA Start előellenőrzés elutasítva. Nem indítottunk folyamatot; "+
+          "ellenőrizd a helyi ASA EXE-t, RCON INI-t, portokat és műveleti naplót."));
+    }finally{
+      mutationInFlight.current=false;
+      if(belongs(requested,revision))setBusy(false);
+    }
   };
 
   return <section className="premium-panel" aria-label="Valódi ASA első indítása" style={{marginBlock:18,padding:20}}>
@@ -258,15 +254,15 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
         <RefreshCw size={16}/> Állapotfrissítés
       </button>
     </header>
-    <p>Valódi Windows ASA-indítás a meglévő C# Managerből. Kizárólag az újonnan telepített, helyi, konfigurált szerverhez, külön megerősítéssel. A történeti Store-v1 mapok külön átvételi folyamatot igényelnek.</p>
+    <p>Valódi Windows ASA-indítás a meglévő C# Managerből. Egyetlen Start gomb az adott helyi maphoz; a PID, INI, RCON-port, telepítés és műveleti naplók friss ellenőrzése a gomb után automatikus. A történeti Store-v1 mapok külön védett átvételi útvonalat használnak.</p>
     {observed&&<div role="status" className="details-line">
       <span>Windows folyamat</span>
       <b>{observed.running?"ASA fut · PID "+(observed.serverPid??observed.pid??"?"):
         observed.loaderPid?"Loader PID "+observed.loaderPid+" · ASA gyermek nem igazolt":
         observed.confirmedStopped?"Igazoltan leállítva":"Nem igazolt állapot"}</b>
     </div>}
-    <button type="button" className="secondary" disabled={busy||journalBlocked||acceptedStart||needsReconcile||Boolean(observed?.running)}
-      onClick={()=>{void check();}}>Valódi ASA-indítás előellenőrzése</button>
+    <button type="button" className="primary" disabled={busy||journalBlocked||acceptedStart||needsReconcile||Boolean(observed?.running)}
+      onClick={()=>{void launch();}}><Play size={16}/> ASA szerver indítása</button>
     <button type="button" className="secondary"
       disabled={(!observed?.running&&!acceptedStart)||
         (journalBlocked&&!acceptedStart)||checkingReady}
@@ -289,26 +285,6 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
           "Várakozás vagy hiba – a natív bizonyíték nem teljes"}</b></div>
       <p className="muted small">A szerverhirdetés és RCON még nem bizonyítja, hogy valódi játékos csatlakozott vagy karakterutazás sikerült.</p>
       <p className="muted small">{readiness.description}</p>
-    </div>}
-    {preview&&<div className="historical-preview" role="region" aria-label="Valódi ASA indítás jóváhagyása">
-      <h3>{preview.mapName} – Steam build: {preview.steamBuild}</h3>
-      <div className="details-line"><span>Game / Query UDP</span>
-        <b>{preview.gamePort} / {preview.queryPort}</b></div>
-      <div className="details-line"><span>RCON konfigurálva</span>
-        <b>{preview.rconConfigured?"Igen":"Nem"}</b></div>
-      <div className="details-line"><span>Választott folyamat</span>
-        <b>{preview.launchMode==="asaApiLoader"?
-          "ASA API Loader szülőfolyamat – gyermek PID külön ellenőrzendő":
-          "Közvetlen ArkAscendedServer"}</b></div>
-      <label className="historical-approval"><input type="checkbox"
-        checked={approved} disabled={busy}
-        onChange={e=>setApproved(e.target.checked)}/>
-        Jóváhagyom az új, saját helyi ASA szerver tényleges Windows-folyamatának elindítását.
-      </label>
-      <button type="button" className="primary" disabled={busy||!approved||journalBlocked}
-        onClick={()=>{void start();}}><Play size={16}/> ASA szerver indítása</button>
-      <button type="button" className="secondary" disabled={busy}
-        onClick={()=>setPreview(null)}>Mégsem</button>
     </div>}
     {message&&<div className="success-inline" role="status"><CheckCircle2 size={18}/>{message}</div>}
     {error&&<div className="warning-inline" role="alert"><AlertTriangle size={18}/>{error}
