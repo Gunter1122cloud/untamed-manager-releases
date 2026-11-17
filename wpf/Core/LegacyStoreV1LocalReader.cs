@@ -42,6 +42,9 @@ public static class LegacyStoreV1LocalReader
         // ordered selection and backup IDs; never expose the source bytes.
         public string OriginalFourFilesTag {get;init;}="";
         public string OriginalMapRosterTag {get;init;}="";
+        // Checked current member count, independent of the five selected
+        // historical writer GUIDs; never grants Store writer ownership.
+        public int CurrentLocalMemberCount {get;init;}
     }
     private static string Tag(string input)=>Convert.ToHexString(SHA256.HashData(
         Encoding.UTF8.GetBytes(input.Trim().ToLowerInvariant())));
@@ -169,6 +172,7 @@ public static class LegacyStoreV1LocalReader
             "ORIGINAL_FIVE_SELECTED_PINNED_IN_EXPANDED_LOCAL_ROSTER_NO_PEER_CERTIFICATION":
             "ORIGINAL_LOCAL_STORE_V1_FOUR_FILES_READ_ONLY_NO_PEER_CERTIFICATION")
         {
+            CurrentLocalMemberCount=memberArray.Length,
             SessionTag=Tag(session.ToString("D")),
             SharedPathTag=Tag(Text(cluster,"path").Replace('/','\\').TrimEnd('\\')),
             DeviceTag=Tag(Text(device,"id")),
