@@ -186,16 +186,16 @@ internal static class OriginalKovaDirectImportTests
                     "six-member-event-registry-test",
                     Path.Combine(baseRoot,"six-member-event-registry-profile")))
                 {
-                    foreach(var historical in expandedImport.Maps)
+                    foreach(var historicalRow in expandedImport.Maps)
                         expandedManager.AddMap(new LocalMap{
-                            Id=historical.MapId,
-                            Name=historical.MapKey,
-                            InstallationPath=historical.OriginalInstallationRoot,
+                            Id=historicalRow.MapId,
+                            Name=historicalRow.MapKey,
+                            InstallationPath=historicalRow.OriginalInstallationRoot,
                             HistoricalStoreProtected=true,
                             HistoricalArchiveSha256=expandedImport.FourFilesSha256,
-                            HistoricalMapKey=historical.MapKey,
-                            GamePort=historical.GamePort,
-                            QueryPort=historical.QueryPort
+                            HistoricalMapKey=historicalRow.MapKey,
+                            GamePort=historicalRow.GamePort,
+                            QueryPort=historicalRow.QueryPort
                         });
                     using var expandedBridge=new DesktopHistoricalStoreImportBridge(
                         expandedManager,localLegacyDataDirectory:local);
