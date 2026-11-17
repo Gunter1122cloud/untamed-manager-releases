@@ -35,7 +35,6 @@ export function HistoricalAdminRconPanel({mapId,running,initialAction="broadcast
   const [action,setAction]=useState<Action>(initialAction);
   const [message,setMessage]=useState("");
   const [preview,setPreview]=useState<HistoricalAdminRconPreview|null>(null);
-  const [approved,setApproved]=useState("");
   const [confirmed,setConfirmed]=useState(false);
   const [reply,setReply]=useState<HistoricalAdminRconReceipt|null>(null);
   // No approval, response, or in-flight request may cross the selected map.
@@ -50,10 +49,10 @@ export function HistoricalAdminRconPanel({mapId,running,initialAction="broadcast
   useEffect(()=>{
     ++generation.current;
     setAction(initialAction);setMessage("");setPreview(null);
-    setApproved("");setConfirmed(false);setReply(null);setError("");setBusy(false);
+    setConfirmed(false);setReply(null);setError("");setBusy(false);
     return ()=>{++generation.current;};
   },[mapId,initialAction]);
-  const change=()=>{setPreview(null);setApproved("");setConfirmed(false);setReply(null);setError("");};
+  const change=()=>{setPreview(null);setConfirmed(false);setReply(null);setError("");};
   const inspect=async(e:FormEvent)=>{
     e.preventDefault();
     if(!running||busy)return;
@@ -65,7 +64,7 @@ export function HistoricalAdminRconPanel({mapId,running,initialAction="broadcast
       if(result.mapId.toLowerCase()!==requested.toLowerCase()||
          result.action!==action||result.dispatched)
         throw new Error("UM-STORE-ADMIN-PREVIEW-IDENTITY-MISMATCH");
-      setPreview(result);setApproved("");setConfirmed(false);
+      setPreview(result);setConfirmed(false);
     }catch(e){
       if(!belongs(requested,epoch))return;
       setPreview(null);
@@ -76,10 +75,10 @@ export function HistoricalAdminRconPanel({mapId,running,initialAction="broadcast
   };
   const send=async()=>{
     if(!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
-       !confirmed||approved!==preview.approvalWord||busy)return;
+       !confirmed||busy)return;
     const token=preview.token,requested=mapId,epoch=generation.current,
       approvedCommand=preview.command;
-    setPreview(null);setApproved("");setConfirmed(false);
+    setPreview(null);setConfirmed(false);
     setBusy(true);setError("");setReply(null);
     try{
       const result=await managerBridge.historicalAdminSend(token,preview.approvalWord);
@@ -146,14 +145,12 @@ export function HistoricalAdminRconPanel({mapId,running,initialAction="broadcast
           <label><input type="checkbox" checked={confirmed}
               onChange={e=>setConfirmed(e.target.checked)}/>
             Jóváhagyom a helyi Store-v1 RCON műveletet.</label>
-          <label htmlFor="original-admin-confirm">Írd be pontosan: {preview.approvalWord}</label>
-          <input id="original-admin-confirm" value={approved}
-            autoComplete="off" spellCheck={false} maxLength={32}
-            onChange={e=>setApproved(e.target.value)}/>
-          <div className="settings-actions">
+          <p>A parancs és a célmap fent látható. A jelölőnégyzet
+             kipipálása után a külön jóváhagyó gomb egyszer küldi el.</p>
+           <div className="settings-actions">
             <button className="primary" type="button"
               disabled={busy||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
-                !confirmed||approved!==preview.approvalWord}
+                !confirmed}
               onClick={()=>{void send();}}>
               <Send size={16}/> Adminparancs egyszeri elküldése
             </button>
