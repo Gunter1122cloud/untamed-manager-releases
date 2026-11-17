@@ -121,6 +121,26 @@ public static class AsaApiReleaseStagingTests
         Check(!Directory.Exists(Path.Combine(output,"ArkApi"))&&
             !Directory.Exists(Path.Combine(output,"ShooterGame")),
             "verified ZIP was never extracted into any ASA API/plugin directory");
+
+        // P1: synthetic TEMP publish failure after a sealed SHA-verified
+        // stage exists, equivalent to Directory.Move failure on Windows.
+        string publishTarget=Target(),publishPartial=publishTarget+".incomplete";
+        Directory.CreateDirectory(publishPartial);
+        foreach(string file in new[]{"release.zip","release-manifest.json","complete"})
+            File.Copy(Path.Combine(output,file),Path.Combine(publishPartial,file));
+        Directory.CreateDirectory(publishTarget); // target changed after preview
+        string? publishCode=null;
+        try{AsaApiReleaseStaging.PublishVerifiedStage(
+            publishPartial,publishTarget);}
+        catch(IOException ex){publishCode=ex.Message;}
+        Check(publishCode!=null&&publishCode.Contains(
+              "UM-API-STAGE-PUBLISH-FAILED-HRESULT-0x",
+                StringComparison.Ordinal)&&
+              publishCode.Contains("TARGET-LENGTH-",StringComparison.Ordinal)&&
+              Directory.Exists(publishPartial),
+            "publish failure reports safe HRESULT/length and retains .incomplete for operator");
+        Check(AsaApiReleaseStaging.Verify(output).Bytes==binary.Length,
+            "separate verified original API stage remains intact after publish error");
         Check(AsaApiReleaseStaging.VerifyAgainstPublisher(output,release,asset).Bytes==
             binary.Length,"archive remains tied to separately supplied official release metadata");
         var originalAsset=asset with {OfficialSha256=new string('0',64)};
