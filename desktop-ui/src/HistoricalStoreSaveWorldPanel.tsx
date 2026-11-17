@@ -15,6 +15,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
   const [checked,setChecked]=useState(false);
   const [preview,setPreview]=useState<HistoricalSaveWorldPreview|null>(null);
   const [reviewPreview,setReviewPreview]=useState<HistoricalSaveReviewPreview|null>(null);
+  const [exportedEvidence,setExportedEvidence]=useState("");
   const [busy,setBusy]=useState(false);
   const [jobId,setJobId]=useState("");
   const [job,setJob]=useState<HistoricalGracefulStopStatus|null>(null);
@@ -31,7 +32,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
     const revision=++epoch.current;
     finished.current=false;
     setChecked(false);setRecovery(null);setPreview(null);setBusy(false);
-    setReviewPreview(null);
+    setReviewPreview(null);setExportedEvidence("");
     setJobId("");setJob(null);setNotice("");setError("");
     setDurableSave(null);setDurableUnknown(false);setDurableChecked(false);
     managerBridge.historicalSaveWorldEvidence(mapId).then(result=>{
@@ -195,6 +196,30 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       }
     }finally{if(belongs(requested,revision))setBusy(false);}
   };
+  const exportUncertainReceipt=async()=>{
+    if(busy||!durableChecked||!durableUnknown||recovery?.inMemoryRunning)
+      return;
+    const requested=mapId,revision=epoch.current;
+    setBusy(true);setError("");
+    try{
+      const receipt=await managerBridge.historicalSaveWorldForensicExport(requested);
+      if(!belongs(requested,revision))return;
+      if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||
+         !receipt.originalUntouched||receipt.sendsRcon||
+         receipt.grantsRecovery||receipt.automaticRetry||
+         !/^[a-f0-9-]+\.(json|next)\.bin$/i.test(receipt.fileName))
+        throw new Error("UM-ORIGINAL-SAVE-FORENSIC-RECEIPT-INVALID");
+      setExportedEvidence(receipt.fileName+" · SHA-256: "+receipt.sha256);
+      setNotice("A sérült helyi napló egy másolata elmentve az Obsidian "+
+        "saját historical-save-evidence-forensic-v1 mappájába. "+
+        "Az eredeti fájl és a műveleti tiltás változatlan. Nem küldtünk RCON-t.");
+    }catch(e){
+      if(belongs(requested,revision))
+        setError("A sérült napló bájtpontos exportja nem sikerült. "+
+          "Az eredeti változatlan, nincs feloldás. "+
+          (e instanceof Error?e.message:"Ellenőrizd a fájlhozzáférést."));
+    }finally{if(belongs(requested,revision))setBusy(false);}
+  };
   const inspect=async()=>{
     if(busy||!checked||!durableChecked||durableUnknown||
        durableSave?.phase==="prepared"||durableSave?.phase==="needsOperator"||
@@ -325,6 +350,25 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
         onClick={()=>{void refreshDurable();}}>
         <RefreshCw size={16}/> Store-v1 mentési napló újraellenőrzése
       </button>
+      {durableUnknown&&durableChecked&&
+        <div className="warning-inline" role="region"
+          aria-label="Sérült SaveWorld napló biztonságos exportja">
+          <AlertTriangle size={16}/>
+          <div>
+            <p>Az ismeretlen mentési kimenetelt nem oldjuk fel.
+              Ha az eredeti Manager-bizonylat olvasható bájtszinten,
+              külön kattintásra készül róla helyi bizonyítékmásolat.
+              A hiányzó jogosultság vagy zárolás nem jelent tartalmi sérülést.</p>
+            <button type="button" className="secondary"
+              disabled={busy||!!recovery?.inMemoryRunning}
+              onClick={()=>{void exportUncertainReceipt();}}>
+              <Shield size={16}/> Sérült helyi napló forenzikus exportja
+            </button>
+            {exportedEvidence&&<p className="muted small" role="status">
+              Export: {exportedEvidence}
+            </p>}
+          </div>
+        </div>}
       <button type="button" className="secondary" disabled={busy||!running||
           !checked||!durableChecked||durableUnknown||
           durableSave?.phase==="prepared"||durableSave?.phase==="needsOperator"||
