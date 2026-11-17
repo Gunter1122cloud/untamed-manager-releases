@@ -32,6 +32,8 @@ public static class LegacyStoreV1LiveReadGate
         // are consumed only inside the native, two-stage explicit start.
         internal string VerifiedOriginalSharedPath {get;init;}="";
         internal string SourceStateSha256 {get;init;}="";
+        // Includes extra, non-selected local event maps; not a writer count.
+        internal int AllPeerMembers {get;init;}
     }
     private static bool Str(JsonElement x,string key,string value)=>
         x.ValueKind==JsonValueKind.Object &&
@@ -127,6 +129,45 @@ public static class LegacyStoreV1LiveReadGate
             throw new IOException("UM-STORE-LIVE-SHARED-CHANGED");
     }
 
+    // Used by the real read-only live preflight AND isolated regression
+    // fixtures. The two DONE records may have extra current members, but
+    // each has exactly FIVE selected historical map GUIDs. No selection,
+    // session, config-hash, phase or shared UNC trust guard is skipped.
+    internal static LegacyStoreV1PeerTopology.Peer InspectOriginalDonePeer(
+        JsonElement peer,string expectedDeviceId,string session,string path)
+    {
+        var config=Need(peer,"config");
+        var owned=Need(peer,"members");
+        var selected=Need(peer,"selected");
+        if(!Str(peer,"session",session)||
+           !Str(peer,"id",expectedDeviceId)||
+           !Str(peer,"phase","done")||
+           !Str(config,"id",VaultProtocol.ClusterId)||
+           !Str(config,"mode","shared")||
+           !LegacyStoreV1PeerTopology.SameOriginalUncDirectory(
+               path,SharedRoot(Text(config,"path")))||
+           !StoreV1Fingerprint.Matches(config,Text(peer,"configHash"))||
+           owned.ValueKind!=JsonValueKind.Array||
+           owned.GetArrayLength() is <5 or >32||
+           selected.ValueKind!=JsonValueKind.Array||
+           selected.GetArrayLength()!=5||
+           !config.TryGetProperty("members",out var configMembers)||
+           configMembers.ValueKind!=JsonValueKind.Array||
+           StoreV1Fingerprint.Compute(configMembers)!=
+               StoreV1Fingerprint.Compute(owned))
+            throw new InvalidDataException("UM-STORE-LIVE-PEER-DONE-INVALID");
+        var ids=owned.EnumerateArray().Select(x=>Text(x,"id")).ToArray();
+        var names=owned.EnumerateArray().Select(x=>Text(x,"map")).ToArray();
+        var selectedIds=selected.EnumerateArray().Select(x=>
+            x.ValueKind==JsonValueKind.String?x.GetString()??"":"").ToArray();
+        var known=ids.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if(known.Count!=ids.Length||
+           selectedIds.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=5||
+           selectedIds.Any(x=>!known.Contains(x)))
+            throw new InvalidDataException("UM-STORE-LIVE-PEER-SELECTED-MISMATCH");
+        return new(expectedDeviceId,ids,names,selectedIds);
+    }
+
     /// <summary>
     /// Explicit operator-initiated probe against the existing ORIGINAL Kova
     /// local profile and its configured UNC root. No other remote URI or
@@ -204,31 +245,9 @@ public static class LegacyStoreV1LiveReadGate
             string peerFile=Path.Combine(share,peerIds[i]+".json");
             peerBytes[i]=ReadShared(peerFile);
             using var peerDoc=Json(peerBytes[i]);var peer=peerDoc.RootElement;
-            var config=Need(peer,"config");
-            var owned=Need(peer,"members");
-            var selected=Need(peer,"selected");
-            if(!Str(peer,"session",session)||
-               !Str(peer,"id",peerIds[i])||
-               !Str(peer,"phase","done")||
-               !Str(config,"id",VaultProtocol.ClusterId)||
-               !Str(config,"mode","shared")||
-               !LegacyStoreV1PeerTopology.SameOriginalUncDirectory(
-                   path,SharedRoot(Text(config,"path")))||
-               !StoreV1Fingerprint.Matches(config,Text(peer,"configHash"))||
-               owned.ValueKind!=JsonValueKind.Array||owned.GetArrayLength()!=5||
-               selected.ValueKind!=JsonValueKind.Array||selected.GetArrayLength()!=5||
-               StoreV1Fingerprint.Compute(Need(config,"members"))!=
-                   StoreV1Fingerprint.Compute(owned))
-                throw new InvalidDataException("UM-STORE-LIVE-PEER-DONE-INVALID");
-            var ids=owned.EnumerateArray().Select(x=>Text(x,"id")).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if(ids.Count!=5||selected.EnumerateArray().Any(x=>
-               !ids.Contains(x.GetString()??"")))
-                throw new InvalidDataException("UM-STORE-LIVE-PEER-SELECTED-MISMATCH");
-            topology.Add(new LegacyStoreV1PeerTopology.Peer(
-                peerIds[i],
-                owned.EnumerateArray().Select(x=>Text(x,"id")).ToArray(),
-                owned.EnumerateArray().Select(x=>Text(x,"map")).ToArray(),
-                selected.EnumerateArray().Select(x=>x.GetString()??"").ToArray()));
+            var validatedPeer=InspectOriginalDonePeer(
+                peer,peerIds[i],session,path);
+            topology.Add(validatedPeer);
             if(peerIds[i].Equals(deviceId,StringComparison.OrdinalIgnoreCase))
             {
                 // The local durable lock must select exactly the five maps
@@ -237,11 +256,12 @@ public static class LegacyStoreV1LiveReadGate
                 // the original protocol also pins the ordered selection.
                 LegacyStoreV1PeerTopology.RequireOriginalLocalSelection(
                     Need(localLock,"selected"),
-                    selected.EnumerateArray().Select(x=>x.GetString()??"").ToArray());
-                LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(cluster,config);
+                    validatedPeer.SelectedIds);
+                LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
+                    cluster,Need(peer,"config"));
             }
-            foreach(var item in owned.EnumerateArray())
-                if(!members.Add(Text(item,"map")))
+            foreach(string name in validatedPeer.MapNames)
+                if(!members.Add(name))
                     throw new InvalidDataException("UM-STORE-LIVE-DUPLICATE-MAP");
             done++;
         }
@@ -249,7 +269,7 @@ public static class LegacyStoreV1LiveReadGate
         // The shared LOCAL peer's identity must include the imported map.
         LegacyStoreV1PeerTopology.Validate(deviceId,topology);
         if(!topology.Where(x=>x.DeviceId.Equals(deviceId,StringComparison.OrdinalIgnoreCase))
-            .SelectMany(x=>x.MemberIds).Any(x=>
+            .SelectMany(x=>x.SelectedIds).Any(x=>
                 Guid.TryParse(x,out var candidate)&&candidate==map.Id))
             throw new InvalidDataException("UM-STORE-LIVE-MAP-NOT-OWNED-BY-LOCAL-PEER");
         var records=Need(store,"maps");
@@ -289,9 +309,14 @@ public static class LegacyStoreV1LiveReadGate
             fingerprint.AppendData(BitConverter.GetBytes(source.Length));
             fingerprint.AppendData(source);
         }
+        // ActiveMaps means the 10 historical SELECTED owners. Extra
+        // members do not silently inherit the original writer selection
+        // and must not prevent a valid five-plus-five historical handoff.
         return new(true,true,done==2,true,true,true,true,true,
-            members.Count,done,"ORIGINAL_LIVE_TWO_HOST_ACTIVE_DONE_SHARED_GUARD_READ_ONLY")
+            topology.Sum(x=>x.SelectedIds.Count),done,
+            "ORIGINAL_LIVE_TWO_HOST_ACTIVE_DONE_SHARED_GUARD_READ_ONLY")
         {
+            AllPeerMembers=members.Count,
             VerifiedOriginalSharedPath=path,
             SourceStateSha256=Convert.ToHexString(fingerprint.GetHashAndReset())
         };
