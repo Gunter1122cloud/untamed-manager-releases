@@ -23,8 +23,11 @@ public sealed class DesktopAsaLifecycleJournalBridge
     private sealed record Pending(Guid Token,Guid MapId,Guid Operation,
         int Pid,DateTimeOffset StartedUtc,string SourceSha,string ProfileJson,
         Guid? RestartId,string? RestartSnapshot,bool RestartOnly,DateTimeOffset ExpiresUtc,
-        bool StoppedReview=false);
-    internal sealed record StoppedProof(LocalMap Map,int OldPid,string SourceSha);
+        bool StoppedReview=false,bool SourceReapprovalRequired=false,
+        string CurrentSourceHash="",string PreviousSourceHash="");
+    internal sealed record StoppedProof(LocalMap Map,int OldPid,string SourceSha,
+        bool SourceReapprovalRequired=false,string CurrentSourceHash="",
+        string PreviousSourceHash="");
     private readonly ClusterService cluster;
     private readonly Func<Guid,LegacyStoreV1GracefulStop.Owned> ownerProof;
     private readonly Func<Guid,int,StoppedProof> stoppedProof;
@@ -141,12 +144,12 @@ public sealed class DesktopAsaLifecycleJournalBridge
             throw new InvalidDataException(
                 "UM-RECOVERY-STOPPED-MAP-IDENTITY-CHANGED");
         bool pinned=!string.Equals(profile,legacy,StringComparison.OrdinalIgnoreCase);
+        bool reapproval=false;
         if(pinned)LegacyStoreV1PinnedSource.RequireImmutableIdentity(map,source);
-        else if(map.HistoricalArchiveSha256!=source.FourFilesSha256&&
-            local.Evidence!=
-                "ORIGINAL_FIVE_SELECTED_PINNED_IN_EXPANDED_LOCAL_ROSTER_NO_PEER_CERTIFICATION")
-            throw new InvalidDataException(
-                "UM-RECOVERY-STOPPED-HISTORICAL-SOURCE-CHANGED");
+        else reapproval=LegacyStoreV1ExpandedSourceReview.RequireExplicitReview(
+            map,cluster.Config.LocalMaps,local,source);
+        // An expanded source never silently replaces the old approval.
+        // An independent, specifically typed consent is required below.
         if(!AsaRconConfigurationEvidence.Matches(map))
             throw new InvalidDataException(
                 "UM-RECOVERY-STOPPED-RCON-CONFIGURATION-CHANGED");
@@ -162,7 +165,8 @@ public sealed class DesktopAsaLifecycleJournalBridge
             map.HistoricalArchiveSha256,JsonSerializer.Serialize(map),
             gus,game,oldPid.ToString());
         return new(map,oldPid,Convert.ToHexString(SHA256.HashData(
-            Encoding.UTF8.GetBytes(evidence))));
+            Encoding.UTF8.GetBytes(evidence))),reapproval,
+            source.FourFilesSha256,map.HistoricalArchiveSha256);
     }
 
     private StoppedProof VerifyStopped(Guid mapId,int oldPid)
@@ -294,7 +298,10 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         restart?.Phase==AsaRestartPhase.Completed?null:
                             JsonSerializer.Serialize(restart),
                         restartOnlyReviewable,DateTimeOffset.UtcNow.AddMinutes(3),
-                        StoppedReview:stopped!=null);
+                        StoppedReview:stopped!=null,
+                        SourceReapprovalRequired:stopped?.SourceReapprovalRequired==true,
+                        CurrentSourceHash:stopped?.CurrentSourceHash??"",
+                        PreviousSourceHash:stopped?.PreviousSourceHash??"");
                     return Ok(id,new{
                         token,mapId,mapName=map.Name,
                         operationId=old?.Operation??Guid.Empty,
@@ -317,6 +324,11 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         historicalSelectedOwnerVerified=stopped!=null,
                         originalStoreSessionVerified=running!=null&&!sourcePinned,
                         approvedObsidianSourcePinned=sourcePinned,
+                        historicalSourceReapprovalRequired=pending.SourceReapprovalRequired,
+                        historicalApprovedFourFilesSha256=pending.SourceReapprovalRequired?
+                            pending.PreviousSourceHash:null,
+                        historicalCurrentFourFilesSha256=pending.SourceReapprovalRequired?
+                            pending.CurrentSourceHash:null,
                         legacyPeerCheckRequiredForLocalReview=!sourcePinned,
                         rconListenerOwnerVerified=running!=null,
                         priorCommandOutcomeUnknown=true,
@@ -344,6 +356,12 @@ public sealed class DesktopAsaLifecycleJournalBridge
                    typed.ValueKind!=JsonValueKind.String||
                    typed.GetString()!="STORE-V1 NAPLÓ HELYREÁLLÍTÁS")
                     return Error(id,"UM-RECOVERY-EXPLICIT-APPROVAL-REQUIRED");
+                if(pinned.SourceReapprovalRequired&&
+                   (!pinned.StoppedReview||
+                    !root.TryGetProperty("historicalSourceApproval",out var newSourceApproval)||
+                    newSourceApproval.ValueKind!=JsonValueKind.String||
+                    newSourceApproval.GetString()!="FORRÁS ELTÉRÉS JÓVÁHAGYÁSA"))
+                    return Error(id,"UM-RECOVERY-SOURCE-REAPPROVAL-REQUIRED");
                 // Pin both original journal IDs and the precise preflight
                 // Restart-v1 record. No competing UI or Manager may silently
                 // replace either during the three-minute approval window.
@@ -360,6 +378,10 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         {
                             var checkedStopped=VerifyStopped(mapId,pinned.Pid);
                             return checkedStopped.SourceSha==pinned.SourceSha&&
+                                checkedStopped.SourceReapprovalRequired==
+                                    pinned.SourceReapprovalRequired&&
+                                checkedStopped.CurrentSourceHash==pinned.CurrentSourceHash&&
+                                checkedStopped.PreviousSourceHash==pinned.PreviousSourceHash&&
                                 JsonSerializer.Serialize(map)==pinned.ProfileJson;
                         }
                         catch(Exception ex) when(ex is InvalidDataException or
@@ -405,6 +427,9 @@ public sealed class DesktopAsaLifecycleJournalBridge
                     storeBytesModified=false,
                     processStarted=false,processStopped=false,rconCommandSent=false,
                     noAutomaticRetry=true,newOperationRequiresFreshApproval=true,
+                    historicalSourceReapprovedForJournalOnly=
+                        pinned.SourceReapprovalRequired,
+                    oldHistoricalHashPreserved=true,
                     evidence=pinned.StoppedReview?
                         "ORIGINAL_STORE_VERIFIED_STOPPED_OWNER_AUDITED_PAIRED_JOURNAL_REVIEW":
                         "ORIGINAL_STORE_EXACT_RUNNING_OWNER_AUDITED_MANUAL_JOURNAL_REVIEW"

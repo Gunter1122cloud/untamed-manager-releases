@@ -165,5 +165,122 @@ internal static class OriginalStoreStoppedJournalRecoveryTests
         });
         Check(!replay.GetProperty("ok").GetBoolean(),
             "consumed stopped-owner approval cannot be replayed");
+
+        // Separate exact #2961 branch: a consistent expanded local source
+        // cannot silently replace the original approved five-map hash. The
+        // second operator consent is mandatory for the journal review alone.
+        string expandedInstall=Path.Combine(testRoot,
+            "changed-source-stopped-original-journal");
+        Directory.CreateDirectory(expandedInstall);
+        await using var expandedCluster=new ClusterService(
+            "changed-source-stopped-original-review",
+            Path.Combine(testRoot,"changed-source-review-manager"),
+            _=>new ProcessCheck(false,"synthetic stopped only",null,true));
+        var expandedMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Aberration Expanded",
+            InstallationPath=expandedInstall,HistoricalStoreProtected=true,
+            HistoricalArchiveSha256=new string('A',64),
+            HistoricalMapKey="Aberration_WP",RconPort=37045,
+            AutoStart=false,MonitorRcon=false
+        };
+        expandedCluster.AddMap(expandedMap);
+        using(var lease=expandedCluster.Operations.Acquire(
+            expandedInstall,UntamedOperationKind.Launch))
+            lease.MarkMutationStarted();
+        string expandedKey=UntamedOperationCoordinator.ResourceKey(expandedInstall);
+        string expandedJournal=Path.Combine(UntamedOperationCoordinator.DefaultRoot,
+            expandedKey+".json");
+        var expandedOld=expandedCluster.Operations.Observe(expandedInstall)!;
+        File.WriteAllText(expandedJournal,JsonSerializer.Serialize(
+            expandedOld with{UpdatedUtc=DateTimeOffset.UtcNow.AddMinutes(-12)}));
+        string expandedOriginal=File.ReadAllText(expandedJournal);
+        var expandedRestart=new AsaManualRestartJournal(expandedInstall);
+        var expandedRestartId=expandedRestart.Begin(expandedMap.Id,oldPid);
+        expandedRestart.Change(expandedRestartId.Id,AsaRestartPhase.NeedsOperator);
+        string expandedRestartFile=Path.Combine(
+            UntamedOperationCoordinator.DefaultRoot,"Restart-v1",expandedKey+".json");
+        File.WriteAllText(expandedRestartFile,JsonSerializer.Serialize(
+            expandedRestart.Observe()! with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-12)
+            }));
+        string expandedRestartOriginal=File.ReadAllText(expandedRestartFile);
+        string currentFourFiles=new string('B',64);
+        var expandedBridge=new DesktopAsaLifecycleJournalBridge(expandedCluster,
+            _=>throw new InvalidOperationException(
+                "UM-RECOVERY-RUNNING-PROOF-UNAVAILABLE"),
+            (requested,pid)=>{
+                if(requested!=expandedMap.Id||pid!=oldPid)
+                    throw new InvalidDataException("UM-RECOVERY-OWNER-MISMATCH");
+                return new DesktopAsaLifecycleJournalBridge.StoppedProof(
+                    expandedMap,pid,new string('C',64),true,
+                    currentFourFiles,expandedMap.HistoricalArchiveSha256);
+            });
+        var sourcePreview=await Call(expandedBridge,
+            "servers.lifecycleRecoveryPreview",expandedMap.Id);
+        Check(sourcePreview.GetProperty("ok").GetBoolean()&&
+            sourcePreview.GetProperty("data").GetProperty(
+                "historicalSourceReapprovalRequired").GetBoolean()&&
+            sourcePreview.GetProperty("data").GetProperty(
+                "historicalApprovedFourFilesSha256").GetString()==
+                    expandedMap.HistoricalArchiveSha256&&
+            sourcePreview.GetProperty("data").GetProperty(
+                "historicalCurrentFourFilesSha256").GetString()==currentFourFiles,
+            "changed hash is surfaced as a distinct review with BOTH original and current SHA-256 values");
+        string sourceToken=sourcePreview.GetProperty("data").GetProperty(
+            "token").GetString()!;
+        var silent=await Call(expandedBridge,
+            "servers.lifecycleRecoveryApply",expandedMap.Id,new{
+                token=sourceToken,confirm=true,ackUnknownOutcome=true,
+                typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+            });
+        Check(!silent.GetProperty("ok").GetBoolean()&&
+            silent.GetProperty("error").GetString()==
+                "UM-RECOVERY-SOURCE-REAPPROVAL-REQUIRED"&&
+            File.ReadAllText(expandedJournal)==expandedOriginal&&
+            File.ReadAllText(expandedRestartFile)==expandedRestartOriginal,
+            "ordinary journal approval cannot bypass explicit source reapproval");
+        sourcePreview=await Call(expandedBridge,
+            "servers.lifecycleRecoveryPreview",expandedMap.Id);
+        sourceToken=sourcePreview.GetProperty("data").GetProperty("token").GetString()!;
+        currentFourFiles=new string('D',64);
+        var drift=await Call(expandedBridge,
+            "servers.lifecycleRecoveryApply",expandedMap.Id,new{
+                token=sourceToken,confirm=true,ackUnknownOutcome=true,
+                typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS",
+                historicalSourceApproval="FORRÁS ELTÉRÉS JÓVÁHAGYÁSA"
+            });
+        Check(!drift.GetProperty("ok").GetBoolean()&&
+            File.ReadAllText(expandedJournal)==expandedOriginal&&
+            File.ReadAllText(expandedRestartFile)==expandedRestartOriginal,
+            "changed current Store source after preview cannot reuse operator source approval");
+        sourcePreview=await Call(expandedBridge,
+            "servers.lifecycleRecoveryPreview",expandedMap.Id);
+        sourceToken=sourcePreview.GetProperty("data").GetProperty("token").GetString()!;
+        var reviewed=await Call(expandedBridge,
+            "servers.lifecycleRecoveryApply",expandedMap.Id,new{
+                token=sourceToken,confirm=true,ackUnknownOutcome=true,
+                typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS",
+                historicalSourceApproval="FORRÁS ELTÉRÉS JÓVÁHAGYÁSA"
+            });
+        Check(reviewed.GetProperty("ok").GetBoolean()&&
+            reviewed.GetProperty("data").GetProperty(
+                "historicalSourceReapprovedForJournalOnly").GetBoolean()&&
+            reviewed.GetProperty("data").GetProperty(
+                "oldHistoricalHashPreserved").GetBoolean()&&
+            expandedMap.HistoricalArchiveSha256==new string('A',64)&&
+            !reviewed.GetProperty("data").GetProperty("processStarted").GetBoolean()&&
+            !reviewed.GetProperty("data").GetProperty("rconCommandSent").GetBoolean()&&
+            expandedCluster.Operations.Observe(expandedInstall)?.Phase==
+                UntamedOperationPhase.OperatorReviewed&&
+            expandedRestart.Observe()?.Phase==AsaRestartPhase.OperatorReviewed,
+            "explicit source approval audits only two original journals without replacing historical hashes or issuing ASA commands");
+        var oldToken=await Call(expandedBridge,
+            "servers.lifecycleRecoveryApply",expandedMap.Id,new{
+                token=sourceToken,confirm=true,ackUnknownOutcome=true,
+                typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS",
+                historicalSourceApproval="FORRÁS ELTÉRÉS JÓVÁHAGYÁSA"
+            });
+        Check(!oldToken.GetProperty("ok").GetBoolean(),
+            "changed-source explicit approval token remains strictly single-use");
     }
 }

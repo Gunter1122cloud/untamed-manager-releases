@@ -347,6 +347,7 @@ test.beforeEach(async ({ page }) => {
     let lifecycleInterrupted=false;
     let storeLaunchRecoveryFixture=false;
     let storeRestartOnlyFixture=false;
+    let storeSourceReapprovalFixture=false;
     let storeLaunchRecoveryCalls=0;
     (window as typeof window & {__UNTAMED_STORE_RESTART_ONLY__?:()=>void})
       .__UNTAMED_STORE_RESTART_ONLY__=()=>{
@@ -363,6 +364,15 @@ test.beforeEach(async ({ page }) => {
         Object.assign(state.local.maps[1],{
           name:"Aberration",storeProtected:true,rconConfigured:true,
           running:true,status:"Fut",storeLifecycleState:"needsOperator"
+        });
+      };
+    (window as typeof window & {__UNTAMED_STORE_SOURCE_REAPPROVAL__?:()=>void})
+      .__UNTAMED_STORE_SOURCE_REAPPROVAL__=()=>{
+        storeLaunchRecoveryFixture=true;storeSourceReapprovalFixture=true;
+        lifecycleInterrupted=true;restartInterrupted=true;
+        Object.assign(state.local.maps[1],{
+          name:"Aberration",storeProtected:true,rconConfigured:true,
+          running:false,status:"Leállítva",storeLifecycleState:"needsOperator"
         });
       };
     (window as typeof window & {__UNTAMED_STORE_RECOVERY_CALLS__?:()=>number})
@@ -2928,8 +2938,20 @@ test.beforeEach(async ({ page }) => {
             restartPhase:"NeedsOperator",restartOldPid:123456,
             restartNewPid:0,pairedJournals:storeRestartOnlyFixture?1:2,
             expiresUtc:new Date(Date.now()+180000).toISOString(),
-            exactWindowsProcessVerified:true,originalStoreSessionVerified:true,
-            rconListenerOwnerVerified:true,priorCommandOutcomeUnknown:true,
+            reviewMode:storeSourceReapprovalFixture?"stopped":"running",
+            exactWindowsProcessVerified:!storeSourceReapprovalFixture,
+            stoppedWindowsProcessVerified:storeSourceReapprovalFixture,
+            rconListenerAbsent:storeSourceReapprovalFixture,
+            historicalSelectedOwnerVerified:storeSourceReapprovalFixture,
+            originalStoreSessionVerified:!storeSourceReapprovalFixture,
+            rconListenerOwnerVerified:!storeSourceReapprovalFixture,
+            approvedObsidianSourcePinned:false,
+            historicalSourceReapprovalRequired:storeSourceReapprovalFixture,
+            historicalApprovedFourFilesSha256:storeSourceReapprovalFixture?
+              "E5B633F303964DD3E025252895D20E0D17FC1144E6375577BF3A87EF15B5F1E7":null,
+            historicalCurrentFourFilesSha256:storeSourceReapprovalFixture?
+              "DB2D8EA06311242A0F66A2B4878A3DCD4C0EBE720AD0E7FFE2219A9F83113943":null,
+            priorCommandOutcomeUnknown:true,
             previousOperationWillNotBeRetried:true,requiresTypedApproval:true,
             auditRequired:true,storeBytesModified:false,
             evidence:"ORIGINAL_STORE_RUNNING_LAUNCH_JOURNAL_RECOVERY_PREVIEW"};
@@ -2941,6 +2963,9 @@ test.beforeEach(async ({ page }) => {
             m.confirm!==true||m.ackUnknownOutcome!==true||
             m.typedApproval!=="STORE-V1 NAPLÓ HELYREÁLLÍTÁS")
             throw new Error("UM-RECOVERY-EXPLICIT-APPROVAL-REQUIRED");
+          if(storeSourceReapprovalFixture&&
+             m.historicalSourceApproval!=="FORRÁS ELTÉRÉS JÓVÁHAGYÁSA")
+            throw new Error("UM-RECOVERY-SOURCE-REAPPROVAL-REQUIRED");
           storeLaunchRecoveryCalls++;lifecycleInterrupted=false;restartInterrupted=false;
           Object.assign(state.local.maps[1],{storeLifecycleState:"running"});
           return {mapId:two,operationId:"00000000-0000-4000-8000-000000001625",
@@ -2948,7 +2973,12 @@ test.beforeEach(async ({ page }) => {
             originalJournalAudited:!storeRestartOnlyFixture,restartJournalAudited:true,
             pairedJournalsReviewed:storeRestartOnlyFixture?1:2,
             restartMarkedSuccessful:false,
-            oldRunningPid:123456,storeBytesModified:false,
+            oldRunningPid:storeSourceReapprovalFixture?null:123456,
+            oldStoppedPid:storeSourceReapprovalFixture?123456:null,
+            reviewMode:storeSourceReapprovalFixture?"stopped":"running",
+            historicalSourceReapprovedForJournalOnly:storeSourceReapprovalFixture,
+            oldHistoricalHashPreserved:true,
+            storeBytesModified:false,
             processStarted:false,processStopped:false,rconCommandSent:false,
             noAutomaticRetry:true,newOperationRequiresFreshApproval:true,
             evidence:"ORIGINAL_STORE_EXACT_RUNNING_OWNER_AUDITED_MANUAL_JOURNAL_REVIEW"};
@@ -4600,6 +4630,33 @@ test("running Aberration Store-v1 stale Launch journal is reviewed once, never a
     __UNTAMED_STORE_RECOVERY_CALLS__?:()=>number
   }).__UNTAMED_STORE_RECOVERY_CALLS__?.()??-1);
   expect(count).toBe(1);
+});
+
+test("2961 six-map source mismatch requires a second typed approval and preserves old hash",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STORE_SOURCE_REAPPROVAL__?:()=>void
+  }).__UNTAMED_STORE_SOURCE_REAPPROVAL__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").filter({hasText:"Aberration"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 beragadt indítás helyreállítása"});
+  await panel.getByRole("button",{name:"Ellenőrzés és helyi naplórendezés"}).click();
+  await expect(panel).toContainText("Eltér a korábbi jóváhagyott Store-v1 forráslenyomat");
+  await expect(panel).toContainText("E5B633F303964DD3E025252895D20E0D17FC1144E6375577BF3A87EF15B5F1E7");
+  await expect(panel).toContainText("DB2D8EA06311242A0F66A2B4878A3DCD4C0EBE720AD0E7FFE2219A9F83113943");
+  const approve=panel.getByRole("button",{name:"Forráseltérés és naplórendezés jóváhagyása"});
+  await expect(approve).toBeDisabled();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STORE_RECOVERY_CALLS__?:()=>number
+  }).__UNTAMED_STORE_RECOVERY_CALLS__?.())).toBe(0);
+  await panel.getByRole("textbox").fill("FORRÁS ELTÉRÉS JÓVÁHAGYÁSA");
+  await expect(approve).toBeEnabled();
+  await approve.click();
+  await expect(panel).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STORE_RECOVERY_CALLS__?:()=>number
+  }).__UNTAMED_STORE_RECOVERY_CALLS__?.())).toBe(1);
 });
 
 test("old Store Restart-only NeedsOperator is explicitly recoverable without declaring a successful restart",async({page})=>{

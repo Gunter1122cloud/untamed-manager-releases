@@ -483,6 +483,9 @@ export type OriginalStoreLifecycleRecoveryPreview = {
   rconListenerAbsent?:boolean;historicalSelectedOwnerVerified?:boolean;
   originalStoreSessionVerified:boolean;
   approvedObsidianSourcePinned:boolean;
+  historicalSourceReapprovalRequired?:boolean;
+  historicalApprovedFourFilesSha256?:string|null;
+  historicalCurrentFourFilesSha256?:string|null;
   legacyPeerCheckRequiredForLocalReview:boolean;
   rconListenerOwnerVerified:boolean;priorCommandOutcomeUnknown:true;
   previousOperationWillNotBeRetried:true;requiresTypedApproval:true;
@@ -498,6 +501,8 @@ export type OriginalStoreLifecycleRecoveryReceipt = {
   oldStoppedPid?:number|null;reviewMode?:"running"|"stopped";
   storeBytesModified:false;processStarted:false;processStopped:false;
   rconCommandSent:false;noAutomaticRetry:true;newOperationRequiresFreshApproval:true;
+  historicalSourceReapprovedForJournalOnly?:boolean;
+  oldHistoricalHashPreserved?:boolean;
   evidence:"ORIGINAL_STORE_EXACT_RUNNING_OWNER_AUDITED_MANUAL_JOURNAL_REVIEW"|
     "ORIGINAL_STORE_VERIFIED_STOPPED_OWNER_AUDITED_PAIRED_JOURNAL_REVIEW";
 };
@@ -1897,9 +1902,11 @@ export const managerBridge = {
     request<AsaLifecycleJournal>("servers.lifecycleJournal",{mapId}),
   originalStoreLifecycleRecoveryPreview: (mapId:string) =>
     request<OriginalStoreLifecycleRecoveryPreview>("servers.lifecycleRecoveryPreview",{mapId}),
-  originalStoreLifecycleRecoveryApply: (mapId:string,token:string,typedApproval:string) =>
+  originalStoreLifecycleRecoveryApply: (mapId:string,token:string,
+      typedApproval:string,historicalSourceApproval?:string) =>
     request<OriginalStoreLifecycleRecoveryReceipt>("servers.lifecycleRecoveryApply",{
-      mapId,token,typedApproval,confirm:true,ackUnknownOutcome:true
+      mapId,token,typedApproval,confirm:true,ackUnknownOutcome:true,
+      ...(historicalSourceApproval?{historicalSourceApproval}:{})
     }),
   ownedAsaKillPreview: (mapId:string) =>
     request<OwnedAsaKillPreview>("servers.ownedKillPreview",{mapId}),

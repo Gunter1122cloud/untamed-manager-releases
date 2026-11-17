@@ -242,6 +242,68 @@ internal static class OriginalKovaDirectImportTests
                     .Maps.Select(x=>x.MapId.ToString("D")).SequenceEqual(ids),
                     "newly hashed six-member metadata does not expand the five selected legacy maps");
 
+                // Exact #2961 Aberration regression: both the current
+                // 6-member cluster AND the saved lock configuration are
+                // internally valid. The old Obsidian hash still identifies
+                // the previously approved five-member metadata. This must
+                // offer an EXTRA operator consent, never accept silently.
+                var fullCurrent=LegacyStoreV1OriginalImport.Inspect(local);
+                var fullStatus=LegacyStoreV1LocalReader.Inspect(local);
+                var historicalProfiles=discovered.Maps.Select(row=>new LocalMap{
+                    Id=row.MapId,Name=row.MapKey,
+                    HistoricalStoreProtected=true,
+                    HistoricalArchiveSha256=discovered.FourFilesSha256,
+                    HistoricalMapKey=row.MapKey,
+                    InstallationPath=row.OriginalInstallationRoot,
+                    GamePort=row.GamePort,QueryPort=row.QueryPort
+                }).ToArray();
+                var originalAberration=historicalProfiles[0];
+                Check(fullStatus.LocalSnapshotReady&&
+                    fullStatus.ClusterHashVerified&&
+                    fullStatus.CurrentLocalMemberCount==6&&
+                    fullCurrent.CurrentLocalMemberCount==6&&
+                    fullCurrent.FourFilesSha256!=discovered.FourFilesSha256&&
+                    LegacyStoreV1ExpandedSourceReview.RequireExplicitReview(
+                        originalAberration,historicalProfiles,fullStatus,fullCurrent)&&
+                    historicalProfiles.All(x=>x.HistoricalArchiveSha256==
+                        discovered.FourFilesSha256),
+                    "six-member current-valid lock plus old five-map approval requires separate source consent, never hash adoption");
+                var driftedProfiles=historicalProfiles.Select(x=>x).ToArray();
+                driftedProfiles[1]=new LocalMap{
+                    Id=historicalProfiles[1].Id,
+                    HistoricalStoreProtected=true,
+                    HistoricalArchiveSha256=discovered.FourFilesSha256,
+                    HistoricalMapKey=historicalProfiles[1].HistoricalMapKey,
+                    InstallationPath=Path.Combine(baseRoot,"unauthorized-drift-root")
+                };
+                bool driftRejected=false;
+                try{_=LegacyStoreV1ExpandedSourceReview.RequireExplicitReview(
+                    originalAberration,driftedProfiles,fullStatus,fullCurrent);}
+                catch(InvalidDataException){driftRejected=true;}
+                Check(driftRejected,
+                    "changed root in ANY historical map blocks source reapproval even with correct current lock hash");
+                var missingProfiles=historicalProfiles.Take(4).ToArray();
+                bool missingRejected=false;
+                try{_=LegacyStoreV1ExpandedSourceReview.RequireExplicitReview(
+                    originalAberration,missingProfiles,fullStatus,fullCurrent);}
+                catch(InvalidDataException){missingRejected=true;}
+                Check(missingRejected,
+                    "missing original Obsidian historical profile blocks source reapproval");
+                var foreignHashProfiles=historicalProfiles.Select(x=>x).ToArray();
+                foreignHashProfiles[1]=new LocalMap{
+                    Id=historicalProfiles[1].Id,
+                    HistoricalStoreProtected=true,
+                    HistoricalArchiveSha256=new string('C',64),
+                    HistoricalMapKey=historicalProfiles[1].HistoricalMapKey,
+                    InstallationPath=historicalProfiles[1].InstallationPath
+                };
+                bool hashRejected=false;
+                try{_=LegacyStoreV1ExpandedSourceReview.RequireExplicitReview(
+                    originalAberration,foreignHashProfiles,fullStatus,fullCurrent);}
+                catch(InvalidDataException){hashRejected=true;}
+                Check(hashRejected,
+                    "five historical map approvals must share the immutable original source fingerprint");
+
                 // Historical selected[] and members[] may have different
                 // valid orderings; do not invent an equality rule here.
                 // Reordering selected[] still changes the FULL four-file

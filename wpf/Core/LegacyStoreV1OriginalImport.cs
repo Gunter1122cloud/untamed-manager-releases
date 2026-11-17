@@ -23,6 +23,7 @@ public sealed record LegacyStoreV1OriginalLocalSelection(string FourFilesSha256,
     // Verified lock-selected original five embedded in a later expanded
     // current local map roster. The full new source hash remains pinned.
     public bool SelectedHistoricalSubsetOfExpandedRoster {get;init;}
+    public int CurrentLocalMemberCount {get;init;}
 }
 
 public static class LegacyStoreV1OriginalImport
@@ -171,7 +172,8 @@ public static class LegacyStoreV1OriginalImport
             throw new IOException("UM-STORE-DIRECT-ORIGINAL-METADATA-CHANGED");
         return new(tag,Convert.ToHexString(SHA256.HashData(launchBytes)),
             selected.ToArray()){
-                SelectedHistoricalSubsetOfExpandedRoster=members.GetArrayLength()>5
+                SelectedHistoricalSubsetOfExpandedRoster=members.GetArrayLength()>5,
+                CurrentLocalMemberCount=members.GetArrayLength()
             };
     }
 }
