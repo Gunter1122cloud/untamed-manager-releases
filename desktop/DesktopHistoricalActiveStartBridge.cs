@@ -503,15 +503,14 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
             }
             finally{serial.Release();}
         }
-        catch(Exception e) when(e is InvalidDataException or InvalidOperationException or
-            UnauthorizedAccessException or IOException)
+        catch(Exception e)
         {
-            return Fail(id,SafeStartErrors.Contains(e.Message)?e.Message:
-                "UM-STORE-ACTIVE-START-SAFETY-FAILED");
-        }
-        catch(Exception)
-        {
-            return Fail(id,"UM-STORE-ACTIVE-START-SAFETY-FAILED");
+            // Never suppress actionable native codes from the source-pin,
+            // peer, PID or multi-journal planner just because a local
+            // hard-coded allowlist has not yet been updated. Only strictly
+            // ASCII-safe symbolic codes survive the central sanitizer.
+            // No paths, server arguments, credentials or raw exceptions.
+            return Fail(id,NativeLifecycleFailureCode.From(e));
         }
     }
     private static string Ok(string id,object payload)=>
