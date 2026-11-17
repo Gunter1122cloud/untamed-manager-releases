@@ -62,8 +62,8 @@ public static class LegacyStoreV1LocalReader
            original.ValueKind!=JsonValueKind.Array||
            original.GetArrayLength()!=5)return false;
         var locked=original.EnumerateArray().ToArray();
-        if(!locked.Select(x=>Text(x,"id"))
-            .SequenceEqual(selection,StringComparer.Ordinal))return false;
+        if(!locked.Select(x=>Text(x,"id")).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            .SetEquals(selection))return false;
         var now=Required(current,"members").EnumerateArray()
             .Where(x=>selection.Contains(Text(x,"id"),
                 StringComparer.OrdinalIgnoreCase)).ToArray();
