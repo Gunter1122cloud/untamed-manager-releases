@@ -206,6 +206,29 @@ internal static class OriginalKovaDirectImportTests
                             .GetProperty("fiveOriginalMaps").GetInt32()==5,
                         "historical cluster registry previews only five original members in six-member metadata");
                 }
+                var historical=expandedImport.Maps[0];
+                var stillOriginal=new LocalMap{
+                    Id=historical.MapId,Name="Previously imported historical map",
+                    InstallationPath=historical.OriginalInstallationRoot,
+                    HistoricalStoreProtected=true,
+                    HistoricalArchiveSha256=discovered.FourFilesSha256,
+                    HistoricalMapKey=historical.MapKey,
+                    GamePort=historical.GamePort,QueryPort=historical.QueryPort
+                };
+                LegacyStoreV1PinnedSource.RequireImmutableIdentity(
+                    stillOriginal,expandedImport);
+                string approvedExpandedManager=Path.Combine(baseRoot,
+                    "approved-expanded-store-source");
+                Directory.CreateDirectory(approvedExpandedManager);
+                LegacyStoreV1PinnedSource.Capture(local,approvedExpandedManager,
+                    expandedImport.FourFilesSha256,expandedImport.LaunchProfileSha256);
+                Check(LegacyStoreV1PinnedSource.HasApprovedLocalSource(
+                    approvedExpandedManager,stillOriginal)&&
+                    LegacyStoreV1PinnedSource.Resolve(approvedExpandedManager,
+                        local,stillOriginal)!=local&&
+                    stillOriginal.HistoricalArchiveSha256==
+                        discovered.FourFilesSha256,
+                    "explicit six-map source pin preserves immutable original five-map hash without granting event ownership");
                 // Even if an expanded current cluster is represented in a
                 // fresh matching lock, only its explicitly selected five
                 // original GUIDs may enter the historical adapter.
