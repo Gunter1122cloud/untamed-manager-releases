@@ -1685,6 +1685,7 @@ export type ConfiguredMods = {
 type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
   "operations.scheduleCreate" | "operations.scheduleDisable" |
   "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" |
+  "schedule.nativeReviewPreview" | "schedule.nativeReviewApply" |
   "schedule.nativeOverview" |
   "maps.maintenanceStatus" | "maps.maintenanceSet" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.openFolder" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
