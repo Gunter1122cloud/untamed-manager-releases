@@ -232,12 +232,26 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         // The named review endpoint will separately check the old PID,
         // process-start, source, active worker, lease and restart journal.
         string nextAction=running!=null?"WAIT_FOR_ACTIVE_WORKER":
-            unreadableSaveEvidence?"EXPORT_UNREADABLE_SAVE_JOURNAL_FOR_OPERATOR":
+            unreadableSaveEvidence?"historical.saveWorldForensicExport":
             saveReviewCandidate?"historical.saveWorldReviewPreview":
             operationBlocked&&journal?.Kind==UntamedOperationKind.Launch?
                 "servers.lifecycleRecoveryPreview":
             restartPending?"servers.lifecycleRecoveryPreview":
-            operationBlocked?"OPERATION_KIND_SPECIFIC_REVIEW_REQUIRED":
+            operationBlocked?journal?.Kind switch{
+                UntamedOperationKind.Backup=>
+                    "BACKUP_RECEIPT_ABSENT_EXPORT_COORDINATOR_FOR_OFFLINE_REVIEW",
+                UntamedOperationKind.Configuration=>
+                    "CONFIGURATION_JOURNAL_REQUIRE_LOCAL_CONFIG_DIFF_AUDIT",
+                UntamedOperationKind.PluginChange=>
+                    "PLUGIN_JOURNAL_REQUIRE_PLUGIN_FOLDER_ROLLBACK_AUDIT",
+                UntamedOperationKind.Restore=>
+                    "RESTORE_JOURNAL_REQUIRE_OFFLINE_STAGING_RECOVERY",
+                UntamedOperationKind.Update=>
+                    "UPDATE_JOURNAL_REQUIRE_STEAMCMD_STAGE_RECOVERY",
+                UntamedOperationKind.EmergencyKill=>
+                    "EMERGENCY_KILL_JOURNAL_REQUIRE_EXACT_PID_AUDIT",
+                _=>"UNSUPPORTED_OPERATION_STATE_EXPORT_DURABLE_JOURNAL"
+            }:
             "NEW_PREFLIGHT_REQUIRED";
         return new{
             mapId,operationId=journal?.Operation,
