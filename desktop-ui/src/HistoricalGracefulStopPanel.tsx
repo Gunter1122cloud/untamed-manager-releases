@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,RefreshCw,Shield,Square,LockKeyhole} from "lucide-react";
-import {managerBridge,type HistoricalGracefulStopPreview,
-  type HistoricalGracefulStopStatus,type HistoricalGracefulStopRecovery} from "./bridge";
+import {managerBridge,type HistoricalGracefulStopStatus,
+  type HistoricalGracefulStopRecovery} from "./bridge";
 
 /**
  * Original ACTIVE/DONE Store shutdown is intentional and one-shot:
