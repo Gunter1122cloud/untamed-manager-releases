@@ -63,6 +63,32 @@ internal static class LocalAsaApiModeTests
         Directory.CreateDirectory(Path.GetDirectoryName(ini)!);
         const string protectedContent="[ServerSettings]\r\nRCONPort=37145\r\n";
         File.WriteAllText(ini,protectedContent);
+        // The real launcher startup flags are tested without executing any
+        // synthetic PE64 fixture, ASA binary or plugin. The operator needs a
+        // genuine visible Loader console for each explicitly API-enabled map.
+        var apiLaunch=new AsaApiLaunchPlan(true,loader,
+            "TheCenter_WP?listen -log","isolated-api-window");
+        var directLaunch=new AsaApiLaunchPlan(false,exe,
+            "TheCenter_WP?listen -log","isolated-direct-window");
+        var consoleFixture=new LocalMap{InstallationPath=root,ExecutablePath=exe};
+        var apiStart=WindowsProcessInspector.BuildLaunchStartInfo(
+            consoleFixture,apiLaunch);
+        Check(apiStart.FileName==loader&&
+              apiStart.Arguments==apiLaunch.Arguments&&
+              apiStart.WorkingDirectory==folder&&
+              !apiStart.UseShellExecute&&!apiStart.CreateNoWindow&&
+              apiStart.WindowStyle==System.Diagnostics.ProcessWindowStyle.Normal&&
+              !apiStart.RedirectStandardOutput&&
+              !apiStart.RedirectStandardError&&
+              !apiStart.RedirectStandardInput,
+            "ASA API launcher shows native console with exact args and no blocking pipe");
+        var directStart=WindowsProcessInspector.BuildLaunchStartInfo(
+            consoleFixture,directLaunch);
+        Check(directStart.FileName==exe&&directStart.CreateNoWindow&&
+              directStart.WorkingDirectory==root,
+            "direct ASA keeps previous hidden-console launch behavior");
+        // Merely inspecting ProcessStartInfo cannot start/stop any process.
+
         await using var cluster=new ClusterService("local-api-mode-test",
             Path.Combine(testsRoot,"local-api-mode-profile"),
             _=>new ProcessCheck(false,"Synthetic confirmed stopped",null,true));
