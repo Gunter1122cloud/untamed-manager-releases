@@ -412,6 +412,13 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                        owned.Process.StartedUtc==default||
                        owned.SourceSha.Length!=64)
                         return Fail(id,"UM-ORIGINAL-STOP-SOURCE-INVALID");
+                    // A Loader/ASA PID with an owned RCON port can exist
+                    // before the server advertises itself for join. A new
+                    // SaveWorld preview must not claim this is save-ready.
+                    if(saveWorldOnly && nativePreview &&
+                       LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(owned)
+                           is { } startupBlocker)
+                        return Fail(id,startupBlocker);
                     bool legacyPeerNeeded=!LegacyStoreV1PinnedSource.HasApprovedLocalSource(
                         cluster.Store.Root,original);
                     var permit=new Approval(Guid.NewGuid(),mapId,owned.Process.Pid,
@@ -468,6 +475,10 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                    rechecked.Process.StartedUtc!=approved.StartedUtc||
                    rechecked.SourceSha!=approved.SourceSha)
                     return Fail(id,"UM-ORIGINAL-STOP-ORIGINAL-SOURCE-CHANGED");
+                if(wantsSaveOnly && nativePreview &&
+                   LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(rechecked)
+                       is { } applyBlocker)
+                    return Fail(id,applyBlocker);
                 var job=new Job(map.Id,approved.Kind);
                 if(approved.Kind=="SaveWorldOnly")
                 {
@@ -489,6 +500,10 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                            pinned.Process.StartedUtc!=approved.StartedUtc||
                            pinned.SourceSha!=approved.SourceSha)
                             return Fail(id,"UM-ORIGINAL-SAVE-LEASE-OWNER-CHANGED");
+                        if(nativePreview &&
+                           LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(pinned)
+                               is { } leaseBlocker)
+                            return Fail(id,leaseBlocker);
                         // Persist intent BEFORE scheduling any RCON worker.
                         // Crash leaves prepared receipt requiring review.
                         LegacyStoreV1SaveEvidenceJournal.Begin(cluster.Store.Root,
