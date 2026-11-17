@@ -15,7 +15,36 @@ namespace UntamedManager.Core;
 /// </summary>
 internal static class LegacyStoreV1GracefulStop
 {
-    internal sealed record Owned(LocalMap Map,ProcessIdentity Process,string SourceSha);
+    internal sealed record Owned(LocalMap Map,ProcessIdentity Process,string SourceSha)
+    {
+        // Observed Windows Loader process, never a proof of API initialization.
+        public ProcessIdentity? LoaderProcess {get;init;}
+    }
+
+    // Deliberately strict readiness classification for a NEW SaveWorld only.
+    // The PID/RCON listener alone is not proof that ASA finished startup.
+    // The API path additionally requires current-session hooks AND a DLL
+    // observed inside the exact running ASA child, never merely a Loader PID.
+    internal static string? SaveOnlyStartupBlocker(bool joinAdvertised,
+        bool apiRequested,bool apiHooks,bool apiModule)
+    {
+        if(!joinAdvertised)return "UM-ORIGINAL-SAVE-STARTUP-NOT-ADVERTISED";
+        if(apiRequested&&(!apiHooks||!apiModule))
+            return "UM-ORIGINAL-SAVE-API-NOT-VERIFIED";
+        return null;
+    }
+
+    internal static string? SaveOnlyStartupBlocker(Owned owned)
+    {
+        ArgumentNullException.ThrowIfNull(owned);
+        // Read-only, bounded current-session logs; no ASA/Store mutation.
+        var runtime=AsaRuntimeLogEvidence.Inspect(
+            owned.Map,owned.Process,owned.LoaderProcess);
+        bool module=owned.Map.StartWithAsaApi && runtime.ApiInitialized &&
+            AsaApiModuleEvidence.IsLoaded(owned.Map,owned.Process);
+        return SaveOnlyStartupBlocker(runtime.JoinAdvertised,
+            owned.Map.StartWithAsaApi,runtime.ApiInitialized,module);
+    }
 
     private static bool Same(ProcessIdentity left,ProcessIdentity right)=>
         left.Pid>0&&left.Pid==right.Pid&&
@@ -85,7 +114,7 @@ internal static class LegacyStoreV1GracefulStop
                 throw new InvalidOperationException(
                     "UM-RECOVERY-RESTART-OLD-PID-OR-PHASE-MISMATCH");
         }
-        return new(map,identity,fingerprint);
+        return new(map,identity,fingerprint){LoaderProcess=state.LoaderIdentity};
     }
 
     internal static string OriginalSource(LocalMap map) =>
@@ -300,6 +329,13 @@ internal static class LegacyStoreV1GracefulStop
                 throw new InvalidOperationException("UM-ORIGINAL-SAVE-OWNER-CHANGED");
         }
         Verify();
+        // No new SaveWorld command may be sent before the SAME ASA launch's
+        // join-advertising evidence. For Loader mode the API hooks and DLL in
+        // the running ASA child must be independently verified as well.
+        // Test execution seams bypass filesystem observations but never
+        // assert that a real ASA save occurred.
+        if(execute==null && SaveOnlyStartupBlocker(locked) is { } readinessError)
+            throw new InvalidOperationException(readinessError);
         // Witness must exist before ANY mutating RCON byte. A missing log or
         // world witness does not strand the durable journal after no send.
         var witness=execute==null?
@@ -321,6 +357,9 @@ internal static class LegacyStoreV1GracefulStop
                 try{Verify();return true;}catch{return false;}
             },TimeSpan.FromSeconds(90),ct);
             observed=result.CompletionObserved;
+            if(!observed)
+                stage?.Invoke("A mentés kimenetele bizonytalan: "+result.Stage+
+                    "; nincs igazolt SaveComplete, nincs automatikus újraküldés");
         }
         if(!observed)
             throw new InvalidOperationException("UM-ORIGINAL-SAVE-COMPLETION-NOT-OBSERVED");
