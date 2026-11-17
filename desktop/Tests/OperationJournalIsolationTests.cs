@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using UntamedDesktop;
 using UntamedManager.Core;
 
 // Separate Windows process must NEVER fall back to machine-wide ProgramData.
