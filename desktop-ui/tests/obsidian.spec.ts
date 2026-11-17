@@ -4632,7 +4632,7 @@ test("running Aberration Store-v1 stale Launch journal is reviewed once, never a
   expect(count).toBe(1);
 });
 
-test("2961 six-map source mismatch requires a second typed approval and preserves old hash",async({page})=>{
+test("2961 six-map source mismatch requires an explicit review click without typing and preserves old hash",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_STORE_SOURCE_REAPPROVAL__?:()=>void
@@ -4646,12 +4646,11 @@ test("2961 six-map source mismatch requires a second typed approval and preserve
   await expect(panel).toContainText("E5B633F303964DD3E025252895D20E0D17FC1144E6375577BF3A87EF15B5F1E7");
   await expect(panel).toContainText("DB2D8EA06311242A0F66A2B4878A3DCD4C0EBE720AD0E7FFE2219A9F83113943");
   const approve=panel.getByRole("button",{name:"Forráseltérés és naplórendezés jóváhagyása"});
-  await expect(approve).toBeDisabled();
+  await expect(panel.getByRole("textbox")).toHaveCount(0);
+  await expect(approve).toBeEnabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_STORE_RECOVERY_CALLS__?:()=>number
   }).__UNTAMED_STORE_RECOVERY_CALLS__?.())).toBe(0);
-  await panel.getByRole("textbox").fill("FORRÁS ELTÉRÉS JÓVÁHAGYÁSA");
-  await expect(approve).toBeEnabled();
   await approve.click();
   await expect(panel).toHaveCount(0);
   expect(await page.evaluate(()=>(window as typeof window & {
@@ -5918,15 +5917,12 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   const preflight=historic.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
   await expect(preflight).toBeEnabled();
   await preflight.click();
-  const approval=historic.getByRole("region",{name:"Eredeti Store-v1 ASA indítás jóváhagyása"});
+  const approval=historic.getByRole("region",{name:"Eredeti Store-v1 ASA ellenőrzött indítás"});
   await expect(approval).toBeVisible();
   await expect(approval).toContainText("a másik host régi ACTIVE/DONE jelölője nélkül");
   await expect(approval).not.toContainText("Mindkét eredeti Store peer ACTIVE/DONE állapota igazolt");
   const spawn=approval.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
-  await expect(spawn).toBeDisabled();
-  await approval.locator('input[id="historical-start-phrase"]').fill("START");
-  await expect(spawn).toBeDisabled();
-  await approval.locator('input[id="historical-start-phrase"]').fill("STORE-V1 ACTIVE START");
+  await expect(approval.locator('input[id="historical-start-phrase"]')).toHaveCount(0);
   await expect(spawn).toBeEnabled();
   await spawn.click();
   await expect(historic.getByText(/valódi Windows ASA PID: 42101/)).toBeVisible();
@@ -5949,8 +5945,8 @@ test("Store-v1 Start native success is not reported as a failed Start after read
   const check=panel.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
   await expect(check).toBeEnabled();
   await check.click();
-  const approval=panel.getByRole("region",{name:"Eredeti Store-v1 ASA indítás jóváhagyása"});
-  await approval.locator('input[id="historical-start-phrase"]').fill("STORE-V1 ACTIVE START");
+  const approval=panel.getByRole("region",{name:"Eredeti Store-v1 ASA ellenőrzött indítás"});
+  await expect(approval.locator('input[id="historical-start-phrase"]')).toHaveCount(0);
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?:()=>void
   }).__UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?.());
