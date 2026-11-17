@@ -42,7 +42,8 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     private sealed record ReviewApproval(Guid Token,Guid MapId,
         Guid ReceiptOperation,Guid? CoordinatorOperation,
         string SourceSha,int Pid,DateTimeOffset PidStartedUtc,
-        string ProfileJson,bool OwnerRunning,DateTimeOffset Created);
+        string ProfileJson,bool OwnerRunning,Guid? PairedRestartId,
+        DateTimeOffset Created);
     // Independent map approvals must not be superseded by another map.
     private readonly Dictionary<Guid,ReviewApproval> pendingReviewByMap=new();
     private readonly Func<Guid,string,bool> verifyReviewSource;
@@ -305,9 +306,18 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-WORKER-ACTIVE");
                     var restart=new AsaManualRestartJournal(
                         reviewedMap.InstallationPath).Observe();
-                    if(restart!=null&&restart.Phase is not
-                        (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed))
-                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-PAIRED-RESTART");
+                    bool pendingRestart=restart!=null&&restart.Phase is not
+                        (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
+                    if(pendingRestart&&
+                       (restart!.MapId!=reviewedMapId||
+                        restart.OldPid!=reviewedEvidence.Pid||
+                        restart.NewPid!=0||
+                        restart.Phase is not (AsaRestartPhase.Stopping or
+                            AsaRestartPhase.NeedsOperator)))
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-RESTART-IDENTITY-CHANGED");
+                    if(pendingRestart&&DateTimeOffset.UtcNow-
+                        restart!.ChangedUtc<TimeSpan.FromMinutes(3))
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-RESTART-TOO-RECENT");
                     bool ownedRunning=verifyReviewRunning(reviewedMapId,
                         reviewedEvidence.Pid,reviewedEvidence.PidStartedUtc,
                         reviewedEvidence.OriginalSourceSha256);
@@ -322,8 +332,20 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                     bool ownerStopped=!ownedRunning&&
                         verifyReviewSource(reviewedMapId,
                             reviewedEvidence.OriginalSourceSha256);
+                    if(pendingRestart&&!ownedRunning)
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-PAIRED-RESTART-OWNER");
                     if(!ownedRunning&&!ownerStopped)
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-OWNER-UNVERIFIED");
+                    // A previous partial review can have already marked the
+                    // Restart OperatorReviewed while Backup remains pending.
+                    // Reuse its exact ID only for the same original map/PID.
+                    Guid? pairedRestartId=ownedRunning&&restart!=null&&
+                        restart.MapId==reviewedMapId&&
+                        restart.OldPid==reviewedEvidence.Pid&&restart.NewPid==0&&
+                        restart.Phase is (AsaRestartPhase.Stopping or
+                            AsaRestartPhase.NeedsOperator or
+                            AsaRestartPhase.OperatorReviewed)
+                        ?restart.Id:null;
                     var reviewToken=Guid.NewGuid();
                     if(!pendingReviewByMap.ContainsKey(reviewedMapId)&&
                        pendingReviewByMap.Count>=25)
@@ -333,13 +355,14 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         reviewedEvidence.OriginalSourceSha256,reviewedEvidence.Pid,
                         reviewedEvidence.PidStartedUtc,
                         JsonSerializer.Serialize(reviewedMap),ownedRunning,
-                        DateTimeOffset.UtcNow);
+                        pairedRestartId,DateTimeOffset.UtcNow);
                     return Ok(id,new{
                         token=reviewToken,mapId=reviewedMapId,phase=reviewedEvidence.Phase,
                         operationId=reviewedEvidence.OperationId,
                         coordinatorPhase=reviewedCoordinator?.Phase.ToString()??"None",
                         originalSourceRevalidated=true,confirmedStopped=ownerStopped,
                         runningOwned=ownedRunning,previousOutcomeStillUnknown=true,
+                        pairedRestartReview=pairedRestartId!=null,
                         preservesOriginalReceipt=true,originalStoreFilesWritten=false,
                         automaticRetry=false,requiresTypedApproval=true,
                         evidence=ownedRunning?
@@ -395,7 +418,9 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         cluster.Operations.ReviewRunningBackup(
                             currentReviewMap.InstallationPath,
                             approvedReview.CoordinatorOperation,
-                            VerifyReviewedOwner,ReviewReceipt);
+                            VerifyReviewedOwner,ReviewReceipt,
+                            approvedReview.PairedRestartId,
+                            approvedReview.MapId,approvedReview.Pid);
                     else
                         cluster.Operations.ReviewStoppedBackup(
                             currentReviewMap.InstallationPath,
@@ -420,6 +445,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         oldReceiptArchived=true,originalStoreFilesWritten=false,
                         previousOutcomeStillUnknown=true,
                         ownerRemainedRunning=approvedReview.OwnerRunning,
+                        pairedRestartReviewed=approvedReview.PairedRestartId!=null,
                         rconSent=false,autoRetry=false,serverStarted=false,
                         nextOperationRequiresNewApproval=true,
                         evidence="OPERATOR_REVIEW_DURABLE_LOCAL_JOURNALS_NO_STORE_MUTATION"
