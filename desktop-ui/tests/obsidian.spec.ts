@@ -4028,16 +4028,9 @@ test("complete local host restore staging uses typed approval and displays nativ
     name:"Ellenőrzött helyi restore állomány létrehozása"
   });
   await expect(commit).toBeDisabled();
-  const hostPhrase=approve.getByRole("textbox",{name:"Host restore jóváhagyó szövege"});
-  await hostPhrase.scrollIntoViewIfNeeded();
-  await expect(hostPhrase).toBeVisible();
-  await expect(hostPhrase).toBeEditable();
-  const hostSize=await hostPhrase.boundingBox();
-  expect(hostSize).not.toBeNull();
-  expect(hostSize!.height).toBeGreaterThanOrEqual(42);
-  expect(hostSize!.width).toBeGreaterThan(200);
+  await expect(approve.getByRole("textbox",{name:"Host restore jóváhagyó szövege"}))
+    .toHaveCount(0);
   await approve.getByRole("checkbox").check();
-  await hostPhrase.fill("HOST RESTORE TEST");
   await expect(commit).toBeEnabled();
   await commit.click();
   await expect(panel).toContainText("Helyi host restore állomány állapot: completed");
@@ -4112,7 +4105,7 @@ test("verified restore receipt survives read-only history failure without replay
   await expect(page.getByRole("button",{name:"Visszaállítás"}).first()).toBeEnabled();
   await page.getByRole("button",{name:"Visszaállítás"}).first().click();
   const approval=page.getByRole("region",{name:"Védett világvisszaállítás"});
-  await approval.getByRole("textbox",{name:"Visszaállítás mapnév megerősítés"}).fill("Astraeos");
+  await approval.getByRole("checkbox").check();
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_FAIL_NEXT_BACKUP_HISTORY__?:()=>void
   }).__UNTAMED_FAIL_NEXT_BACKUP_HISTORY__?.());
@@ -4660,11 +4653,10 @@ test("2961 six-map source mismatch requires a second typed approval and preserve
   await expect(panel).toContainText("E5B633F303964DD3E025252895D20E0D17FC1144E6375577BF3A87EF15B5F1E7");
   await expect(panel).toContainText("DB2D8EA06311242A0F66A2B4878A3DCD4C0EBE720AD0E7FFE2219A9F83113943");
   const approve=panel.getByRole("button",{name:"Forráseltérés és naplórendezés jóváhagyása"});
-  await expect(approve).toBeDisabled();
+  await expect(panel.getByRole("textbox")).toHaveCount(0);
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_STORE_RECOVERY_CALLS__?:()=>number
   }).__UNTAMED_STORE_RECOVERY_CALLS__?.())).toBe(0);
-  await panel.getByRole("textbox").fill("FORRÁS ELTÉRÉS JÓVÁHAGYÁSA");
   await expect(approve).toBeEnabled();
   await approve.click();
   await expect(panel).toHaveCount(0);
@@ -4781,9 +4773,7 @@ test("P0 Store-v1 expired approval disables apply and demands new native preflig
   const apply=proof.getByRole("button",{name:"Eredeti öt futó Store-v1 map átvétele"});
   await expect(proof.getByTestId("store-live-approval-expiry")).toContainText("lejárt");
   await proof.getByRole("checkbox").check();
-  await proof.getByRole("textbox",{
-    name:"Store-v1 futó átvétel megerősítése"
-  }).fill("STORE-V1 FUTÓ ÁTVÉTEL");
+
   await expect(apply).toBeDisabled();
   await proof.getByRole("button",{name:"Új natív felismerés kérése"}).click();
   await expect(proof.getByTestId("store-live-approval-expiry")).toContainText("másodpercig");
@@ -4833,21 +4823,16 @@ test("P0 Store-v1 exact-text input stays visible and usable at compact 940x620",
   const proof=panel.getByRole("region",{
     name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
   });
-  const input=proof.getByTestId("store-live-approval-input");
   const apply=proof.getByRole("button",{name:"Eredeti öt futó Store-v1 map átvétele"});
-  await input.scrollIntoViewIfNeeded();
-  await expect(input).toBeVisible();
-  const dimensions=await input.boundingBox();
-  expect(dimensions).not.toBeNull();
-  expect(dimensions!.width).toBeGreaterThan(220);
-  expect(dimensions!.height).toBeGreaterThanOrEqual(42);
-  await input.fill("STORE-V1 FUTÓ ÁTVÉTEL");
+  await expect(proof.getByRole("textbox",{
+    name:"Store-v1 futó átvétel megerősítése"
+  })).toHaveCount(0);
   await expect(apply).toBeDisabled();
   await expect(proof.locator("#store-live-approval-reason")).toContainText(
     "Hiányzik a korábbi felügyelet");
   await proof.getByRole("checkbox").check();
   await expect(apply).toBeEnabled();
-  // Do NOT click: this test asserts the exact two-factor gate only.
+  // No execution: this test asserts checkbox plus separate final click.
 });
 
 test("Store-v1 five-map preview can succeed but later Aberration Launch journal blocks apply with exact map diagnostics",async({page})=>{
@@ -5954,10 +5939,7 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   await expect(approval).toContainText("a másik host régi ACTIVE/DONE jelölője nélkül");
   await expect(approval).not.toContainText("Mindkét eredeti Store peer ACTIVE/DONE állapota igazolt");
   const spawn=approval.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
-  await expect(spawn).toBeDisabled();
-  await approval.locator('input[id="historical-start-phrase"]').fill("START");
-  await expect(spawn).toBeDisabled();
-  await approval.locator('input[id="historical-start-phrase"]').fill("STORE-V1 ACTIVE START");
+  await expect(approval.locator('input[id="historical-start-phrase"]')).toHaveCount(0);
   await expect(spawn).toBeEnabled();
   await spawn.click();
   await expect(historic.getByText(/valódi Windows ASA PID: 42101/)).toBeVisible();
@@ -5981,7 +5963,7 @@ test("Store-v1 Start native success is not reported as a failed Start after read
   await expect(check).toBeEnabled();
   await check.click();
   const approval=panel.getByRole("region",{name:"Eredeti Store-v1 ASA indítás jóváhagyása"});
-  await approval.locator('input[id="historical-start-phrase"]').fill("STORE-V1 ACTIVE START");
+
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?:()=>void
   }).__UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?.());
