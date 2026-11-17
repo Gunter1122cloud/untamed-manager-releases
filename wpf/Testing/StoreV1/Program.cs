@@ -100,6 +100,60 @@ void ExpandedDonePeerTopologyRegression()
     Check(badOrder,"original historical selected order may not change");
 }
 ExpandedDonePeerTopologyRegression();
+
+// P1 #171: the approved historical five-map selection is not a claim
+// that the CURRENT Store/peer membership still contains only five maps.
+// This isolated test exercises the read-only pinned local reader parity,
+// including the exact pre-existing member order and source/root identity.
+void PinnedExpandedHistoricalSelectionRegression()
+{
+    string share=@"\\synthetic-store\original-cluster";
+    var five=Enumerable.Range(0,5).Select(i=>new{
+        id=Guid.NewGuid().ToString("D"),map="Historical_"+i+"_WP",
+        root=@"C:\synthetic-original-"+i
+    }).ToArray();
+    var eventMap=new {
+        id=Guid.NewGuid().ToString("D"),map="Event_6_WP",
+        root=@"C:\synthetic-event-6"
+    };
+    object Config(object[] members,string? root=null)=>new{
+        id=VaultProtocol.ClusterId,mode="shared",path=root??share,members
+    };
+    var original=five.Cast<object>().ToArray();
+    var current=original.Concat(new object[]{eventMap}).ToArray();
+    using var pinned=JsonDocument.Parse(Serialize(Config(original)));
+    using var expanded=JsonDocument.Parse(Serialize(Config(current)));
+    string[] selected=five.Select(x=>x.id).ToArray();
+    bool Match(JsonElement now,JsonElement old,string[] selection)=>
+        LegacyStoreV1LocalReader.MatchesPinnedHistoricalSubset(now,old,selection);
+    Check(Match(expanded.RootElement,pinned.RootElement,selected),
+        "pinned five historical writers accepted with sixth CURRENT event-map member");
+    using var sameFive=JsonDocument.Parse(Serialize(Config(original)));
+    Check(Match(sameFive.RootElement,pinned.RootElement,selected),
+        "pinned historical selection also accepts unchanged original five members");
+    using var changedRoot=JsonDocument.Parse(Serialize(Config(current,
+        @"\\synthetic-store\foreign-cluster")));
+    Check(!Match(changedRoot.RootElement,pinned.RootElement,selected),
+        "pinned expanded roster rejects foreign shared Store root");
+    using var changedMember=JsonDocument.Parse(Serialize(Config(
+        original.Take(4).Concat(new object[]{new {
+            id=five[4].id,map="REPLACED_WORLD_WP",root=five[4].root
+        },eventMap}).ToArray())));
+    Check(!Match(changedMember.RootElement,pinned.RootElement,selected),
+        "pinned historical GUID cannot silently change its map-root identity");
+    using var reordered=JsonDocument.Parse(Serialize(Config(
+        original.Reverse().Concat(new object[]{eventMap}).ToArray())));
+    Check(!Match(reordered.RootElement,pinned.RootElement,selected),
+        "pinned historical member order cannot be altered by an expanded roster");
+    Check(!Match(expanded.RootElement,pinned.RootElement,
+        selected.Take(4).Concat(new[]{eventMap.id}).ToArray()),
+        "sixth event-map cannot replace one of the five historical selected writers");
+    using var expandedPinned=JsonDocument.Parse(Serialize(Config(current)));
+    Check(!Match(expanded.RootElement,expandedPinned.RootElement,selected),
+        "six-member configuration cannot be silently treated as original five-member lock");
+}
+PinnedExpandedHistoricalSelectionRegression();
+
 string Fingerprint(string value)
 {
     using var doc=JsonDocument.Parse(value);return StoreV1Fingerprint.Compute(doc.RootElement);
