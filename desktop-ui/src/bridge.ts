@@ -92,6 +92,11 @@ export type NativeScheduleReviewReceipt={
   noRconSent:true;noAutomaticReplay:true;oldJournalArchived:true;
   evidence:"SCHEDULE_UNKNOWN_SLOT_AUDITED_AND_DISABLED";
 };
+export type NativeScheduleResumeReceipt={
+  supervisorResumed:boolean;oldSlotReplayed:false;
+  oldTaskReenabled:false;nextTaskRequiresExplicitOptIn:true;
+  evidence:"LOCAL_SCHEDULE_SUPERVISOR_REARM_NO_OLD_DISPATCH";
+};
 export type NativeAsaScheduleSaved={
   job:NativeAsaScheduleTask;restartConflicts:string[];
 };
@@ -2077,6 +2082,8 @@ export const managerBridge = {
     request<NativeScheduleReviewPreview>("schedule.nativeReviewPreview",{mapId,kind,runId}),
   nativeScheduleReviewApply: (mapId:string,token:string) =>
     request<NativeScheduleReviewReceipt>("schedule.nativeReviewApply",{mapId,token,confirm:true}),
+  nativeScheduleResume: (mapId:string) =>
+    request<NativeScheduleResumeReceipt>("schedule.nativeResume",{mapId,confirm:true}),
   nativeScheduleSet: (mapId:string,kind:NativeScheduleKind,
       frequency:NativeScheduleFrequency,intervalMinutes:number,
       minuteOfDay:number,daysMask:number) =>
