@@ -1294,12 +1294,21 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         var root=doc.RootElement;
         string id=VaultReadSnapshot.Text(root,"id");
         string path=VaultReadSnapshot.Text(root,"path");
+        // Import only the original five lock-selected maps. Extra current
+        // local event maps have been validated by the read-only Core reader,
+        // but do not become members of the original Store registration.
+        var selected=reportBefore.Maps.ToDictionary(x=>x.MapId);
         var members=root.GetProperty("members").EnumerateArray().Select(m=>{
             if(!Guid.TryParseExact(VaultReadSnapshot.Text(m,"id"),"D",out var guid)||
                guid==Guid.Empty)throw new InvalidDataException(
                     "UM-ORIGINAL-CLUSTER-MEMBER-INVALID");
             return(MapId:guid,MapKey:VaultReadSnapshot.Text(m,"map"));
-        }).ToArray();
+        }).Where(m=>selected.ContainsKey(m.MapId)).ToArray();
+        if(members.Length!=5||members.Any(m=>
+            !string.Equals(m.MapKey,selected[m.MapId].MapKey,
+                StringComparison.Ordinal)))
+            throw new InvalidDataException(
+                "UM-ORIGINAL-CLUSTER-SELECTED-MEMBER-CHANGED");
         var after=LegacyStoreV1LocalReader.Inspect(PreferredSource());
         if(!after.LocalSnapshotReady||
            !string.Equals(reportBefore.OriginalFourFilesTag,
