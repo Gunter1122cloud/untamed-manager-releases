@@ -244,10 +244,12 @@ public static class LegacyStoreV1LiveReadGate
             done++;
         }
         // No two peers may claim the same GUID under different map names.
-        // The shared LOCAL peer's identity must include the imported map.
+        // The shared LOCAL peer's ORIGINAL five selected writer IDs must
+        // include the imported historical map; independent sixth maps cannot
+        // inherit protected Store writer/start authority.
         LegacyStoreV1PeerTopology.Validate(deviceId,topology);
         if(!topology.Where(x=>x.DeviceId.Equals(deviceId,StringComparison.OrdinalIgnoreCase))
-            .SelectMany(x=>x.MemberIds).Any(x=>
+            .SelectMany(x=>x.SelectedIds).Any(x=>
                 Guid.TryParse(x,out var candidate)&&candidate==map.Id))
             throw new InvalidDataException("UM-STORE-LIVE-MAP-NOT-OWNED-BY-LOCAL-PEER");
         var records=Need(store,"maps");
