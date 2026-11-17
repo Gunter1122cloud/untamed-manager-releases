@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useState} from "react";
+import {useCallback,useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,RefreshCw,Shield} from "lucide-react";
 import {managerBridge,type MapMaintenanceStatus} from "./bridge";
 
@@ -6,8 +6,9 @@ export function MapMaintenancePanel({mapId,onConfigured}:{
   mapId:string;onConfigured:()=>Promise<void>;
 }){
   const [status,setStatus]=useState<MapMaintenanceStatus|null>(null);
-  const [approved,setApproved]=useState(false);
   const [busy,setBusy]=useState(false);
+  const writeInFlight=useRef(false);
+  const currentMap=useRef(mapId);currentMap.current=mapId;
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const reload=useCallback(async()=>{
@@ -18,19 +19,28 @@ export function MapMaintenancePanel({mapId,onConfigured}:{
   },[mapId]);
   useEffect(()=>{void reload();},[reload]);
   const save=async()=>{
-    if(!status?.permitted||!approved||busy)return;
-    const next=!status.maintenance;
+    if(writeInFlight.current||!status?.permitted||busy)return;
+    writeInFlight.current=true;
+    const requested=mapId,next=!status.maintenance;
     setBusy(true);setError("");setNotice("");
     try{
-      const changed=await managerBridge.mapMaintenanceSet(mapId,next);
-      setStatus(changed);setApproved(false);
+      const changed=await managerBridge.mapMaintenanceSet(requested,next);
+      if(changed.mapId.toLowerCase()!==requested.toLowerCase()||
+         changed.maintenance!==next||changed.serverProcessModified||
+         changed.storeProtected)
+        throw new Error("UM-MAINTENANCE-RECEIPT-MAP-OR-SCOPE-MISMATCH");
+      if(currentMap.current!==requested)return;
+      setStatus(changed);
       setNotice(next?
         "A map karbantartási módja bekapcsolva; a Manager nem indított vagy állított le ASA-t.":
         "A map karbantartási módja kikapcsolva; a Manager nem indított vagy állított le ASA-t.");
       await onConfigured();
     }catch{
       setError("A natív Manager elutasította a módosítást. Ellenőrizd, hogy a map leállt-e, és nincs-e Store-v1 védelem.");
-    }finally{setBusy(false);}
+    }finally{
+      writeInFlight.current=false;
+      if(currentMap.current===requested)setBusy(false);
+    }
   };
   return <section className="premium-panel" aria-label="Map karbantartási beállítása">
     <header className="premium-panel-heading">
@@ -45,12 +55,7 @@ export function MapMaintenancePanel({mapId,onConfigured}:{
           <strong>{status.maintenance?"Bekapcsolva":"Kikapcsolva"}</strong></div>
         {!status.permitted&&<p className="warning-inline"><AlertTriangle size={16}/>
           A beállítás nem módosítható: a map fut, a leállítás nem igazolt, vagy történeti Store-v1 védelem aktív.</p>}
-        <label className="native-schedule-consent">
-          <input type="checkbox" checked={approved} disabled={busy||!status.permitted}
-            onChange={e=>setApproved(e.target.checked)}/>
-          Jóváhagyom ennek az egy helyi mapnak a karbantartási beállításának módosítását.
-        </label>
-        <button type="button" className="primary" disabled={!approved||!status.permitted||busy}
+        <button type="button" className="primary" disabled={!status.permitted||busy}
           onClick={()=>{void save();}}>
           {status.maintenance?"Karbantartási mód kikapcsolása":"Karbantartási mód bekapcsolása"}
         </button>

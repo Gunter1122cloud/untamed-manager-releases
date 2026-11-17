@@ -5642,14 +5642,14 @@ test("RCON settings use the selected local map port and never retain another map
   await expect(page.getByRole("textbox",{name:"RCON beállítás jelszó"})).toHaveValue("");
 });
 
-test("map detail maintenance setting persists with approval and blocks running maps",async({page})=>{
+test("one-click map maintenance persists with no extra approval and blocks running maps",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Map karbantartási beállítása"});
   await expect(panel.getByText("Kikapcsolva")).toBeVisible();
   const enable=panel.getByRole("button",{name:"Karbantartási mód bekapcsolása"});
-  await expect(enable).toBeDisabled();
-  await panel.getByRole("checkbox",{name:/Jóváhagyom ennek az egy helyi mapnak/}).check();
+  await expect(enable).toBeEnabled();
+  await expect(panel.getByRole("checkbox")).toHaveCount(0);
   await enable.click();
   await expect(panel.getByText("Bekapcsolva",{exact:true})).toBeVisible();
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
