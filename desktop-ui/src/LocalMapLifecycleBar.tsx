@@ -10,7 +10,6 @@ const copy:Record<Action,string>={start:"Indítás",restart:"Újraindítás",sto
 // Only non-secret one-shot job receipts survive navigation. No approvals are cached.
 const runningJobs=new Map<string,RunningJob>();
 const lastReceipts=new Map<string,string>();
-const phrase:Record<Action,string>={start:"STORE-V1 ACTIVE START",restart:"STORE-V1 SAVEWORLD DOEXIT START",stop:"STORE-V1 SAVEWORLD DOEXIT",kill:"KILL LOCAL ASA"};
 
 /** Compact command surface using the EXISTING native lifecycle bridges.
  * RCON, PID, journal and stored-character permissions stay in native C#.
@@ -20,13 +19,12 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
   mapId:string;mapName:string;running:boolean;historical:boolean;
   journalBlocked?:boolean;onRefresh:()=>Promise<void>;onConfigure:()=>void;
 }){
+  const actionInFlight=useRef(false);
   const currentMap=useRef(mapId);
   currentMap.current=mapId;
   const mounted=useRef(false);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
   const belongs=(requested:string)=>mounted.current&&currentMap.current===requested;
-  const [pending,setPending]=useState<Approval|null>(null);
-  const [checked,setChecked]=useState(false);
   const [busy,setBusy]=useState(false);
   const [reconnecting,setReconnecting]=useState(true);
   const [reconnectFailed,setReconnectFailed]=useState(false);
@@ -115,7 +113,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
     return ()=>{active=false;};
   },[mapId,historical,reconnectNonce]);
   useEffect(()=>{
-    setPending(null);setChecked(false);setError("");setMessage(lastReceipts.get(mapId)??"");
+    setError("");setMessage(lastReceipts.get(mapId)??"");
     setBusy(false);setJob(runningJobs.get(mapId)??null);
   },[mapId]);
   useEffect(()=>{
@@ -158,10 +156,10 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
   },[job,historical,onRefresh]);
 
   const preview=async(action:Action)=>{
-    if(busy||job||blocked)return;
+    if(actionInFlight.current||busy||job||blocked||reconnecting||reconnectFailed)return;
+    actionInFlight.current=true;
     const requestedMap=mapId;
-    setBusy(true);setPending(null);setError("");setMessage("");
-    setChecked(false);
+    setBusy(true);setError("");setMessage("");
     try{
       if(action==="kill"&&historical){
         setError("Az eredeti eredeti Store-v1 map kényszerített Kill művelete itt tiltott: a közös writer és a karakteradatok megsérülhetnek. Használd a natív SaveWorld/DoExit leállítást.");
@@ -178,23 +176,38 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
           :await managerBridge.freshAsaStopPreview(mapId)
         :await managerBridge.ownedAsaKillPreview(mapId);
       if(!belongs(requestedMap))return;
-      setPending({action,token:data.token,mapId:requestedMap,mapName:data.mapName,
+      if(!data.token||data.mapId.toLowerCase()!==requestedMap.toLowerCase())
+        throw new Error("UM-LIFECYCLE-PREFLIGHT-MAP-MISMATCH");
+      if(action==="kill"&&
+         (!("serverDataLossPossible" in data)||!data.serverDataLossPossible||
+          data.originalStoreTouched))
+        throw new Error("UM-LIFECYCLE-KILL-SCOPE-MISMATCH");
+      if(historical&&action==="stop"&&
+         (!("usesDoExit" in data)||!data.usesDoExit))
+        throw new Error("UM-LIFECYCLE-STOP-SCOPE-MISMATCH");
+      if(historical&&action==="restart"&&
+         (!("launchesOriginalActive" in data)||!data.launchesOriginalActive))
+        throw new Error("UM-LIFECYCLE-RESTART-SCOPE-MISMATCH");
+      // The named action button is the only user approval. Consume its
+      // fresh map-bound native token in this SAME click, without a modal.
+      await apply({action,token:data.token,mapId:requestedMap,mapName:data.mapName,
         pid:"pid" in data&&typeof data.pid==="number"?data.pid:undefined});
     }catch(e){
       if(!belongs(requestedMap))return;
       setError(copy[action]+" előellenőrzés elutasítva: "+
         (e instanceof Error?e.message:"nem ellenőrizhető")+
         ". Ellenőrizd a helyi konfigurációt, a naplót, a PID-et, az RCON-t és a portokat.");
-    }finally{if(belongs(requestedMap))setBusy(false);}
+    }finally{
+      actionInFlight.current=false;
+      if(belongs(requestedMap))setBusy(false);
+    }
   };
-  const apply=async()=>{
-    if(!pending||pending.mapId!==mapId||!checked||busy||job)
-      return;
-    const selected=pending;
-    setPending(null);setBusy(true);setError("");setMessage("");
+  const apply=async(selected:Approval)=>{
+    if(!belongs(selected.mapId)||job)return;
+    setBusy(true);setError("");setMessage("");
     try{
       const started=selected.action==="start"
-        ?historical?await managerBridge.historicalActiveStartApply(selected.token,phrase.start)
+        ?historical?await managerBridge.historicalActiveStartApply(selected.token)
           :await managerBridge.freshAsaStartApply(selected.token)
         :selected.action==="stop"
         ?historical?await managerBridge.historicalGracefulStopApply(selected.token)
@@ -202,7 +215,10 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
         :selected.action==="restart"
         ?historical?await managerBridge.historicalRestartApply(selected.token)
           :await managerBridge.freshAsaRestartApply(selected.token)
-        :await managerBridge.ownedAsaKillApply(selected.token,phrase.kill);
+        :await managerBridge.ownedAsaKillApply(selected.token);
+      if("mapId" in started&&typeof started.mapId==="string"&&
+         started.mapId.toLowerCase()!==selected.mapId.toLowerCase())
+        throw new Error("UM-LIFECYCLE-APPLY-MAP-MISMATCH");
       if(selected.action==="start"||selected.action==="kill"){
         const receipt=selected.action==="start"
           ?"ASA-indítás elküldve. A folyamat és az RCON készenléte külön ellenőrizendő."
@@ -229,8 +245,10 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
       }
     }catch(e){
       if(!belongs(selected.mapId))return;
-      setError(copy[selected.action]+" nem igazolható: "+(e instanceof Error?e.message:"nem igazolt")+
-        ". Nincs automatikus ismétlés; ellenőrizd a natív naplót.");
+      setReconnectFailed(true); // no silent new dispatch after uncertain Apply
+      setError(copy[selected.action]+" kimenetele bizonytalan: "+
+        (e instanceof Error?e.message:"nem igazolt")+
+        ". A parancs már elindulhatott; nincs automatikus ismétlés, előbb a natív naplót ellenőrizd.");
     }finally{if(belongs(selected.mapId))setBusy(false);}
   };
   const unavailable=busy||Boolean(job)||blocked||reconnecting||reconnectFailed;
@@ -256,28 +274,10 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
       onClick={()=>setReconnectNonce(n=>n+1)}>Műveleti állapot újraellenőrzése</button>}
     {blocked&&<p role="alert" className="warning-inline"><Shield size={15}/>
       A műveleti napló nincs igazolva vagy kézi ellenőrzést igényel. Nem indul új ASA-művelet.</p>}
-    {pending&&<div role="region" className="uk-lifecycle-approval"
-      aria-label={copy[pending.action]+" jóváhagyása"}>
-      <b>{pending.mapName} · {copy[pending.action]} előellenőrzés sikeres</b>
-      <p>{pending.action==="kill"
-        ?"FIGYELEM: a Kill nem küld SaveWorld parancsot, és elveszhet a legutóbbi nem mentett világállapot."
-        :pending.action==="restart"||pending.action==="stop"
-        ?"A valódi natív művelet mentésbizonyítékot és pontos ASA PID-t ellenőriz a DoExit előtt."
-        :"A natív indítás a saját helyi ASA/Store-v1 profilból történik; nem bizonyítja a beléphetőséget."}</p>
-      {pending.pid&&<p>Igazolt PID: {pending.pid}</p>}
-      {(historical||pending.action==="kill")&&<p>A tényleges
-         műveletet csak a kiválasztott mapra hagyhatod jóvá az alábbi
-         jelölőnégyzettel és gombbal.</p>}
-       <label><input type="checkbox" checked={checked} disabled={busy}
-        onChange={e=>setChecked(e.target.checked)}/>
-        Jóváhagyom a kiválasztott helyi szerveren a tényleges művelet végrehajtását.</label>
-      <div className="uk-lifecycle-row">
-        <button type="button" className="primary" disabled={busy||!checked}
-          onClick={()=>{void apply();}}>Művelet végrehajtása</button>
-        <button type="button" className="secondary" disabled={busy}
-          onClick={()=>{setPending(null);}}>Mégsem</button>
-      </div>
-    </div>}
+    <p className="muted small">Cél: {mapName} ({mapId}). A Start indít;
+      a Stop mentés után szabályosan leállít; a Restart leállítás után újraindít.
+      A Kill nem küld SaveWorldot, azonnali adatvesztést okozhat, és Store-v1
+      mapokon tiltott. A gomb a natív előellenőrzéssel egyetlen művelet.</p>
     {job&&<p role="status" className="warning-inline">{copy[job.action]} folyamatban – natív állapot lekérdezése...</p>}
     {message&&<p role="status" className="success-inline"><CheckCircle2 size={16}/>{message}</p>}
     {error&&<div role="alert" className="warning-inline"><AlertTriangle size={16}/>{error}
