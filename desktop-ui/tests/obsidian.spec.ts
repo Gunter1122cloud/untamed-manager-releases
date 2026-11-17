@@ -472,6 +472,12 @@ test.beforeEach(async ({ page }) => {
     const historicalRconToken="00000000-0000-4000-8000-000000001699";
     const historicalStartToken="00000000-0000-4000-8000-000000001698";
     let historicalActiveStarted=false;
+    let historicalStartApplyCount=0;
+    let historicalStartReplyLost=false;
+    (window as typeof window & {__UNTAMED_HIST_START_APPLY_COUNT__?:()=>number})
+      .__UNTAMED_HIST_START_APPLY_COUNT__=()=>historicalStartApplyCount;
+    (window as typeof window & {__UNTAMED_HIST_START_REPLY_LOST__?:()=>void})
+      .__UNTAMED_HIST_START_REPLY_LOST__=()=>{historicalStartReplyLost=true;};
     let historicalPeerDoneInvalid=false;
     let failOneHistoricalStartStatus=false;
     (window as typeof window & {
@@ -1410,6 +1416,8 @@ test.beforeEach(async ({ page }) => {
           return {
             token:historicalStartToken,mapId:two,mapName:"Astraeos",
             gamePort:7847,queryPort:27025,rconPort:37145,
+            launchMode:historicalApiEnabled?"asaApiLoader":"directAsa",
+            apiCacheState:"UM-API-CACHE-NO-LOCAL-KEY",apiCacheRuntimeCertified:false,
             originalTwoPeersVerified:false,originalPeerCheckRequiredForLocalStart:false,
             conversionAllowed:false,automaticRetryAllowed:false,
             serverStarted:false,readyCertified:false,
@@ -1422,14 +1430,22 @@ test.beforeEach(async ({ page }) => {
              m.token!==historicalStartToken)
             throw new Error("Original Store approval denied");
           historicalActiveStarted=true;
+          historicalStartApplyCount++;
           state.local.maps[1].running=true;state.local.maps[1].status="Fut";
+          if(historicalStartReplyLost)throw new Error("UM-SYNTHETIC-START-REPLY-LOST");
           return {
             mapId:two,mapName:"Astraeos",pid:42101,
             createdUtc:"2026-11-07T14:00:00Z",startRequested:true,
+            launchMode:historicalApiEnabled?"asaApiLoader":"directAsa",
+            processRole:historicalApiEnabled?"loaderParent":"asaServer",
+            loaderPid:historicalApiEnabled?42101:null,
+            serverPid:historicalApiEnabled?null:42101,
             readyCertified:false,originalStoreMetadataChanged:false,
             conversionPerformed:false,gameClientRejoinVerified:false,
             automaticRetryAllowed:false,
-            evidence:"ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED"
+            evidence:historicalApiEnabled?
+              "ORIGINAL_STORE_V1_LOADER_PARENT_SPAWNED_CHILD_UNVERIFIED":
+              "ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED"
           };
         }
         case "historical.adminPreview": {
@@ -5901,7 +5917,7 @@ test("original Store mode can be selected before RCON without unlocking actual A
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
   await expect(panel).toBeVisible();
-  const start=panel.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
+  const start=panel.getByRole("button",{name:/Eredeti Store-v1 (ASA|API Loader) indítása/});
   await expect(start).toBeDisabled();
   const mode=panel.getByRole("button",{name:"ASA API Loader mód választása"});
   await expect(mode).toBeEnabled();
@@ -5922,7 +5938,7 @@ test("2966 invalid DONE peer error is visible without starting any ASA process",
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const historic=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
-  const preflight=historic.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
+  const preflight=historic.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
   await expect(preflight).toBeEnabled();
   await preflight.click();
   await expect(historic.getByRole("alert")).toContainText("UM-STORE-LIVE-PEER-DONE-INVALID");
@@ -5941,7 +5957,7 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const historic=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
   await expect(historic).toBeVisible();
-  await expect(historic.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"})).toBeDisabled();
+  await expect(historic.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"})).toBeDisabled();
   await expect(page.getByRole("button",{name:"Friss ASA indítása"})).toHaveCount(0);
   await page.getByRole("button",{name:"Meglévő RCON csatlakoztatása"}).click();
   const rcon=page.getByRole("region",{name:"Történeti Store-v1 RCON csatlakoztatás"});
@@ -5955,24 +5971,22 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   await page.getByRole("tab",{name:"Áttekintés"}).click();
   // Profile change refreshes map detail; the native Start probe re-queries
   // original manager profile, two peers and exact ASA process state.
-  const preflight=historic.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
-  await expect(preflight).toBeEnabled();
-  await preflight.click();
-  const approval=historic.getByRole("region",{name:"Eredeti Store-v1 ASA indítás jóváhagyása"});
-  await expect(approval).toBeVisible();
-  await expect(approval).toContainText("a másik host régi ACTIVE/DONE jelölője nélkül");
-  await expect(approval).not.toContainText("Mindkét eredeti Store peer ACTIVE/DONE állapota igazolt");
-  const spawn=approval.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
-  await expect(approval.locator('input[id="historical-start-phrase"]')).toHaveCount(0);
-  await expect(spawn).toBeEnabled();
-  await spawn.click();
+  const start=historic.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
+  await expect(start).toBeEnabled();
+  await start.click();
+  await expect(historic.getByRole("region",{name:"Eredeti Store-v1 ASA indítás jóváhagyása"}))
+    .toHaveCount(0);
+  const dispatchCount=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HIST_START_APPLY_COUNT__?:()=>number
+  }).__UNTAMED_HIST_START_APPLY_COUNT__?.());
+  expect(dispatchCount).toBe(1);
   await expect(historic.getByText(/valódi Windows ASA PID: 42101/)).toBeVisible();
   await expect(historic.getByText(/Indítás utáni Store-v1 ASA\/RCON ellenőrzés/)).toBeVisible();
   await expect(historic.getByText(/RCON-vezérlése elérhető és hitelesítve/))
     .toBeVisible({timeout:15000});
   await expect(historic.getByText(/Indítás utáni Store-v1 ASA\/RCON ellenőrzés/)).toHaveCount(0);
   await expect(historic.getByText(/Nincs automatikus Start\/Restart/)).toBeVisible();
-  await expect(spawn).toHaveCount(0);
+  await expect(start).toBeDisabled();
 });
 
 test("Store-v1 Start native success is not reported as a failed Start after read-only status failure",async({page})=>{
@@ -5983,18 +5997,38 @@ test("Store-v1 Start native success is not reported as a failed Start after read
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
-  const check=panel.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
-  await expect(check).toBeEnabled();
-  await check.click();
-  const approval=panel.getByRole("region",{name:"Eredeti Store-v1 ASA indítás jóváhagyása"});
-
+  const start=panel.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
+  await expect(start).toBeEnabled();
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?:()=>void
   }).__UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?.());
-  await approval.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"}).click();
+  await start.click();
   await expect(panel).toContainText("valódi Windows ASA PID: 42101");
   await expect(panel).toContainText("ASA indítási visszaigazolása megvan");
   await expect(panel).not.toContainText("Az indítás eredménye nem igazolható");
+});
+
+test("historical Store Start lost Apply reply blocks retry even after read-only refresh",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_API_MODE_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_API_MODE_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HIST_START_REPLY_LOST__?:()=>void
+  }).__UNTAMED_HIST_START_REPLY_LOST__?.());
+  const start=panel.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
+  await start.click();
+  await expect(panel.getByRole("alert")).toContainText("már elindulhatott");
+  await expect(start).toBeDisabled();
+  await panel.getByRole("button",{name:"API/Loader állapot frissítése (csak olvasás)"}).click();
+  await expect(start).toBeDisabled();
+  const count=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HIST_START_APPLY_COUNT__?:()=>number
+  }).__UNTAMED_HIST_START_APPLY_COUNT__?.());
+  expect(count).toBe(1);
 });
 
 test("new empty Store-map uses existing cluster membership, one-shot approval and distinct non-korábbi kezelőalkalmazás UI",async({page})=>{
