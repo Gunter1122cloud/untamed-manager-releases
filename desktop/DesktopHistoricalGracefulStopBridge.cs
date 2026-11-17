@@ -776,6 +776,29 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                             Update(job,"completed","A régi ASA-folyamat kilépett",receipt);
                         }
                     }
+                    catch(LegacyStoreV1GracefulStop.SaveWorldNotDispatchedException ex)
+                        when(approved.Kind=="SaveWorldOnly")
+                    {
+                        // The typed exception is raised only BEFORE the native
+                        // SaveWorld RCON mutation boundary. Do not strand the
+                        // durable receipt in NeedsOperator when no send occurred.
+                        // If either local journal cannot be committed, fail closed.
+                        try
+                        {
+                            LegacyStoreV1SaveEvidenceJournal.MarkNotDispatched(
+                                cluster.Store.Root,job.Id,map.Id,approved.Pid,
+                                approved.StartedUtc,approved.SourceSha);
+                            Update(job,"notDispatched","SaveWorld NEM lett kiküldve: "+
+                                ex.Message+". Natív előfeltétel javítása és új "+
+                                "külön indítás szükséges.");
+                        }
+                        catch
+                        {
+                            Update(job,"needsOperator",
+                                "UM-ORIGINAL-SAVE-NO-DISPATCH-RECEIPT-UNVERIFIED: "+
+                                "helyi napló nem lezárható; nincs automatikus újraküldés.");
+                        }
+                    }
                     catch(Exception ex)
                     {
                         if(approved.Kind=="SaveWorldOnly")

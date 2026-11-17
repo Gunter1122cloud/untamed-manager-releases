@@ -151,6 +151,36 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
               setError("A SaveWorld tartósan igazolt, de a szerverlista frissítése nem sikerült. "+
                 "A mentési parancsot nem ismételjük meg.");
           }
+        }else if(result.state==="notDispatched"&&!finished.current){
+          finished.current=true;
+          try{
+            const [evidence,recovered]=await Promise.all([
+              managerBridge.historicalSaveWorldEvidence(requested),
+              managerBridge.historicalGracefulStopRecovery(requested)
+            ]);
+            if(!active||!belongs(requested,revision))return;
+            if(evidence.mapId.toLowerCase()!==requested.toLowerCase()||
+               evidence.phase!=="notDispatched"||
+               canonicalSaveId(evidence.operationId)===null||
+               canonicalSaveId(evidence.operationId)!==canonicalSaveId(expectedJob)||
+               evidence.localSaveCompleteObserved||evidence.localWorldMetadataObserved||
+               recovered.mapId.toLowerCase()!==requested.toLowerCase()||
+               recovered.blocked||recovered.sharedStoreMutated||recovered.lockCleared)
+              throw new Error("UM-STORE-SAVE-NOT-DISPATCHED-JOURNAL-MISMATCH");
+            setDurableSave(evidence);setDurableChecked(true);
+            setDurableUnknown(false);setRecovery(recovered);
+            setJobId("");setJob(null);finished.current=false;
+            setError("SaveWorld NEM ment ki: a natív indítási előfeltétel "+
+              "elutasította a mentést. Ellenőrizd az ASA indulási naplóját, "+
+              "a saját PID-et és RCON-t, majd használd a napló újraellenőrzését. "+
+              "Nincs automatikus ismétlés, és nincs SaveComplete-igazolás.");
+          }catch{
+            if(active&&belongs(requested,revision)){
+              setDurableUnknown(true);
+              setError("A nem kiküldött mentés naplós lezárása nem igazolható. "+
+                "Nincs automatikus ismétlés; operátori ellenőrzés szükséges.");
+            }
+          }
         }else if(result.state==="needsOperator"&&!finished.current){
           finished.current=true;
           setError("A SaveWorld státusza bizonytalan. Az eredeti PID és napló kézi ellenőrzése "+
@@ -169,7 +199,8 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
   const refreshDurable=async()=>{
     // Read-only evidence refresh after the operator has inspected the
     // local journal externally. Never retry SaveWorld or clear a receipt.
-    if(busy||(jobId&&job?.state!=="completed"&&job?.state!=="needsOperator"))
+    if(busy||(jobId&&job?.state!=="completed"&&
+      job?.state!=="notDispatched"&&job?.state!=="needsOperator"))
       return;
     const requested=mapId,revision=epoch.current;
     setBusy(true);setPreview(null);
@@ -200,11 +231,15 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
           !evidence.localSaveCompleteObserved))&&
         canonicalSaveId(evidence.operationId)!==null&&
         canonicalSaveId(evidence.operationId)===canonicalSaveId(jobId);
+      const noDispatchVerified=job?.state==="notDispatched"&&
+        evidence.phase==="notDispatched"&&
+        canonicalSaveId(evidence.operationId)!==null&&
+        canonicalSaveId(evidence.operationId)===canonicalSaveId(jobId);
       const manuallyReviewed=(job?.state==="needsOperator"||
           job?.state==="reviewed")&&evidence.phase==="reviewed"&&
         evidence.operationId===jobId;
       if(jobId&&!review.blocked&&!evidence.unreadable&&
-         (completedVerified||manuallyReviewed)){
+         (completedVerified||manuallyReviewed||noDispatchVerified)){
         setJobId("");setJob(null);finished.current=false;
       }
       if(review.operationJournalUnreadable||review.restartJournalUnreadable)
@@ -513,6 +548,8 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
           durableUnknown?"Tartós napló nem ellenőrizhető – további mentés igazolása tilos":
           durableSave?.phase==="completed"&&durableSave.localSaveCompleteObserved?
             "Korábbi helyi ASA naplójelzés + stabil világfájl rögzítve":
+          durableSave?.phase==="notDispatched"?
+            "SaveWorld nem lett kiküldve; a sikertelen előellenőrzés lezárt naplója":
           durableSave?.phase==="metadataObserved"&&durableSave.localWorldMetadataObserved?
             "Saját .ark frissült és stabil; ASA SaveComplete NEM igazolt "+
             "(korlátozott helyi fájlmegfigyelés)":

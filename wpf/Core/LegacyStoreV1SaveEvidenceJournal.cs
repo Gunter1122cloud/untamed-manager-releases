@@ -115,7 +115,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
            value.MapId==Guid.Empty||value.Pid<=0||value.PidStartedUtc==default||
            value.BeganUtc==default||!Hash(value.OriginalSourceSha256)||
            value.Phase is not ("prepared" or "completed" or "metadataObserved" or
-             "needsOperator" or "reviewed")||
+             "notDispatched" or "needsOperator" or "reviewed")||
            ((value.Phase is "completed" or "metadataObserved")&&
              (!value.SaveObservedUtc.HasValue||
               value.SaveObservedUtc.Value<value.BeganUtc))||
@@ -347,7 +347,8 @@ public static class LegacyStoreV1SaveEvidenceJournal
         // Preserve the completed/reviewed receipt byte-for-byte BEFORE the
         // latest map-scoped receipt is replaced by the next approved save.
         // The original source/Store/ASA paths are never touched.
-        if(prior.Phase is not ("completed" or "metadataObserved" or "reviewed"))
+        if(prior.Phase is not ("completed" or "metadataObserved" or
+            "notDispatched" or "reviewed"))
             throw new InvalidOperationException(
                 "UM-ORIGINAL-SAVE-JOURNAL-NEEDS-REVIEW");
         string archiveFolder=Path.Combine(Path.GetDirectoryName(file)!,"history");
@@ -404,7 +405,8 @@ public static class LegacyStoreV1SaveEvidenceJournal
         string file=PathFor(managerProfileRoot,mapId);
         using var writer=AcquireWriteLease(file);
         var prior=Load(file);
-        if(prior!=null&&prior.Phase is not ("completed" or "metadataObserved" or "reviewed"))
+        if(prior!=null&&prior.Phase is not ("completed" or "metadataObserved" or
+            "notDispatched" or "reviewed"))
             throw new InvalidOperationException("UM-ORIGINAL-SAVE-JOURNAL-NEEDS-REVIEW");
         if(prior!=null)ArchivePreviousBeforeNewAttempt(file,prior);
         var evidence=new LegacyStoreV1SaveEvidence(Schema,operationId,mapId,pid,
@@ -526,6 +528,24 @@ public static class LegacyStoreV1SaveEvidenceJournal
         var reviewed=current with{Phase="reviewed"};
         Publish(file,reviewed);
         return reviewed;
+    }
+
+    /// <summary>
+    /// ONLY the pre-dispatch native worker may close a prepared SaveWorld
+    /// intent this way. A cancelled attempt never means SaveComplete and
+    /// remains archived byte-for-byte before a separately requested retry.
+    /// The caller must have proven no mutating RCON bytes were attempted.
+    /// </summary>
+    public static LegacyStoreV1SaveEvidence MarkNotDispatched(
+        string managerProfileRoot,Guid operationId,Guid mapId,int pid,
+        DateTimeOffset startedUtc,string originalSha)
+    {
+        string file=PathFor(managerProfileRoot,mapId);
+        using var writer=AcquireWriteLease(file);
+        var current=RequireAttempt(file,operationId,mapId,pid,startedUtc,originalSha);
+        var result=current with{Phase="notDispatched"};
+        Publish(file,result);
+        return result;
     }
 
     public static void MarkUncertain(string managerProfileRoot,Guid operationId,

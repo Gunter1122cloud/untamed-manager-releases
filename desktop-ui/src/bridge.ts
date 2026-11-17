@@ -1239,7 +1239,7 @@ export type HistoricalSaveWorldQueued={
   evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_ONLY_JOB_QUEUED";
 };
 export type HistoricalSaveEvidenceStatus={
-  mapId:string;phase:"none"|"prepared"|"completed"|"metadataObserved"|"needsOperator"|"reviewed"|"unreadable";
+  mapId:string;phase:"none"|"prepared"|"completed"|"metadataObserved"|"notDispatched"|"needsOperator"|"reviewed"|"unreadable";
   diagnosis?:{
     state:"missing"|"interrupted"|"unsafe"|"inaccessible"|"corrupt"|"otherMap"|
       "ioUnavailable"|"valid";
@@ -1306,7 +1306,7 @@ export type HistoricalGracefulStopRecovery = {
     "CancelledBeforeMutation"|"NeedsOperator"|"OperatorReviewed";
   operationKind:string;updatedUtc:string|null;
   blocked:boolean;requiresOperator:boolean;
-  saveEvidencePhase?:"none"|"prepared"|"completed"|"needsOperator"|"reviewed"|"unreadable";
+  saveEvidencePhase?:"none"|"prepared"|"completed"|"metadataObserved"|"notDispatched"|"needsOperator"|"reviewed"|"unreadable";
   saveEvidenceUnreadable?:boolean;saveEvidenceErrorCode?:string|null;
   inMemoryRunning:boolean;jobId:string|null;
   activeJobKind:"Stop"|"SaveWorldOnly"|null;
@@ -1315,7 +1315,7 @@ export type HistoricalGracefulStopRecovery = {
   evidence:"ORIGINAL_STORE_V1_DURABLE_LOCAL_OPERATION_RECOVERY_READ_ONLY";
 };
 export type HistoricalGracefulStopStatus = {
-  jobId:string;kind:"Stop"|"SaveWorldOnly";state:"queued"|"running"|"completed"|"needsOperator"|"reviewed";
+  jobId:string;kind:"Stop"|"SaveWorldOnly";state:"queued"|"running"|"completed"|"notDispatched"|"needsOperator"|"reviewed";
   step:string;changedUtc:string;confirmedStopped:boolean;
   preExitSaveLogAndWorldObserved:boolean;
   preExitWorldMetadataObserved?:boolean;

@@ -266,6 +266,11 @@ internal static class LegacyStoreV1GracefulStop
         };
     }
 
+    // Constructed ONLY before MarkMutationStarted and before the RCON
+    // SaveWorld write path. An uncertain or attempted dispatch must not use it.
+    internal sealed class SaveWorldNotDispatchedException(string code)
+        : InvalidOperationException(code);
+
     // Separate, real SaveWorld operation on an existing ACTIVE/DONE Store map.
     // It uses the SAME owner/source/port guards and installation journal as
     // StopAsync, but deliberately sends NO DoExit and never touches Store data.
@@ -327,12 +332,12 @@ internal static class LegacyStoreV1GracefulStop
         // Test execution seams bypass filesystem observations but never
         // assert that a real ASA save occurred.
         if(execute==null && SaveOnlyStartupBlocker(locked) is { } readinessError)
-            throw new InvalidOperationException(readinessError);
+            throw new SaveWorldNotDispatchedException(readinessError);
         // Witness must exist before ANY mutating RCON byte. A missing log or
         // world witness does not strand the durable journal after no send.
         var witness=execute==null?
             AsaWorldSaveEvidence.Begin(locked.Map,locked.Process)
-                ??throw new InvalidOperationException("UM-ORIGINAL-SAVE-WITNESS-MISSING"):
+                ??throw new SaveWorldNotDispatchedException("UM-ORIGINAL-SAVE-WITNESS-MISSING"):
             null;
         lease.MarkMutationStarted(); // Crash/uncertain dispatch => NeedsOperator
         bool observed,worldMetadataObserved=false;

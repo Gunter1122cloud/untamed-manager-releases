@@ -112,6 +112,37 @@ internal static class LegacyStoreSaveEvidenceTests
             .Phase=="completed",
             "isolated journal fixture can explicitly restore verified prior bytes");
 
+        // An explicitly pre-dispatch rejected SaveWorld closes its prepared
+        // intent without inventing SaveComplete or blocking a new manually
+        // requested attempt. It must preserve the original receipt archive.
+        var notSentMap=Guid.NewGuid();
+        var notSentOperation=Guid.NewGuid();
+        LegacyStoreV1SaveEvidenceJournal.Begin(root,notSentOperation,
+            notSentMap,pid,started,sourceSha);
+        Check(Rejects(()=>LegacyStoreV1SaveEvidenceJournal.MarkNotDispatched(
+                root,Guid.NewGuid(),notSentMap,pid,started,sourceSha))&&
+              Rejects(()=>LegacyStoreV1SaveEvidenceJournal.MarkNotDispatched(
+                root,notSentOperation,notSentMap,pid+1,started,sourceSha)),
+            "no-dispatch cancellation cannot target another operation or PID");
+        var notSent=LegacyStoreV1SaveEvidenceJournal.MarkNotDispatched(
+            root,notSentOperation,notSentMap,pid,started,sourceSha);
+        Check(notSent.Phase=="notDispatched"&&
+              !notSent.LocalSaveCompleteObserved&&
+              !notSent.LocalWorldMetadataObserved&&
+              !notSent.ProductionRestoreAllowed,
+            "no-RCON cancellation never certifies a world save");
+        string notSentPath=Path.Combine(root,"historical-save-evidence-v1",
+            notSentMap.ToString("N")+".json");
+        byte[] beforeRetry=File.ReadAllBytes(notSentPath);
+        LegacyStoreV1SaveEvidenceJournal.Begin(root,Guid.NewGuid(),
+            notSentMap,pid,started,sourceSha);
+        string cancelledArchive=Path.Combine(root,"historical-save-evidence-v1",
+            "history",notSentMap.ToString("N")+"-"+
+            notSentOperation.ToString("N")+"-notDispatched.json");
+        Check(File.Exists(cancelledArchive)&&
+              File.ReadAllBytes(cancelledArchive).SequenceEqual(beforeRetry),
+            "explicit no-dispatch receipt remains archived before next separate attempt");
+
         // A real ASA may update its .ark without the two exact optional
         // log lines. Publish a weaker, separately sealed local metadata
         // witness while keeping SaveComplete/fsync/restore explicitly false.
