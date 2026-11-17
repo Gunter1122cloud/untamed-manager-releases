@@ -478,22 +478,28 @@ export type OriginalStoreLifecycleRecoveryPreview = {
   rconPort:number;expiresUtc:string;
   restartId?:string|null;restartPhase?:string|null;restartOldPid?:number|null;
   restartNewPid?:number|null;pairedJournals?:number;
-  exactWindowsProcessVerified:true;originalStoreSessionVerified:boolean;
+  reviewMode?:"running"|"stopped";
+  exactWindowsProcessVerified:boolean;stoppedWindowsProcessVerified?:boolean;
+  rconListenerAbsent?:boolean;historicalSelectedOwnerVerified?:boolean;
+  originalStoreSessionVerified:boolean;
   approvedObsidianSourcePinned:boolean;
   legacyPeerCheckRequiredForLocalReview:boolean;
-  rconListenerOwnerVerified:true;priorCommandOutcomeUnknown:true;
+  rconListenerOwnerVerified:boolean;priorCommandOutcomeUnknown:true;
   previousOperationWillNotBeRetried:true;requiresTypedApproval:true;
   auditRequired:true;storeBytesModified:false;
-  evidence:"ORIGINAL_STORE_RUNNING_LAUNCH_JOURNAL_RECOVERY_PREVIEW";
+  evidence:"ORIGINAL_STORE_RUNNING_LAUNCH_JOURNAL_RECOVERY_PREVIEW"|
+    "ORIGINAL_STORE_STOPPED_PAIRED_JOURNAL_REVIEW_PREVIEW";
 };
 export type OriginalStoreLifecycleRecoveryReceipt = {
   mapId:string;operationId:string;state:"operatorReviewed";
   previousOutcomeStillUnknown:true;originalJournalAudited:boolean;
   restartJournalAudited?:boolean;pairedJournalsReviewed?:number;
-  restartMarkedSuccessful?:false;oldRunningPid?:number;
+  restartMarkedSuccessful?:false;oldRunningPid?:number|null;
+  oldStoppedPid?:number|null;reviewMode?:"running"|"stopped";
   storeBytesModified:false;processStarted:false;processStopped:false;
   rconCommandSent:false;noAutomaticRetry:true;newOperationRequiresFreshApproval:true;
-  evidence:"ORIGINAL_STORE_EXACT_RUNNING_OWNER_AUDITED_MANUAL_JOURNAL_REVIEW";
+  evidence:"ORIGINAL_STORE_EXACT_RUNNING_OWNER_AUDITED_MANUAL_JOURNAL_REVIEW"|
+    "ORIGINAL_STORE_VERIFIED_STOPPED_OWNER_AUDITED_PAIRED_JOURNAL_REVIEW";
 };
 export type AsaRestartJournalStatus = {
   exists:boolean;belongsToMap:boolean;phase?:string|null;

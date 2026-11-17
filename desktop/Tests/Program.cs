@@ -208,6 +208,7 @@ var map=new LocalMap{
 cluster.AddMap(map);
 await LocalAsaApiModeTests.Run(root);
 await ManualOnlySteamScheduleTests.Run(root);
+await OriginalStoreStoppedJournalRecoveryTests.Run(root);
  await HistoricalAsaApiModeTests.Run(root);
  SteamProtectedFileCoverageTests.Run(root);
  await HistoricalLocalConfigGuardTests.Run(root);
@@ -7724,7 +7725,13 @@ try
                 new{mapId=protectedMap.Id,rconPort,password="bad\ncredential"});
             Check(!invalidLine.GetProperty("ok").GetBoolean() &&
                   invalidLine.GetProperty("error").GetString()=="UM-HISTORICAL-RCON-EXISTING-PASSWORD-INVALID" &&
-                  !invalidLine.ToString().Contains("bad",StringComparison.Ordinal),
+                  // A random request GUID may itself contain the hex substring
+                  // "bad"; check the sanitized error and the FULL rejected
+                  // credential, rather than treating a GUID as leaked input.
+                  !invalidLine.GetProperty("error").GetString()!
+                      .Contains("bad",StringComparison.Ordinal) &&
+                  !invalidLine.ToString().Contains("bad\\ncredential",
+                      StringComparison.Ordinal),
                 "only true legacy INI-line incompatibility gets a dedicated sanitized error");
             var preview=await Call(bridge.HandleAsync,"historical.rconPreview",
                 new{mapId=protectedMap.Id,rconPort,password=originalPass});

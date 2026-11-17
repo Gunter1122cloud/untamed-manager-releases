@@ -325,6 +325,96 @@ public sealed class UntamedOperationCoordinator
         finally{semaphore.Release();}
     }
 
+    /// <summary>
+    /// Explicit review of a paired original Store-v1 Launch / Restart-v1
+    /// journal AFTER the old ASA/Loader has been proved fully stopped.
+    /// This is deliberately separate from running-PID recovery. The native
+    /// caller must prove the exact map, immutable source, stopped process
+    /// family, absent RCON listener and unchanged Manager profile on every
+    /// verification callback. Never sends or replays any ASA/RCON command.
+    /// Interrupted review leaves at least one journal pending; the original
+    /// bytes are kept in immutable per-operation audit files.
+    /// </summary>
+    internal void ReviewStoppedOriginalPaired(string installation,
+        Guid expectedOperation,Guid expectedMapId,Guid expectedRestartId,
+        int oldPid,Func<bool> verifyStopped)
+    {
+        ArgumentNullException.ThrowIfNull(verifyStopped);
+        if(expectedOperation==Guid.Empty||expectedMapId==Guid.Empty||
+           expectedRestartId==Guid.Empty||oldPid<=0)
+            throw new InvalidDataException("UM-RECOVERY-STOPPED-APPROVAL-INVALID");
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))
+            throw new IOException("UM-RECOVERY-OPERATION-STILL-OWNED");
+        try
+        {
+            string journal=Path.Combine(stateRoot,key+".json");
+            var old=Read(journal,key);
+            if(old==null||old.Operation!=expectedOperation||
+               old.Kind!=UntamedOperationKind.Launch||
+               old.Phase is not (UntamedOperationPhase.Prepared or
+                   UntamedOperationPhase.Mutating or
+                   UntamedOperationPhase.NeedsOperator))
+                throw new InvalidOperationException(
+                    "UM-RECOVERY-STOPPED-LAUNCH-JOURNAL-CHANGED");
+            if(DateTimeOffset.UtcNow-old.UpdatedUtc<TimeSpan.FromMinutes(3))
+                throw new InvalidOperationException(
+                    "UM-RECOVERY-OPERATION-TOO-RECENT");
+            var restart=new AsaManualRestartJournal(installation);
+            var observed=restart.Observe();
+            if(observed==null||observed.Id!=expectedRestartId||
+               observed.MapId!=expectedMapId||observed.OldPid!=oldPid||
+               observed.NewPid!=0||
+               observed.Phase is not (AsaRestartPhase.NeedsOperator or
+                   AsaRestartPhase.Stopping or AsaRestartPhase.OperatorReviewed))
+                throw new InvalidOperationException(
+                    "UM-RECOVERY-STOPPED-RESTART-JOURNAL-CHANGED");
+            if(observed.Phase!=AsaRestartPhase.OperatorReviewed&&
+               DateTimeOffset.UtcNow-observed.ChangedUtc<TimeSpan.FromMinutes(3))
+                throw new InvalidOperationException(
+                    "UM-RECOVERY-OPERATION-TOO-RECENT");
+            if(!verifyStopped())
+                throw new UnauthorizedAccessException(
+                    "UM-RECOVERY-STOPPED-PROOF-CHANGED");
+            // Preserve the original Launch bytes before touching either
+            // journal. A failed Restart write leaves Launch blocked.
+            string audit=Path.Combine(stateRoot,key+"-"+
+                old.Operation.ToString("N")+".operator-reviewed.json");
+            byte[] original=File.ReadAllBytes(journal);
+            if(File.Exists(audit))
+            {
+                if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+                   !CryptographicOperations.FixedTimeEquals(
+                       SHA256.HashData(File.ReadAllBytes(audit)),
+                       SHA256.HashData(original)))
+                    throw new InvalidDataException("UM-RECOVERY-AUDIT-MISMATCH");
+            }
+            else
+            {
+                using var stream=new FileStream(audit,FileMode.CreateNew,
+                    FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough);
+                stream.Write(original);
+                stream.Flush(flushToDisk:true);
+            }
+            if(!verifyStopped())
+                throw new UnauthorizedAccessException(
+                    "UM-RECOVERY-STOPPED-PROOF-CHANGED");
+            // The original Restart ID is reviewed, never marked Completed.
+            // If the process reappears before the common journal commit, the
+            // common NeedsOperator state still blocks Start / Stop / RCON.
+            restart.ReviewOriginalOldPid(expectedMapId,expectedRestartId,oldPid);
+            if(!verifyStopped())
+                throw new UnauthorizedAccessException(
+                    "UM-RECOVERY-STOPPED-PROOF-CHANGED");
+            Write(journal,old with{
+                Phase=UntamedOperationPhase.OperatorReviewed,
+                UpdatedUtc=DateTimeOffset.UtcNow
+            });
+        }
+        finally{semaphore.Release();}
+    }
+
     public Batch AcquireMany(IEnumerable<string> installations,UntamedOperationKind kind)
     {
         var leases=new List<Lease>();

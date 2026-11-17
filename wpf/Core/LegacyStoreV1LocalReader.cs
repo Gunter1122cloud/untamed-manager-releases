@@ -46,6 +46,32 @@ public static class LegacyStoreV1LocalReader
     private static string Tag(string input)=>Convert.ToHexString(SHA256.HashData(
         Encoding.UTF8.GetBytes(input.Trim().ToLowerInvariant())));
 
+    // A later event map may be present in the current local cluster without
+    // becoming a member of the ORIGINAL five-map Store-v1 writer selection.
+    // This exception is valid only when the lock's own configuration hash
+    // matches the original five members, in the original order, and those
+    // exact member objects still occur in the current cluster in that order.
+    // No new Store session, ownership or remote peer evidence is inferred.
+    private static bool MatchesPinnedHistoricalSubset(
+        JsonElement current,JsonElement pinned,string[] selection)
+    {
+        if(Text(current,"id")!=Text(pinned,"id")||
+           Text(current,"mode")!=Text(pinned,"mode")||
+           Text(current,"path")!=Text(pinned,"path")||
+           !pinned.TryGetProperty("members",out var original)||
+           original.ValueKind!=JsonValueKind.Array||
+           original.GetArrayLength()!=5)return false;
+        var locked=original.EnumerateArray().ToArray();
+        if(!locked.Select(x=>Text(x,"id")).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            .SetEquals(selection))return false;
+        var now=Required(current,"members").EnumerateArray()
+            .Where(x=>selection.Contains(Text(x,"id"),
+                StringComparer.OrdinalIgnoreCase)).ToArray();
+        return now.Length==5&&locked.Zip(now).All(pair=>
+            StoreV1Fingerprint.Compute(pair.First)==
+            StoreV1Fingerprint.Compute(pair.Second));
+    }
+
     public static Report Inspect(string localDirectory)
     {
         string root=VaultReadSnapshot.LocalPath(localDirectory,true);
@@ -84,7 +110,10 @@ public static class LegacyStoreV1LocalReader
         var memberArray=members.EnumerateArray().ToArray();
         var selection=selected.EnumerateArray().Select(x=>
             x.ValueKind==JsonValueKind.String?x.GetString()??"":"").ToArray();
-        if(memberArray.Length!=5||records.EnumerateObject().Count()!=5||
+        // Exactly five ORIGINAL selected map IDs, but a bounded number of
+        // current local members may include independent event maps.
+        if(memberArray.Length is <5 or >32||
+           records.EnumerateObject().Count()!=memberArray.Length||
            selection.Length!=5 ||
            selection.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=5)
             throw new InvalidDataException("UM-LOCAL-STORE-LOCAL-MAP-COUNT");
@@ -108,25 +137,36 @@ public static class LegacyStoreV1LocalReader
             bool marked=selection.Contains(id,StringComparer.OrdinalIgnoreCase);
             bool backup=Guid.TryParse(Text(record,"backupId"),out var backupId)&&
                 backupId!=Guid.Empty;
-            evidence.Add(new(name,active,sameSession,sameRoot,marked,backup)
+            // Unselected event maps are not automatically promoted to the
+            // original Store session. Their local GUID/root/map binding is
+            // still checked so malformed extra metadata cannot be ignored.
+            if(!marked&&!sameRoot)
+                throw new InvalidDataException("UM-LOCAL-STORE-EXTRA-MAP-BINDING");
+            if(marked)evidence.Add(new(name,active,sameSession,sameRoot,marked,backup)
             {MapId=memberId,OriginalRoot=install});
         }
-        if(!ids.SetEquals(selection))
+        if(!selection.All(ids.Contains)||
+           records.EnumerateObject().Any(x=>!ids.Contains(x.Name))||
+           evidence.Count!=5)
             throw new InvalidDataException("UM-LOCAL-STORE-SELECTED-IDS");
-        bool hash=StoreV1Fingerprint.Matches(cluster,Text(locked,"configHash")) &&
-            StoreV1Fingerprint.Matches(Required(locked,"config"),Text(locked,"configHash"));
-        bool sameConfig=StoreV1Fingerprint.Compute(
-                JsonSerializer.SerializeToElement(new{data=cluster})) ==
-            StoreV1Fingerprint.Compute(
-                JsonSerializer.SerializeToElement(new{data=Required(locked,"config")}));
-        bool lockVerified=hash&&sameConfig&&
-            selection.Length==5&&evidence.All(m=>m.Selected);
+        var savedConfig=Required(locked,"config");
+        string expectedHash=Text(locked,"configHash");
+        bool savedHash=StoreV1Fingerprint.Matches(savedConfig,expectedHash);
+        bool currentHash=StoreV1Fingerprint.Matches(cluster,expectedHash);
+        bool sameConfig=StoreV1Fingerprint.Compute(cluster)==
+            StoreV1Fingerprint.Compute(savedConfig);
+        bool historicalSubset=memberArray.Length>5&&
+            MatchesPinnedHistoricalSubset(cluster,savedConfig,selection);
+        bool hash=savedHash&&(currentHash&&sameConfig||historicalSubset);
+        bool lockVerified=hash&&evidence.All(m=>m.Selected);
         bool localActive=evidence.All(m=>
             m.Active&&m.SessionMatches&&m.RootMatches&&m.BackupIdentityPresent);
-        // A local five-map Store copy cannot certify the other host, even if
-        // all local records are ACTIVE and the local config hash matches.
+        // Only the five selected historical maps are certified; event maps
+        // are present in the full four-file SHA but not in the writer roster.
+        // Neither this read nor a saved lock certifies the remote host.
         return new(true,hash,lockVerified,localActive,lockVerified&&localActive,
-            false,false,evidence.ToArray(),
+            false,false,evidence.ToArray(),historicalSubset&&!currentHash?
+            "ORIGINAL_FIVE_SELECTED_PINNED_IN_EXPANDED_LOCAL_ROSTER_NO_PEER_CERTIFICATION":
             "ORIGINAL_LOCAL_STORE_V1_FOUR_FILES_READ_ONLY_NO_PEER_CERTIFICATION")
         {
             SessionTag=Tag(session.ToString("D")),
