@@ -133,6 +133,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         "UM-STORE-LIVE-PEER-SELECTED-MISMATCH":"UM-STORE-LIVE-PEER-SELECTED-MISMATCH: A peer történeti öt kiválasztott mapja nem felel meg a regisztrált tulajdonosi listának. Ne indítsd kézzel és ne töröld a peer-rekordot.",
         "UM-STORE-LIVE-LOCAL-LOCK-MISMATCH":"UM-STORE-LIVE-LOCAL-LOCK-MISMATCH: A helyi Store-v1 lock/session/konfiguráció eltér az érvényes forrástól. Nincs automatikus jóváhagyás.",
         "UM-STORE-LIVE-MAP-NOT-OWNED-BY-LOCAL-PEER":"UM-STORE-LIVE-MAP-NOT-OWNED-BY-LOCAL-PEER: Ez a map nem szerepel a helyi DONE peer öt eredeti kiválasztott mapja között.",
+        "UM-STORE-LAUNCH-EXPLICIT-SOURCE-PIN-REQUIRED":"UM-STORE-LAUNCH-EXPLICIT-SOURCE-PIN-REQUIRED: A naplórendezést már jóváhagytad, de az indításhoz az aktuális bővített Store-v1 forrás még nincs külön jóváhagyottan átvéve. A Store-v1 átvételi panelen ellenőrizd a „Meglévő mapok forrásátvételének ellenőrzése” funkciót; a jóváhagyás több eredeti helyi map közös forrásmásolatát is érintheti. Indítás és Store-írás nem történt.",
         "UM-STORE-TOPOLOGY-PEER-INVALID":"UM-STORE-TOPOLOGY-PEER-INVALID: A két peer egyikének maplistája vagy eredeti kiválasztása érvénytelen.",
         "UM-STORE-TOPOLOGY-OVERLAPPING-MAP-OWNERS":"UM-STORE-TOPOLOGY-OVERLAPPING-MAP-OWNERS: Azonos map GUID vagy mapnév több peerben szerepel. Indítás letiltva.",
         "UM-STORE-TOPOLOGY-SELECTION-MISMATCH":"UM-STORE-TOPOLOGY-SELECTION-MISMATCH: A történeti kiválasztott map nincs a peer tulajdonosi listájában.",
