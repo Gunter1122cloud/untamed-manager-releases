@@ -27,7 +27,6 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
   const belongs=(requested:string)=>mounted.current&&currentMap.current===requested;
   const [pending,setPending]=useState<Approval|null>(null);
   const [checked,setChecked]=useState(false);
-  const [typed,setTyped]=useState("");
   const [busy,setBusy]=useState(false);
   const [reconnecting,setReconnecting]=useState(true);
   const [reconnectFailed,setReconnectFailed]=useState(false);
@@ -116,7 +115,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
     return ()=>{active=false;};
   },[mapId,historical,reconnectNonce]);
   useEffect(()=>{
-    setPending(null);setChecked(false);setTyped("");setError("");setMessage(lastReceipts.get(mapId)??"");
+    setPending(null);setChecked(false);setError("");setMessage(lastReceipts.get(mapId)??"");
     setBusy(false);setJob(runningJobs.get(mapId)??null);
   },[mapId]);
   useEffect(()=>{
@@ -162,7 +161,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
     if(busy||job||blocked)return;
     const requestedMap=mapId;
     setBusy(true);setPending(null);setError("");setMessage("");
-    setChecked(false);setTyped("");
+    setChecked(false);
     try{
       if(action==="kill"&&historical){
         setError("Az eredeti eredeti Store-v1 map kényszerített Kill művelete itt tiltott: a közös writer és a karakteradatok megsérülhetnek. Használd a natív SaveWorld/DoExit leállítást.");
@@ -189,7 +188,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
     }finally{if(belongs(requestedMap))setBusy(false);}
   };
   const apply=async()=>{
-    if(!pending||pending.mapId!==mapId||!checked||busy||job||(historical||pending.action==="kill")&&typed!==phrase[pending.action])
+    if(!pending||pending.mapId!==mapId||!checked||busy||job)
       return;
     const selected=pending;
     setPending(null);setBusy(true);setError("");setMessage("");
@@ -266,19 +265,17 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
         ?"A valódi natív művelet mentésbizonyítékot és pontos ASA PID-t ellenőriz a DoExit előtt."
         :"A natív indítás a saját helyi ASA/Store-v1 profilból történik; nem bizonyítja a beléphetőséget."}</p>
       {pending.pid&&<p>Igazolt PID: {pending.pid}</p>}
-      {(historical||pending.action==="kill")&&<label>Gépeld be: <b>{phrase[pending.action]}</b>
-        <input aria-label="Életciklus művelet jóváhagyó szövege"
-          value={typed} onChange={e=>setTyped(e.target.value)} disabled={busy}/>
-      </label>}
-      <label><input type="checkbox" checked={checked} disabled={busy}
+      {(historical||pending.action==="kill")&&<p>A tényleges
+         műveletet csak a kiválasztott mapra hagyhatod jóvá az alábbi
+         jelölőnégyzettel és gombbal.</p>}
+       <label><input type="checkbox" checked={checked} disabled={busy}
         onChange={e=>setChecked(e.target.checked)}/>
         Jóváhagyom a kiválasztott helyi szerveren a tényleges művelet végrehajtását.</label>
       <div className="uk-lifecycle-row">
-        <button type="button" className="primary" disabled={busy||!checked||
-          (historical||pending.action==="kill")&&typed!==phrase[pending.action]}
+        <button type="button" className="primary" disabled={busy||!checked}
           onClick={()=>{void apply();}}>Művelet végrehajtása</button>
         <button type="button" className="secondary" disabled={busy}
-          onClick={()=>{setPending(null);setTyped("");}}>Mégsem</button>
+          onClick={()=>{setPending(null);}}>Mégsem</button>
       </div>
     </div>}
     {job&&<p role="status" className="warning-inline">{copy[job.action]} folyamatban – natív állapot lekérdezése...</p>}
