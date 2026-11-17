@@ -419,9 +419,11 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             }
             finally{serial.Release();}
         }
-        catch(Exception)
+        catch(Exception e)
         {
-            return Fail(id,"UM-ORIGINAL-RESTART-SAFETY-FAILED");
+            // Preserve known planner/recovery symbolic reason codes without
+            // revealing raw exception messages or RCON secrets.
+            return Fail(id,NativeLifecycleFailureCode.From(e));
         }
     }
     private static string Ok(string id,object data)=>
