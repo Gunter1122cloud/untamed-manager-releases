@@ -1223,6 +1223,7 @@ export type HistoricalSaveReviewPreview={
   operationId:string;coordinatorPhase:string;
   originalSourceRevalidated:true;confirmedStopped:boolean;
   runningOwned:boolean;previousOutcomeStillUnknown:true;
+  pairedRestartReview:boolean;
   preservesOriginalReceipt:true;originalStoreFilesWritten:false;
   automaticRetry:false;requiresTypedApproval:true;
   evidence:"OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"|
@@ -1231,7 +1232,8 @@ export type HistoricalSaveReviewPreview={
 export type HistoricalSaveReviewReceipt={
   mapId:string;phase:"reviewed";reviewed:true;oldReceiptArchived:true;
   originalStoreFilesWritten:false;autoRetry:false;serverStarted:false;
-  previousOutcomeStillUnknown:true;ownerRemainedRunning:boolean;rconSent:false;
+  previousOutcomeStillUnknown:true;ownerRemainedRunning:boolean;
+  pairedRestartReviewed:boolean;rconSent:false;
   nextOperationRequiresNewApproval:true;
   evidence:"OPERATOR_REVIEW_DURABLE_LOCAL_JOURNALS_NO_STORE_MUTATION";
 };
