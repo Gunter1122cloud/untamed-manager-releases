@@ -13,7 +13,6 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
   mapId:string;running:boolean;onStopped:()=>Promise<void>
 }){
   const [preview,setPreview]=useState<HistoricalGracefulStopPreview|null>(null);
-  const [phrase,setPhrase]=useState("");
   const [job,setJob]=useState<HistoricalGracefulStopStatus|null>(null);
   const [jobId,setJobId]=useState("");
   const [recovery,setRecovery]=useState<HistoricalGracefulStopRecovery|null>(null);
@@ -27,7 +26,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
   const belongs=(requested:string)=>currentMap.current===requested;
   useEffect(()=>{
     let active=true;
-    setPreview(null);setPhrase("");setJob(null);setJobId("");
+    setPreview(null);setJob(null);setJobId("");
     setRecovery(null);setRecoveryChecked(false);
     setError("");setNotice("");notified.current=false;
     managerBridge.historicalGracefulStopRecovery(mapId).then(result=>{
@@ -102,7 +101,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
     if(busy||(jobId&&job?.state!=="completed"&&job?.state!=="needsOperator"))
       return;
     const requested=mapId;
-    setBusy(true);setPreview(null);setPhrase("");setError("");setNotice("");
+    setBusy(true);setPreview(null);setError("");setNotice("");
     try{
       const result=await managerBridge.historicalGracefulStopRecovery(requested);
       if(!belongs(requested))return;
@@ -135,7 +134,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
     if(busy||jobId||!running||!recoveryChecked||
        !recovery||recovery.blocked||recovery.inMemoryRunning)return;
     const requested=mapId;
-    setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
+    setBusy(true);setError("");setNotice("");setPreview(null);
     try{
       const response=await managerBridge.historicalGracefulStopPreview(requested);
       if(!belongs(requested))return;
@@ -148,9 +147,9 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
   };
   const stop=async()=>{
     if(!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
-       busy||phrase!=="STORE-V1 SAVEWORLD DOEXIT")return;
+       busy)return;
     const requested=mapId,token=preview.token;
-    setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
+    setBusy(true);setError("");setNotice("");setPreview(null);
     try{
       const receipt=await managerBridge.historicalGracefulStopApply(
         token,"STORE-V1 SAVEWORLD DOEXIT");
@@ -213,21 +212,17 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
           <p>{preview.originalPeerCheckRequiredForLocalOperation?
             "A még át nem vett eredeti profil régi ACTIVE/DONE ellenőrzése szükséges.":
             "A jóváhagyott helyi Obsidian-profil leállítása nem függ a másik host régi korábbi Manager-jelölőjétől."}</p>
-          <p>A program a jelenlegi mentést SaveWorld paranccsal kezdi, és
-            csak új mentésjelzés után küld DoExit-et. Írd be a biztonsági
-            jóváhagyást pontosan: STORE-V1 SAVEWORLD DOEXIT</p>
-          <label htmlFor="historical-doexit-phrase">Pontos jóváhagyó szöveg</label>
-          <input id="historical-doexit-phrase" value={phrase} autoComplete="off"
-            maxLength={40} spellCheck={false}
-            onChange={e=>setPhrase(e.target.value)}/>
+          <p>A program SaveWorld paranccsal kezdi a leállítást, és csak új
+              mentésjelzés után küld DoExit-et. A következő külön gombbal
+              hagyhatod jóvá a műveletet.</p>
           <div className="settings-actions">
             <button type="button" className="primary"
-              disabled={busy||phrase!=="STORE-V1 SAVEWORLD DOEXIT"}
+              disabled={busy}
               onClick={()=>{void stop();}}>
               <Square size={16}/> SaveWorld és szabályos DoExit
             </button>
             <button type="button" className="secondary" disabled={busy}
-              onClick={()=>{setPreview(null);setPhrase("");}}>Mégse</button>
+              onClick={()=>{setPreview(null);}}>Mégse</button>
           </div>
         </div>
       </div>}
