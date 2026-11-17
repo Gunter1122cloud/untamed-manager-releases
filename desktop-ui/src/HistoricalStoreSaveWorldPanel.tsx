@@ -212,8 +212,6 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
         const code=e instanceof Error?e.message:"";
         setError(code==="UM-ORIGINAL-SAVE-STARTUP-NOT-ADVERTISED"?
           "Az ASA még nem igazoltan fejezte be az indulást és nem hirdeti a szervert. SaveWorld nem indult; ellenőrizd a friss ShooterGame.log naplót és az ASA PID-et.":
-          code==="UM-ORIGINAL-SAVE-API-NOT-VERIFIED"?
-          "Az ASA API-s módot választottad, de a jelenlegi indítás API hook-naplója vagy az ASA gyermekfolyamatba betöltött DLL nem igazolt. SaveWorld nem indult; olvasd ki az ArkApi.log és a gyermek PID modulállapotát.":
           "A kiválasztott Store-v1 map PID/RCON-ja vagy előellenőrzése nem igazolható. SaveWorld nem indult.");
       }
     }finally{if(belongs(requested,revision))setBusy(false);}
