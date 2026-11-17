@@ -479,8 +479,10 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                     var (evidence,unreadable)=
                         LegacyStoreV1SaveEvidenceJournal.InspectReadOnly(
                             cluster.Store.Root,evidenceMapId);
+                    var diagnosis=LegacyStoreV1SaveEvidenceJournal.DiagnoseReadOnly(
+                        cluster.Store.Root,evidenceMapId);
                     return Ok(id,new{
-                        mapId=evidenceMapId,
+                        mapId=evidenceMapId,diagnosis,
                         phase=unreadable?"unreadable":evidence?.Phase??"none",
                         unreadable,
                         errorCode=unreadable?
