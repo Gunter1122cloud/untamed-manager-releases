@@ -219,7 +219,7 @@ public static class LegacyStoreV1LiveReadGate
               LegacyStoreV1LocalReader.MatchesPinnedHistoricalSubset(
                   cluster,Need(localLock,"config"),
                   Need(localLock,"selected").EnumerateArray()
-                    .Select(x=>x.GetString()??"").ToArray())))
+                    .Select(x=>x.GetString()??"").ToArray()))))
             throw new InvalidDataException("UM-STORE-LIVE-LOCAL-LOCK-MISMATCH");
         string share=Path.Combine(path,".kova-store-v1");
         if(!Directory.Exists(share)||
