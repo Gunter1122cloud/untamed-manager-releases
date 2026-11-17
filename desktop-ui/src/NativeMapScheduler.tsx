@@ -1,7 +1,8 @@
 import {useCallback,useEffect,useState} from "react";
 import {AlertTriangle,CalendarClock,CheckCircle2,RefreshCw,Save,Shield,RotateCcw} from "lucide-react";
 import {managerBridge,type NativeAsaScheduleStatus,
-  type NativeScheduleFrequency,type NativeScheduleKind} from "./bridge";
+  type NativeScheduleFrequency,type NativeScheduleKind,
+  type NativeScheduleReviewPreview,type NativeAsaExecutionEntry} from "./bridge";
 import "./native-schedule-fidelity.css";
 
 const days=[
@@ -15,7 +16,10 @@ const displayEventStatus:Record<string,string>={
   "config-or-store-blocked":"Konfiguráció vagy Store-védelem miatt kihagyva",
   "claimed-no-auto-retry":"Végrehajtás lefoglalva – még nincs eredmény",
   "missed-no-catchup":"Kimaradt időpont – nincs utólagos végrehajtás",
-  "manager-start-skipped-no-replay":"Manager újraindításakor kihagyva"
+  "manager-start-skipped-no-replay":"Manager újraindításakor kihagyva",
+  "skipped-blocked-prior-unknown-slot":"Kihagyva: régi bizonytalan slot még felülvizsgálandó",
+  "blocked-prior-unknown-slot":"Régi bizonytalan slot miatt blokkolva",
+  "operator-reviewed-unknown-no-replay":"Operátor felülvizsgálta: kimenetel továbbra is ismeretlen"
 };
 function eventStatus(raw:string){return displayEventStatus[raw]??raw;}
 
@@ -141,6 +145,49 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
   const [status,setStatus]=useState<NativeAsaScheduleStatus|null>(null);
   const [error,setError]=useState("");
   const [busy,setBusy]=useState(false);
+  const [reviewing,setReviewing]=useState(false);
+  const [reviewPreview,setReviewPreview]=useState<NativeScheduleReviewPreview|null>(null);
+  const [reviewNotice,setReviewNotice]=useState("");
+  const reviewSlot=async(entry:NativeAsaExecutionEntry)=>{
+    if(reviewing||busy)return;
+    const target=mapId;
+    setReviewing(true);setReviewNotice("");setReviewPreview(null);
+    try{
+      const proof=await managerBridge.nativeScheduleReviewPreview(
+        target,entry.kind,entry.runId);
+      if(target!==mapId)return;
+      if(proof.mapId.toLowerCase()!==target.toLowerCase()||
+         proof.runId!==entry.runId||!proof.outcomeStillUnknown||
+         !proof.scheduledTaskWillBeDisabled||!proof.originalRunWillNotExecute)
+        throw new Error("UM-ASA-SCHEDULE-REVIEW-INVALID-PREVIEW");
+      setReviewPreview(proof);
+    }catch(e){
+      if(target===mapId)setError("A bizonytalan ütemezési slot még nem rendezhető: "+
+        (e instanceof Error?e.message:"Ismeretlen, csak olvasható ellenőrzési hiba"));
+    }finally{if(target===mapId)setReviewing(false);}
+  };
+  const approveSlot=async()=>{
+    if(reviewing||busy||!reviewPreview)return;
+    const target=mapId,proof=reviewPreview;
+    setReviewing(true);setReviewPreview(null);setReviewNotice("");
+    try{
+      const receipt=await managerBridge.nativeScheduleReviewApply(target,proof.token);
+      if(target!==mapId)return;
+      if(receipt.mapId.toLowerCase()!==target.toLowerCase()||
+         receipt.runId!==proof.runId||!receipt.outcomeStillUnknown||
+         !receipt.noRconSent||!receipt.noAutomaticReplay||
+         !receipt.oldJournalArchived||!receipt.jobDisabled)
+        throw new Error("UM-ASA-SCHEDULE-REVIEW-INVALID-RECEIPT");
+      await reload();
+      setReviewNotice("A régi slot kimenetele ISMERETLEN marad. "+
+        "A napló auditálva, az adott feladat kikapcsolva. "+
+        "Nincs parancsismétlés; későbbi aktiváláshoz új jóváhagyás kell.");
+    }catch(e){
+      if(target===mapId)setError("A naplófelülvizsgálat eredménye nem igazolható. "+
+        "Frissítsd a helyi státuszt; ne indítsd újra a régi parancsot. "+
+        (e instanceof Error?e.message:""));
+    }finally{if(target===mapId)setReviewing(false);}
+  };
   const reload=useCallback(async()=>{
     setBusy(true);
     try {setStatus(await managerBridge.nativeScheduleStatus(mapId));setError("");}
@@ -148,7 +195,10 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
       (e instanceof Error?e.message:"ismeretlen hiba"));setStatus(null);}
     finally{setBusy(false);}
   },[mapId]);
-  useEffect(()=>{void reload();},[reload]);
+  useEffect(()=>{
+    setReviewPreview(null);setReviewNotice("");
+    void reload();
+  },[reload]);
   return <section className="native-schedule-panel">
     <div className="native-schedule-heading">
       <h2><CalendarClock size={19}/> Maponkénti szerverütemező</h2>
@@ -160,6 +210,30 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
     {!status&&!error&&<p>Helyi ütemezések ellenőrzése...</p>}
     {status?.protectedStore&&<p className="native-schedule-warning"><Shield size={17}/>
       Store-v1 vagy történeti karakteradat-védelem: automatikus RCON és restart tiltva.</p>}
+    {status?.blockedScope!=="none"&&status?.blockedScope&&
+      <p className="native-schedule-warning" role="status">
+        <AlertTriangle size={16}/> Blokkolás hatóköre: {status.blockedScope==="task"?
+          "csak a korábbi bizonytalan feladat-slot":
+          "teljes helyi ütemező felügyelet"}.
+        Következő ellenőrzött lépés: {status.supportedNextAction}.
+        Az eredeti slotot nem ismételjük meg automatikusan.
+      </p>}
+    {reviewNotice&&<p className="success-inline" role="status">
+      <CheckCircle2 size={16}/>{reviewNotice}</p>}
+    {reviewPreview&&<div className="warning-inline" role="region"
+      aria-label="Ütemezett bizonytalan művelet operátori jóváhagyása">
+      <AlertTriangle size={16}/>
+      <div><b>{reviewPreview.kind} · {reviewPreview.runId.slice(0,8)}</b>
+        <p>Az eredeti parancs kimenetele ISMERETLEN marad.
+          Csak a napló változatlan előzménye kerül archiválásra;
+          az adott feladat kikapcsolódik, nem lesz RCON, Stop, Restart
+          vagy automatikus ismétlés.</p>
+        <button type="button" className="primary" disabled={reviewing||busy}
+          onClick={()=>{void approveSlot();}}>Régi slot naplórendezésének jóváhagyása</button>
+        <button type="button" className="secondary" disabled={reviewing||busy}
+          onClick={()=>setReviewPreview(null)}>Mégsem</button>
+      </div>
+    </div>}
     {status&&<div className="native-schedule-grid">
       <ScheduleEditor key={mapId+"-save"} mapId={mapId} kind="SaveWorld" status={status} onChanged={reload}/>
       <ScheduleEditor key={mapId+"-restart"} mapId={mapId} kind="Restart" status={status} onChanged={reload}/>
@@ -175,6 +249,12 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
               <span>Tervezett: {localDate(entry.scheduledUtc)} · Észlelt: {localDate(entry.claimedUtc)}</span>
               <span>Lezárva: {localDate(entry.finishedUtc)} · Azonosító: {entry.runId.slice(0,8)}</span>
               {entry.evidence&&<small>Natív igazolás: {entry.evidence}</small>}
+              {status.unknownRunIds.includes(entry.runId)&&
+                <button type="button" className="secondary"
+                  disabled={busy||reviewing||!!reviewPreview}
+                  onClick={()=>{void reviewSlot(entry);}}>
+                  <Shield size={14}/> Ismeretlen kimenetelű slot felülvizsgálata
+                </button>}
             </article>)}
           </div>}
       </details>
