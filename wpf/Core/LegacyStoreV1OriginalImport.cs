@@ -98,8 +98,20 @@ public static class LegacyStoreV1OriginalImport
 
         using var clusterDoc=VaultReadSnapshot.Json(files,"cluster-v1.json");
         if(!clusterDoc.RootElement.TryGetProperty("members",out var members) ||
-           members.ValueKind!=JsonValueKind.Array||members.GetArrayLength()!=5)
+           members.ValueKind!=JsonValueKind.Array||
+           members.GetArrayLength() is <5 or >32)
             throw new InvalidDataException("UM-STORE-DIRECT-FIVE-MAPS-REQUIRED");
+        // The local reader has already validated the lock's five selected
+        // historical GUIDs against the complete current roster. Never
+        // incorporate additional local event maps into the old Store owner.
+        var selectedMapIds=original.Maps.Select(x=>x.MapId).ToHashSet();
+        var allMemberIds=new HashSet<Guid>();
+        foreach(var member in members.EnumerateArray())
+            if(!Guid.TryParseExact(Text(member,"id"),"D",out var memberId)||
+               memberId==Guid.Empty||!allMemberIds.Add(memberId))
+                throw new InvalidDataException("UM-STORE-DIRECT-MAP-ID-INVALID");
+        if(!selectedMapIds.IsSubsetOf(allMemberIds))
+            throw new InvalidDataException("UM-STORE-DIRECT-ORIGINAL-SELECTION-CHANGED");
         using var launchDoc=VaultReadSnapshot.Json(new Dictionary<string,byte[]>{
             ["launch-profiles-v1.json"]=launchBytes},"launch-profiles-v1.json");
         var launchRoot=launchDoc.RootElement;
@@ -107,14 +119,16 @@ public static class LegacyStoreV1OriginalImport
         var rows=Need(launchRoot,"rows");
         if(version.ValueKind!=JsonValueKind.Number||
            !version.TryGetInt32(out int schema)||schema!=1||
-           rows.ValueKind!=JsonValueKind.Array||rows.GetArrayLength()!=5)
+           rows.ValueKind!=JsonValueKind.Array||
+           rows.GetArrayLength()<5||rows.GetArrayLength()>32)
             throw new InvalidDataException("UM-STORE-DIRECT-LAUNCH-SCHEMA");
 
         var byId=new Dictionary<Guid,JsonElement>();
         foreach(var item in rows.EnumerateArray())
         {
             if(!Guid.TryParseExact(Text(item,"id"),"D",out var id)||
-               id==Guid.Empty||!byId.TryAdd(id,item))
+               id==Guid.Empty||!allMemberIds.Contains(id)||
+               !byId.TryAdd(id,item))
                 throw new InvalidDataException("UM-STORE-DIRECT-LAUNCH-MAP-ID");
         }
 
@@ -122,12 +136,12 @@ public static class LegacyStoreV1OriginalImport
         var ids=new HashSet<Guid>();
         var mapKeys=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ports=new HashSet<int>();
-        foreach(var row in members.EnumerateArray())
+        foreach(var row in original.Maps)
         {
-            if(!Guid.TryParseExact(Text(row,"id"),"D",out var id)||
-               id==Guid.Empty||!ids.Add(id)||!byId.TryGetValue(id,out var source))
+            Guid id=row.MapId;
+            if(!ids.Add(id)||!byId.TryGetValue(id,out var source))
                 throw new InvalidDataException("UM-STORE-DIRECT-MAP-ID-INVALID");
-            string name=Text(row,"map"),installation=Text(row,"root");
+            string name=row.MapKey,installation=row.OriginalRoot;
             if(name.Length is <1 or >80||
                !name.All(c=>char.IsAsciiLetterOrDigit(c)||c is '_' or '-' or '.')||
                !mapKeys.Add(name)||installation.Length is <3 or >1000 ||
