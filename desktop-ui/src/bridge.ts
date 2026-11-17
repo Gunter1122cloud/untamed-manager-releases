@@ -2308,20 +2308,16 @@ export const managerBridge = {
     request<HistoricalRestartRecovery>("historical.restartRecovery",{mapId}),
   historicalRestartPreview: (mapId:string) =>
     request<HistoricalRestartPreview>("historical.restartPreview",{mapId}),
-  historicalRestartApply: (token:string,typedApproval:string) =>
-    request<HistoricalRestartQueued>("historical.restartApply",{
-      token,typedApproval,confirm:true
-    }),
+  historicalRestartApply: (token:string) =>
+    request<HistoricalRestartQueued>("historical.restartApply",{token}),
   historicalRestartStatus: (jobId:string) =>
     request<HistoricalRestartStatus>("historical.restartStatus",{jobId}),
   historicalGracefulStopRecovery: (mapId:string) =>
     request<HistoricalGracefulStopRecovery>("historical.gracefulStopRecovery",{mapId}),
   historicalGracefulStopPreview: (mapId:string) =>
     request<HistoricalGracefulStopPreview>("historical.gracefulStopPreview",{mapId}),
-  historicalGracefulStopApply: (token:string,typedApproval:string) =>
-    request<HistoricalGracefulStopQueued>("historical.gracefulStopApply",{
-      token,typedApproval,confirm:true
-    }),
+  historicalGracefulStopApply: (token:string) =>
+    request<HistoricalGracefulStopQueued>("historical.gracefulStopApply",{token}),
   historicalGracefulStopStatus: (jobId:string) =>
     request<HistoricalGracefulStopStatus>("historical.gracefulStopStatus",{jobId}),
   historicalSaveWorldPreview: (mapId:string) =>
