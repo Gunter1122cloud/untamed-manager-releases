@@ -3409,6 +3409,8 @@ test.beforeEach(async ({ page }) => {
                   e.message==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"||
                   e.message==="UM-ORIGINAL-STOP-INSTALLATION-BUSY"||
                   e.message==="UM-ORIGINAL-SAVE-HISTORY-REVIEW-REQUIRED"||
+                  e.message==="UM-STORE-LIVE-PEER-DONE-INVALID"||
+                  e.message==="UM-STORE-LAUNCH-EXPLICIT-SOURCE-PIN-REQUIRED"||
                   e.message==="UM-ORIGINAL-ADMIN-SAVEWORLD-IN-PROGRESS"||
                   e.message==="UM-ORIGINAL-ADMIN-LIFECYCLE-JOURNAL-REVIEW-REQUIRED"||
                   e.message==="UM-ORIGINAL-ADMIN-INSTALLATION-BUSY"||
