@@ -181,8 +181,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
     setPreview(null);setBusy(true);
     setError("");setNotice("");
     try{
-      const receipt=await managerBridge.historicalActiveStartApply(
-        token,"STORE-V1 ACTIVE START");
+      const receipt=await managerBridge.historicalActiveStartApply(token);
       if(!belongs(requested,generation))return;
       if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||
          !receipt.startRequested||receipt.originalStoreMetadataChanged||

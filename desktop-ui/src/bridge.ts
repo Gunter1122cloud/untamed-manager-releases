@@ -584,7 +584,7 @@ export type FreshAsaReadiness = {
 export type OwnedAsaKillPreview = {
   token:string;mapId:string;mapName:string;pid:number;
   saveWorldPerformed:false;processOnly:true;serverDataLossPossible:true;
-  originalStoreTouched:false;remoteHostTouched:false;requiresTypedApproval:true;
+  originalStoreTouched:false;remoteHostTouched:false;requiresTypedApproval:false;
   evidence:"EXACT_LOCAL_ASA_PID_OS_IDENTITY_RCON_KILL_PREFLIGHT";
 };
 export type OwnedAsaKillReceipt = {
@@ -1974,10 +1974,8 @@ export const managerBridge = {
     }),
   ownedAsaKillPreview: (mapId:string) =>
     request<OwnedAsaKillPreview>("servers.ownedKillPreview",{mapId}),
-  ownedAsaKillApply: (token:string,typedApproval:string) =>
-    request<OwnedAsaKillReceipt>("servers.ownedKillApply",{
-      token,typedApproval,confirm:true
-    }),
+  ownedAsaKillApply: (token:string) =>
+    request<OwnedAsaKillReceipt>("servers.ownedKillApply",{token}),
   freshAsaStopPreview: (mapId:string) =>
     request<FreshAsaStopPreview>("servers.gracefulStopPreview",{mapId}),
   freshAsaStopApply: (token:string) =>
@@ -2378,10 +2376,8 @@ export const managerBridge = {
     request<HistoricalActiveStartStatus>("historical.activeStartStatus",{mapId}),
   historicalActiveStartPreview: (mapId:string) =>
     request<HistoricalActiveStartPreview>("historical.activeStartPreview",{mapId}),
-  historicalActiveStartApply: (token:string,typedApproval:string) =>
-    request<HistoricalActiveStartReceipt>("historical.activeStartApply",{
-      token,typedApproval,confirm:true
-    }),
+  historicalActiveStartApply: (token:string) =>
+    request<HistoricalActiveStartReceipt>("historical.activeStartApply",{token}),
   historicalRconStatus: (mapId:string) =>
     request<HistoricalRconStatus>("historical.rconStatus",{mapId}),
   historicalRconPreview: (mapId:string,rconPort:number,password:string) =>

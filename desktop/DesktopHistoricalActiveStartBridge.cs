@@ -423,12 +423,8 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                 if(approved==null||
                    DateTimeOffset.UtcNow-approved.Created>TimeSpan.FromMinutes(3))
                     return Fail(id,"UM-STORE-ACTIVE-APPROVAL-EXPIRED");
-                if(!request.TryGetProperty("confirm",out var confirmed)||
-                   confirmed.ValueKind!=JsonValueKind.True||
-                   !request.TryGetProperty("typedApproval",out var phrase)||
-                   phrase.ValueKind!=JsonValueKind.String||
-                   phrase.GetString()!="STORE-V1 ACTIVE START")
-                    return Fail(id,"UM-STORE-ACTIVE-EXPLICIT-APPROVAL");
+                // Named map action + one-use token replace typed consent.
+                // Immutable source/launch fingerprint and PID guards still apply.
                 startApprovalsByMap.Remove(approved.MapId);
                 var live=Owned(approved.MapId);
                 if(!Imported(live)||

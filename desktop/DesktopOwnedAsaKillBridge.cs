@@ -128,18 +128,15 @@ public sealed class DesktopOwnedAsaKillBridge
                         token=approval.Token,mapId,mapName=owned.Name,pid=identity.Pid,
                         saveWorldPerformed=false,processOnly=true,
                         serverDataLossPossible=true,originalStoreTouched=false,
-                        remoteHostTouched=false,requiresTypedApproval=true,
+                        remoteHostTouched=false,requiresTypedApproval=false,
                         evidence="EXACT_LOCAL_ASA_PID_OS_IDENTITY_RCON_KILL_PREFLIGHT"
                     });
                 }
                 if(!GuidValue(value,"token",out var token)||
-                   approval==null||approval.Token!=token||
-                   !value.TryGetProperty("confirm",out var yes)||
-                   yes.ValueKind!=JsonValueKind.True||
-                   !value.TryGetProperty("typedApproval",out var phrase)||
-                   phrase.ValueKind!=JsonValueKind.String||
-                   phrase.GetString()!="KILL LOCAL ASA")
-                    return Fail(id,"UM-KILL-TYPED-APPROVAL-REQUIRED");
+                   approval==null||approval.Token!=token)
+                    return Fail(id,"UM-KILL-ACTION-TOKEN-INVALID");
+                // Exact non-Store map, PID, process-start and executable proof
+                // still rechecked under the installation lease before termination.
                 var pinned=approval;approval=null;
                 if(pinned.ExpiresUtc<DateTimeOffset.UtcNow)
                     return Fail(id,"UM-KILL-APPROVAL-EXPIRED");

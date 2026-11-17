@@ -59,16 +59,16 @@ internal static class OwnedAsaKillBridgeTests
             "native preview pins exact process identity and discloses unsaved-world risk");
         string token=preview.GetProperty("data").GetProperty("token").GetString()!;
         var refused=await Call(bridge,"servers.ownedKillApply",
-            new{token,typedApproval="STOP",confirm=true});
+            new{token=Guid.NewGuid()});
         Check(!refused.GetProperty("ok").GetBoolean()&&kills==0,
-            "one-use Kill cannot bypass typed approval");
+            "unknown Kill token cannot bypass owner/operation preflight");
         var applied=await Call(bridge,"servers.ownedKillApply",
-            new{token,typedApproval="KILL LOCAL ASA",confirm=true});
+            new{token});
         Check(applied.GetProperty("ok").GetBoolean()&&
               applied.GetProperty("data").GetProperty("confirmedStopped").GetBoolean()&&kills==1,
             "approved exact PID Kill runs one native termination and verifies stopped state");
         var replay=await Call(bridge,"servers.ownedKillApply",
-            new{token,typedApproval="KILL LOCAL ASA",confirm=true});
+            new{token});
         Check(!replay.GetProperty("ok").GetBoolean()&&kills==1,
             "approved Kill token cannot be replayed");
         cluster.Config.LocalMaps.Single(m=>m.Id==map.Id).HistoricalStoreProtected=true;
