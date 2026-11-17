@@ -130,12 +130,17 @@ public sealed class UntamedOperationCoordinator
     // approval bound to exact receipt/PID/start/source/port and map.
     // The generic coordinator does not manufacture that proof.
     internal void ReviewRunningBackup(string installation,Guid? expectedOperation,
-        Func<bool> verifyOriginalRunning,Action reviewLocalReceipt)=>
+        Func<bool> verifyOriginalRunning,Action reviewLocalReceipt,
+        Guid? expectedRestartId=null,Guid expectedMapId=default,
+        int expectedOldPid=0)=>
         ReviewBackupCore(installation,expectedOperation,verifyOriginalRunning,
-            reviewLocalReceipt,running:true);
+            reviewLocalReceipt,running:true,expectedRestartId,expectedMapId,
+            expectedOldPid);
 
     private void ReviewBackupCore(string installation,Guid? expectedOperation,
-        Func<bool> verifyOwner,Action reviewLocalReceipt,bool running)
+        Func<bool> verifyOwner,Action reviewLocalReceipt,bool running,
+        Guid? expectedRestartId=null,Guid expectedMapId=default,
+        int expectedOldPid=0)
     {
         ArgumentNullException.ThrowIfNull(verifyOwner);
         ArgumentNullException.ThrowIfNull(reviewLocalReceipt);
@@ -159,6 +164,32 @@ public sealed class UntamedOperationCoordinator
                 throw new UnauthorizedAccessException("UNTAMED_OPERATION_REVIEW_NOT_BACKUP");
             if(running&&old!=null&&old.Kind!=UntamedOperationKind.Backup)
                 throw new UnauthorizedAccessException("UM-ORIGINAL-SAVE-REVIEW-OTHER-OPERATION");
+            // When a Backup and a manual Restart were both interrupted,
+            // inventory and bind all THREE journals before the first write.
+            // A separate Restart-only review cannot pass the pending
+            // coordinator, so this is an explicitly paired, no-RCON path.
+            AsaManualRestartJournal? restart=null;
+            if(running)
+            {
+                restart=new AsaManualRestartJournal(installation);
+                var pending=restart.Observe();
+                if(expectedRestartId is Guid restartId)
+                {
+                    if(expectedMapId==Guid.Empty||expectedOldPid<=0||
+                       pending==null||pending.Id!=restartId||
+                       pending.MapId!=expectedMapId||
+                       pending.OldPid!=expectedOldPid||pending.NewPid!=0||
+                       pending.Phase is not (AsaRestartPhase.Stopping or
+                           AsaRestartPhase.NeedsOperator or
+                           AsaRestartPhase.OperatorReviewed))
+                        throw new InvalidOperationException(
+                            "UM-ORIGINAL-SAVE-REVIEW-RESTART-IDENTITY-CHANGED");
+                }
+                else if(pending!=null&&pending.Phase is not
+                    (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed))
+                    throw new InvalidOperationException(
+                        "UM-ORIGINAL-SAVE-REVIEW-RESTART-APPROVAL-REQUIRED");
+            }
             // An OS lease held by another Manager/worker prevents this
             // path from entering. The owner callback must be renewed under
             // this SAME installation semaphore, not trusted from preview.
@@ -167,6 +198,17 @@ public sealed class UntamedOperationCoordinator
                     "UM-ORIGINAL-SAVE-REVIEW-RUNNING-OWNER-CHANGED":
                     "UNTAMED_OPERATION_REVIEW_SOURCE_OR_STOP_UNVERIFIED");
             reviewLocalReceipt();
+            // Receipt first, paired Restart second, common Backup last.
+            // Crashes between any two writes leave at least one pending
+            // journal. An explicit subsequent preview can resume idempotently.
+            if(expectedRestartId is Guid pairedRestart)
+            {
+                if(!verifyOwner())
+                    throw new UnauthorizedAccessException(
+                        "UM-ORIGINAL-SAVE-REVIEW-RUNNING-OWNER-CHANGED");
+                restart!.ReviewOriginalOldPid(expectedMapId,pairedRestart,
+                    expectedOldPid);
+            }
             if(old!=null&&old.Phase is
                 (UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
                  UntamedOperationPhase.NeedsOperator))
