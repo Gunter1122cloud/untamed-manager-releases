@@ -6241,7 +6241,6 @@ test("Store-v1 SaveWorld rejects another job's completed status without declarin
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
   const preview=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
-  await preview.getByLabel("Store-v1 mentés jóváhagyó szöveg").fill("STORE-V1 SAVEWORLD");
   await preview.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
   await expect(panel).toContainText("státusza vagy feladatazonossága nem igazolható");
   await expect(panel).not.toContainText("Helyi SaveComplete napló tartósan igazolt");
@@ -6287,18 +6286,7 @@ test("original Store-v1 SaveWorld-only runs the real native map action without s
   await expect(approve).toContainText("RCON 37145");
   await expect(approve).toContainText("nem szükséges a távoli korábbi kezelőalkalmazás peer-jelölő");
   const save=approve.getByRole("button",{name:"SaveWorld végrehajtása"});
-  await expect(save).toBeDisabled();
-  const savePhrase=approve.getByLabel("Store-v1 mentés jóváhagyó szöveg");
-  await savePhrase.scrollIntoViewIfNeeded();
-  await expect(savePhrase).toBeVisible();
-  await expect(savePhrase).toBeEditable();
-  const saveSize=await savePhrase.boundingBox();
-  expect(saveSize).not.toBeNull();
-  expect(saveSize!.width).toBeGreaterThan(180);
-  expect(saveSize!.height).toBeGreaterThanOrEqual(40);
-  await savePhrase.fill("STORE-V1 SAVEWORLD DOEXIT");
-  await expect(save).toBeDisabled();
-  await approve.getByLabel("Store-v1 mentés jóváhagyó szöveg").fill("STORE-V1 SAVEWORLD");
+  await expect(approve.getByRole("textbox",{name:"Store-v1 mentés jóváhagyó szöveg"})).toHaveCount(0);
   await expect(save).toBeEnabled();
   await save.click();
   await expect(panel.getByText(/A szerver tovább fut; fsync és játékbeli karakterutazás/)).toBeVisible();
@@ -6321,7 +6309,6 @@ test("Store SaveComplete UI distinguishes durable local log evidence from live c
   await expect(evidence).toContainText("Production restore továbbra is tiltott");
   await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
   const approval=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
-  await approval.getByLabel("Store-v1 mentés jóváhagyó szöveg").fill("STORE-V1 SAVEWORLD");
   await approval.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
   await expect(evidence).toContainText("Korábbi helyi ASA naplójelzés + stabil világfájl rögzítve");
   await expect(panel).toContainText("Helyi SaveComplete napló tartósan igazolt");
@@ -6342,8 +6329,6 @@ test("Store-v1 SaveWorld explains competing installation lease and sends no RCON
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
   const approval=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
-  await approval.getByLabel("Store-v1 mentés jóváhagyó szöveg")
-    .fill("STORE-V1 SAVEWORLD");
   await approval.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
   await expect(panel).toContainText("Másik natív művelet már zárolja");
   await expect(panel).toContainText("nem küldtünk RCON-parancsot");
@@ -6364,7 +6349,6 @@ test("completed Store-v1 SaveWorld permits a fresh separately approved preview a
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
   const first=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
-  await first.getByLabel("Store-v1 mentés jóváhagyó szöveg").fill("STORE-V1 SAVEWORLD");
   await first.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Korábbi helyi ASA naplójelzés + stabil világfájl rögzítve");
@@ -6554,12 +6538,7 @@ test("original Store-v1 manual Restart requires exact two-stage approval and dis
   const approval=panel.getByRole("region",{name:"Store-v1 újraindítás jóváhagyása"});
   await expect(approval).toContainText("régi PID 42101");
   const apply=approval.getByRole("button",{name:"Store-v1 Restart végrehajtása"});
-  await expect(apply).toBeDisabled();
-  await approval.getByLabel("Store-v1 újraindítás jóváhagyó szöveg")
-    .fill("STORE-V1 SAVEWORLD DOEXIT");
-  await expect(apply).toBeDisabled();
-  await approval.getByLabel("Store-v1 újraindítás jóváhagyó szöveg")
-    .fill("STORE-V1 SAVEWORLD DOEXIT START");
+  await expect(approval.getByRole("textbox",{name:"Store-v1 újraindítás jóváhagyó szöveg"})).toHaveCount(0);
   await expect(apply).toBeEnabled();
   await apply.click();
   await expect(panel.getByText(/Új eredeti ASA PID: 42102/)).toBeVisible();
@@ -6611,8 +6590,6 @@ test("original Store-v1 Restart fails closed after synthetic Stop-to-Start crash
   const panel=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"});
   await panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}).click();
   const approval=panel.getByRole("region",{name:"Store-v1 újraindítás jóváhagyása"});
-  await approval.getByLabel("Store-v1 újraindítás jóváhagyó szöveg")
-    .fill("STORE-V1 SAVEWORLD DOEXIT START");
   await approval.getByRole("button",{name:"Store-v1 Restart végrehajtása"}).click();
   await expect(panel.getByText(/A Store-v1 Restart megszakadt/)).toBeVisible();
   await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
@@ -6635,10 +6612,7 @@ test("original Store-v1 real SaveWorld then DoExit requires exact typed approval
   const approval=panel.getByRole("region",{name:"Eredeti Store-v1 leállítás jóváhagyása"});
   await expect(approval).toBeVisible();
   const apply=approval.getByRole("button",{name:"SaveWorld és szabályos DoExit"});
-  await expect(apply).toBeDisabled();
-  await approval.getByLabel("Pontos jóváhagyó szöveg").fill("DOEXIT");
-  await expect(apply).toBeDisabled();
-  await approval.getByLabel("Pontos jóváhagyó szöveg").fill("STORE-V1 SAVEWORLD DOEXIT");
+  await expect(approval.getByRole("textbox",{name:"Pontos jóváhagyó szöveg"})).toHaveCount(0);
   await expect(apply).toBeEnabled();
   await apply.click();
   await expect(panel.getByText(/A régi ASA-folyamat szabályosan kilépett/)).toBeVisible();
@@ -6691,9 +6665,7 @@ test("real admin RCON UI requires two-stage approval and exact typed phrase for 
   await expect(page.getByText("DestroyWildDinos")).toBeVisible();
   await page.getByRole("region",{name:"Adminparancs végső jóváhagyása"})
     .getByRole("checkbox").check();
-  await page.getByRole("textbox",{name:"Adminparancs megerősítő szó"}).fill("NEM");
-  await expect(page.getByRole("button",{name:"Parancs elküldése"})).toBeDisabled();
-  await page.getByRole("textbox",{name:"Adminparancs megerősítő szó"}).fill("DINÓTÖRLÉS");
+  await expect(page.getByRole("textbox",{name:"Adminparancs megerősítő szó"})).toHaveCount(0);
   await expect(page.getByRole("button",{name:"Parancs elküldése"})).toBeEnabled();
   await page.screenshot({path:"test-results/untamed-admin-rcon-confirm-1600.png",fullPage:true});
 });
@@ -6813,16 +6785,10 @@ test("map header always shows four real lifecycle actions and Kill requires nati
   await expect(approval).toContainText("nem küld SaveWorld parancsot");
   const apply=approval.getByRole("button",{name:"Művelet végrehajtása"});
   await expect(apply).toBeDisabled();
-  const killPhrase=approval.getByRole("textbox",{
-    name:"Életciklus művelet jóváhagyó szövege"});
-  await killPhrase.scrollIntoViewIfNeeded();
-  await expect(killPhrase).toBeVisible();
-  await expect(killPhrase).toBeEditable();
-  const killSize=await killPhrase.boundingBox();
-  expect(killSize).not.toBeNull();
-  expect(killSize!.height).toBeGreaterThanOrEqual(40);
+  await expect(approval.getByRole("textbox",{
+    name:"Életciklus művelet jóváhagyó szövege"
+  })).toHaveCount(0);
   await approval.getByRole("checkbox").check();
-  await killPhrase.fill("KILL LOCAL ASA");
   await expect(apply).toBeEnabled();
   await apply.click();
   await expect(bar).toContainText("bizonyított helyi ASA PID megszűnt");
