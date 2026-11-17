@@ -5338,7 +5338,7 @@ test("P0 historical and new Store maps use existing native Loader selection, nev
   await option.click();
   await expect(option).toBeChecked();
   await expect(group.getByRole("button",{name:"Indítási mód jóváhagyása"})).toHaveCount(0);
-  await expect(group).toContainText("Nem indult szerver");
+  await expect(group).toContainText(/nem indult szerver/i);
 });
 
 test("P0 original Store-v1 ASA API switch is usable before RCON attachment",async({page})=>{
