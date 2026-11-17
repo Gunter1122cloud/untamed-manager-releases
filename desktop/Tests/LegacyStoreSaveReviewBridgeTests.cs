@@ -118,8 +118,137 @@ internal static class LegacyStoreSaveReviewBridgeTests
             "original Store Stop recovery preserves failed in-memory state");
     }
 
+    private static async Task VerifyRunningOwnedSaveReview(string root)
+    {
+        // P0 live-aberration regression with synthetic process/Store state.
+        // Never launches an ASA process, connects to RCON or touches Kova.
+        string installation=Path.Combine(root,"running-save-review-install");
+        string profile=Path.Combine(root,"running-save-review-manager");
+        Directory.CreateDirectory(installation);
+        await using var cluster=new ClusterService("running-save-review-test",profile,
+            _=>new ProcessCheck(true,"synthetic running ASA",null,false));
+        var map=new LocalMap{
+            Id=Guid.NewGuid(),Name="Synthetic running Aberration",
+            HistoricalStoreProtected=true,HistoricalMapKey="Aberration_WP",
+            InstallationPath=installation,RconPort=37045
+        };
+        cluster.AddMap(map);
+        const int pid=16392;
+        var pidStarted=DateTimeOffset.UtcNow.AddMinutes(-6);
+        var receiptOperation=Guid.NewGuid();
+        LegacyStoreV1SaveEvidenceJournal.Begin(cluster.Store.Root,
+            receiptOperation,map.Id,pid,pidStarted,SourceSha);
+        LegacyStoreV1SaveEvidenceJournal.MarkUncertain(cluster.Store.Root,
+            receiptOperation,map.Id,pid,pidStarted,SourceSha);
+        using(var interrupted=cluster.Operations.Acquire(
+            installation,UntamedOperationKind.Backup))
+            interrupted.MarkMutationStarted();
+        var originalCoordinator=cluster.Operations.Observe(installation)!;
+        byte[] untouched=File.ReadAllBytes(Path.Combine(cluster.Store.Root,
+            "historical-save-evidence-v1",map.Id.ToString("N")+".json"));
+        bool exactOwner=false;
+        int readOnlyChecks=0;
+        using var bridge=new DesktopHistoricalGracefulStopBridge(cluster,
+            null,null,reviewVerifier:(_,_)=>false,
+            runningReviewVerifier:(id,observedPid,observedStart,sha)=>{
+                readOnlyChecks++;
+                return exactOwner&&id==map.Id&&observedPid==pid&&
+                    observedStart==pidStarted&&sha==SourceSha;
+            },isolatedRunningReviewMinimumAge:TimeSpan.Zero);
+        var denied=await Call(bridge,"historical.saveWorldReviewPreview",
+            new{mapId=map.Id});
+        Check(!denied.GetProperty("ok").GetBoolean(),
+            "running SaveWorld review denies an unverified original PID/source");
+
+        exactOwner=true;
+        var review=await Call(bridge,"historical.saveWorldReviewPreview",
+            new{mapId=map.Id});
+        Check(review.GetProperty("ok").GetBoolean()&&
+              review.GetProperty("data").GetProperty("runningOwned").GetBoolean()&&
+              !review.GetProperty("data").GetProperty("confirmedStopped").GetBoolean()&&
+              review.GetProperty("data").GetProperty("previousOutcomeStillUnknown").GetBoolean(),
+            "running original ASA can preview uncertain SaveWorld without Stop");
+        string token=review.GetProperty("data").GetProperty("token").GetString()!;
+        var rejected=await Call(bridge,"historical.saveWorldReviewApply",
+            new{token,confirm=true,confirmation="WRONG"});
+        Check(!rejected.GetProperty("ok").GetBoolean(),
+            "incorrect one-shot consent cannot write any running-review journal");
+        exactOwner=false;
+        rejected=await Call(bridge,"historical.saveWorldReviewApply",
+            new{token,confirm=true,confirmation="REVIEW STORE SAVE"});
+        Check(!rejected.GetProperty("ok").GetBoolean()&&
+              cluster.Operations.Observe(installation)?.Phase==
+                  UntamedOperationPhase.NeedsOperator &&
+              LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id)?.Phase==
+                  "needsOperator",
+            "changed original PID/source denies apply without changing any journal");
+        rejected=await Call(bridge,"historical.saveWorldReviewApply",
+            new{token,confirm=true,confirmation="REVIEW STORE SAVE"});
+        Check(!rejected.GetProperty("ok").GetBoolean(),
+            "failed running-review approval token cannot be replayed");
+
+        exactOwner=true;
+        review=await Call(bridge,"historical.saveWorldReviewPreview",
+            new{mapId=map.Id});
+        token=review.GetProperty("data").GetProperty("token").GetString()!;
+        var resolved=await Call(bridge,"historical.saveWorldReviewApply",
+            new{token,confirm=true,confirmation="REVIEW STORE SAVE"});
+        Check(resolved.GetProperty("ok").GetBoolean()&&
+              resolved.GetProperty("data").GetProperty("ownerRemainedRunning").GetBoolean()&&
+              resolved.GetProperty("data").GetProperty("previousOutcomeStillUnknown").GetBoolean()&&
+              !resolved.GetProperty("data").GetProperty("rconSent").GetBoolean()&&
+              !resolved.GetProperty("data").GetProperty("originalStoreFilesWritten").GetBoolean(),
+            "running review is audited without RCON, Stop or false SaveComplete");
+        var evidence=LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id);
+        var coordinator=cluster.Operations.Observe(installation);
+        Check(evidence?.Phase=="reviewed"&&!evidence.LocalSaveCompleteObserved&&
+              coordinator?.Phase==UntamedOperationPhase.OperatorReviewed&&
+              coordinator.Operation==originalCoordinator.Operation&&
+              readOnlyChecks>=4,
+            "running review preserves coordinator identity and UNKNOWN SaveWorld outcome");
+        string archive=Path.Combine(cluster.Store.Root,"historical-save-evidence-v1",
+            "reviewed",map.Id.ToString("N")+"-"+receiptOperation.ToString("N")+".json");
+        Check(File.Exists(archive)&&File.ReadAllBytes(archive).SequenceEqual(untouched),
+            "original uncertain receipt is archived byte-identically");
+        var state=await Call(bridge,"historical.gracefulStopRecovery",
+            new{mapId=map.Id});
+        Check(state.GetProperty("ok").GetBoolean()&&
+              !state.GetProperty("data").GetProperty("blocked").GetBoolean(),
+            "reviewed running SaveWorld no longer blocks a new independent preflight");
+
+        // Crash-injection: receipt reviewed and archived, but the common
+        // Backup coordinator write was interrupted. A second approved
+        // operator review resumes idempotently; no RCON replay occurs.
+        var anotherReceipt=Guid.NewGuid();
+        LegacyStoreV1SaveEvidenceJournal.Begin(cluster.Store.Root,
+            anotherReceipt,map.Id,pid,pidStarted,SourceSha);
+        LegacyStoreV1SaveEvidenceJournal.MarkUncertain(cluster.Store.Root,
+            anotherReceipt,map.Id,pid,pidStarted,SourceSha);
+        using(var second=cluster.Operations.Acquire(
+            installation,UntamedOperationKind.Backup))
+            second.MarkMutationStarted();
+        LegacyStoreV1SaveEvidenceJournal.ReviewUncertain(cluster.Store.Root,
+            map.Id,anotherReceipt,SourceSha,()=>true);
+        Check(cluster.Operations.Observe(installation)?.Phase==
+                  UntamedOperationPhase.NeedsOperator,
+            "crash between receipt and coordinator leaves installation blocked");
+        var resume=await Call(bridge,"historical.saveWorldReviewPreview",
+            new{mapId=map.Id});
+        Check(resume.GetProperty("ok").GetBoolean()&&
+              resume.GetProperty("data").GetProperty("phase").GetString()=="reviewed",
+            "partial two-journal review is presented for explicit completion");
+        var resumed=await Call(bridge,"historical.saveWorldReviewApply",
+            new{token=resume.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true,confirmation="REVIEW STORE SAVE"});
+        Check(resumed.GetProperty("ok").GetBoolean()&&
+              cluster.Operations.Observe(installation)?.Phase==
+                  UntamedOperationPhase.OperatorReviewed,
+            "second approval finishes interrupted paired review without sending command");
+    }
+
     public static async Task Run(string testRoot)
     {
+        await VerifyRunningOwnedSaveReview(testRoot);
         string root=Path.Combine(testRoot,"synthetic-reviewed-store-save");
         string profile=Path.Combine(root,"manager");
         string installation=Path.Combine(root,"synthetic-server");
