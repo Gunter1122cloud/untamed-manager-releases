@@ -8272,14 +8272,14 @@ test("fresh ASA Start never accepts preview or spawned-process receipt for anoth
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   const startPanel=page.getByRole("region",{name:"Valódi ASA első indítása"});
-  await startPanel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
+  await startPanel.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(startPanel.getByRole("region",{
     name:"Valódi ASA indítás jóváhagyása"
   })).toHaveCount(0);
-  await expect(startPanel).toContainText("Indítás nem engedélyezett");
+  await expect(startPanel).toContainText("ASA Start előellenőrzés elutasítva");
   await expect(startPanel.getByRole("button",{
     name:"ASA szerver indítása",exact:true
-  })).toHaveCount(0);
+  })).toBeEnabled();
 });
 
 test("fresh ASA Start cannot present another map's PID as a successful launch",async({page})=>{
@@ -8287,15 +8287,13 @@ test("fresh ASA Start cannot present another map's PID as a successful launch",a
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   const panel=page.getByRole("region",{name:"Valódi ASA első indítása"});
-  await panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_FRESH_WRONG_RECEIPT_MAP__?:()=>void;
   }).__UNTAMED_FRESH_WRONG_RECEIPT_MAP__?.());
   await panel.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(panel).toContainText("UM-FRESH-START-RECEIPT-INVALID");
   await expect(panel).toContainText("A korábbi ASA Start kimenetele nem igazolt");
-  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   await expect(panel.locator(".success-inline").filter({hasText:"PID: 45678"}))
     .toHaveCount(0);
@@ -8328,8 +8326,7 @@ test("delayed native ASA Start preview cannot reopen approval after map navigati
       if(pending)original(pending);
     };
   });
-  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"}))
+  await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"}))
     .toHaveCount(0);
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
@@ -8340,22 +8337,19 @@ test("delayed native ASA Start preview cannot reopen approval after map navigati
   }).releaseFreshStartPreview?.());
   await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"}))
     .toHaveCount(0);
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeEnabled();
   await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true}))
-    .toHaveCount(0);
+    .toBeEnabled();
 });
 
-test("fresh ASA map starts a real local process only after explicit approval",async({page})=>{
+test("fresh ASA map starts a real local process with one-click native preflight",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await expect(page.getByRole("region",{name:"Valódi ASA első indítása"})).toBeVisible();
-  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toBeVisible();
+  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
   const start=page.getByRole("button",{name:"ASA szerver indítása",exact:true});
-  await expect(start).toBeDisabled();
-  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await expect(start).toBeEnabled();
   await start.click();
   // Surface the actual visible native-bridge error when a UI regression
@@ -8366,7 +8360,7 @@ test("fresh ASA map starts a real local process only after explicit approval",as
   // The native process receipt completes the mutating one-shot action.
   // A slow dashboard refresh must NOT block a read-only readiness query or
   // re-enable a second Start while that PID is still being observed.
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   const manualReadiness=page.getByRole("button",{
     name:"ASA / RCON készenlét ellenőrzése"
@@ -8388,16 +8382,12 @@ test("fresh ASA Loader start requires matching parent PID without asserting chil
   }).__UNTAMED_FRESH_USE_LOADER__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
-  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"}))
-    .toContainText("ASA API Loader szülőfolyamat");
-  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(page.getByText(/ASA API Loader szülőfolyamat indítva, PID: 45678/))
     .toBeVisible();
   await expect(page.getByText(/ASA gyermekfolyamat és RCON még nem igazolt/))
     .toBeVisible();
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
 });
 
@@ -8408,16 +8398,14 @@ test("fresh ASA Start rejects contradictory native process role and blocks blind
   }).__UNTAMED_FRESH_BAD_PROCESS_ROLE__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
-  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(page.getByText(/UM-FRESH-START-RECEIPT-INVALID/)).toBeVisible();
   await expect(page.getByText(/A korábbi ASA Start kimenetele nem igazolt/))
     .toBeVisible();
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   await page.getByRole("button",{name:"Állapotfrissítés"}).click();
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   await expect(page.locator(".success-inline").filter({hasText:"PID: 45678"}))
     .toHaveCount(0);
@@ -8435,13 +8423,11 @@ test("fresh ASA API Loader PID mismatch fails closed without claiming launched c
   });
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
-  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(page.getByText(/UM-FRESH-START-RECEIPT-INVALID/)).toBeVisible();
   await expect(page.getByText(/A korábbi ASA Start kimenetele nem igazolt/))
     .toBeVisible();
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   await expect(page.locator(".success-inline").filter({hasText:"PID: 45678"}))
     .toHaveCount(0);
@@ -8452,22 +8438,20 @@ test("confirmed fresh ASA Start stays pinned across map navigation until manual 
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   let panel=page.getByRole("region",{name:"Valódi ASA első indítása"});
-  await panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await panel.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(panel.getByText(/ASA szerverfolyamat indítva, PID: 45678/))
     .toBeVisible();
-  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   panel=page.getByRole("region",{name:"Valódi ASA első indítása"});
-  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   // Merely revisiting the same already-running process may not clear the
   // successful one-shot Start receipt.
   await panel.getByRole("button",{name:"Állapotfrissítés"}).click();
-  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   // Only a deliberately requested, physical confirmedStopped recheck clears
   // the client guard. Native Start preflight still decides eligibility.
@@ -8475,7 +8459,7 @@ test("confirmed fresh ASA Start stays pinned across map navigation until manual 
     __UNTAMED_FRESH_SIMULATE_STOPPED__?:()=>void;
   }).__UNTAMED_FRESH_SIMULATE_STOPPED__?.());
   await panel.getByRole("button",{name:"Állapotfrissítés"}).click();
-  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeEnabled();
 });
 
@@ -8483,8 +8467,6 @@ test("fresh ASA start automatically observes RCON without retrying a failed read
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
-  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(page.getByText(/Indítás utáni ASA\/RCON-készenlét ellenőrzése/))
     .toBeVisible();
@@ -8509,9 +8491,6 @@ test("changed ASA binary after preview surfaces exact reapproval without auto-st
   }).__UNTAMED_FRESH_START_CHANGED__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
-  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toBeVisible();
-  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(page.getByText(/ASA EXE\/Loader bináris vagy az INI megváltozott/))
     .toBeVisible();
@@ -8763,7 +8742,7 @@ test("interrupted lifecycle journal disables fresh ASA Start and Stop in map Ove
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await expect(page.getByText(/Félbeszakadt helyi ASA-művelet/)).toBeVisible();
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"})).toBeDisabled();
 });
 
 test("one-click normal Restart preserves old and new PID evidence",async({page})=>{
@@ -8819,7 +8798,7 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   // A journal for the FIRST installation must never leave a DIFFERENT
   // independent local map disabled after native audit. Actual Start still
   // has its separate OS/INI/Store preflight on click.
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeEnabled();
 });
 
