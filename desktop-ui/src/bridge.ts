@@ -1210,6 +1210,12 @@ export type HistoricalSaveWorldQueued={
 };
 export type HistoricalSaveEvidenceStatus={
   mapId:string;phase:"none"|"prepared"|"completed"|"needsOperator"|"reviewed"|"unreadable";
+  diagnosis?:{
+    state:"missing"|"interrupted"|"unsafe"|"inaccessible"|"corrupt"|"otherMap"|
+      "ioUnavailable"|"valid";
+    reasonCode:string;byteLength:number|null;sha256:string|null;
+    originalBytesPreserved:true;
+  };
   unreadable?:boolean;errorCode?:string|null;
   operationId:string|null;pid:number|null;pidStartedUtc:string|null;
   saveObservedUtc:string|null;localSaveCompleteObserved:boolean;
