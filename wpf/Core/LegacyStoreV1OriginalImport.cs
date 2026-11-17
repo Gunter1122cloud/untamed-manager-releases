@@ -18,7 +18,12 @@ public sealed record LegacyStoreV1OriginalMap(Guid MapId,string MapKey,
     string OriginalInstallationRoot,int GamePort,int QueryPort,
     string[] EnabledMods,string[] PassiveMods);
 public sealed record LegacyStoreV1OriginalLocalSelection(string FourFilesSha256,
-    string LaunchProfileSha256,LegacyStoreV1OriginalMap[] Maps);
+    string LaunchProfileSha256,LegacyStoreV1OriginalMap[] Maps)
+{
+    // Verified lock-selected original five embedded in a later expanded
+    // current local map roster. The full new source hash remains pinned.
+    public bool SelectedHistoricalSubsetOfExpandedRoster {get;init;}
+}
 
 public static class LegacyStoreV1OriginalImport
 {
@@ -165,6 +170,8 @@ public static class LegacyStoreV1OriginalImport
            !string.Equals(after.OriginalFourFilesTag,tag,StringComparison.Ordinal))
             throw new IOException("UM-STORE-DIRECT-ORIGINAL-METADATA-CHANGED");
         return new(tag,Convert.ToHexString(SHA256.HashData(launchBytes)),
-            selected.ToArray());
+            selected.ToArray()){
+                SelectedHistoricalSubsetOfExpandedRoster=members.GetArrayLength()>5
+            };
     }
 }
