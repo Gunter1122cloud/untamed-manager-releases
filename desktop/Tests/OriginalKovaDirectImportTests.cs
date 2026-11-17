@@ -242,9 +242,10 @@ internal static class OriginalKovaDirectImportTests
                     .Maps.Select(x=>x.MapId.ToString("D")).SequenceEqual(ids),
                     "newly hashed six-member metadata does not expand the five selected legacy maps");
 
-                // The old pinned five-member configuration does NOT permit
-                // reordered or foreign selected GUIDs, even though all
-                // six map records still exist.
+                // Historical selected[] and members[] may have different
+                // valid orderings; do not invent an equality rule here.
+                // Reordering selected[] still changes the FULL four-file
+                // source tag and invalidates any previous approval token.
                 SetExpanded();
                 File.WriteAllText(lfile,JsonSerializer.Serialize(new{
                     schema=1,session,selected=ids.Reverse().ToArray(),
@@ -252,8 +253,11 @@ internal static class OriginalKovaDirectImportTests
                         JsonSerializer.SerializeToElement(originalCluster)),
                     config=originalCluster
                 }));
-                Check(DeniesExpanded(),
-                    "historical five-map selected order differs from locked original configuration");
+                var reordered=LegacyStoreV1OriginalImport.Inspect(local);
+                Check(reordered.Maps.Select(x=>x.MapId.ToString("D"))
+                          .SequenceEqual(ids)&&
+                    reordered.FourFilesSha256!=expandedImport.FourFilesSha256,
+                    "reordered selected IDs never reuse an earlier four-file Store approval hash");
                 SetExpanded();
                 File.WriteAllText(lfile,JsonSerializer.Serialize(new{
                     schema=1,session,
