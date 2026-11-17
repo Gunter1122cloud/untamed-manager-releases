@@ -14,7 +14,6 @@ export function MultiHostBackupPanel(){
   const [backupRecoveryApproved,setBackupRecoveryApproved]=useState(false);
   const [hostStagePreview,setHostStagePreview]=useState<MultiHostHostStagePreview|null>(null);
   const [hostStageApproved,setHostStageApproved]=useState(false);
-  const [hostStagePhrase,setHostStagePhrase]=useState("");
   const [backupPreview,setBackupPreview]=useState<MultiHostClusterBackupPreview|null>(null);
   const [restorePreview,setRestorePreview]=useState<MultiHostClusterRestorePreview|null>(null);
   const [recoveryListing,setRecoveryListing]=useState<MultiHostRestoreRecoveryListing|null>(null);
@@ -66,16 +65,16 @@ export function MultiHostBackupPanel(){
   async function previewHostStage(){
     if(busy||(jobId&&status?.state!=="completed"&&status?.state!=="needsOperator"))return;
     setBusy(true);setError("");setNotice("");setHostStagePreview(null);
-    setHostStageApproved(false);setHostStagePhrase("");
+    setHostStageApproved(false);
     try{setHostStagePreview(await managerBridge.multiHostHostStagePreview());}
     catch(e){setError("A host restore staging nem engedélyezhető: "+
       (e instanceof Error?e.message:"TEMP sandbox vagy tulajdonos nem igazolható"));}
     finally{setBusy(false);}
   }
   async function applyHostStage(){
-    if(busy||!hostStagePreview||!hostStageApproved||hostStagePhrase!=="HOST RESTORE TEST")return;
+    if(busy||!hostStagePreview||!hostStageApproved)return;
     const token=hostStagePreview.token;
-    setHostStagePreview(null);setHostStageApproved(false);setHostStagePhrase("");
+    setHostStagePreview(null);setHostStageApproved(false);
     setBusy(true);setError("");setNotice("");
     try{
       const result=await managerBridge.multiHostHostStageApply(token,"HOST RESTORE TEST");
@@ -343,20 +342,17 @@ export function MultiHostBackupPanel(){
       <label><input type="checkbox" disabled={busy} checked={hostStageApproved}
         onChange={e=>setHostStageApproved(e.target.checked)}/>
         Jóváhagyom a kizárólag elkülönített helyi tesztcsomag létrehozását.</label>
-      <label>Írd be: HOST RESTORE TEST
-        <input aria-label="Host restore jóváhagyó szövege"
-          disabled={busy} value={hostStagePhrase}
-          onChange={e=>setHostStagePhrase(e.target.value)}/>
-      </label>
-      <div className="draft-actions">
+      <p>Az elkülönített tesztcsomaghoz a jelölőnégyzet és
+         a következő jóváhagyó gomb szükséges.</p>
+       <div className="draft-actions">
         <button type="button" className="primary" disabled={busy||
-          !hostStageApproved||hostStagePhrase!=="HOST RESTORE TEST"}
+          !hostStageApproved}
           onClick={()=>{void applyHostStage();}}>
           Ellenőrzött helyi restore állomány létrehozása
         </button>
         <button type="button" className="secondary" disabled={busy}
           onClick={()=>{setHostStagePreview(null);setHostStageApproved(false);
-            setHostStagePhrase("");}}>Mégsem</button>
+            }}>Mégsem</button>
       </div>
     </div>}
     {backupPreview&&<div className="historical-preview" role="region" aria-label="Multi-host mentés jóváhagyása">

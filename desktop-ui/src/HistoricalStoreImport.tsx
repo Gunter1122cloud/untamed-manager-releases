@@ -10,7 +10,6 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [archive,setArchive]=useState("");
   const [directList,setDirectList]=useState<OriginalKovaLocalMapList|null>(null);
   const [pinPreview,setPinPreview]=useState<{token:string;verifiedLocalMaps:number}|null>(null);
-  const [pinPhrase,setPinPhrase]=useState("");
   const [pinBusy,setPinBusy]=useState(false);
   const [pinError,setPinError]=useState("");
   const [pinNotice,setPinNotice]=useState("");
@@ -23,7 +22,6 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     token:string;mapId:string;gamePort:number;queryPort:number;
     clusterId:string;transferRoot:string
   }|null>(null);
-  const [runtimeApproval,setRuntimeApproval]=useState("");
   const [runtimeBusy,setRuntimeBusy]=useState(false);
   const [runtimeApplying,setRuntimeApplying]=useState(false);
   const [runtimeError,setRuntimeError]=useState("");
@@ -33,7 +31,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const runtimeEpoch=useRef(0);
   const invalidateRuntime=()=>{
     runtimeEpoch.current++;
-    setRuntimePreview(null);setRuntimeApproval("");
+    setRuntimePreview(null);
     setRuntimeError("");setRuntimeNotice("");setRuntimeBusy(false);
   };
   const [directMapId,setDirectMapId]=useState("");
@@ -48,9 +46,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [journalInventoryBusy,setJournalInventoryBusy]=useState(false);
   const [journalInventoryError,setJournalInventoryError]=useState("");
   const [liveControllerStopped,setLiveControllerStopped]=useState(false);
-  const [liveTypedApproval,setLiveTypedApproval]=useState("");
   const [liveClockMs,setLiveClockMs]=useState(()=>Date.now());
-  const liveApprovalPhrase="STORE-V1 FUTÓ ÁTVÉTEL";
   // The approval is native, single use and expires after three minutes.
   // A stale preview must never remain actionable just because the phrase matches.
   useEffect(()=>{
@@ -59,7 +55,6 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     return ()=>window.clearInterval(ticker);
   },[liveBatchPreview]);
   const [clusterPreview,setClusterPreview]=useState<OriginalKovaClusterPreview|null>(null);
-  const [clusterApproval,setClusterApproval]=useState("");
   const [clusterBusy,setClusterBusy]=useState(false);
   const [clusterError,setClusterError]=useState("");
   const [clusterNotice,setClusterNotice]=useState("");
@@ -151,7 +146,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
 
   const inspectSourcePin=async()=>{
     if(pinBusy)return;
-    setPinBusy(true);setPinPreview(null);setPinPhrase("");setPinError("");setPinNotice("");
+    setPinBusy(true);setPinPreview(null);setPinError("");setPinNotice("");
     try{
       const proof=await managerBridge.historicalSourcePinPreview();
       setPinPreview(proof);
@@ -161,7 +156,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     }finally{setPinBusy(false);}
   };
   const applySourcePin=async()=>{
-    if(pinBusy||!pinPreview||pinPhrase!=="OBSIDIAN FORRÁS ÁTVÉTEL")return;
+    if(pinBusy||!pinPreview)return;
     setPinBusy(true);setPinError("");setPinNotice("");
     const token=pinPreview.token;setPinPreview(null);
     try{
@@ -176,7 +171,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     }catch(e){
       setPinError("A forrásátvétel nem sikerült ("+
         (e instanceof Error?e.message:"UM-STORE-SOURCE-PIN-FAILED")+").");
-    }finally{setPinBusy(false);setPinPhrase("");}
+    }finally{setPinBusy(false);}
   };
 
   const loadRuntimeSettings=async()=>{
@@ -184,7 +179,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     const epoch=++runtimeEpoch.current;
     const selected=runtimeMapId;
     setRuntimeBusy(true);setRuntimeError("");setRuntimeNotice("");
-    setRuntimePreview(null);setRuntimeApproval("");
+    setRuntimePreview(null);
     try{
       const result=await managerBridge.historicalRuntimeSettingsStatus(selected);
       if(epoch!==runtimeEpoch.current)return;
@@ -211,7 +206,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     const selected=runtimeMapId,clusterId=runtimeCluster.trim(),
       transferRoot=runtimeTransfer.trim();
     setRuntimeBusy(true);setRuntimeError("");setRuntimeNotice("");
-    setRuntimePreview(null);setRuntimeApproval("");
+    setRuntimePreview(null);
     try{
       const result=await managerBridge.historicalRuntimeSettingsPreview(
         selected,game,query,clusterId,transferRoot);
@@ -230,12 +225,12 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   };
   const applyRuntimeSettings=async()=>{
     if(runtimeBusy||runtimeApplying||!runtimePreview||
-       runtimeApproval!=="OBSIDIAN MAP KONFIG")return;
+       false)return;
     const token=runtimePreview.token;
     const epoch=++runtimeEpoch.current;
     setRuntimeBusy(true);setRuntimeApplying(true);
     setRuntimeError("");setRuntimeNotice("");
-    setRuntimePreview(null);setRuntimeApproval("");
+    setRuntimePreview(null);
     try{
       await managerBridge.historicalRuntimeSettingsApply(token,"OBSIDIAN MAP KONFIG");
       if(epoch!==runtimeEpoch.current)return;
@@ -260,7 +255,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     setDirectBusy(true);setDirectError("");setDirectNotice("");
     setDirectList(null);setDirectPreview(null);setDirectApproved(false);
     setBatchPreview(null);setBatchApproved(false);
-    setLiveBatchPreview(null);setLiveControllerStopped(false);setLiveTypedApproval("");
+    setLiveBatchPreview(null);setLiveControllerStopped(false);
     try{
       const result=await managerBridge.historicalOriginalList();
       if(epoch!==directEpoch.current)return;
@@ -372,7 +367,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     const epoch=++directEpoch.current;
     setDirectBusy(true);setDirectError("");setDirectNotice("");
     setBatchPreview(null);setBatchApproved(false);setLiveBatchPreview(null);
-    setLiveBlockers(null);setLiveControllerStopped(false);setLiveTypedApproval("");
+    setLiveBlockers(null);setLiveControllerStopped(false);
     try{
       const proof=await managerBridge.historicalOriginalLiveBatchPreview();
       if(epoch===directEpoch.current){
@@ -424,7 +419,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     }
     const token=liveBatchPreview.token,epoch=++directEpoch.current;
     setDirectBusy(true);setDirectError("");setDirectNotice("");
-    setLiveBatchPreview(null);setLiveTypedApproval("");setLiveControllerStopped(false);
+    setLiveBatchPreview(null);setLiveControllerStopped(false);
     try{
       const receipt=await managerBridge.historicalOriginalLiveBatchApply(
         token,true,"STORE-V1 FUTÓ ÁTVÉTEL");
@@ -485,7 +480,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
 
   const previewOriginalCluster=async()=>{
     if(clusterBusy||directBusy||registering)return;
-    setClusterPreview(null);setClusterApproval("");setClusterError("");setClusterNotice("");
+    setClusterPreview(null);setClusterError("");setClusterNotice("");
     setClusterBusy(true);
     try{setClusterPreview(await managerBridge.historicalOriginalClusterPreview());}
     catch(e){setClusterError("Az eredeti öt map forrásazonos, írásmentes Cluster-regiszter előellenőrzése sikertelen ("+
@@ -493,10 +488,10 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     finally{setClusterBusy(false);}
   };
   const applyOriginalCluster=async()=>{
-    if(clusterBusy||!clusterPreview||clusterApproval!=="EREDETI STORE REGISZTER")return;
+    if(clusterBusy||!clusterPreview)return;
     const token=clusterPreview.token;
     setClusterBusy(true);setClusterError("");setClusterNotice("");
-    setClusterPreview(null);setClusterApproval("");
+    setClusterPreview(null);
     try{
       const result=await managerBridge.historicalOriginalClusterApply(
         token,"EREDETI STORE REGISZTER");
@@ -551,8 +546,8 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           "A négy fájl egyezősége nem ellenőrizhető. Az eredeti fájlok változatlanok maradtak.");
     }finally{if(epoch===parityEpoch.current)setParityBusy(false);}
   };
-  // The exact typed phrase is intentionally required for native Store-v1
-  // ownership handoff. The UI must explain EVERY disabled action gate.
+  // Native one-use approval, expiry, source and process checks remain.
+  // Final consent is preview + explicit click; handoff also uses a checkbox.
   const liveExpiryMs=liveBatchPreview?Date.parse(liveBatchPreview.expiresUtc):NaN;
   const liveApprovalExpired=liveBatchPreview!==null&&
     (!Number.isFinite(liveExpiryMs)||liveClockMs>=liveExpiryMs);
@@ -564,9 +559,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       "A háromperces natív előellenőrzés lejárt vagy nem ellenőrizhető. Kérj újat.":
     !liveControllerStopped?
       "Hiányzik a korábbi felügyelet leállításának jelölése.":
-      liveTypedApproval!==liveApprovalPhrase?
-        "Írd be a pontos jóváhagyó szöveget a látható mezőbe.":
-        null;
+      null;
 
   const comparePeers=async(e:FormEvent)=>{
     e.preventDefault();const epoch=++pairEpoch.current;setPairResult(null);setPairError("");setPairBusy(true);
@@ -611,15 +604,11 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <p>{pinPreview.verifiedLocalMaps} korábban regisztrált map eredeti
             konfigurációjának ellenőrzött másolata készíthető el a Manager profiljában.
             Ez önmagában nem indít szervert és nem ellenőrzi a játékbeli utazást.</p>
-          <label className="historical-typed-confirmation" htmlFor="obsidian-source-pin-phrase">
-            Jóváhagyó szöveg: OBSIDIAN FORRÁS ÁTVÉTEL
-          </label>
-          <input id="obsidian-source-pin-phrase" type="text" className="settings-input"
-            value={pinPhrase} onChange={e=>setPinPhrase(e.target.value)}
-            autoComplete="off" spellCheck={false}/>
+          <p>Az eredeti forrás ellenőrzött másolatát az alábbi külön
+              gombbal hagyhatod jóvá. ASA-szerver nem indul.</p>
           <div className="settings-actions">
             <button type="button" onClick={()=>void applySourcePin()}
-              disabled={pinBusy||pinPhrase!=="OBSIDIAN FORRÁS ÁTVÉTEL"}>
+              disabled={pinBusy}>
               Forrás átvételének jóváhagyása
             </button>
           </div>
@@ -689,11 +678,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <p>Map: {runtimePreview.mapId}. Game: {runtimePreview.gamePort},
             Query: {runtimePreview.queryPort}. Cluster: {runtimePreview.clusterId}.
             Transfer: {runtimePreview.transferRoot}</p>
-          <label htmlFor="obsidian-runtime-approval">Jóváhagyás: OBSIDIAN MAP KONFIG</label>
-          <input id="obsidian-runtime-approval" className="settings-input"
-            value={runtimeApproval} onChange={e=>setRuntimeApproval(e.target.value)}
-            autoComplete="off" spellCheck={false}/>
-          <button type="button" disabled={runtimeBusy||runtimeApproval!=="OBSIDIAN MAP KONFIG"}
+          <p>A kiválasztott map ellenőrzött beállításait a következő
+              külön gombbal mentheted a Manager profiljába.</p>
+          <button type="button" disabled={runtimeBusy}
             onClick={()=>void applyRuntimeSettings()}>
             Jóváhagyott változtatások mentése
           </button>
@@ -844,17 +831,8 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             Megerősítem, hogy a korábbi kezelőalkalmazás már nem felügyeli ezeket
             a folyamatokat. Nem állítottam le az ASA-szervereket.
           </label>
-          <label className="historical-typed-confirmation" htmlFor="store-live-approval-text">
-            <span>Végső jóváhagyás – írd be pontosan: <strong>{liveApprovalPhrase}</strong></span>
-            <input id="store-live-approval-text" type="text"
-              aria-label="Store-v1 futó átvétel megerősítése"
-              aria-describedby="store-live-approval-reason"
-              data-testid="store-live-approval-input"
-              value={liveTypedApproval} disabled={directBusy||registering}
-              maxLength={64} autoComplete="off" spellCheck={false}
-              placeholder={liveApprovalPhrase}
-              onChange={e=>setLiveTypedApproval(e.target.value)}/>
-          </label>
+          <p>Az öt eredeti map átvételéhez a fenti felügyeleti jelölőnégyzet
+              és a következő külön jóváhagyó kattintás szükséges.</p>
           <div className="settings-actions historical-live-action-row">
             <button type="button" className="primary"
               disabled={liveApprovalDisabledReason!==null}
@@ -868,7 +846,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
                 "Minden jóváhagyási feltétel teljesült. Az átvétel külön kattintással indul."}
             </span>
             <button type="button" className="secondary" disabled={directBusy}
-              onClick={()=>{setLiveBatchPreview(null);setLiveTypedApproval("");
+              onClick={()=>{setLiveBatchPreview(null);
                 setLiveControllerStopped(false);}}>Mégsem</button>
           </div>
         </div>}
@@ -984,15 +962,10 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
               <span>Hozzáadandó</span><strong>{clusterPreview.missingAssignments}</strong>
               <span>Korábbi korábbi kezelőalkalmazás és writer lock</span><strong>Változatlan</strong>
             </div>
-            <label className="historical-typed-confirmation">Pontos jóváhagyó szöveg
-              <input type="text" aria-label="Eredeti Cluster-regiszter jóváhagyó szöveg"
-                value={clusterApproval} disabled={clusterBusy} autoComplete="off"
-                spellCheck={false}
-                onChange={e=>setClusterApproval(e.target.value)}
-                placeholder="EREDETI STORE REGISZTER"/>
-            </label>
+            <p>Az eredeti cluster-tagság módosítását az alábbi külön
+                jóváhagyó gombbal erősítheted meg.</p>
             <button type="button" className="primary"
-              disabled={clusterBusy||clusterApproval!=="EREDETI STORE REGISZTER"}
+              disabled={clusterBusy}
               onClick={()=>{void applyOriginalCluster();}}>
               Eredeti map-tagság rögzítése
             </button>

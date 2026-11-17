@@ -63,6 +63,7 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
       setVerifiedPid(proof.pid);
       if(proof.historicalSourceReapprovalRequired&&!approveChangedSource){
         setChangedSource(proof);
+        
         return; // Different old/current hashes require a second explicit click.
       }
       if(proof.historicalSourceReapprovalRequired&&
@@ -154,7 +155,10 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
           <p className="muted small">Aktuális SHA-256:
             <code>{changedSource.historicalCurrentFourFilesSha256}</code>
           </p>
-          <div className="button-row">
+          <p>A két forráslenyomat eltér. A következő külön kattintás
+              kizárólag a leállított map helyi naplóinak auditált rendezését
+              engedélyezi; nem indít ASA-t vagy Store-átalakítást.</p>
+           <div className="button-row">
             <button type="button" disabled={busy}
               onClick={()=>{void recover(true);}}>
               {busy?"Újraellenőrzés…":"Forráseltérés és naplórendezés jóváhagyása"}

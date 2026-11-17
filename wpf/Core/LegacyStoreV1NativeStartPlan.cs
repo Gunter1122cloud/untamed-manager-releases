@@ -97,7 +97,7 @@ internal static class LegacyStoreV1NativeStartPlanner
            !original.SharedSessionMatches||!original.NoPendingConversion||
            !original.NoMutationMarker||!original.LocalMapBindingMatches||
            !original.HistoricalFilesUnchanged||original.DonePeers!=2||
-           original.ActiveMaps is <10 or >64||
+           original.ActiveMaps!=10||
            string.IsNullOrWhiteSpace(original.VerifiedOriginalSharedPath)||
            original.SourceStateSha256.Length!=64)
             throw new InvalidOperationException("UM-STORE-NATIVE-ORIGINAL-TWO-HOST-NOT-READY");
@@ -112,6 +112,14 @@ internal static class LegacyStoreV1NativeStartPlanner
         // The four-file Store hash and the launch profile hash are both
         // pinned; no alternative transfer directory is generated.
         var currentSource=LegacyStoreV1OriginalImport.Inspect(sourceProfile);
+        // Journal approval does not authorize a new source. In the expanded
+        // original-five roster case an explicit, separately audited Obsidian
+        // source pin must be accepted before attempting native ASA Start.
+        if(currentSource.SelectedHistoricalSubsetOfExpandedRoster&&
+           !string.Equals(map.HistoricalArchiveSha256,
+               currentSource.FourFilesSha256,StringComparison.Ordinal))
+            throw new InvalidDataException(
+                "UM-STORE-LAUNCH-EXPLICIT-SOURCE-PIN-REQUIRED");
         var originalMap=LegacyStoreV1SourceLaunchParity.RequireOriginalMap(
             map,currentSource);
         var plan=LegacyStoreV1ActiveLaunch.Build(new(

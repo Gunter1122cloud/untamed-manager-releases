@@ -17,7 +17,6 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
   const [query,setQuery]=useState("");
   const [page,setPage]=useState(0);
   const [preview,setPreview]=useState<StoppedSteamBatchPreview|null>(null);
-  const [approval,setApproval]=useState("");
   const [job,setJob]=useState<StoppedSteamBatchJob|null>(null);
   const [jobId,setJobId]=useState("");
   const [current,setCurrent]=useState<StoppedSteamBatchCurrent|null>(null);
@@ -99,7 +98,7 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
     return ()=>{active=false;window.clearInterval(timer);};
   },[jobId]);
 
-  const invalidate=()=>{setPreview(null);setApproval("");setNotice("");setError("");};
+  const invalidate=()=>{setPreview(null);setNotice("");setError("");};
   const toggle=(mapId:string,checked:boolean)=>{
     invalidate();
     if(checked&&selected.length>=25){
@@ -120,9 +119,9 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
     }finally{setBusy(false);}
   };
   const start=async()=>{
-    if(unavailable||!preview||approval!==approvalPhrase||blocked)return;
+    if(unavailable||!preview||blocked)return;
     const token=preview.token;
-    setBusy(true);setPreview(null);setApproval("");setError("");setNotice("");
+    setBusy(true);setPreview(null);setError("");setNotice("");
     try{
       const started=await managerBridge.steamBatchApply(token,approvalPhrase);
       if(!started.started||!started.jobId||started.serverStopRequested||
@@ -200,14 +199,10 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
           {entry.mapName} · Steam build {entry.installedBuild} ·
           {entry.sharedMapCount} közös map
         </p>)}
-        <label>Jóváhagyó szöveg
-          <input aria-label="Soros SteamCMD jóváhagyó szöveg"
-            disabled={busy} value={approval} autoComplete="off"
-            placeholder={approvalPhrase}
-            onChange={e=>setApproval(e.target.value)}/>
-        </label>
-        <button type="button" className="primary"
-          disabled={unavailable||approval!==approvalPhrase}
+        <p>Az ellenőrzött helyi soros frissítést az alábbi külön
+           jóváhagyó gombbal indíthatod. A Manager nem állít le szervert.</p>
+         <button type="button" className="primary"
+          disabled={unavailable||busy}
           onClick={()=>{void start();}}>Helyi soros SteamCMD frissítés indítása</button>
         <p className="muted small">A jóváhagyás a meglévő natív Core-frissítőt
           indítja, nem a szerverleállítást vagy az automatikus újraindítást.</p>

@@ -14,9 +14,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
   const [durableUnknown,setDurableUnknown]=useState(false);
   const [checked,setChecked]=useState(false);
   const [preview,setPreview]=useState<HistoricalSaveWorldPreview|null>(null);
-  const [phrase,setPhrase]=useState("");
   const [reviewPreview,setReviewPreview]=useState<HistoricalSaveReviewPreview|null>(null);
-  const [reviewPhrase,setReviewPhrase]=useState("");
   const [busy,setBusy]=useState(false);
   const [jobId,setJobId]=useState("");
   const [job,setJob]=useState<HistoricalGracefulStopStatus|null>(null);
@@ -32,8 +30,8 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
     let active=true;
     const revision=++epoch.current;
     finished.current=false;
-    setChecked(false);setRecovery(null);setPreview(null);setPhrase("");setBusy(false);
-    setReviewPreview(null);setReviewPhrase("");
+    setChecked(false);setRecovery(null);setPreview(null);setBusy(false);
+    setReviewPreview(null);
     setJobId("");setJob(null);setNotice("");setError("");
     setDurableSave(null);setDurableUnknown(false);setDurableChecked(false);
     managerBridge.historicalSaveWorldEvidence(mapId).then(result=>{
@@ -146,8 +144,8 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
     if(busy||(jobId&&job?.state!=="completed"&&job?.state!=="needsOperator"))
       return;
     const requested=mapId,revision=epoch.current;
-    setBusy(true);setPreview(null);setPhrase("");
-    setReviewPreview(null);setReviewPhrase("");setError("");setNotice("");
+    setBusy(true);setPreview(null);
+    setReviewPreview(null);setError("");setNotice("");
     try{
       const [evidence,review]=await Promise.all([
         managerBridge.historicalSaveWorldEvidence(requested),
@@ -201,7 +199,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
        durableSave?.phase==="prepared"||durableSave?.phase==="needsOperator"||
        !recovery||recovery.blocked||!running||jobId)return;
     const requested=mapId,revision=epoch.current;
-    setBusy(true);setPreview(null);setPhrase("");setError("");setNotice("");
+    setBusy(true);setPreview(null);setError("");setNotice("");
     try{
       const result=await managerBridge.historicalSaveWorldPreview(requested);
       if(!belongs(requested,revision))return;
@@ -216,9 +214,9 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
   };
   const save=async()=>{
     if(busy||!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
-       phrase!=="STORE-V1 SAVEWORLD")return;
+       busy)return;
     const token=preview.token,requested=mapId,revision=epoch.current;
-    setPreview(null);setPhrase("");setBusy(true);setError("");
+    setPreview(null);setBusy(true);setError("");
     try{
       const queued=await managerBridge.historicalSaveWorldApply(token,"STORE-V1 SAVEWORLD");
       if(!belongs(requested,revision))return;
@@ -250,7 +248,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
        !durableSave||!["prepared","needsOperator","reviewed"].includes(
          durableSave.phase))return;
     const requested=mapId,revision=epoch.current;
-    setBusy(true);setReviewPreview(null);setReviewPhrase("");
+    setBusy(true);setReviewPreview(null);
     setError("");setNotice("");
     try{
       const proof=await managerBridge.historicalSaveWorldReviewPreview(requested);
@@ -267,9 +265,9 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
   const approveReview=async()=>{
     if(busy||!reviewPreview||
        reviewPreview.mapId.toLowerCase()!==mapId.toLowerCase()||
-       reviewPhrase!=="REVIEW STORE SAVE")return;
+       busy)return;
     const token=reviewPreview.token,requested=mapId,revision=epoch.current;
-    setBusy(true);setReviewPreview(null);setReviewPhrase("");
+    setBusy(true);setReviewPreview(null);
     setError("");setNotice("");
     try{
       const result=await managerBridge.historicalSaveWorldReviewApply(
@@ -326,17 +324,14 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
           <p>{preview.originalPeerCheckRequiredForLocalOperation?
             "A még át nem vett régi eredeti session két peerének ellenőrzése szükséges.":
             "Önálló Obsidian helyi mentés: nem szükséges a távoli korábbi kezelőalkalmazás peer-jelölő."}</p>
-          <p>Valódi RCON SaveWorld következik. Írd be pontosan: STORE-V1 SAVEWORLD</p>
-          <input aria-label="Store-v1 mentés jóváhagyó szöveg" value={phrase}
-            spellCheck={false} autoComplete="off" maxLength={28}
-            onChange={e=>setPhrase(e.target.value)}/>
-          <div className="settings-actions">
+          <p>A natív SaveWorld RCON-parancs kizárólag a következő külön
+              jóváhagyó gomb megnyomásakor indul.</p>
+           <div className="settings-actions">
             <button type="button" className="primary"
-              disabled={busy||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
-                phrase!=="STORE-V1 SAVEWORLD"}
+              disabled={busy||preview.mapId.toLowerCase()!==mapId.toLowerCase()}
               onClick={()=>{void save();}}><Save size={16}/> SaveWorld végrehajtása</button>
             <button type="button" className="secondary" disabled={busy}
-              onClick={()=>{setPreview(null);setPhrase("");}}>Mégsem</button>
+              onClick={()=>{setPreview(null);}}>Mégsem</button>
           </div>
         </div>
       </div>}
@@ -374,20 +369,16 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
               <p>Korábbi állapot: {reviewPreview.phase}.
                 A napló archiválását és a következő külön jóváhagyásos
                 mentés lehetőségét hagyod jóvá.</p>
-              <label>Írd be pontosan: REVIEW STORE SAVE
-                <input aria-label="Store-v1 mentés felülvizsgálati megerősítése"
-                  value={reviewPhrase} spellCheck={false} autoComplete="off"
-                  onChange={e=>setReviewPhrase(e.target.value)} maxLength={30}/>
-              </label>
-              <div className="settings-actions">
+              <p>A korábbi mentési napló rendezése külön, az alábbi
+                  gombbal jóváhagyható.</p>
+               <div className="settings-actions">
                 <button className="primary" type="button"
-                  disabled={busy||reviewPreview.mapId.toLowerCase()!==mapId.toLowerCase()||
-                    reviewPhrase!=="REVIEW STORE SAVE"}
+                  disabled={busy||reviewPreview.mapId.toLowerCase()!==mapId.toLowerCase()}
                   onClick={()=>{void approveReview();}}>
                   Korábbi mentési napló felülvizsgálatának jóváhagyása
                 </button>
                 <button className="secondary" type="button" disabled={busy}
-                  onClick={()=>{setReviewPreview(null);setReviewPhrase("");}}>Mégsem</button>
+                  onClick={()=>{setReviewPreview(null);}}>Mégsem</button>
               </div>
             </div>
           </div>}

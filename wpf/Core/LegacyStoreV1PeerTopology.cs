@@ -85,7 +85,7 @@ public static class LegacyStoreV1PeerTopology
             for(int i=0;i<peer.MemberIds.Count;i++)
             {
                 string? name=peer.MapNames[i];
-                if(!Guid.TryParse(peer.MemberIds[i],out var mapId)||
+                if(!Guid.TryParse(peer.MemberIds[i],out var mapId)||mapId==Guid.Empty||
                    !owned.Add(mapId)||!mapIds.Add(mapId)||
                    string.IsNullOrWhiteSpace(name)||name.Length>100||
                    !name.All(c=>char.IsAsciiLetterOrDigit(c)||c is '_' or '-' or '.')||
@@ -95,7 +95,7 @@ public static class LegacyStoreV1PeerTopology
             var selected=new HashSet<Guid>();
             foreach(string selectedId in peer.SelectedIds)
             {
-                if(!Guid.TryParse(selectedId,out var parsed)||!selected.Add(parsed))
+                if(!Guid.TryParse(selectedId,out var parsed)||parsed==Guid.Empty||!selected.Add(parsed))
                     throw new InvalidDataException("UM-STORE-TOPOLOGY-DUPLICATE-SELECTION");
             }
             if(selected.Count!=5||!selected.IsSubsetOf(owned))

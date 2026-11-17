@@ -57,7 +57,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   const [history,setHistory]=useState<WorldBackupHistory|null>(null);
   const [pending,setPending]=useState<WorldBackupPreview|null>(null);
   const [restoreTarget,setRestoreTarget]=useState<WorldBackupPoint|null>(null);
-  const [confirmName,setConfirmName]=useState("");
+  const [restoreConfirmed,setRestoreConfirmed]=useState(false);
   const [receipt,setReceipt]=useState<WorldBackupCreated|WorldBackupRestored|null>(()=>recentWorldReceipts.get(selectedMap??maps[0]?.id??"")??null);
   const [busy,setBusy]=useState(false);
   const [scheduled,setScheduled]=useState<ScheduledStoppedBackupState|null>(null);
@@ -72,7 +72,6 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   const [originalFiveJob,setOriginalFiveJob]=useState<OriginalFiveMapBackupStatus|null>(null);
   const lastFiveCompleted=useRef("");
   const [repairPreview,setRepairPreview]=useState<OriginalFiveMapJournalRepairPreview|null>(null);
-  const [repairPhrase,setRepairPhrase]=useState("");
   const [repairBusy,setRepairBusy]=useState(false);
   const [originalFiveBusy,setOriginalFiveBusy]=useState(false);
   const [originalFiveError,setOriginalFiveError]=useState("");
@@ -85,7 +84,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   useEffect(()=>{
     selectedRef.current=chosen;
     setHistory(null);setPending(null);setRestoreTarget(null);
-    setConfirmName("");setReceipt(recentWorldReceipts.get(chosen)??null);setError("");
+    setRestoreConfirmed(false);setReceipt(recentWorldReceipts.get(chosen)??null);setError("");
     setScheduleConfirm(false);setScheduleNotice("");
   },[chosen]);
   const current=useMemo(()=>maps.find(m=>m.id===chosen),[maps,chosen]);
@@ -160,7 +159,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   const preview=async()=>{
     if(!chosen||busy||current?.running||history?.recoveryRequired)return;
     const requestedMap=chosen;
-    setPending(null);setReceipt(null);setRestoreTarget(null);setConfirmName("");
+    setPending(null);setReceipt(null);setRestoreTarget(null);setRestoreConfirmed(false);
     setBusy(true);setError("");
     try{
       const ticket=await managerBridge.backupPreview(requestedMap);
@@ -201,7 +200,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   };
   const restorePreview=async(point:WorldBackupPoint)=>{
     if(!chosen||busy||current?.running||current?.storeProtected||history?.recoveryRequired)return;
-    setPending(null);setRestoreTarget(null);setConfirmName("");setReceipt(null);
+    setPending(null);setRestoreTarget(null);setRestoreConfirmed(false);setReceipt(null);
     setBusy(true);setError("");
     const requestedMap=chosen;
     try{
@@ -218,17 +217,17 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   };
   const restore=async()=>{
     if(!pending||pending.action!=="RESTORE"||!current||
-       confirmName!==current.name||busy||current.running||current.storeProtected||history?.recoveryRequired||pending.mapId!==chosen)return;
+       !restoreConfirmed||busy||current.running||current.storeProtected||history?.recoveryRequired||pending.mapId!==chosen)return;
     const token=pending.token;const requestedMap=chosen;
     setPending(null);setRestoreTarget(null);
     setBusy(true);setError("");
     try{
-      const result=await managerBridge.backupRestore(token,confirmName);
+      const result=await managerBridge.backupRestore(token,current.name);
       if(result.mapId!==requestedMap || !result.restored || !result.bytesRestoredAndHashesVerified || !result.oldWorldRetained)
         throw new Error("UM-BACKUP-RESTORE-RECEIPT-INVALID");
       retainWorldReceipt(requestedMap,result);
       if(selectedRef.current!==requestedMap)return;
-      setReceipt(result);setConfirmName("");
+      setReceipt(result);setRestoreConfirmed(false);
       // Once Core has committed a verified restore, only refresh the view.
       // Do not represent a failed list request as a failed world restore.
       try{
@@ -251,7 +250,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     setRepairBusy(true);setOriginalFiveError("");setRepairPreview(null);
     try{
       setRepairPreview(await managerBridge.backupOriginalFiveJournalRepairPreview());
-      setRepairPhrase("");
+      
     }catch{
       setOriginalFiveError("A napló felülvizsgálata nem indítható. "+
         "Az eredeti öt mapnak igazoltan leállítva kell lennie és a eredeti forrásnak "+
@@ -259,17 +258,17 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     }finally{setRepairBusy(false);}
   };
   const repairJournalApply=async()=>{
-    if(!repairPreview||repairPhrase!=="REVIEW FIVE BACKUPS"||repairBusy)return;
+    if(!repairPreview||repairBusy)return;
     const token=repairPreview.token;
     setRepairPreview(null);setRepairBusy(true);setOriginalFiveError("");
     try{
       const receipt=await managerBridge.backupOriginalFiveJournalRepairApply(
-        token,repairPhrase);
+        token,"REVIEW FIVE BACKUPS");
       if(!receipt.reviewed||!receipt.quarantined||
          !receipt.oldBackupPackagesPreserved)
         throw new Error("Naplókarantén nincs igazolva");
       setOriginalFiveJob(null);setOriginalFiveReceipt(null);
-      setRepairPhrase("");
+      
       await reload();
     }catch{
       setOriginalFiveError("A sérült helyi Manager-napló elkülönítése nem sikerült. "+
@@ -333,7 +332,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
           <select aria-label="Mentendő helyi map"
             value={chosen} disabled={busy||Boolean(selectedMap)}
             onChange={e=>{selectedRef.current=e.target.value;setChosen(e.target.value);
-              setReceipt(null);setPending(null);setRestoreTarget(null);setConfirmName("");}}>
+              setReceipt(null);setPending(null);setRestoreTarget(null);setRestoreConfirmed(false);}}>
             {maps.map(m=><option key={m.id} value={m.id}>{m.name}
               {m.running?" · fut":" · leállítva"}</option>)}
           </select>
@@ -416,19 +415,16 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
                 elkülönítése.</b> Az eredeti ASA/korábbi kezelőalkalmazás világ, karakter, session,
                 lock és transfer változatlan marad. Eltérő korábbi mentési
                 pontok nem kerülnek törlésre.</p>
-              <label>Jóváhagyás szövege: REVIEW FIVE BACKUPS
-                <input aria-label="Napló helyreállítási jóváhagyás"
-                  value={repairPhrase} onChange={e=>setRepairPhrase(e.target.value)}
-                  disabled={repairBusy}/>
-              </label>
-              <div className="settings-actions">
+              <p>A Manager sérült naplójának ellenőrzött elkülönítése a
+                 következő külön jóváhagyó gombbal indítható.</p>
+               <div className="settings-actions">
                 <button type="button" className="primary"
-                  disabled={repairBusy||repairPhrase!=="REVIEW FIVE BACKUPS"}
+                  disabled={repairBusy}
                   onClick={()=>{void repairJournalApply();}}>
                   Sérült napló elkülönítése
                 </button>
                 <button type="button" className="secondary" disabled={repairBusy}
-                  onClick={()=>{setRepairPreview(null);setRepairPhrase("");}}>Mégsem</button>
+                  onClick={()=>{setRepairPreview(null);}}>Mégsem</button>
               </div>
             </div>}
           {originalFiveReceipt&&<div role="status">
@@ -543,13 +539,12 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
           aktív Store-v1 mapokon ez a művelet tiltott.</p>
         <p>Kiválasztott pont: {restoreTarget?.createdUtc?
           new Date(restoreTarget.createdUtc).toLocaleString("hu-HU"):"—"}</p>
-        <label>Írd be pontosan a map nevét a jóváhagyáshoz:
-          <input aria-label="Visszaállítás mapnév megerősítés"
-            value={confirmName} onChange={e=>setConfirmName(e.target.value)}
-            placeholder={current?.name??""}/>
-        </label>
-        <div className="uk-world-backup-restore-actions">
-          <button type="button" className="danger" disabled={busy||current?.storeProtected||current?.running||history?.recoveryRequired||confirmName!==current?.name}
+        <label><input type="checkbox" checked={restoreConfirmed} disabled={busy}
+             onChange={e=>setRestoreConfirmed(e.target.checked)}/>
+             Jóváhagyom a kiválasztott <b>{current?.name??"ismeretlen"}</b>
+             map világfájljainak védett visszaállítását.</label>
+         <div className="uk-world-backup-restore-actions">
+          <button type="button" className="danger" disabled={busy||current?.storeProtected||current?.running||history?.recoveryRequired||!restoreConfirmed}
             onClick={()=>{void restore();}}><RotateCcw size={14}/> Védett visszaállítás</button>
           <button type="button" className="secondary" disabled={busy}
             onClick={()=>{setPending(null);setRestoreTarget(null);}}>Mégsem</button>
