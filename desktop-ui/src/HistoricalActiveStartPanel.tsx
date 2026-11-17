@@ -5,7 +5,7 @@ import {managerBridge,type HistoricalActiveStartPreview,
 
 /**
  * Starts a preserved historical Store-v1 ASA map with native source,
- * INI/port/process checks and explicit typed approval. A pinned Obsidian
+ * INI/port/process checks and operator-initiated execution. A pinned Obsidian
  * source does not depend on another host's obsolete korábbi kezelőalkalmazás ACTIVE/DONE marker.
  * No WebView-supplied launch arguments or original paths.
  */
@@ -15,7 +15,6 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
   const [state,setState]=useState<HistoricalActiveStartStatus|null>(null);
   const [preview,setPreview]=useState<HistoricalActiveStartPreview|null>(null);
   const [modePreview,setModePreview]=useState<HistoricalLoaderModePreview|null>(null);
-  const [phrase,setPhrase]=useState("");
   const [busy,setBusy]=useState(false);
   const [checkingControl,setCheckingControl]=useState(false);
   const controlGeneration=useRef(0);
@@ -32,7 +31,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
     const generation=++actionGeneration.current;
     setCheckingControl(false);setBusy(false);
     setState(null);setPreview(null);setModePreview(null);
-    setPhrase("");setError("");setNotice("");
+    setError("");setNotice("");
     managerBridge.historicalActiveStartStatus(mapId).then(v=>{
       if(active&&belongs(mapId,generation)&&v.mapId.toLowerCase()===mapId.toLowerCase())
         setState(v);
@@ -115,7 +114,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
     if(busy||state?.running||!state?.rconConfigured||
        state?.launchModeApprovalRequired)return;
     const requested=mapId,generation=actionGeneration.current;
-    setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
+    setBusy(true);setError("");setNotice("");setPreview(null);
     try{
       const result=await managerBridge.historicalActiveStartPreview(requested);
       if(!belongs(requested,generation))return;
@@ -145,15 +144,22 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         "UM-STORE-PIN-MAP-ROOT-CHANGED":"Az eredeti map telepítési gyökere eltér a megőrzött forrástól. Ellenőrizd a jóváhagyott helyi profilt.",
         "UM-STORE-PIN-CLUSTER-METADATA":"Az eredeti runtime clusterazonosító vagy átviteli útvonal nem olvasható a megőrzött forrásból.",
         "UM-STORE-PIN-NOT-YET-APPROVED":"Az eredeti forrás még nem került jóváhagyottan az Obsidian saját profiljába; előbb az átvételt kell véglegesíteni."
+        "UM-STORE-LIVE-PEER-DONE-INVALID":"A régi DONE peer-forrás nem egyezik. Ellenőrizd az 5 történeti mapot, a teljes maplistát és a hash-/session-azonosságot. ASA nem indult.",
+        "UM-STORE-LIVE-PEER-SELECTED-MISMATCH":"A peer 5 eredeti kiválasztott mapja nem része az ellenőrzött tulajdonosi listának. ASA nem indult.",
+        "UM-STORE-TOPOLOGY-PEER-INVALID":"A Store-v1 peer mapazonossága vagy listamérete sérült. ASA nem indult.",
+        "UM-STORE-TOPOLOGY-SELECTION-MISMATCH":"A kiválasztott 5 történeti map eltér a peer tulajdonosi listájától. ASA nem indult.",
+        "UM-STORE-LIVE-LOCAL-LOCK-MISMATCH":"A helyi Store-v1 session/konfigurációs hash vagy a történeti 5 map forrásazonossága nem egyezik. ASA nem indult."
       };
-      setError(errors[code]??"A Store-v1 map indítási előellenőrzése nem sikerült. Ellenőrizd a helyi naplót és folyamatállapotot; ASA nem indult.");
+      setError(errors[code]??(code.startsWith("UM-STORE-")?
+        code+" · Az indítás előellenőrzése elutasítva; ASA nem indult.":
+        "A Store-v1 map indítási előellenőrzése nem sikerült. Ellenőrizd a helyi naplót és folyamatállapotot; ASA nem indult."));
     }finally{if(belongs(requested,generation))setBusy(false);}
   };
   const start=async()=>{
     if(!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
-       phrase!=="STORE-V1 ACTIVE START"||busy)return;
+       busy)return;
     const token=preview.token,requested=mapId,generation=actionGeneration.current;
-    setPreview(null);setPhrase("");setBusy(true);
+    setPreview(null);setBusy(true);
     setError("");setNotice("");
     try{
       const receipt=await managerBridge.historicalActiveStartApply(
@@ -244,7 +250,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
             karakteradat. A következő Start külön előellenőrzést igényel.</p>
           <div className="settings-actions">
             <button type="button" className="primary" disabled={busy}
-              onClick={()=>{void applyMode();}}>Indítási mód jóváhagyása</button>
+              onClick={()=>{void applyMode();}}>Indítási mód mentése</button>
             <button type="button" className="secondary" disabled={busy}
               onClick={()=>setModePreview(null)}>Mégse</button>
           </div>
@@ -261,7 +267,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         </button>
       </div>
       {preview&&<div className="warning-inline" role="region"
-        aria-label="Eredeti Store-v1 ASA indítás jóváhagyása">
+        aria-label="Eredeti Store-v1 ASA ellenőrzött indítás">
         <Shield size={17}/>
         <div>
           <b>{preview.mapName} · Game {preview.gamePort} · Query {preview.queryPort}</b>
@@ -278,19 +284,14 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
             cache-hiánynál a hivatalos API saját cache-letöltése és
             ellenőrzése szükséges.
           </p>}
-          <label htmlFor="historical-start-phrase">
-            Biztonsági megerősítés: írd be pontosan: STORE-V1 ACTIVE START
-          </label>
-          <input id="historical-start-phrase" spellCheck={false} autoComplete="off"
-            value={phrase} onChange={e=>setPhrase(e.target.value)} maxLength={32}/>
           <div className="settings-actions">
-            <button type="button" className="primary" disabled={busy||
-              phrase!=="STORE-V1 ACTIVE START"} onClick={()=>{void start();}}>
+            <button type="button" className="primary" disabled={busy}
+              onClick={()=>{void start();}}>
               <Play size={16}/> {preview.launchMode==="asaApiLoader"?
                 "Eredeti Store-v1 API Loader indítása":"Eredeti Store-v1 ASA indítása"}
             </button>
             <button type="button" className="secondary" disabled={busy}
-              onClick={()=>{setPreview(null);setPhrase("");}}>Mégse</button>
+              onClick={()=>{setPreview(null);}}>Mégse</button>
           </div>
         </div>
       </div>}
