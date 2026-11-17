@@ -182,6 +182,30 @@ internal static class OriginalKovaDirectImportTests
                     !expandedImport.Maps.Any(x=>x.MapKey=="Chillhub_WP")&&
                     expandedImport.FourFilesSha256!=discovered.FourFilesSha256,
                     "six local entries preserve exactly five original selected Store owners without adding Chillhub");
+                await using(var expandedManager=new ClusterService(
+                    "six-member-event-registry-test",
+                    Path.Combine(baseRoot,"six-member-event-registry-profile")))
+                {
+                    foreach(var historical in expandedImport.Maps)
+                        expandedManager.AddMap(new LocalMap{
+                            Id=historical.MapId,
+                            Name=historical.MapKey,
+                            InstallationPath=historical.OriginalInstallationRoot,
+                            HistoricalStoreProtected=true,
+                            HistoricalArchiveSha256=expandedImport.FourFilesSha256,
+                            HistoricalMapKey=historical.MapKey,
+                            GamePort=historical.GamePort,
+                            QueryPort=historical.QueryPort
+                        });
+                    using var expandedBridge=new DesktopHistoricalStoreImportBridge(
+                        expandedManager,localLegacyDataDirectory:local);
+                    var clusterPreview=await Call(expandedBridge,
+                        "historical.originalClusterPreview");
+                    Check(clusterPreview.GetProperty("ok").GetBoolean()&&
+                        clusterPreview.GetProperty("data")
+                            .GetProperty("fiveOriginalMaps").GetInt32()==5,
+                        "historical cluster registry previews only five original members in six-member metadata");
+                }
                 // Even if an expanded current cluster is represented in a
                 // fresh matching lock, only its explicitly selected five
                 // original GUIDs may enter the historical adapter.
