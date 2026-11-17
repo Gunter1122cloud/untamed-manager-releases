@@ -209,13 +209,22 @@ public sealed class DesktopAsaLifecycleJournalBridge
             try
             {
                 var map=Owned(mapId);
-                var old=cluster.Operations.Observe(map.InstallationPath);
-                var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
-                bool restartPending=restart?.Phase is (AsaRestartPhase.Stopping or
+                // Read-only journal screens can diagnose access/corruption;
+                // approval routes keep using strict exception-throwing reads.
+                var diagnosis=method=="servers.lifecycleJournal"?
+                    AsaLocalJournalReadOnly.Inspect(cluster.Operations,map.InstallationPath):null;
+                var old=diagnosis is null?
+                    cluster.Operations.Observe(map.InstallationPath):diagnosis.Operation;
+                var restart=diagnosis is null?
+                    new AsaManualRestartJournal(map.InstallationPath).Observe():diagnosis.Restart;
+                bool journalUnreadable=diagnosis?.AnyUnreadable==true;
+                bool restartPending=diagnosis?.RestartUnreadable==true||
+                    restart?.Phase is (AsaRestartPhase.Stopping or
                     AsaRestartPhase.Starting or AsaRestartPhase.NeedsOperator);
                 bool isOriginalPending=map.HistoricalStoreProtected&&
                     old?.Kind==UntamedOperationKind.Launch&&PendingPhase(old);
-                bool restartOnlyReviewable=map.HistoricalStoreProtected&&
+                bool restartOnlyReviewable=!journalUnreadable&&
+                    map.HistoricalStoreProtected&&
                     !PendingPhase(old)&&restart?.Phase is
                         (AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator)&&
                     restart.NewPid==0;
@@ -226,11 +235,17 @@ public sealed class DesktopAsaLifecycleJournalBridge
                     return Ok(id,new{
                         mapId=map.Id,mapName=map.Name,
                         journalExists=old!=null,
+                        journalUnreadable=diagnosis?.OperationUnreadable==true,
+                        restartJournalUnreadable=diagnosis?.RestartUnreadable==true,
+                        journalErrorCode=diagnosis?.OperationErrorCode,
+                        restartJournalErrorCode=diagnosis?.RestartErrorCode,
                         operationId=old?.Operation,
                         phase=old?.Phase.ToString(),kind=old?.Kind.ToString(),
                         changedUtc=old?.UpdatedUtc,
-                        classification=Classification(old),
-                        blockingCode=restartPending?
+                        classification=diagnosis?.OperationUnreadable==true?
+                            "unreadable":Classification(old),
+                        blockingCode=diagnosis?.OperationErrorCode??
+                            diagnosis?.RestartErrorCode??(restartPending?
                             (isOriginalPending&&restartReviewable?
                                 "UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE":
                                 restartOnlyReviewable?
@@ -239,16 +254,18 @@ public sealed class DesktopAsaLifecycleJournalBridge
                             PendingPhase(old)?
                                 (isOriginalPending?
                                     "UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE":
-                                    "UM-RECOVERY-OTHER-OPERATION-REQUIRES-REVIEW"):null,
+                                    "UM-RECOVERY-OTHER-OPERATION-REQUIRES-REVIEW"):null),
                         restartJournalExists=restart!=null,
                         restartId=restart?.Id,restartPhase=restart?.Phase.ToString(),
                         restartChangedUtc=restart?.ChangedUtc,
                         restartOldPid=restart?.OldPid,restartNewPid=restart?.NewPid,
-                        restartClassification=restartPending?"unknownOutcome":
+                        restartClassification=diagnosis?.RestartUnreadable==true?
+                            "unreadable":restartPending?"unknownOutcome":
                             restart?.Phase==AsaRestartPhase.OperatorReviewed?"operatorReviewed":"closed",
-                        recoverySupported=isOriginalPending&&restartReviewable||
-                            restartOnlyReviewable,
-                        needsOperatorReview=PendingPhase(old)||restartPending,
+                        recoverySupported=!journalUnreadable&&
+                            (isOriginalPending&&restartReviewable||restartOnlyReviewable),
+                        needsOperatorReview=journalUnreadable||
+                            PendingPhase(old)||restartPending,
                         autoResumeAllowed=false,storeTouched=false,
                         evidence="DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY"
                     });

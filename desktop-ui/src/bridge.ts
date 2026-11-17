@@ -74,8 +74,28 @@ export type NativeAsaScheduleOverview={
 export type NativeAsaScheduleStatus={
   mapId:string;runnerState:string;jobs:NativeAsaScheduleTask[];
   history:NativeAsaExecutionEntry[];
+  unknownRunIds:string[];blockedScope:"none"|"task"|"supervisor";
+  supportedNextAction:string;
   restartConflicts:string[];protectedStore:boolean;
   autoUpdateAvailable:false;remoteExecutionAllowed:false;
+};
+export type NativeScheduleReviewPreview={
+  token:string;mapId:string;kind:NativeScheduleKind;runId:string;
+  previousStatus:string;outcomeStillUnknown:true;automaticRetry:false;
+  scheduledTaskWillBeDisabled:true;journalBytesWillBeAudited:true;
+  originalRunWillNotExecute:true;
+  evidence:"SCHEDULE_DURABLE_UNCERTAIN_SLOT_REVIEW_PREVIEW";
+};
+export type NativeScheduleReviewReceipt={
+  mapId:string;kind:NativeScheduleKind;runId:string;
+  reviewed:true;outcomeStillUnknown:true;jobDisabled:true;
+  noRconSent:true;noAutomaticReplay:true;oldJournalArchived:true;
+  evidence:"SCHEDULE_UNKNOWN_SLOT_AUDITED_AND_DISABLED";
+};
+export type NativeScheduleResumeReceipt={
+  supervisorResumed:boolean;oldSlotReplayed:false;
+  oldTaskReenabled:false;nextTaskRequiresExplicitOptIn:true;
+  evidence:"LOCAL_SCHEDULE_SUPERVISOR_REARM_NO_OLD_DISPATCH";
 };
 export type NativeAsaScheduleSaved={
   job:NativeAsaScheduleTask;restartConflicts:string[];
@@ -464,11 +484,13 @@ export type AsaLifecycleJournal = {
   mapId:string;mapName:string;journalExists:boolean;
   operationId?:string|null;
   phase?:string|null;kind?:string|null;changedUtc?:string|null;
-  classification?:"none"|"inProgressOrInterrupted"|"unknownOutcome"|"closed"|"unverified";
+  classification?:"none"|"inProgressOrInterrupted"|"unknownOutcome"|"closed"|"unverified"|"unreadable";
+  journalUnreadable?:boolean;restartJournalUnreadable?:boolean;
+  journalErrorCode?:string|null;restartJournalErrorCode?:string|null;
   blockingCode?:string|null;recoverySupported?:boolean;
   restartJournalExists?:boolean;restartId?:string|null;restartPhase?:string|null;
   restartChangedUtc?:string|null;restartOldPid?:number|null;restartNewPid?:number|null;
-  restartClassification?:"unknownOutcome"|"operatorReviewed"|"closed";
+  restartClassification?:"unknownOutcome"|"operatorReviewed"|"closed"|"unreadable";
   needsOperatorReview:boolean;autoResumeAllowed:false;
   storeTouched:false;evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY";
 };
@@ -1098,6 +1120,12 @@ export type HistoricalActiveStartStatus = {
   mapId:string;mapName:string;running:boolean;confirmedStopped:boolean;
   pid:number|null;serverPid:number|null;loaderPid:number|null;
   requestedMode:"asaApiLoader"|"directAsa";
+  loaderProcessObserved:boolean;loaderConsoleExpectedOnNextStart:boolean;
+  asaJoinAdvertised:boolean;apiHooksLogObserved:boolean;
+  asaApiDllInChildObserved:boolean;
+  apiRuntimeState:"notChecked"|"hooksAndAsaChildDllObserved"|
+    "runtimeUnverified"|"diagnosticUnavailable";
+  pluginsOperationalVerified:false;
   launchModeApprovalRequired:boolean;
   rconConfigured:boolean;originalStartAutomatic:false;
   saveCompleteProven:false;gameplayTravelVerified:false;
@@ -1168,6 +1196,8 @@ export type HistoricalRestartQueued = {
 export type HistoricalRestartRecovery = {
   mapId:string;phase:"None"|"Stopping"|"Starting"|"Completed"|"NeedsOperator";
   entryBelongsToMap:boolean;blocked:boolean;requiresOperator:boolean;
+  operationJournalUnreadable?:boolean;restartJournalUnreadable?:boolean;
+  operationJournalErrorCode?:string|null;restartJournalErrorCode?:string|null;
   // Restart is also blocked by an unfinished SaveWorld-only receipt.
   saveEvidencePhase?:"none"|"prepared"|"needsOperator"|"unreadable";
   saveEvidencePending?:boolean;
@@ -1210,6 +1240,12 @@ export type HistoricalSaveWorldQueued={
 };
 export type HistoricalSaveEvidenceStatus={
   mapId:string;phase:"none"|"prepared"|"completed"|"needsOperator"|"reviewed"|"unreadable";
+  diagnosis?:{
+    state:"missing"|"interrupted"|"unsafe"|"inaccessible"|"corrupt"|"otherMap"|
+      "ioUnavailable"|"valid";
+    reasonCode:string;byteLength:number|null;sha256:string|null;
+    originalBytesPreserved:true;
+  };
   unreadable?:boolean;errorCode?:string|null;
   operationId:string|null;pid:number|null;pidStartedUtc:string|null;
   saveObservedUtc:string|null;localSaveCompleteObserved:boolean;
@@ -1218,17 +1254,40 @@ export type HistoricalSaveEvidenceStatus={
   fsyncCertified:false;sourceStateCertifiedForCurrentWriter:false;
   evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM";
 };
+export type HistoricalLateSaveEvidence={
+  mapId:string;operationId:string;stage:
+    "WORLD_METADATA_LATER_CAUSALITY_UNKNOWN"|
+    "WORLD_NOT_NEWER_THAN_ORIGINAL_RECEIPT"|
+    "WORLD_FILE_UNAVAILABLE";
+  worldFilePresent:boolean;worldMetadataNewerThanAttempt:boolean;
+  worldBytes:number|null;worldWriteUtc:string|null;
+  asaLogPresent:boolean;asaLogNewerThanAttempt:boolean;
+  completionCertified:false;rconSent:false;grantsOperation:false;
+  oldSaveWorldRetried:false;
+  evidence:"ORIGINAL_ASA_LATE_METADATA_READ_ONLY_NO_CAUSAL_SAVE_PROOF";
+};
+export type HistoricalSaveForensicExportReceipt={
+  mapId:string;fileName:string;sourceSlot:"current"|"next";
+  failureCode:string;bytes:number;sha256:string;
+  originalUntouched:true;sendsRcon:false;grantsRecovery:false;
+  automaticRetry:false;evidence:"EXPLICIT_MANAGER_LOCAL_FORENSIC_COPY_NO_UNLOCK";
+};
 export type HistoricalSaveReviewPreview={
   token:string;mapId:string;phase:"prepared"|"needsOperator"|"reviewed";
   operationId:string;coordinatorPhase:string;
-  originalSourceRevalidated:true;confirmedStopped:true;
+  originalSourceRevalidated:true;confirmedStopped:boolean;
+  runningOwned:boolean;previousOutcomeStillUnknown:true;
+  pairedRestartReview:boolean;
   preservesOriginalReceipt:true;originalStoreFilesWritten:false;
   automaticRetry:false;requiresTypedApproval:true;
-  evidence:"OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE";
+  evidence:"OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"|
+    "OPERATOR_REVIEW_RUNNING_OWNED_ASA_SAVE_UNKNOWN";
 };
 export type HistoricalSaveReviewReceipt={
   mapId:string;phase:"reviewed";reviewed:true;oldReceiptArchived:true;
   originalStoreFilesWritten:false;autoRetry:false;serverStarted:false;
+  previousOutcomeStillUnknown:true;ownerRemainedRunning:boolean;
+  pairedRestartReviewed:boolean;rconSent:false;
   nextOperationRequiresNewApproval:true;
   evidence:"OPERATOR_REVIEW_DURABLE_LOCAL_JOURNALS_NO_STORE_MUTATION";
 };
@@ -1239,6 +1298,8 @@ export type HistoricalGracefulStopQueued = {
 };
 export type HistoricalGracefulStopRecovery = {
   mapId:string;operationId:string|null;
+  operationJournalUnreadable?:boolean;restartJournalUnreadable?:boolean;
+  operationJournalErrorCode?:string|null;restartJournalErrorCode?:string|null;
   phase:"None"|"Prepared"|"Mutating"|"Completed"|
     "CancelledBeforeMutation"|"NeedsOperator"|"OperatorReviewed";
   operationKind:string;updatedUtc:string|null;
@@ -1252,7 +1313,7 @@ export type HistoricalGracefulStopRecovery = {
   evidence:"ORIGINAL_STORE_V1_DURABLE_LOCAL_OPERATION_RECOVERY_READ_ONLY";
 };
 export type HistoricalGracefulStopStatus = {
-  jobId:string;kind:"Stop"|"SaveWorldOnly";state:"queued"|"running"|"completed"|"needsOperator";
+  jobId:string;kind:"Stop"|"SaveWorldOnly";state:"queued"|"running"|"completed"|"needsOperator"|"reviewed";
   step:string;changedUtc:string;confirmedStopped:boolean;
   preExitSaveLogAndWorldObserved:boolean;
   preExitWorldMetadataObserved?:boolean;
@@ -1647,6 +1708,8 @@ export type ConfiguredMods = {
 type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
   "operations.scheduleCreate" | "operations.scheduleDisable" |
   "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" |
+  "schedule.nativeReviewPreview" | "schedule.nativeReviewApply" |
+  "schedule.nativeResume" |
   "schedule.nativeOverview" |
   "maps.maintenanceStatus" | "maps.maintenanceSet" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.openFolder" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
@@ -1703,6 +1766,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
    "historical.saveWorldPreview" | "historical.saveWorldApply" |
    "historical.saveWorldStatus" | "historical.saveWorldEvidence" |
    "historical.saveWorldReviewPreview" | "historical.saveWorldReviewApply" |
+   "historical.saveWorldForensicExport" | "historical.saveWorldLateEvidence" |
    "historical.restartPreview" | "historical.restartApply" |
    "historical.restartStatus" | "historical.restartRecovery" |
    "historical.adminPreview" | "historical.adminSend" |
@@ -1728,7 +1792,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   categoryId?: number; sort?: number; descending?: boolean;
   mapName?: string; installRoot?: string; steamExe?: string;
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
-   confirm?: boolean; ackUnknownOutcome?:boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; journalId?:string; watchId?: string; sessionName?: string;
+   confirm?: boolean; ackUnknownOutcome?:boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; runId?:string; journalId?:string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
   intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;
@@ -2034,6 +2098,12 @@ export const managerBridge = {
     request<NativeAsaScheduleOverview>("schedule.nativeOverview"),
   nativeScheduleStatus: (mapId:string) =>
     request<NativeAsaScheduleStatus>("schedule.nativeStatus",{mapId}),
+  nativeScheduleReviewPreview: (mapId:string,kind:NativeScheduleKind,runId:string) =>
+    request<NativeScheduleReviewPreview>("schedule.nativeReviewPreview",{mapId,kind,runId}),
+  nativeScheduleReviewApply: (mapId:string,token:string) =>
+    request<NativeScheduleReviewReceipt>("schedule.nativeReviewApply",{mapId,token,confirm:true}),
+  nativeScheduleResume: (mapId:string) =>
+    request<NativeScheduleResumeReceipt>("schedule.nativeResume",{mapId,confirm:true}),
   nativeScheduleSet: (mapId:string,kind:NativeScheduleKind,
       frequency:NativeScheduleFrequency,intervalMinutes:number,
       minuteOfDay:number,daysMask:number) =>
@@ -2264,6 +2334,12 @@ export const managerBridge = {
     request<HistoricalGracefulStopStatus>("historical.saveWorldStatus",{jobId}),
   historicalSaveWorldEvidence: (mapId:string) =>
     request<HistoricalSaveEvidenceStatus>("historical.saveWorldEvidence",{mapId}),
+  historicalSaveWorldForensicExport: (mapId:string) =>
+    request<HistoricalSaveForensicExportReceipt>("historical.saveWorldForensicExport",{
+      mapId,confirm:true
+    }),
+  historicalSaveWorldLateEvidence: (mapId:string) =>
+    request<HistoricalLateSaveEvidence>("historical.saveWorldLateEvidence",{mapId}),
   historicalSaveWorldReviewPreview: (mapId:string) =>
     request<HistoricalSaveReviewPreview>("historical.saveWorldReviewPreview",{mapId}),
   historicalSaveWorldReviewApply: (token:string,confirmation:string) =>

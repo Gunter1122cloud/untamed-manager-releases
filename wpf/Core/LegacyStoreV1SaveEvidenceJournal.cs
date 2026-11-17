@@ -179,6 +179,140 @@ public static class LegacyStoreV1SaveEvidenceJournal
         }
     }
 
+    // P1 operator-only, read-only diagnosis. No broken/partial receipt is
+    // reinterpreted as "missing", no operation identity is guessed, and no
+    // file is repaired, renamed, deleted, quarantined or RCON-dispatched.
+    // The original bytes remain untouched; only their bounded digest is
+    // returned, never credentials, paths or JSON content.
+    public sealed record ReadOnlyDiagnosis(string State,string ReasonCode,
+        long? ByteLength,string? Sha256,bool OriginalBytesPreserved);
+
+    public static ReadOnlyDiagnosis DiagnoseReadOnly(string managerProfileRoot,
+        Guid mapId)
+    {
+        string? file=null;
+        long? size=null;
+        string? sha=null;
+        try
+        {
+            file=PathFor(managerProfileRoot,mapId);
+            if(AttributesIfPresent(file+".next").HasValue)
+                return new("interrupted","UM-ORIGINAL-SAVE-JOURNAL-INTERRUPTED",
+                    null,null,true);
+            var attrs=AttributesIfPresent(file);
+            if(!attrs.HasValue)
+                return new("missing","UM-ORIGINAL-SAVE-JOURNAL-NOT-PRESENT",
+                    null,null,true);
+            if((attrs.Value&(FileAttributes.Directory|FileAttributes.ReparsePoint))!=0)
+                return new("unsafe","UM-ORIGINAL-SAVE-JOURNAL-UNSAFE",
+                    null,null,true);
+            var info=new FileInfo(file);
+            size=info.Length;
+            // Only hash canonical Manager-local small receipts, never large,
+            // potentially mislocated data or UNC/Store roots.
+            if(size is >=0 and <=4096)
+            {
+                using var stream=new FileStream(file,FileMode.Open,
+                    FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
+                sha=Convert.ToHexString(SHA256.HashData(stream));
+            }
+            Inspect(managerProfileRoot,mapId);
+            return new("valid","UM-ORIGINAL-SAVE-JOURNAL-VALID",
+                size,sha,true);
+        }
+        catch(UnauthorizedAccessException)
+        {
+            return new("inaccessible","UM-ORIGINAL-SAVE-JOURNAL-ACCESS-DENIED",
+                size,sha,true);
+        }
+        catch(System.Text.Json.JsonException)
+        {
+            return new("corrupt","UM-ORIGINAL-SAVE-JOURNAL-MALFORMED",
+                size,sha,true);
+        }
+        catch(InvalidDataException ex)
+        {
+            // Only self-authored stable codes can reach the UI.
+            string code=ex.Message.StartsWith("UM-ORIGINAL-SAVE-JOURNAL-",
+                StringComparison.Ordinal)?ex.Message:
+                "UM-ORIGINAL-SAVE-JOURNAL-INVALID";
+            if(code.Length>90||code.Any(char.IsWhiteSpace))
+                code="UM-ORIGINAL-SAVE-JOURNAL-INVALID";
+            return new(code.Contains("OTHER-MAP",StringComparison.Ordinal)?
+                "otherMap":"corrupt",code,size,sha,true);
+        }
+        catch(IOException)
+        {
+            // Sharing violations and transient I/O errors must not be
+            // mislabeled as irrecoverably corrupt JSON.
+            return new("ioUnavailable","UM-ORIGINAL-SAVE-JOURNAL-IO-UNAVAILABLE",
+                size,sha,true);
+        }
+    }
+
+    public sealed record ForensicExport(Guid MapId,string FileName,
+        string SourceSlot,string FailureCode,long Bytes,string Sha256,
+        bool OriginalUntouched,bool SendsRcon,bool GrantsRecovery);
+
+    // Explicit operator export of an UNREADABLE Manager-local SaveEvidence
+    // receipt. The identity of a broken record is never invented: the map
+    // comes from the native owner's LocalMap profile, not from corrupted JSON.
+    // Only a byte-identical copy is made under another Manager-local folder.
+    // This NEVER clears its unknown outcome or enables a new ASA operation.
+    public static ForensicExport ExportUnreadable(string managerProfileRoot,
+        Guid mapId,bool operatorApproved)
+    {
+        if(!operatorApproved)
+            throw new UnauthorizedAccessException(
+                "UM-ORIGINAL-SAVE-FORENSIC-APPROVAL-REQUIRED");
+        string file=PathFor(managerProfileRoot,mapId);
+        var diagnosis=DiagnoseReadOnly(managerProfileRoot,mapId);
+        if(diagnosis.State is "missing" or "valid")
+            throw new InvalidOperationException(
+                "UM-ORIGINAL-SAVE-FORENSIC-UNREADABLE-ONLY");
+        string pending=file+".next";
+        bool next=AttributesIfPresent(pending).HasValue;
+        string src=next?pending:file;
+        var attrs=AttributesIfPresent(src);
+        if(!attrs.HasValue)
+            throw new IOException("UM-ORIGINAL-SAVE-FORENSIC-SOURCE-MISSING");
+        if((attrs.Value&(FileAttributes.Directory|FileAttributes.ReparsePoint))!=0)
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-FORENSIC-LINKED");
+        // No large/archive/Store payloads are copied. A receipt and .next
+        // are normally below 4 KiB, with 64 KiB maximum for forensic work.
+        using var input=new FileStream(src,FileMode.Open,FileAccess.Read,
+            FileShare.ReadWrite|FileShare.Delete,4096,FileOptions.SequentialScan);
+        if(input.Length is <1 or >65536)
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-FORENSIC-SIZE");
+        byte[] original=new byte[checked((int)input.Length)];
+        input.ReadExactly(original);
+        if(input.Length!=original.Length)
+            throw new IOException("UM-ORIGINAL-SAVE-FORENSIC-SOURCE-CHANGED");
+        string sha=Convert.ToHexString(SHA256.HashData(original));
+        string root=VaultReadSnapshot.LocalPath(managerProfileRoot,true);
+        string directory=Path.Combine(root,"historical-save-evidence-forensic-v1");
+        var parent=AttributesIfPresent(directory);
+        if(parent.HasValue&&(parent.Value&(FileAttributes.Directory|
+            FileAttributes.ReparsePoint))!=FileAttributes.Directory)
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-FORENSIC-ROOT-UNSAFE");
+        Directory.CreateDirectory(directory);
+        string name=mapId.ToString("N")+"-"+Guid.NewGuid().ToString("N")+
+            (next?".next.bin":".json.bin");
+        string target=Path.Combine(directory,name);
+        using(var output=new FileStream(target,FileMode.CreateNew,
+            FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough))
+        {
+            output.Write(original);
+            output.Flush(true);
+        }
+        // Verify the explicitly-created local artifact before reporting it.
+        if(!CryptographicOperations.FixedTimeEquals(
+            SHA256.HashData(File.ReadAllBytes(target)),SHA256.HashData(original)))
+            throw new IOException("UM-ORIGINAL-SAVE-FORENSIC-COPY-FAILED");
+        return new(mapId,name,next?"next":"current",
+            diagnosis.ReasonCode,original.Length,sha,true,false,false);
+    }
+
     private static void Publish(string file,LegacyStoreV1SaveEvidence evidence)
     {
         Validate(evidence);

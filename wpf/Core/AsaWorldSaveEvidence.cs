@@ -86,6 +86,51 @@ public static class AsaWorldSaveEvidence
             original?.LastWriteTimeUtc??DateTime.MinValue);
     }
 
+    public sealed record LateReadOnlyObservation(string Stage,
+        bool WorldFilePresent,bool WorldMetadataNewerThanAttempt,
+        long? WorldBytes,DateTimeOffset? WorldWriteUtc,
+        bool AsaLogPresent,bool AsaLogNewerThanAttempt,
+        bool CompletionCertified,bool RconSent,bool GrantsOperation);
+
+    // P1: old .3003 receipts did NOT persist the pre-RCON log offset or the
+    // prior .ark file metadata. Therefore a later autosave or new log entry
+    // cannot safely be attributed to that one old SaveWorld command.
+    // This is a supported READ-ONLY late evidence check, not a conversion
+    // of "needsOperator" into "completed" or a new dispatch.
+    public static LateReadOnlyObservation InspectLateReadOnly(
+        LocalMap map,LegacyStoreV1SaveEvidence receipt,
+        Func<bool> sameOriginalOwner)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        ArgumentNullException.ThrowIfNull(receipt);
+        ArgumentNullException.ThrowIfNull(sameOriginalOwner);
+        if(map.Id!=receipt.MapId||receipt.Pid<=0||
+           receipt.Phase is not ("prepared" or "needsOperator" or "reviewed"))
+            throw new InvalidDataException("UM-ASA-SAVE-LATE-IDENTITY");
+        if(!sameOriginalOwner())
+            throw new UnauthorizedAccessException("UM-ASA-SAVE-LATE-OWNER-CHANGED");
+        string root=map.InstallationPath;
+        string log=LocalFilePath(root,Path.Combine(root,
+            "ShooterGame","Saved","Logs","ShooterGame.log"));
+        string world=LocalFilePath(root,AsaSaveLayoutResolver.Resolve(map).WorldFile);
+        var w=File.Exists(world)?new FileInfo(world):null;
+        var l=File.Exists(log)?new FileInfo(log):null;
+        bool present=w?.Exists==true&&w.Length>0,
+            later=present&&w!.LastWriteTimeUtc>receipt.BeganUtc.UtcDateTime,
+            logLater=l?.Exists==true&&l.LastWriteTimeUtc>
+                receipt.BeganUtc.UtcDateTime;
+        if(!sameOriginalOwner())
+            throw new UnauthorizedAccessException("UM-ASA-SAVE-LATE-OWNER-CHANGED");
+        return new(present?
+                later?"WORLD_METADATA_LATER_CAUSALITY_UNKNOWN":
+                    "WORLD_NOT_NEWER_THAN_ORIGINAL_RECEIPT":
+                "WORLD_FILE_UNAVAILABLE",
+            present,later,w?.Length,
+            w?.Exists==true?new DateTimeOffset(w.LastWriteTimeUtc,TimeSpan.Zero):null,
+            l?.Exists==true,logLater,
+            false,false,false);
+    }
+
     public static async Task<Observation> ObserveAsync(Boundary bookmark,
         Func<bool> sameOwnedProcess,CancellationToken ct=default)
     {

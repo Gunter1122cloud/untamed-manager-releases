@@ -41,10 +41,14 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     private readonly Dictionary<Guid,Approval> approvalsByMap=new();
     private sealed record ReviewApproval(Guid Token,Guid MapId,
         Guid ReceiptOperation,Guid? CoordinatorOperation,
-        string SourceSha,DateTimeOffset Created);
+        string SourceSha,int Pid,DateTimeOffset PidStartedUtc,
+        string ProfileJson,bool OwnerRunning,Guid? PairedRestartId,
+        DateTimeOffset Created);
     // Independent map approvals must not be superseded by another map.
     private readonly Dictionary<Guid,ReviewApproval> pendingReviewByMap=new();
     private readonly Func<Guid,string,bool> verifyReviewSource;
+    private readonly Func<Guid,int,DateTimeOffset,string,bool> verifyReviewRunning;
+    private readonly TimeSpan minimumRunningReviewAge;
     // Per-map Store SaveWorld/DoExit receipts must remain observable when
     // a second independent map starts another approved native operation.
     private readonly Dictionary<Guid,Job> jobsByMap=new();
@@ -63,10 +67,15 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         Func<Guid,LegacyStoreV1GracefulStop.Owned>? probe,
         Func<Guid,int,DateTimeOffset,string,Action<string>,Task<AsaGracefulStopReceipt>>? executor,
         Func<Guid,int,DateTimeOffset,string,Action<string>,Task<LegacyStoreV1GracefulStop.SaveOnlyReceipt>>? saver=null,
-        Func<Guid,string,bool>? reviewVerifier=null)
+        Func<Guid,string,bool>? reviewVerifier=null,
+        Func<Guid,int,DateTimeOffset,string,bool>? runningReviewVerifier=null,
+        TimeSpan? isolatedRunningReviewMinimumAge=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         verifyReviewSource=reviewVerifier??VerifyReviewOriginal;
+        verifyReviewRunning=runningReviewVerifier??VerifyReviewRunningOriginal;
+        minimumRunningReviewAge=isolatedRunningReviewMinimumAge??
+            TimeSpan.FromMinutes(3);
         nativePreview=probe==null;
         preview=probe??(map=>LegacyStoreV1GracefulStop.Preview(cluster,map));
         stop=executor??((map,pid,started,source,stage)=>
@@ -152,6 +161,31 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         return string.Equals(source,reviewedSourceSha,StringComparison.Ordinal);
     }
 
+    private bool VerifyReviewRunningOriginal(Guid mapId,int expectedPid,
+        DateTimeOffset expectedStart,string expectedSource)
+    {
+        if(expectedPid<=0||expectedStart==default||HasActive(mapId))
+            return false;
+        try
+        {
+            // This is the same read-only, owned PID/RCON/source guard used
+            // for unfinished Restart review. It DOES NOT require the ASA to
+            // be stopped and sends no RCON command.
+            var owner=LegacyStoreV1GracefulStop.
+                PreviewForUnfinishedRestartReview(cluster,mapId);
+            return owner.Process.Pid==expectedPid&&
+                owner.Process.StartedUtc==expectedStart&&
+                string.Equals(owner.SourceSha,expectedSource,
+                    StringComparison.Ordinal);
+        }
+        catch(Exception ex) when(ex is InvalidOperationException or
+            UnauthorizedAccessException or InvalidDataException or
+            IOException or ArgumentException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
     private object Recover(Guid mapId)
     {
         var map=Owned(mapId);
@@ -160,11 +194,14 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         // The journal is the durable authority across GUI/Manager crashes.
         // It is always READ ONLY here; no phase reset, retry, TTL unlock,
         // original Store/INI mutation or process launch is permitted.
-        var journal=cluster.Operations.Observe(map.InstallationPath);
-        // The manual original Restart has a separate durable journal.
-        // It must also block SaveWorld and Stop UI during Stopping/Starting.
-        var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
-        bool restartPending=restart!=null&&restart.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
+        var journalDiagnosis=AsaLocalJournalReadOnly.Inspect(
+            cluster.Operations,map.InstallationPath);
+        var journal=journalDiagnosis.Operation;
+        // Even an inaccessible/corrupt journal blocks this map. A read-only
+        // screen may diagnose it but may NOT clear or replay its operation.
+        var restart=journalDiagnosis.Restart;
+        bool restartPending=journalDiagnosis.RestartUnreadable||
+            restart!=null&&restart.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
         Job? running;
         bool localNeedsOperator;
         lock(sync)
@@ -173,9 +210,10 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             running=tracked?.State is "queued" or "running"?tracked:null;
             localNeedsOperator=tracked?.State=="needsOperator";
         }
-        bool operationBlocked=journal!=null&&journal.Phase is
-            UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
-            UntamedOperationPhase.NeedsOperator;
+        bool operationBlocked=journalDiagnosis.OperationUnreadable||
+            journal!=null&&journal.Phase is
+                UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
+                UntamedOperationPhase.NeedsOperator;
         var (saveEvidence,unreadableSaveEvidence)=
             LegacyStoreV1SaveEvidenceJournal.InspectReadOnly(
                 cluster.Store.Root,mapId);
@@ -186,16 +224,59 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             saveEvidence?.Phase is "prepared" or "needsOperator";
         bool blocked=operationBlocked||restartPending||pendingSaveEvidence||
             running!=null||localNeedsOperator;
-        bool needsOperator=localNeedsOperator||unreadableSaveEvidence||pendingSaveEvidence||(journal!=null&&(
+        bool needsOperator=journalDiagnosis.AnyUnreadable||
+            localNeedsOperator||unreadableSaveEvidence||pendingSaveEvidence||(journal!=null&&(
             journal.Phase==UntamedOperationPhase.NeedsOperator||
             operationBlocked&&running==null))||
             restart?.Phase==AsaRestartPhase.NeedsOperator;
+        bool saveReviewCandidate=!unreadableSaveEvidence&&
+            saveEvidence?.Phase is "prepared" or "needsOperator" or "reviewed"&&
+            journal?.Kind is null or UntamedOperationKind.Backup&&
+            (pendingSaveEvidence||operationBlocked);
+        // Status is a read-only dispatch guide, NOT review authorization.
+        // The named review endpoint will separately check the old PID,
+        // process-start, source, active worker, lease and restart journal.
+        string nextAction=running!=null?"WAIT_FOR_ACTIVE_WORKER":
+            journalDiagnosis.AnyUnreadable?"INSPECT_LOCAL_OPERATION_JOURNAL_ACCESS_OR_CORRUPTION":
+            unreadableSaveEvidence?"historical.saveWorldForensicExport":
+            saveReviewCandidate?"historical.saveWorldReviewPreview":
+            operationBlocked&&journal?.Kind==UntamedOperationKind.Launch?
+                "servers.lifecycleRecoveryPreview":
+            restartPending?"servers.lifecycleRecoveryPreview":
+            operationBlocked?journal?.Kind switch{
+                UntamedOperationKind.Backup=>
+                    "BACKUP_RECEIPT_ABSENT_EXPORT_COORDINATOR_FOR_OFFLINE_REVIEW",
+                UntamedOperationKind.Configuration=>
+                    "CONFIGURATION_JOURNAL_REQUIRE_LOCAL_CONFIG_DIFF_AUDIT",
+                UntamedOperationKind.PluginChange=>
+                    "PLUGIN_JOURNAL_REQUIRE_PLUGIN_FOLDER_ROLLBACK_AUDIT",
+                UntamedOperationKind.Restore=>
+                    "RESTORE_JOURNAL_REQUIRE_OFFLINE_STAGING_RECOVERY",
+                UntamedOperationKind.Update=>
+                    "UPDATE_JOURNAL_REQUIRE_STEAMCMD_STAGE_RECOVERY",
+                UntamedOperationKind.EmergencyKill=>
+                    "EMERGENCY_KILL_JOURNAL_REQUIRE_EXACT_PID_AUDIT",
+                _=>"UNSUPPORTED_OPERATION_STATE_EXPORT_DURABLE_JOURNAL"
+            }:
+            "NEW_PREFLIGHT_REQUIRED";
         return new{
             mapId,operationId=journal?.Operation,
             phase=journal?.Phase.ToString()??"None",
             operationKind=journal?.Kind.ToString()??"None",
             updatedUtc=journal?.UpdatedUtc,
             blocked,requiresOperator=needsOperator,
+            nextAction,
+            operationJournalUnreadable=journalDiagnosis.OperationUnreadable,
+            restartJournalUnreadable=journalDiagnosis.RestartUnreadable,
+            operationJournalErrorCode=journalDiagnosis.OperationErrorCode,
+            restartJournalErrorCode=journalDiagnosis.RestartErrorCode,
+            blockingJournal=running!=null?"inMemoryWorker":
+                journalDiagnosis.OperationUnreadable?"coordinatorUnreadable":
+                journalDiagnosis.RestartUnreadable?"restartUnreadable":
+                unreadableSaveEvidence?"saveEvidenceUnreadable":
+                saveReviewCandidate?"saveEvidence+coordinator":
+                restartPending?"restart":
+                operationBlocked?"coordinator":"none",
             inMemoryRunning=running!=null,
             jobId=running?.Id,
             // Distinguish the live task kind without exposing Store secrets.
@@ -241,7 +322,9 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                 "historical.saveWorldStatus" or
                 "historical.saveWorldEvidence" or
                 "historical.saveWorldReviewPreview" or
-                "historical.saveWorldReviewApply"))
+                "historical.saveWorldReviewApply" or
+                "historical.saveWorldForensicExport" or
+                "historical.saveWorldLateEvidence"))
                 return Fail(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
@@ -268,23 +351,72 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-NOT-NEEDED");
                     if(globalPending&&reviewedCoordinator?.Kind!=UntamedOperationKind.Backup)
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-OTHER-OPERATION");
-                    if(!verifyReviewSource(reviewedMapId,reviewedEvidence.OriginalSourceSha256))
-                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-STOP-OR-SOURCE-UNVERIFIED");
+                    if(HasActive(reviewedMapId))
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-WORKER-ACTIVE");
+                    var restart=new AsaManualRestartJournal(
+                        reviewedMap.InstallationPath).Observe();
+                    bool pendingRestart=restart!=null&&restart.Phase is not
+                        (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
+                    if(pendingRestart&&
+                       (restart!.MapId!=reviewedMapId||
+                        restart.OldPid!=reviewedEvidence.Pid||
+                        restart.NewPid!=0||
+                        restart.Phase is not (AsaRestartPhase.Stopping or
+                            AsaRestartPhase.NeedsOperator)))
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-RESTART-IDENTITY-CHANGED");
+                    if(pendingRestart&&DateTimeOffset.UtcNow-
+                        restart!.ChangedUtc<TimeSpan.FromMinutes(3))
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-RESTART-TOO-RECENT");
+                    bool ownedRunning=verifyReviewRunning(reviewedMapId,
+                        reviewedEvidence.Pid,reviewedEvidence.PidStartedUtc,
+                        reviewedEvidence.OriginalSourceSha256);
+                    // A second Manager could still be between durable
+                    // intent and acquiring the operation semaphore.
+                    // Never review a FRESH running ASA SaveWorld receipt.
+                    if(ownedRunning&&
+                       DateTimeOffset.UtcNow-reviewedEvidence.BeganUtc<
+                           minimumRunningReviewAge&&
+                       reviewedEvidence.Phase!="reviewed")
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-TOO-RECENT");
+                    bool ownerStopped=!ownedRunning&&
+                        verifyReviewSource(reviewedMapId,
+                            reviewedEvidence.OriginalSourceSha256);
+                    if(pendingRestart&&!ownedRunning)
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-PAIRED-RESTART-OWNER");
+                    if(!ownedRunning&&!ownerStopped)
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-OWNER-UNVERIFIED");
+                    // A previous partial review can have already marked the
+                    // Restart OperatorReviewed while Backup remains pending.
+                    // Reuse its exact ID only for the same original map/PID.
+                    Guid? pairedRestartId=ownedRunning&&restart!=null&&
+                        restart.MapId==reviewedMapId&&
+                        restart.OldPid==reviewedEvidence.Pid&&restart.NewPid==0&&
+                        restart.Phase is (AsaRestartPhase.Stopping or
+                            AsaRestartPhase.NeedsOperator or
+                            AsaRestartPhase.OperatorReviewed)
+                        ?restart.Id:null;
                     var reviewToken=Guid.NewGuid();
                     if(!pendingReviewByMap.ContainsKey(reviewedMapId)&&
                        pendingReviewByMap.Count>=25)
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-PREVIEW-CAPACITY");
                     pendingReviewByMap[reviewedMapId]=new(reviewToken,reviewedMapId,
                         reviewedEvidence.OperationId,reviewedCoordinator?.Operation,
-                        reviewedEvidence.OriginalSourceSha256,DateTimeOffset.UtcNow);
+                        reviewedEvidence.OriginalSourceSha256,reviewedEvidence.Pid,
+                        reviewedEvidence.PidStartedUtc,
+                        JsonSerializer.Serialize(reviewedMap),ownedRunning,
+                        pairedRestartId,DateTimeOffset.UtcNow);
                     return Ok(id,new{
                         token=reviewToken,mapId=reviewedMapId,phase=reviewedEvidence.Phase,
                         operationId=reviewedEvidence.OperationId,
                         coordinatorPhase=reviewedCoordinator?.Phase.ToString()??"None",
-                        originalSourceRevalidated=true,confirmedStopped=true,
+                        originalSourceRevalidated=true,confirmedStopped=ownerStopped,
+                        runningOwned=ownedRunning,previousOutcomeStillUnknown=true,
+                        pairedRestartReview=pairedRestartId!=null,
                         preservesOriginalReceipt=true,originalStoreFilesWritten=false,
                         automaticRetry=false,requiresTypedApproval=true,
-                        evidence="OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"
+                        evidence=ownedRunning?
+                            "OPERATOR_REVIEW_RUNNING_OWNED_ASA_SAVE_UNKNOWN":
+                            "OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"
                     });
                 }
                 if(method=="historical.saveWorldReviewApply")
@@ -304,31 +436,121 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                     if(DateTimeOffset.UtcNow-approvedReview.Created>TimeSpan.FromMinutes(5))
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-EXPIRED");
                     var currentReviewMap=Owned(approvedReview.MapId);
-                    if(currentReviewMap is not {HistoricalStoreProtected:true})
-                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-MAP-CHANGED");
+                    if(currentReviewMap is not {HistoricalStoreProtected:true}||
+                       JsonSerializer.Serialize(currentReviewMap)!=approvedReview.ProfileJson||
+                       HasActive(approvedReview.MapId))
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-MAP-OR-WORKER-CHANGED");
                     var currentReviewReceipt=LegacyStoreV1SaveEvidenceJournal.Inspect(
                         cluster.Store.Root,approvedReview.MapId);
                     if(currentReviewReceipt?.OperationId!=approvedReview.ReceiptOperation||
+                       currentReviewReceipt.Pid!=approvedReview.Pid||
+                       currentReviewReceipt.PidStartedUtc!=approvedReview.PidStartedUtc||
                        currentReviewReceipt.OriginalSourceSha256!=approvedReview.SourceSha)
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-RECEIPT-CHANGED");
-                    cluster.Operations.ReviewStoppedBackup(
-                        currentReviewMap.InstallationPath,approvedReview.CoordinatorOperation,
-                        ()=>verifyReviewSource(approvedReview.MapId,
-                            approvedReview.SourceSha),
-                        ()=>LegacyStoreV1SaveEvidenceJournal.ReviewUncertain(
+                    bool VerifyReviewedOwner()=>
+                        !HasActive(approvedReview.MapId)&&
+                        JsonSerializer.Serialize(currentReviewMap)==approvedReview.ProfileJson&&
+                        (approvedReview.OwnerRunning?
+                            verifyReviewRunning(approvedReview.MapId,
+                                approvedReview.Pid,approvedReview.PidStartedUtc,
+                                approvedReview.SourceSha):
+                            verifyReviewSource(approvedReview.MapId,
+                                approvedReview.SourceSha));
+                    if(!VerifyReviewedOwner())
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-OWNER-CHANGED");
+                    void ReviewReceipt()=>
+                        LegacyStoreV1SaveEvidenceJournal.ReviewUncertain(
                             cluster.Store.Root,approvedReview.MapId,
                             approvedReview.ReceiptOperation,approvedReview.SourceSha,
-                            ()=>verifyReviewSource(approvedReview.MapId,
-                                approvedReview.SourceSha)));
+                            VerifyReviewedOwner);
+                    if(approvedReview.OwnerRunning)
+                        cluster.Operations.ReviewRunningBackup(
+                            currentReviewMap.InstallationPath,
+                            approvedReview.CoordinatorOperation,
+                            VerifyReviewedOwner,ReviewReceipt,
+                            approvedReview.PairedRestartId,
+                            approvedReview.MapId,approvedReview.Pid);
+                    else
+                        cluster.Operations.ReviewStoppedBackup(
+                            currentReviewMap.InstallationPath,
+                            approvedReview.CoordinatorOperation,
+                            VerifyReviewedOwner,ReviewReceipt);
                     var updatedReviewReceipt=LegacyStoreV1SaveEvidenceJournal.Inspect(
                         cluster.Store.Root,approvedReview.MapId);
+                    if(updatedReviewReceipt?.Phase!="reviewed")
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-NOT-FINISHED");
+                    lock(sync)
+                        if(jobsByMap.TryGetValue(approvedReview.MapId,out var previous)&&
+                           previous.Id==approvedReview.ReceiptOperation&&
+                           previous.State=="needsOperator")
+                        {
+                            previous.State="reviewed";
+                            previous.Step="Korábbi mentés kimenetele ismeretlen; napló auditálva";
+                            previous.ChangedUtc=DateTimeOffset.UtcNow;
+                        }
                     return Ok(id,new{
                         mapId=approvedReview.MapId,
-                        phase=updatedReviewReceipt?.Phase??"none",reviewed=true,
+                        phase=updatedReviewReceipt.Phase,reviewed=true,
                         oldReceiptArchived=true,originalStoreFilesWritten=false,
-                        autoRetry=false,serverStarted=false,
+                        previousOutcomeStillUnknown=true,
+                        ownerRemainedRunning=approvedReview.OwnerRunning,
+                        pairedRestartReviewed=approvedReview.PairedRestartId!=null,
+                        rconSent=false,autoRetry=false,serverStarted=false,
                         nextOperationRequiresNewApproval=true,
                         evidence="OPERATOR_REVIEW_DURABLE_LOCAL_JOURNALS_NO_STORE_MUTATION"
+                    });
+                }
+                if(method=="historical.saveWorldLateEvidence")
+                {
+                    if(!GuidValue(request,"mapId",out var lateMapId)||
+                       Owned(lateMapId) is not {HistoricalStoreProtected:true} lateMap)
+                        return Fail(id,"UM-ASA-SAVE-LATE-ORIGINAL-ONLY");
+                    if(HasActive(lateMapId))
+                        return Fail(id,"UM-ASA-SAVE-LATE-WORKER-ACTIVE");
+                    var receipt=LegacyStoreV1SaveEvidenceJournal.Inspect(
+                        cluster.Store.Root,lateMapId);
+                    if(receipt==null)
+                        return Fail(id,"UM-ASA-SAVE-LATE-RECEIPT-MISSING");
+                    bool Owner()=>verifyReviewRunning(lateMapId,
+                        receipt.Pid,receipt.PidStartedUtc,
+                        receipt.OriginalSourceSha256);
+                    var late=AsaWorldSaveEvidence.InspectLateReadOnly(
+                        lateMap,receipt,Owner);
+                    return Ok(id,new{
+                        mapId=lateMapId,operationId=receipt.OperationId,
+                        stage=late.Stage,
+                        worldFilePresent=late.WorldFilePresent,
+                        worldMetadataNewerThanAttempt=late.WorldMetadataNewerThanAttempt,
+                        worldBytes=late.WorldBytes,worldWriteUtc=late.WorldWriteUtc,
+                        asaLogPresent=late.AsaLogPresent,
+                        asaLogNewerThanAttempt=late.AsaLogNewerThanAttempt,
+                        completionCertified=false,rconSent=false,
+                        grantsOperation=false,oldSaveWorldRetried=false,
+                        evidence="ORIGINAL_ASA_LATE_METADATA_READ_ONLY_NO_CAUSAL_SAVE_PROOF"
+                    });
+                }
+                if(method=="historical.saveWorldForensicExport")
+                {
+                    if(!GuidValue(request,"mapId",out var exportMapId)||
+                       Owned(exportMapId) is not {HistoricalStoreProtected:true})
+                        return Fail(id,"UM-ORIGINAL-SAVE-FORENSIC-LOCAL-ONLY");
+                    if(!request.TryGetProperty("confirm",out var consent)||
+                       consent.ValueKind!=JsonValueKind.True)
+                        return Fail(id,"UM-ORIGINAL-SAVE-FORENSIC-APPROVAL-REQUIRED");
+                    // This is a byte-copy of an invalid Manager receipt,
+                    // never permission to unlock or run ASA. No worker races.
+                    if(HasActive(exportMapId))
+                        return Fail(id,"UM-ORIGINAL-SAVE-FORENSIC-WORKER-ACTIVE");
+                    var exported=LegacyStoreV1SaveEvidenceJournal.ExportUnreadable(
+                        cluster.Store.Root,exportMapId,true);
+                    return Ok(id,new{
+                        mapId=exported.MapId,fileName=exported.FileName,
+                        sourceSlot=exported.SourceSlot,
+                        failureCode=exported.FailureCode,
+                        bytes=exported.Bytes,sha256=exported.Sha256,
+                        originalUntouched=true,sendsRcon=false,
+                        grantsRecovery=false,automaticRetry=false,
+                        evidence="EXPLICIT_MANAGER_LOCAL_FORENSIC_COPY_NO_UNLOCK"
                     });
                 }
                 if(method=="historical.saveWorldEvidence")
@@ -339,8 +561,10 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                     var (evidence,unreadable)=
                         LegacyStoreV1SaveEvidenceJournal.InspectReadOnly(
                             cluster.Store.Root,evidenceMapId);
+                    var diagnosis=LegacyStoreV1SaveEvidenceJournal.DiagnoseReadOnly(
+                        cluster.Store.Root,evidenceMapId);
                     return Ok(id,new{
-                        mapId=evidenceMapId,
+                        mapId=evidenceMapId,diagnosis,
                         phase=unreadable?"unreadable":evidence?.Phase??"none",
                         unreadable,
                         errorCode=unreadable?
@@ -595,7 +819,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                 "UM-ORIGINAL-SAVE-HISTORY-RECEIPT-CHANGED" or
                 "UM-ORIGINAL-SAVE-HISTORY-UNSAFE"=>
                     "UM-ORIGINAL-SAVE-HISTORY-REVIEW-REQUIRED",
-                _=>"UM-ORIGINAL-STOP-SAFETY-CHECK-FAILED"
+                _=>NativeLifecycleFailureCode.From(ex)
             });
         }
     }

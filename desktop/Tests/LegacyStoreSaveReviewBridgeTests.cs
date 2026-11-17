@@ -118,8 +118,193 @@ internal static class LegacyStoreSaveReviewBridgeTests
             "original Store Stop recovery preserves failed in-memory state");
     }
 
+    private static async Task VerifyRunningOwnedSaveReview(string root)
+    {
+        // P0 live-aberration regression with synthetic process/Store state.
+        // Never launches an ASA process, connects to RCON or touches Kova.
+        string installation=Path.Combine(root,"running-save-review-install");
+        string profile=Path.Combine(root,"running-save-review-manager");
+        Directory.CreateDirectory(installation);
+        await using var cluster=new ClusterService("running-save-review-test",profile,
+            _=>new ProcessCheck(true,"synthetic running ASA",null,false));
+        var map=new LocalMap{
+            Id=Guid.NewGuid(),Name="Synthetic running Aberration",
+            HistoricalStoreProtected=true,HistoricalMapKey="Aberration_WP",
+            InstallationPath=installation,RconPort=37045
+        };
+        cluster.AddMap(map);
+        const int pid=16392;
+        var pidStarted=DateTimeOffset.UtcNow.AddMinutes(-6);
+        var receiptOperation=Guid.NewGuid();
+        LegacyStoreV1SaveEvidenceJournal.Begin(cluster.Store.Root,
+            receiptOperation,map.Id,pid,pidStarted,SourceSha);
+        LegacyStoreV1SaveEvidenceJournal.MarkUncertain(cluster.Store.Root,
+            receiptOperation,map.Id,pid,pidStarted,SourceSha);
+        using(var interrupted=cluster.Operations.Acquire(
+            installation,UntamedOperationKind.Backup))
+            interrupted.MarkMutationStarted();
+        var originalCoordinator=cluster.Operations.Observe(installation)!;
+        byte[] untouched=File.ReadAllBytes(Path.Combine(cluster.Store.Root,
+            "historical-save-evidence-v1",map.Id.ToString("N")+".json"));
+        bool exactOwner=false;
+        int readOnlyChecks=0;
+        using var bridge=new DesktopHistoricalGracefulStopBridge(cluster,
+            null,null,reviewVerifier:(_,_)=>false,
+            runningReviewVerifier:(id,observedPid,observedStart,sha)=>{
+                readOnlyChecks++;
+                return exactOwner&&id==map.Id&&observedPid==pid&&
+                    observedStart==pidStarted&&sha==SourceSha;
+            },isolatedRunningReviewMinimumAge:TimeSpan.Zero);
+        var denied=await Call(bridge,"historical.saveWorldReviewPreview",
+            new{mapId=map.Id});
+        Check(!denied.GetProperty("ok").GetBoolean(),
+            "running SaveWorld review denies an unverified original PID/source");
+
+        exactOwner=true;
+        var review=await Call(bridge,"historical.saveWorldReviewPreview",
+            new{mapId=map.Id});
+        Check(review.GetProperty("ok").GetBoolean()&&
+              review.GetProperty("data").GetProperty("runningOwned").GetBoolean()&&
+              !review.GetProperty("data").GetProperty("confirmedStopped").GetBoolean()&&
+              review.GetProperty("data").GetProperty("previousOutcomeStillUnknown").GetBoolean(),
+            "running original ASA can preview uncertain SaveWorld without Stop");
+        string token=review.GetProperty("data").GetProperty("token").GetString()!;
+        var rejected=await Call(bridge,"historical.saveWorldReviewApply",
+            new{token,confirm=true,confirmation="WRONG"});
+        Check(!rejected.GetProperty("ok").GetBoolean(),
+            "incorrect one-shot consent cannot write any running-review journal");
+        exactOwner=false;
+        rejected=await Call(bridge,"historical.saveWorldReviewApply",
+            new{token,confirm=true,confirmation="REVIEW STORE SAVE"});
+        Check(!rejected.GetProperty("ok").GetBoolean()&&
+              cluster.Operations.Observe(installation)?.Phase==
+                  UntamedOperationPhase.NeedsOperator &&
+              LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id)?.Phase==
+                  "needsOperator",
+            "changed original PID/source denies apply without changing any journal");
+        rejected=await Call(bridge,"historical.saveWorldReviewApply",
+            new{token,confirm=true,confirmation="REVIEW STORE SAVE"});
+        Check(!rejected.GetProperty("ok").GetBoolean(),
+            "failed running-review approval token cannot be replayed");
+
+        exactOwner=true;
+        review=await Call(bridge,"historical.saveWorldReviewPreview",
+            new{mapId=map.Id});
+        token=review.GetProperty("data").GetProperty("token").GetString()!;
+        var resolved=await Call(bridge,"historical.saveWorldReviewApply",
+            new{token,confirm=true,confirmation="REVIEW STORE SAVE"});
+        Check(resolved.GetProperty("ok").GetBoolean()&&
+              resolved.GetProperty("data").GetProperty("ownerRemainedRunning").GetBoolean()&&
+              resolved.GetProperty("data").GetProperty("previousOutcomeStillUnknown").GetBoolean()&&
+              !resolved.GetProperty("data").GetProperty("rconSent").GetBoolean()&&
+              !resolved.GetProperty("data").GetProperty("originalStoreFilesWritten").GetBoolean(),
+            "running review is audited without RCON, Stop or false SaveComplete");
+        var evidence=LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id);
+        var coordinator=cluster.Operations.Observe(installation);
+        Check(evidence?.Phase=="reviewed"&&!evidence.LocalSaveCompleteObserved&&
+              coordinator?.Phase==UntamedOperationPhase.OperatorReviewed&&
+              coordinator.Operation==originalCoordinator.Operation&&
+              readOnlyChecks>=4,
+            "running review preserves coordinator identity and UNKNOWN SaveWorld outcome");
+        string archive=Path.Combine(cluster.Store.Root,"historical-save-evidence-v1",
+            "reviewed",map.Id.ToString("N")+"-"+receiptOperation.ToString("N")+".json");
+        Check(File.Exists(archive)&&File.ReadAllBytes(archive).SequenceEqual(untouched),
+            "original uncertain receipt is archived byte-identically");
+        var state=await Call(bridge,"historical.gracefulStopRecovery",
+            new{mapId=map.Id});
+        Check(state.GetProperty("ok").GetBoolean()&&
+              !state.GetProperty("data").GetProperty("blocked").GetBoolean(),
+            "reviewed running SaveWorld no longer blocks a new independent preflight");
+
+        // Crash-injection: receipt reviewed and archived, but the common
+        // Backup coordinator write was interrupted. A second approved
+        // operator review resumes idempotently; no RCON replay occurs.
+        var anotherReceipt=Guid.NewGuid();
+        LegacyStoreV1SaveEvidenceJournal.Begin(cluster.Store.Root,
+            anotherReceipt,map.Id,pid,pidStarted,SourceSha);
+        LegacyStoreV1SaveEvidenceJournal.MarkUncertain(cluster.Store.Root,
+            anotherReceipt,map.Id,pid,pidStarted,SourceSha);
+        using(var second=cluster.Operations.Acquire(
+            installation,UntamedOperationKind.Backup))
+            second.MarkMutationStarted();
+        LegacyStoreV1SaveEvidenceJournal.ReviewUncertain(cluster.Store.Root,
+            map.Id,anotherReceipt,SourceSha,()=>true);
+        Check(cluster.Operations.Observe(installation)?.Phase==
+                  UntamedOperationPhase.NeedsOperator,
+            "crash between receipt and coordinator leaves installation blocked");
+        var resume=await Call(bridge,"historical.saveWorldReviewPreview",
+            new{mapId=map.Id});
+        Check(resume.GetProperty("ok").GetBoolean()&&
+              resume.GetProperty("data").GetProperty("phase").GetString()=="reviewed",
+            "partial two-journal review is presented for explicit completion");
+        var resumed=await Call(bridge,"historical.saveWorldReviewApply",
+            new{token=resume.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true,confirmation="REVIEW STORE SAVE"});
+        Check(resumed.GetProperty("ok").GetBoolean()&&
+              cluster.Operations.Observe(installation)?.Phase==
+                  UntamedOperationPhase.OperatorReviewed,
+            "second approval finishes interrupted paired review without sending command");
+
+        // P1: three-journal crash. In a fully isolated installation,
+        // a matching old-PID Restart and a Backup journal may both be
+        // NeedsOperator. Review SaveEvidence first, Restart second, Backup
+        // last; a synthetic exception between writes must remain resumable.
+        var thirdReceipt=Guid.NewGuid();
+        LegacyStoreV1SaveEvidenceJournal.Begin(cluster.Store.Root,
+            thirdReceipt,map.Id,pid,pidStarted,SourceSha);
+        LegacyStoreV1SaveEvidenceJournal.MarkUncertain(cluster.Store.Root,
+            thirdReceipt,map.Id,pid,pidStarted,SourceSha);
+        using(var third=cluster.Operations.Acquire(
+            installation,UntamedOperationKind.Backup))
+            third.MarkMutationStarted();
+        var restartJournal=new AsaManualRestartJournal(installation);
+        var pendingRestart=restartJournal.Begin(map.Id,pid);
+        restartJournal.Change(pendingRestart.Id,AsaRestartPhase.NeedsOperator);
+        // Synthetic fixture only: emulate a genuine abandoned Restart that
+        // is older than the production three-minute manual-review threshold.
+        string restartFile=Path.Combine(UntamedOperationCoordinator.DefaultRoot,
+            "Restart-v1",UntamedOperationCoordinator.ResourceKey(installation)+".json");
+        File.WriteAllText(restartFile,JsonSerializer.Serialize(
+            restartJournal.Observe()! with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-6)
+            },new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        var pendingCoordinator=cluster.Operations.Observe(installation)!;
+        bool injectedCrash=false;
+        try
+        {
+            cluster.Operations.ReviewRunningBackup(installation,
+                pendingCoordinator.Operation,()=>true,()=>{
+                    LegacyStoreV1SaveEvidenceJournal.ReviewUncertain(
+                        cluster.Store.Root,map.Id,thirdReceipt,SourceSha,()=>true);
+                    throw new IOException("synthetic crash after first of three reviews");
+                },pendingRestart.Id,map.Id,pid);
+        }
+        catch(IOException){injectedCrash=true;}
+        Check(injectedCrash&&
+              LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id)?.Phase=="reviewed"&&
+              restartJournal.Observe()?.Phase==AsaRestartPhase.NeedsOperator&&
+              cluster.Operations.Observe(installation)?.Phase==UntamedOperationPhase.NeedsOperator,
+            "three-journal crash after SaveEvidence retains both pending recovery blockers");
+        var paired=await Call(bridge,"historical.saveWorldReviewPreview",
+            new{mapId=map.Id});
+        Check(paired.GetProperty("ok").GetBoolean()&&
+              paired.GetProperty("data").GetProperty("pairedRestartReview").GetBoolean(),
+            "running review inventories and binds the matching interrupted Restart");
+        var pairedReceipt=await Call(bridge,"historical.saveWorldReviewApply",
+            new{token=paired.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true,confirmation="REVIEW STORE SAVE"});
+        Check(pairedReceipt.GetProperty("ok").GetBoolean()&&
+              pairedReceipt.GetProperty("data").GetProperty("pairedRestartReviewed").GetBoolean()&&
+              !pairedReceipt.GetProperty("data").GetProperty("rconSent").GetBoolean()&&
+              restartJournal.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+              cluster.Operations.Observe(installation)?.Phase==UntamedOperationPhase.OperatorReviewed&&
+              !LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id)!.LocalSaveCompleteObserved,
+            "three-journal review is resumed idempotently without Send/SaveComplete/Stop");
+    }
+
     public static async Task Run(string testRoot)
     {
+        await VerifyRunningOwnedSaveReview(testRoot);
         string root=Path.Combine(testRoot,"synthetic-reviewed-store-save");
         string profile=Path.Combine(root,"manager");
         string installation=Path.Combine(root,"synthetic-server");
@@ -238,6 +423,28 @@ internal static class LegacyStoreSaveReviewBridgeTests
         File.WriteAllBytes(interruptedReceiptNext,incomplete);
         byte[] originalEvidence=File.ReadAllBytes(Path.Combine(
             receiptDirectory,map.Id.ToString("N")+".json"));
+        var deniedExport=await Call(bridge,"historical.saveWorldForensicExport",
+            new{mapId=map.Id,confirm=false});
+        Check(!deniedExport.GetProperty("ok").GetBoolean(),
+            "unreadable receipt forensic copy requires explicit operator click");
+        var exported=await Call(bridge,"historical.saveWorldForensicExport",
+            new{mapId=map.Id,confirm=true});
+        Check(exported.GetProperty("ok").GetBoolean()&&
+              exported.GetProperty("data").GetProperty("originalUntouched").GetBoolean()&&
+              !exported.GetProperty("data").GetProperty("grantsRecovery").GetBoolean()&&
+              !exported.GetProperty("data").GetProperty("sendsRcon").GetBoolean()&&
+              exported.GetProperty("data").GetProperty("bytes").GetInt64()==
+                  incomplete.Length,
+            "operator exports malformed next file without granting new ASA action");
+        string archivedForensics=Path.Combine(cluster.Store.Root,
+            "historical-save-evidence-forensic-v1",
+            exported.GetProperty("data").GetProperty("fileName").GetString()!);
+        Check(File.ReadAllBytes(archivedForensics).SequenceEqual(incomplete)&&
+              File.ReadAllBytes(interruptedReceiptNext).SequenceEqual(incomplete)&&
+              File.ReadAllBytes(Path.Combine(
+                  receiptDirectory,map.Id.ToString("N")+".json"))
+                  .SequenceEqual(originalEvidence),
+            "forensic export is byte-identical and leaves original .next and receipt intact");
         var degradedEvidence=await Call(bridge,"historical.saveWorldEvidence",
             new{mapId=map.Id});
         Check(degradedEvidence.GetProperty("ok").GetBoolean()&&

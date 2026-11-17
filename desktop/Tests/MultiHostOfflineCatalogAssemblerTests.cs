@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Text;
 using System.Text.Json;
 using System.Collections.Generic;
@@ -227,6 +229,120 @@ internal static class MultiHostOfflineCatalogAssemblerTests
                     sourceHashes["maps/"+stagedMap.MapId.ToString("N")+"/Saved/world.ark"]),
                     "real host world bytes preserve original identity and restore mapping");
             }
+
+            // P2: two independent native staging workers for one host must
+            // not both pass the same preview. The first holds the exact
+            // cross-process publish semaphore; the second is refused before
+            // it can enter the same .incomplete directory or alter bytes.
+            string raceParent=Path.Combine(sandbox,"host-restore-race");
+            Directory.CreateDirectory(raceParent);
+            var racePlan=MultiHostHostRestoreStaging.Inspect(destination,hosts[0],
+                raceParent,expanded);
+            using(var entered=new ManualResetEventSlim(false))
+            using(var release=new ManualResetEventSlim(false))
+            {
+                var first=Task.Run(()=>{
+                    try
+                    {
+                        MultiHostHostRestoreStaging.Stage(racePlan,expanded,
+                            afterCopiedForTesting:copied=>{
+                                if(copied!=1)return;
+                                entered.Set();
+                                if(!release.Wait(TimeSpan.FromSeconds(20)))
+                                    throw new IOException("SYNTHETIC_STAGE_RELEASE_TIMEOUT");
+                                throw new IOException("SYNTHETIC_STAGE_INTERRUPTED");
+                            });
+                        return false;
+                    }
+                    catch(IOException ex)
+                    {
+                        return ex.Message=="SYNTHETIC_STAGE_INTERRUPTED";
+                    }
+                });
+                try
+                {
+                    Check(entered.Wait(TimeSpan.FromSeconds(20)),
+                        "first host stage has entered its active exclusive copy lease");
+                    bool secondDenied=false;
+                    try{_ = MultiHostHostRestoreStaging.Stage(racePlan,expanded);}
+                    catch(IOException ex) when(ex.Message=="UM-HOSTRESTORE-STAGE-BUSY")
+                    {secondDenied=true;}
+                    Check(secondDenied,
+                        "second native Manager cannot join an in-progress host stage");
+                }
+                finally { release.Set(); }
+                Check(first.GetAwaiter().GetResult(),
+                    "synthetic interrupted stage retains original partial for later review");
+                var racedPartial=Path.Combine(raceParent,
+                    racePlan.StageDirectoryName+".incomplete");
+                Check(Directory.Exists(racedPartial)&&
+                      !Directory.Exists(Path.Combine(raceParent,
+                          racePlan.StageDirectoryName)),
+                    "failed concurrent copy never publishes or overwrites incomplete host stage");
+            }
+
+            // P1: replay a crash just AFTER all SHA-256 stage verification
+            // but BEFORE its final Directory.Move, entirely in synthetic
+            // local folders. Manual finalize is one-shot and never cutover.
+            string resumeParent=Path.Combine(sandbox,"host-restore-resume");
+            Directory.CreateDirectory(resumeParent);
+            var recoveryPlan=MultiHostHostRestoreStaging.Inspect(destination,
+                hosts[0],resumeParent,expanded);
+            MultiHostHostRestoreStaging.Stage(recoveryPlan,expanded);
+            string resumeTarget=Path.Combine(resumeParent,
+                recoveryPlan.StageDirectoryName);
+            string resumePartial=resumeTarget+".incomplete";
+            Directory.Move(resumeTarget,resumePartial);
+            var inspectedPartial=MultiHostHostRestoreStaging.InspectInterrupted(
+                recoveryPlan,expanded);
+            Check(inspectedPartial.CanFinalize&&inspectedPartial.ExistingOriginalPreserved,
+                "fully sealed .incomplete host package can be independently SHA-verified");
+            bool deniedUnapproved=false;
+            try{MultiHostHostRestoreStaging.FinalizeInterrupted(
+                recoveryPlan,expanded,false);}
+            catch(UnauthorizedAccessException){deniedUnapproved=true;}
+            Check(deniedUnapproved&&Directory.Exists(resumePartial)&&
+                !Directory.Exists(resumeTarget),
+                "operator consent is mandatory before publishing verified partial");
+            var resumed=MultiHostHostRestoreStaging.FinalizeInterrupted(
+                recoveryPlan,expanded,true);
+            Check(resumed.BatchId==catalog.BatchId&&
+                MultiHostHostRestoreStaging.Verify(resumeTarget).Components.Length==
+                    recoveryPlan.Components&&
+                !Directory.Exists(resumePartial),
+                "approved same-host partial resumes once without rewriting Store or ASA");
+            bool deniedReplay=false;
+            try{MultiHostHostRestoreStaging.FinalizeInterrupted(
+                recoveryPlan,expanded,true);}
+            catch(InvalidDataException){deniedReplay=true;}
+            Check(deniedReplay,"no replay can replace an already published host package");
+
+            string corruptParent=Path.Combine(sandbox,"host-restore-corrupt-partial");
+            Directory.CreateDirectory(corruptParent);
+            var corruptPlan=MultiHostHostRestoreStaging.Inspect(destination,
+                hosts[0],corruptParent,expanded);
+            MultiHostHostRestoreStaging.Stage(corruptPlan,expanded);
+            string corruptTarget=Path.Combine(corruptParent,
+                corruptPlan.StageDirectoryName);
+            string corruptPartial=corruptTarget+".incomplete";
+            Directory.Move(corruptTarget,corruptPartial);
+            string corruptManifest=Path.Combine(corruptPartial,
+                "host-restore-stage-v1.json");
+            byte[] originalPartialManifest=File.ReadAllBytes(corruptManifest);
+            File.AppendAllText(corruptManifest,"!");
+            var unverifiedPartial=MultiHostHostRestoreStaging.InspectInterrupted(
+                corruptPlan,expanded);
+            Check(!unverifiedPartial.CanFinalize&&
+                !Directory.Exists(corruptTarget)&&
+                File.ReadAllBytes(corruptManifest).Length==
+                    originalPartialManifest.Length+1,
+                "tampered .incomplete manifest stays intact and cannot be published");
+            bool refusedCorrupt=false;
+            try{MultiHostHostRestoreStaging.FinalizeInterrupted(
+                corruptPlan,expanded,true);}
+            catch(InvalidDataException){refusedCorrupt=true;}
+            Check(refusedCorrupt&&Directory.Exists(corruptPartial),
+                "corrupt partial remains for forensic export, never overwritten");
 
             foreach(var kv in sourceHashes)
             {

@@ -2,8 +2,10 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using UntamedDesktop;
 using UntamedManager.Core;
 
 // Separate Windows process must NEVER fall back to machine-wide ProgramData.
@@ -89,5 +91,101 @@ internal static class OperationJournalIsolationTests
         Check(File.Exists(Path.Combine(journals,key+".json"))&&
               File.Exists(Path.Combine(journals,"Restart-v1",key+".json")),
             "generic and Restart-v1 journals are both beneath TEMP");
+
+        // P1/P2: a directory occupying a journal filename must not be
+        // mistaken for a missing file (File.Exists returns false), and an
+        // exclusively locked journal must not become an automatic unlock.
+        // All fixtures live beneath a separate TEMP-backed coordinator root.
+        string recoveryRoot=Path.Combine(root,"unreadable-journal-regressions");
+        string recoveryInstall=Path.Combine(recoveryRoot,"original-asa");
+        string recoveryJournals=Path.Combine(recoveryRoot,"journals");
+        Directory.CreateDirectory(recoveryInstall);
+        using var isolated=UntamedOperationCoordinator.UseIsolatedRootForTests(recoveryJournals);
+        await using var cluster=new ClusterService("local-journal-read-only-tests",
+            Path.Combine(recoveryRoot,"profile"),
+            _=>new ProcessCheck(true,"synthetic only",null,false));
+        var map=new LocalMap{Id=Guid.NewGuid(),Name="Synthetic Aberration",
+            InstallationPath=recoveryInstall,HistoricalStoreProtected=true,
+            HistoricalMapKey="Aberration_WP",RconPort=37654};
+        cluster.AddMap(map);
+        using(var lease=cluster.Operations.Acquire(recoveryInstall,
+            UntamedOperationKind.Backup))lease.MarkMutationStarted();
+        var restart=new AsaManualRestartJournal(recoveryInstall);
+        restart.Begin(map.Id,36541);
+        string resource=UntamedOperationCoordinator.ResourceKey(recoveryInstall);
+        string operationFile=Path.Combine(recoveryJournals,resource+".json");
+        string restartFile=Path.Combine(recoveryJournals,"Restart-v1",resource+".json");
+        byte[] originalOperation=File.ReadAllBytes(operationFile);
+        byte[] originalRestart=File.ReadAllBytes(restartFile);
+
+        File.Move(operationFile,operationFile+".synthetic-original");
+        Directory.CreateDirectory(operationFile);
+        var diagnosis=AsaLocalJournalReadOnly.Inspect(cluster.Operations,recoveryInstall);
+        Check(diagnosis.OperationUnreadable&&!diagnosis.RestartUnreadable&&
+            diagnosis.OperationErrorCode=="UM-OPERATION-JOURNAL-READ-INVALID",
+            "directory-shaped Operations-v1 journal is explicitly unreadable");
+        var lifecycleBridge=new DesktopAsaLifecycleJournalBridge(cluster);
+        using(var response=JsonDocument.Parse(await lifecycleBridge.HandleAsync(
+            JsonSerializer.Serialize(new{id=Guid.NewGuid(),
+                method="servers.lifecycleJournal",mapId=map.Id}))))
+        {
+            var data=response.RootElement.GetProperty("data");
+            Check(response.RootElement.GetProperty("ok").GetBoolean()&&
+                data.GetProperty("needsOperatorReview").GetBoolean()&&
+                !data.GetProperty("recoverySupported").GetBoolean()&&
+                data.GetProperty("journalUnreadable").GetBoolean()&&
+                data.GetProperty("blockingCode").GetString()==
+                    "UM-OPERATION-JOURNAL-READ-INVALID",
+                "lifecycle UI reports corrupt coordinator and denies recovery approval");
+        }
+        using var stop=new DesktopHistoricalGracefulStopBridge(cluster);
+        using var restartBridge=new DesktopHistoricalRestartBridge(cluster);
+        async Task<JsonElement> Status(Func<string,Task<string>> route,string method)
+        {
+            using var packet=JsonDocument.Parse(await route(JsonSerializer.Serialize(
+                new{id=Guid.NewGuid(),method,mapId=map.Id})));
+            return packet.RootElement.Clone();
+        }
+        var stopStatus=await Status(stop.HandleAsync,"historical.gracefulStopRecovery");
+        var restartStatus=await Status(restartBridge.HandleAsync,"historical.restartRecovery");
+        Check(stopStatus.GetProperty("data").GetProperty("blocked").GetBoolean()&&
+              restartStatus.GetProperty("data").GetProperty("blocked").GetBoolean()&&
+              stopStatus.GetProperty("data").GetProperty("operationJournalUnreadable").GetBoolean()&&
+              restartStatus.GetProperty("data").GetProperty("operationJournalUnreadable").GetBoolean(),
+            "SaveWorld/Stop and Restart recovery remain blocked on corrupt coordinator");
+        bool strictRefused=false;
+        try{_ = cluster.Operations.Observe(recoveryInstall);}
+        catch(InvalidDataException){strictRefused=true;}
+        Check(strictRefused,"strict coordinator read never treats a directory as absent");
+        Directory.Delete(operationFile);
+        File.Move(operationFile+".synthetic-original",operationFile);
+
+        File.Move(restartFile,restartFile+".synthetic-original");
+        Directory.CreateDirectory(restartFile);
+        diagnosis=AsaLocalJournalReadOnly.Inspect(cluster.Operations,recoveryInstall);
+        Check(!diagnosis.OperationUnreadable&&diagnosis.RestartUnreadable&&
+              diagnosis.RestartErrorCode=="UM-ASA-RESTART-JOURNAL-READ-INVALID",
+            "directory-shaped Restart-v1 journal is explicitly unreadable");
+        var secondStatus=await Status(stop.HandleAsync,"historical.gracefulStopRecovery");
+        Check(secondStatus.GetProperty("data").GetProperty("blocked").GetBoolean()&&
+              secondStatus.GetProperty("data").GetProperty("restartJournalUnreadable").GetBoolean(),
+            "Stop remains blocked by a broken independent Restart-v1 receipt");
+        strictRefused=false;
+        try{_ = restart.Observe();}
+        catch(InvalidDataException){strictRefused=true;}
+        Check(strictRefused,"strict Restart read refuses directory-shaped receipt");
+        Directory.Delete(restartFile);
+        File.Move(restartFile+".synthetic-original",restartFile);
+        using(var held=new FileStream(operationFile,FileMode.Open,
+            FileAccess.ReadWrite,FileShare.None))
+        {
+            diagnosis=AsaLocalJournalReadOnly.Inspect(cluster.Operations,recoveryInstall);
+            Check(diagnosis.OperationUnreadable&&
+                diagnosis.OperationErrorCode=="UM-OPERATION-JOURNAL-READ-IO-UNAVAILABLE",
+                "OS file-share denial surfaces an explicit I/O blocker, not absence");
+        }
+        Check(File.ReadAllBytes(operationFile).SequenceEqual(originalOperation)&&
+              File.ReadAllBytes(restartFile).SequenceEqual(originalRestart),
+            "read-only diagnostics and strict refusals preserve both original journal bytes");
     }
 }

@@ -577,6 +577,7 @@ test.beforeEach(async ({ page }) => {
       originalSaveUnreadable=false;
     };
     let originalSaveRecoveryFixture=false;
+    let originalSaveRecoveryRunning=false;
     let originalSaveReviewed=false;
     (window as typeof window & {__UNTAMED_SAVE_REVIEW_FIXTURE__?:()=>void})
       .__UNTAMED_SAVE_REVIEW_FIXTURE__=()=>{
@@ -584,6 +585,14 @@ test.beforeEach(async ({ page }) => {
         Object.assign(state.local.maps[1],{storeProtected:true,
           running:false,status:"Leállítva",storeLifecycleState:"needsOperator"});
       };
+    (window as typeof window & {
+      __UNTAMED_SAVE_REVIEW_RUNNING_FIXTURE__?:()=>void;
+    }).__UNTAMED_SAVE_REVIEW_RUNNING_FIXTURE__=()=>{
+      originalSaveRecoveryFixture=true;
+      originalSaveRecoveryRunning=true;
+      Object.assign(state.local.maps[1],{storeProtected:true,
+        running:true,status:"Fut",storeLifecycleState:"needsOperator"});
+    };
     (window as typeof window & {
       __UNTAMED_SAVE_EVIDENCE_TAMPER__?:()=>void;
     }).__UNTAMED_SAVE_EVIDENCE_TAMPER__=()=>{
@@ -1637,10 +1646,14 @@ test.beforeEach(async ({ page }) => {
           return {token:"00000000-0000-4000-8000-000000001694",
             mapId:two,phase:"needsOperator",operationId:originalSaveJob,
             coordinatorPhase:"NeedsOperator",originalSourceRevalidated:true,
-            confirmedStopped:true,preservesOriginalReceipt:true,
-            originalStoreFilesWritten:false,automaticRetry:false,
+            confirmedStopped:!originalSaveRecoveryRunning,
+            runningOwned:originalSaveRecoveryRunning,
+            previousOutcomeStillUnknown:true,pairedRestartReview:false,
+            preservesOriginalReceipt:true,originalStoreFilesWritten:false,automaticRetry:false,
             requiresTypedApproval:true,
-            evidence:"OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"};
+            evidence:originalSaveRecoveryRunning?
+              "OPERATOR_REVIEW_RUNNING_OWNED_ASA_SAVE_UNKNOWN":
+              "OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"};
         }
         case "historical.saveWorldReviewApply": {
           if(!originalSaveRecoveryFixture||originalSaveReviewed||
@@ -1650,6 +1663,9 @@ test.beforeEach(async ({ page }) => {
           originalSaveReviewed=true;
           return {mapId:two,phase:"reviewed",reviewed:true,
             oldReceiptArchived:true,originalStoreFilesWritten:false,
+            previousOutcomeStillUnknown:true,
+            ownerRemainedRunning:originalSaveRecoveryRunning,
+            pairedRestartReviewed:false,rconSent:false,
             autoRetry:false,serverStarted:false,
             nextOperationRequiresNewApproval:true,
             evidence:"OPERATOR_REVIEW_DURABLE_LOCAL_JOURNALS_NO_STORE_MUTATION"};
@@ -6413,10 +6429,41 @@ test("Store-v1 interrupted SaveWorld can be explicitly reviewed when stopped wit
   })).toHaveCount(0);
   await expect(accept).toBeEnabled();
   await accept.click();
-  await expect(panel).toContainText("a műveleti napló operátori ellenőrzéssel feloldva");
+  await expect(panel).toContainText("A korábbi SaveWorld kimenetele továbbra is ISMERETLEN");
+  await expect(panel).toContainText("nem küldtünk új parancsot.");
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Operátori felülvizsgálat megtörtént");
   await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"})).toHaveCount(0);
+});
+
+test("P0 running Store-v1 SaveWorld: owner-pinned unknown receipt can be reviewed without new RCON or Stop",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_REVIEW_RUNNING_FIXTURE__?:()=>void;
+  }).__UNTAMED_SAVE_REVIEW_RUNNING_FIXTURE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Függőben / bizonytalan");
+  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"}))
+    .toBeDisabled();
+  await panel.getByRole("button",{name:"Korábbi SaveWorld operátori ellenőrzése"})
+    .click();
+  const review=panel.getByRole("region",{name:"Korábbi Store-v1 mentés felülvizsgálata"});
+  await expect(review).toContainText("A régi saját ASA PID és RCON-tulajdon igazolt");
+  await review.getByRole("button",{
+    name:"Korábbi mentési napló felülvizsgálatának jóváhagyása"
+  }).click();
+  await expect(panel).toContainText(
+    "A korábbi SaveWorld kimenetele továbbra is ISMERETLEN");
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Operátori felülvizsgálat megtörtént");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
+  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"}))
+    .toHaveCount(0);
 });
 
 test("unreadable original Store SaveWorld is visible on Save and Restart without any RCON retry",async({page})=>{

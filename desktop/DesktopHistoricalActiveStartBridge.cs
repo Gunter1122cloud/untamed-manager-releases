@@ -331,6 +331,34 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                             !stopped.Running&&stopped.Identity==null&&
                             stopped.LoaderIdentity==null;
                     }
+                    // P2 read-only evidence layers. A visible console
+                    // belongs to a future approved launch, not proof that
+                    // an already-running child loaded any plugin.
+                    string apiRuntimeState="notChecked";
+                    bool joinAdvertised=false,apiHooksObserved=false,
+                        apiDllObserved=false;
+                    if(observed.Running&&observed.Identity is {Pid:>0} child)
+                    {
+                        try
+                        {
+                            var runtime=AsaRuntimeLogEvidence.Inspect(
+                                map,child,observed.LoaderIdentity);
+                            joinAdvertised=runtime.JoinAdvertised;
+                            apiHooksObserved=map.StartWithAsaApi&&
+                                runtime.ApiInitialized;
+                            apiDllObserved=map.StartWithAsaApi&&
+                                AsaApiModuleEvidence.IsLoaded(map,child);
+                            apiRuntimeState=apiHooksObserved&&apiDllObserved?
+                                "hooksAndAsaChildDllObserved":
+                                "runtimeUnverified";
+                        }
+                        catch(Exception ex) when(ex is IOException or
+                            UnauthorizedAccessException or InvalidOperationException or
+                            ArgumentException or NotSupportedException)
+                        {
+                            apiRuntimeState="diagnosticUnavailable";
+                        }
+                    }
                     return Ok(id,new{
                         mapId,mapName=map.Name,running=observed.Running,
                         confirmedStopped,
@@ -338,6 +366,13 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         serverPid=observed.Identity?.Pid,
                         loaderPid=observed.LoaderIdentity?.Pid,
                         requestedMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",
+                        loaderProcessObserved=observed.LoaderIdentity is {Pid:>0},
+                        loaderConsoleExpectedOnNextStart=map.StartWithAsaApi,
+                        asaJoinAdvertised=joinAdvertised,
+                        apiHooksLogObserved=apiHooksObserved,
+                        asaApiDllInChildObserved=apiDllObserved,
+                        apiRuntimeState,
+                        pluginsOperationalVerified=false,
                         launchModeApprovalRequired=map.HistoricalLaunchModeNeedsApproval,
                         rconConfigured=map.RconPort>0&&
                             !string.IsNullOrWhiteSpace(map.RconPasswordProtected),
@@ -468,14 +503,16 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
             }
             finally{serial.Release();}
         }
-        catch(Exception e) when(e is InvalidDataException or InvalidOperationException or
-            UnauthorizedAccessException or IOException)
+        catch(Exception e)
         {
-            return Fail(id,SafeStartErrors.Contains(e.Message)?e.Message:
-                "UM-STORE-ACTIVE-START-SAFETY-FAILED");
-        }
-        catch(Exception)
-        {
+            // Preserve precise, sanitized UM-* codes that were explicitly
+            // raised by the native preflight (including wrapped exceptions).
+            // A generic IO/access/other exception must not masquerade as an
+            // actionable Start code or leak filesystem/credential details.
+            string code=NativeLifecycleFailureCode.From(e);
+            for(Exception? cause=e;cause!=null;cause=cause.InnerException)
+                if(string.Equals(cause.Message,code,StringComparison.Ordinal))
+                    return Fail(id,code);
             return Fail(id,"UM-STORE-ACTIVE-START-SAFETY-FAILED");
         }
     }

@@ -39,6 +39,21 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
       setError("A Store-v1 folyamatállapot nem ellenőrizhető.");});
     return ()=>{active=false;controlGeneration.current++;};
   },[mapId,rconAttached]);
+  // Read-only refresh: never starts/stops the ASA or sends RCON bytes.
+  const refreshRuntimeEvidence=async()=>{
+    if(busy)return;
+    const requested=mapId,generation=actionGeneration.current;
+    setBusy(true);
+    try{
+      const fresh=await managerBridge.historicalActiveStartStatus(requested);
+      if(belongs(requested,generation)&&
+         fresh.mapId.toLowerCase()===requested.toLowerCase())
+        setState(fresh);
+    }catch{
+      if(belongs(requested,generation))
+        setError("Az ASA API / Loader állapot csak olvasó vizsgálata nem sikerült; szervervezérlés nem történt.");
+    }finally{if(belongs(requested,generation))setBusy(false);}
+  };
   const changeMode=async(useApi=state?.requestedMode!=="asaApiLoader")=>{
     if(!state?.confirmedStopped||busy||preview||modePreview)return;
     const requested=mapId,generation=actionGeneration.current;
@@ -231,6 +246,34 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         <b>{state?.running?"Fut · ASA PID "+(state.serverPid??"nem igazolt"):
           state?.loaderPid?"Loader PID "+state.loaderPid+" · ASA még nem igazolt":
           state?.confirmedStopped?"Leállítás igazolva":"Folyamatállapot nem igazolt"}</b></div>
+      {state?.requestedMode==="asaApiLoader"&&
+        <div className="historical-preview" role="region"
+          aria-label="ASA API Loader és plugin bizonyítékok">
+          <div className="details-line"><span>API Loader</span>
+            <b>{state.loaderProcessObserved&&state.loaderPid?
+              "Szülő PID "+state.loaderPid:"Loader-folyamat nem igazolt"}</b></div>
+          <div className="details-line"><span>ASA indulás</span>
+            <b>{state.asaJoinAdvertised?
+              "Játékosfogadás naplója megfigyelve":
+              "Teljes indulás nem igazolt"}</b></div>
+          <div className="details-line"><span>API DLL a gyermekben</span>
+            <b>{state.asaApiDllInChildObserved?
+              "Megfigyelve az ASA PID-ben":"Nem igazolt"}</b></div>
+          <div className="details-line"><span>API hook-napló</span>
+            <b>{state.apiHooksLogObserved?
+              "Aktuális naplóban megfigyelve":"Nem igazolt"}</b></div>
+          <p className="muted small">
+            A következő API-s indításkor a Loader külön konzolja megjelenik.
+            Loader PID, ASA DLL és API hook-napló három külön bizonyíték;
+            a pluginok játékbeli működését önmagukban nem igazolják.
+            {state.apiRuntimeState==="diagnosticUnavailable"&&
+              " A modul- vagy naplóvizsgálat nem elérhető; ez nem bizonyít DLL-hibát."}
+          </p>
+          <button type="button" className="secondary" disabled={busy}
+            onClick={()=>{void refreshRuntimeEvidence();}}>
+            <Shield size={16}/> API/Loader állapot frissítése (csak olvasás)
+          </button>
+        </div>}
       <div className="settings-actions">
         <button type="button" className="secondary"
           disabled={busy||!state?.confirmedStopped||!!preview||!!modePreview} onClick={()=>{void changeMode();}}>

@@ -27,6 +27,12 @@ public static class MultiHostHostRestoreStaging
     public sealed record Receipt(int SchemaVersion,Guid BatchId,string HostId,
         DateTimeOffset CreatedUtc,MultiHostBackupComponent[] Components,
         bool ProductionRestoreAllowed,string Evidence);
+    public sealed record InterruptedReview(bool CanFinalize,string Status,
+        Guid BatchId,string HostId,int SourcePathLength,int TargetPathLength,
+        bool ExistingOriginalPreserved);
+    public sealed record PublishDiagnostic(int Schema,Guid BatchId,string HostId,
+        string Phase,string HResultHex,int PartialPathLength,int TargetPathLength,
+        DateTimeOffset RecordedUtc);
 
     private static string Sha(string path)
     {
@@ -215,6 +221,19 @@ public static class MultiHostHostRestoreStaging
         CancellationToken ct=default,Action<int>? afterCopiedForTesting=null)
     {
         ct.ThrowIfCancellationRequested();
+        string target=Path.Combine(approved.Parent,approved.StageDirectoryName);
+        // A Stage and interrupted-stage Finalize must serialize across
+        // independent Manager processes on the exact same output. Otherwise
+        // two concurrent creators can both pass Inspect() before either
+        // creates .incomplete, silently writing into one another's stage.
+        string key=Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(Path.GetFullPath(target).ToUpperInvariant())));
+        using var lease=new Semaphore(1,1,
+            "Global\\Untamed-HostRestore-Publish-"+key);
+        if(!lease.WaitOne(0))
+            throw new IOException("UM-HOSTRESTORE-STAGE-BUSY");
+        try
+        {
         var current=Inspect(approved.SourceSandbox,approved.HostId,
             approved.Parent,ownership,protectedRoots);
         if(current!=approved)
@@ -222,7 +241,6 @@ public static class MultiHostHostRestoreStaging
         var manifest=MultiHostClusterBackupArchive.VerifyIsolatedSandbox(
             approved.SourceSandbox);
         var members=SelectHost(manifest,approved.HostId);
-        string target=Path.Combine(approved.Parent,approved.StageDirectoryName);
         string partial=target+".incomplete";
         // No pre-existing destination is ever replaced, including another
         // Manager's own interrupted stage.
@@ -252,8 +270,23 @@ public static class MultiHostHostRestoreStaging
         Durable(Path.Combine(partial,ManifestHash),Sha(resultPath));
         Durable(Path.Combine(partial,Complete),approved.BatchId.ToString("N"));
         VerifyInternal(partial,allowPartial:true);
-        Directory.Move(partial,target);
+        try
+        {
+            Directory.Move(partial,target);
+        }
+        catch(IOException ex)
+        {
+            // The partial has already been SHA-verified. Preserve it, and
+            // record a path-free publish diagnostic OUTSIDE the sealed stage.
+            // Never delete the .incomplete directory or overwrite target.
+            WritePublishFailure(partial,target,approved,ex.HResult);
+            throw new IOException("UM-HOSTRESTORE-PUBLISH-FAILED-"+ex.HResult.ToString("X8")+
+                "-PARTIAL-LENGTH-"+partial.Length+
+                "-TARGET-LENGTH-"+target.Length,ex);
+        }
         return Verify(target);
+        }
+        finally { lease.Release(); }
     }
     private static Receipt VerifyInternal(string target,bool allowPartial)
     {
@@ -316,6 +349,107 @@ public static class MultiHostHostRestoreStaging
         }
         return receipt;
     }
+    private static void WritePublishFailure(string partial,string target,
+        Plan approved,int hresult)
+    {
+        // Best-effort extra evidence must not replace or overwrite the true
+        // publish exception. A prior diagnostic is preserved as-is.
+        try
+        {
+            string path=partial+".publish-failure.json";
+            if(File.Exists(path)||Directory.Exists(path))return;
+            var report=new PublishDiagnostic(1,approved.BatchId,approved.HostId,
+                "PUBLISH_DIRECTORY_MOVE","0x"+hresult.ToString("X8"),
+                partial.Length,target.Length,DateTimeOffset.UtcNow);
+            Durable(path,JsonSerializer.Serialize(report));
+        }
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException
+            or InvalidDataException or ArgumentException){}
+    }
+
+    // P1: inspect a previously interrupted, ORIGINAL .incomplete stage with
+    // fully current ownership and original sandbox SHA evidence. This is a
+    // read-only operation; the partial is never declared production-restorable.
+    public static InterruptedReview InspectInterrupted(Plan approved,
+        MultiHostBackupOwnershipSnapshot ownership,
+        IReadOnlyCollection<string>? protectedRoots=null)
+    {
+        string source=SafeLocalFolder(approved.SourceSandbox);
+        string parent=SafeLocalFolder(approved.Parent);
+        DemandDistinctParent(source,parent,protectedRoots);
+        var manifest=MultiHostClusterBackupArchive.VerifyIsolatedSandbox(source);
+        DemandOwnership(manifest,ownership,approved.HostId);
+        var included=SelectHost(manifest,approved.HostId);
+        if(approved.BatchId!=manifest.SourceBatchId||
+           approved.StageDirectoryName!=Prefix+approved.HostId+"-"+
+               approved.BatchId.ToString("N")||
+           approved.IdentitySha256!=Signature(manifest,approved.HostId,included)||
+           approved.Components!=included.Length||
+           approved.Bytes!=included.Sum(c=>c.Length))
+            throw new InvalidDataException("UM-HOSTRESTORE-INTERRUPTED-SOURCE-CHANGED");
+        string target=Path.Combine(parent,approved.StageDirectoryName);
+        string partial=target+".incomplete";
+        if(Directory.Exists(target)||File.Exists(target))
+            return new(false,"TARGET_ALREADY_EXISTS",approved.BatchId,
+                approved.HostId,source.Length,target.Length,true);
+        if(!Directory.Exists(partial)||File.Exists(partial))
+            return new(false,"PARTIAL_NOT_DIRECTORY",approved.BatchId,
+                approved.HostId,source.Length,target.Length,true);
+        try
+        {
+            var verified=VerifyInternal(partial,allowPartial:true);
+            if(verified.BatchId!=approved.BatchId||
+               !verified.HostId.Equals(approved.HostId,
+                   StringComparison.OrdinalIgnoreCase)||
+               verified.ProductionRestoreAllowed||
+               !verified.Components.SequenceEqual(included))
+                return new(false,"PARTIAL_IDENTITY_MISMATCH",approved.BatchId,
+                    approved.HostId,source.Length,target.Length,true);
+            return new(true,"PARTIAL_SHA256_VERIFIED_READY_FOR_EXPLICIT_PUBLISH",
+                approved.BatchId,approved.HostId,source.Length,target.Length,true);
+        }
+        catch(Exception ex) when(ex is IOException or InvalidDataException
+            or UnauthorizedAccessException or JsonException)
+        {
+            return new(false,"PARTIAL_UNVERIFIED_RETAIN_FOR_OPERATOR",
+                approved.BatchId,approved.HostId,source.Length,target.Length,true);
+        }
+    }
+
+    // Explicit, machine-serialized final publish. The operator must freshly
+    // approve a currently SHA-verified partial and accept that this only
+    // publishes an OFFLINE inspection package, never touches production ASA.
+    public static Receipt FinalizeInterrupted(Plan approved,
+        MultiHostBackupOwnershipSnapshot ownership,bool explicitApproval,
+        IReadOnlyCollection<string>? protectedRoots=null)
+    {
+        if(!explicitApproval)
+            throw new UnauthorizedAccessException("UM-HOSTRESTORE-FINALIZE-APPROVAL");
+        string target=Path.Combine(approved.Parent,approved.StageDirectoryName);
+        string key=Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(Path.GetFullPath(target).ToUpperInvariant())));
+        using var lease=new System.Threading.Semaphore(1,1,
+            "Global\\Untamed-HostRestore-Publish-"+key);
+        if(!lease.WaitOne(0))
+            throw new IOException("UM-HOSTRESTORE-FINALIZE-BUSY");
+        try
+        {
+            var reviewed=InspectInterrupted(approved,ownership,protectedRoots);
+            if(!reviewed.CanFinalize)
+                throw new InvalidDataException("UM-HOSTRESTORE-FINALIZE-"+reviewed.Status);
+            string partial=target+".incomplete";
+            try{Directory.Move(partial,target);}
+            catch(IOException ex)
+            {
+                WritePublishFailure(partial,target,approved,ex.HResult);
+                throw new IOException("UM-HOSTRESTORE-PUBLISH-FAILED-"+
+                    ex.HResult.ToString("X8")+"-TARGET-LENGTH-"+target.Length,ex);
+            }
+            return Verify(target);
+        }
+        finally{lease.Release();}
+    }
+
     public static Receipt Verify(string folder)
     {
         string target=SafeLocalFolder(folder);

@@ -109,6 +109,27 @@ public static class AsaApiReleaseStaging
     public static AsaApiStagedRelease Verify(string destination)=>
         VerifyInternal(destination,false);
 
+    // P1 publishing diagnostic, kept separate from actual ASA installation:
+    // inspect the fully sealed publisher-hash-verified TEMP stage again
+    // immediately before publish. Never remove a failed .incomplete folder.
+    internal static void PublishVerifiedStage(string stage,string destination)
+    {
+        string target=Lab(destination);
+        if(!string.Equals(Path.GetFullPath(stage),target+".incomplete",
+            StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("UM-API-STAGE-PUBLISH-PATH-MISMATCH");
+        VerifyInternal(stage,true);
+        try{Directory.Move(stage,target);}
+        catch(IOException ex)
+        {
+            // HRESULT and normalized path lengths are safe diagnostic
+            // metadata; the exception's full OS paths are NOT returned.
+            throw new IOException("UM-API-STAGE-PUBLISH-FAILED-HRESULT-0x"+
+                ex.HResult.ToString("X8")+"-STAGE-LENGTH-"+stage.Length+
+                "-TARGET-LENGTH-"+target.Length,ex);
+        }
+    }
+
     public static AsaApiStagedRelease VerifyAgainstPublisher(string destination,
         AsaApiReleaseInfo trustedRelease,AsaApiReleaseAsset trustedAsset)
     {
@@ -199,8 +220,7 @@ public static class AsaApiReleaseStaging
             selected.OfficialSha256.ToUpperInvariant(),selected.Bytes,DateTimeOffset.UtcNow);
         Write(Path.Combine(stage,IndexName),JsonSerializer.Serialize(state));
         Write(Path.Combine(stage,CompleteName),state.OfficialSha256);
-        VerifyInternal(stage,true);
-        Directory.Move(stage,target);
+        PublishVerifiedStage(stage,target);
         return VerifyAgainstPublisher(target,release,selected);
     }
 }
