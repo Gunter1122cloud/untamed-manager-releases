@@ -7,8 +7,8 @@ namespace UntamedManager.Core;
 
 /// <summary>
 /// A previously imported five-map Store-v1 fingerprint is immutable. If later
-/// current metadata adds one event map AND the lock has been rewritten to a
-/// valid six-member configuration, its four-file hash necessarily changes.
+/// current metadata adds independent event or later maps AND the lock is
+/// rewritten to a valid expanded configuration, its four-file hash changes.
 /// This method never adopts that changed hash as proof of the old approval.
 /// Instead it decides whether a second, explicitly typed, one-use operator
 /// authorization may be offered for auditing OLD, STOPPED journals only.
@@ -38,14 +38,15 @@ public static class LegacyStoreV1ExpandedSourceReview
                 current.FourFilesSha256,StringComparison.Ordinal))
             return false; // Ordinary immutable previous source: no reapproval.
 
-        // Only the reported 5+1 local map expansion is supported. Both
-        // current cluster and lock are independently checked by Inspect().
-        // Do not use a human-readable Evidence string as authorization.
+        // Any bounded 5+N local expansion can be reviewed: exactly five
+        // immutable historical owners plus one or more independent maps.
+        // The source readers validate every member/record and the full lock.
+        // Never use a human-readable Evidence string as authorization.
         if(!local.LocalFilesVerified||!local.ClusterHashVerified||
            !local.LocalLockVerified||!local.AllLocalMapsActive||
            !local.LocalSnapshotReady||
-           local.CurrentLocalMemberCount!=6||
-           current.CurrentLocalMemberCount!=6||
+           local.CurrentLocalMemberCount is <6 or >32||
+           current.CurrentLocalMemberCount!=local.CurrentLocalMemberCount||
            !current.SelectedHistoricalSubsetOfExpandedRoster||
            local.Maps.Length!=5||current.Maps.Length!=5||
            !ValidHash(local.OriginalFourFilesTag)||
