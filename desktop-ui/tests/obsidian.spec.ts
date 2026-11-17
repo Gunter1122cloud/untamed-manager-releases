@@ -6434,14 +6434,9 @@ test("Store-v1 interrupted SaveWorld can be explicitly reviewed when stopped wit
   const review=panel.getByRole("region",{name:"Korábbi Store-v1 mentés felülvizsgálata"});
   const accept=review.getByRole("button",{name:"Korábbi mentési napló felülvizsgálatának jóváhagyása"});
   await expect(accept).toBeDisabled();
-  const reviewPhraseInput=review.getByLabel(
-    "Store-v1 mentés felülvizsgálati megerősítése");
-  await reviewPhraseInput.scrollIntoViewIfNeeded();
-  await expect(reviewPhraseInput).toBeVisible();
-  const reviewSize=await reviewPhraseInput.boundingBox();
-  expect(reviewSize).not.toBeNull();
-  expect(reviewSize!.height).toBeGreaterThanOrEqual(40);
-  await reviewPhraseInput.fill("REVIEW STORE SAVE");
+  await expect(review.getByRole("textbox",{
+    name:"Store-v1 mentés felülvizsgálati megerősítése"
+  })).toHaveCount(0);
   await expect(accept).toBeEnabled();
   await accept.click();
   await expect(panel).toContainText("a műveleti napló operátori ellenőrzéssel feloldva");
@@ -7076,10 +7071,9 @@ test("completed ASA files recover after Manager restart without downloading agai
   const register=approval.getByRole("button",{
     name:"Ellenőrzött ASA-fájlok regisztrálása az eredeti GUID-dal"
   });
-  await expect(register).toBeDisabled();
-  await approval.getByRole("textbox",{
+  await expect(approval.getByRole("textbox",{
     name:"Befejezett telepítés jóváhagyó szöveg"
-  }).fill("ASA TELEPÍTÉS ÁTVÉTEL");
+  })).toHaveCount(0);
   await expect(register).toBeEnabled();
   await register.click();
   await expect(page.getByRole("region",{
@@ -7310,11 +7304,8 @@ test("pinned Obsidian Store source and approved offline runtime changes use only
   const approval=pin.getByRole("region",{name:"Obsidian saját forrás átvételének jóváhagyása"});
   await expect(approval).toContainText("1 korábban regisztrált map");
   const commit=approval.getByRole("button",{name:"Forrás átvételének jóváhagyása"});
-  await expect(commit).toBeDisabled();
-  await approval.getByRole("textbox",{name:/Jóváhagyó szöveg/}).fill("OBSIDIAN FORRÁS");
-  await expect(commit).toBeDisabled();
-  await approval.getByRole("textbox",{name:/Jóváhagyó szöveg/})
-    .fill("OBSIDIAN FORRÁS ÁTVÉTEL");
+  await expect(approval.getByRole("textbox",{name:/Jóváhagyó szöveg/})).toHaveCount(0);
+  await expect(commit).toBeEnabled();
   await commit.click();
   await expect(pin.getByRole("status")).toContainText("Obsidian saját profiljában");
   const runtime=page.getByRole("region",{name:"Obsidian Store-v1 port és cluster módosítása"});
@@ -7329,9 +7320,8 @@ test("pinned Obsidian Store source and approved offline runtime changes use only
     name:"Átvett map konfigurációjának jóváhagyása"
   });
   await expect(runtimeApproval).toContainText("ObsidianCluster");
-  await expect(runtimeApproval.getByRole("button",{name:"Jóváhagyott változtatások mentése"})).toBeDisabled();
-  await runtimeApproval.getByRole("textbox",{name:/Jóváhagyás/})
-    .fill("OBSIDIAN MAP KONFIG");
+  await expect(runtimeApproval.getByRole("textbox",{name:/Jóváhagyás/})).toHaveCount(0);
+  await expect(runtimeApproval.getByRole("button",{name:"Jóváhagyott változtatások mentése"})).toBeEnabled();
   await runtimeApproval.getByRole("button",{name:"Jóváhagyott változtatások mentése"}).click();
   await expect(runtime.getByRole("status")).toContainText("Obsidian profiljába mentve");
   expect(await page.evaluate(()=>(window as typeof window & {
@@ -7349,7 +7339,6 @@ test("delayed Store runtime preview cannot restore approval after a different cl
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
   const pin=page.getByRole("region",{name:"Eredeti Store-v1 konfiguráció végleges átvétele"});
   await pin.getByRole("button",{name:"Meglévő mapok forrásátvételének ellenőrzése"}).click();
-  await pin.getByRole("textbox",{name:/Jóváhagyó szöveg/}).fill("OBSIDIAN FORRÁS ÁTVÉTEL");
   await pin.getByRole("button",{name:"Forrás átvételének jóváhagyása"}).click();
   const runtime=page.getByRole("region",{name:"Obsidian Store-v1 port és cluster módosítása"});
   await runtime.getByRole("button",{name:"Eredeti és átvett helyi mapok listázása"}).click();
@@ -7388,7 +7377,6 @@ test("Store runtime approval refuses a native preview for another map without ap
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
   const pin=page.getByRole("region",{name:"Eredeti Store-v1 konfiguráció végleges átvétele"});
   await pin.getByRole("button",{name:"Meglévő mapok forrásátvételének ellenőrzése"}).click();
-  await pin.getByRole("textbox",{name:/Jóváhagyó szöveg/}).fill("OBSIDIAN FORRÁS ÁTVÉTEL");
   await pin.getByRole("button",{name:"Forrás átvételének jóváhagyása"}).click();
   const runtime=page.getByRole("region",{name:"Obsidian Store-v1 port és cluster módosítása"});
   await runtime.getByRole("button",{name:"Eredeti és átvett helyi mapok listázása"}).click();
@@ -7418,12 +7406,9 @@ test("original korábbi kezelőalkalmazás Cluster registry adoption requires ex
   await expect(confirmation).toContainText("KovaCluster");
   await expect(confirmation).toContainText("Hozzáadandó");
   const approval=confirmation.getByRole("button",{name:"Eredeti map-tagság rögzítése"});
-  await expect(approval).toBeDisabled();
-  await confirmation.getByRole("textbox",{name:"Eredeti Cluster-regiszter jóváhagyó szöveg"})
-    .fill("EREDETI KOVA");
-  await expect(approval).toBeDisabled();
-  await confirmation.getByRole("textbox",{name:"Eredeti Cluster-regiszter jóváhagyó szöveg"})
-    .fill("EREDETI STORE REGISZTER");
+  await expect(confirmation.getByRole("textbox",{
+    name:"Eredeti Cluster-regiszter jóváhagyó szöveg"
+  })).toHaveCount(0);
   await expect(approval).toBeEnabled();
   await approval.click();
   await expect(panel).toContainText("5 eredeti map-tagság átvezetve");
