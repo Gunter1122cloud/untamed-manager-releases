@@ -4722,34 +4722,13 @@ test("P0 live original five-map Store takeover is explicit, single-use and prese
   await expect(proof).toContainText("ACTIVE/DONE");
   await expect(proof).toContainText("ASA API Loader");
   const apply=proof.getByRole("button",{name:"Eredeti öt futó Store-v1 map átvétele"});
-  const confirmation=proof.getByRole("textbox",{
-    name:"Store-v1 futó átvétel megerősítése"
-  });
   const blockReason=proof.locator("#store-live-approval-reason");
-  await expect(confirmation).toBeVisible();
-  await expect(confirmation).toBeEditable();
-  await confirmation.scrollIntoViewIfNeeded();
-  const fieldAppearance=await confirmation.evaluate(el=>{
-    const box=el.getBoundingClientRect(),styles=getComputedStyle(el);
-    return {width:box.width,height:box.height,display:styles.display,
-      visibility:styles.visibility,opacity:Number(styles.opacity),
-      foreground:styles.color,background:styles.backgroundColor};
-  });
-  expect(fieldAppearance.width).toBeGreaterThan(200);
-  expect(fieldAppearance.height).toBeGreaterThanOrEqual(42);
-  expect(fieldAppearance.display).not.toBe("none");
-  expect(fieldAppearance.visibility).toBe("visible");
-  expect(fieldAppearance.opacity).toBe(1);
-  expect(fieldAppearance.foreground).not.toBe(fieldAppearance.background);
+  await expect(proof.getByRole("textbox",{
+    name:"Store-v1 futó átvétel megerősítése"
+  })).toHaveCount(0);
   await expect(apply).toBeDisabled();
   await expect(blockReason).toContainText("Hiányzik a korábbi felügyelet");
   await proof.getByRole("checkbox").check();
-  await expect(apply).toBeDisabled();
-  await expect(blockReason).toContainText("Írd be a pontos");
-  await confirmation.fill("HIBÁS MEGERŐSÍTÉS");
-  await expect(apply).toBeDisabled();
-  await confirmation.fill("STORE-V1 FUTÓ ÁTVÉTEL");
-  await expect(confirmation).toHaveValue("STORE-V1 FUTÓ ÁTVÉTEL");
   await expect(blockReason).toContainText("Minden jóváhagyási feltétel teljesült");
   await expect(apply).toBeEnabled();
   await apply.click();
@@ -4781,7 +4760,7 @@ test("P0 Store-v1 expired approval disables apply and demands new native preflig
   await expect(proof.getByRole("checkbox")).not.toBeChecked();
   await expect(proof.getByRole("textbox",{
     name:"Store-v1 futó átvétel megerősítése"
-  })).toHaveValue("");
+  })).toHaveCount(0);
 });
 
 test("P0 Store-v1 lost native approval shows safe recheck, no automatic retry",async({page})=>{
@@ -4798,9 +4777,9 @@ test("P0 Store-v1 lost native approval shows safe recheck, no automatic retry",a
     name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
   });
   await proof.getByRole("checkbox").check();
-  await proof.getByRole("textbox",{
+  await expect(proof.getByRole("textbox",{
     name:"Store-v1 futó átvétel megerősítése"
-  }).fill("STORE-V1 FUTÓ ÁTVÉTEL");
+  })).toHaveCount(0);
   await proof.getByRole("button",{name:"Eredeti öt futó Store-v1 map átvétele"}).click();
   await expect(panel).toContainText("UM-ORIGINAL-LIVE-APPROVAL-EXPIRED");
   await expect(panel).toContainText("Ellenőrizd előbb a helyi mapregisztert");
@@ -4852,9 +4831,9 @@ test("Store-v1 five-map preview can succeed but later Aberration Launch journal 
   });
   await expect(proof).toBeVisible();
   await proof.getByRole("checkbox").check();
-  await proof.getByRole("textbox",{
+  await expect(proof.getByRole("textbox",{
     name:"Store-v1 futó átvétel megerősítése"
-  }).fill("STORE-V1 FUTÓ ÁTVÉTEL");
+  })).toHaveCount(0);
   await proof.getByRole("button",{
     name:"Eredeti öt futó Store-v1 map átvétele"
   }).click();
@@ -4891,9 +4870,9 @@ test("Store-v1 takeover explains another map's uncertain SaveWorld receipt witho
     name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
   });
   await proof.getByRole("checkbox").check();
-  await proof.getByRole("textbox",{
+  await expect(proof.getByRole("textbox",{
     name:"Store-v1 futó átvétel megerősítése"
-  }).fill("STORE-V1 FUTÓ ÁTVÉTEL");
+  })).toHaveCount(0);
   await proof.getByRole("button",{name:"Eredeti öt futó Store-v1 map átvétele"}).click();
   const blockers=panel.getByRole("region",{
     name:"Öt Store-v1 map zároló műveleti naplói"
@@ -4953,9 +4932,9 @@ test("P0 original korábbi kezelőalkalmazás five-map live takeover reattaches 
   const apply=approved.getByRole("button",{name:"Eredeti öt futó Store-v1 map átvétele"});
   await expect(apply).toBeDisabled();
   await approved.getByRole("checkbox").check();
-  await approved.getByRole("textbox",{
+  await expect(approved.getByRole("textbox",{
     name:"Store-v1 futó átvétel megerősítése"
-  }).fill("STORE-V1 FUTÓ ÁTVÉTEL");
+  })).toHaveCount(0);
   await expect(apply).toBeEnabled();
   await apply.click();
   await expect(approved).toHaveCount(0);
@@ -6109,9 +6088,7 @@ test("original Store-v1 admin RCON requires exact one-time native approval and e
   const send=approval.getByRole("button",{name:"Adminparancs egyszeri elküldése"});
   await expect(send).toBeDisabled();
   await approval.getByLabel("Jóváhagyom a helyi Store-v1 RCON műveletet.").check();
-  await approval.getByLabel(/Írd be pontosan: STORE-V1 ADMIN/).fill("ADMIN");
-  await expect(send).toBeDisabled();
-  await approval.getByLabel(/Írd be pontosan: STORE-V1 ADMIN/).fill("STORE-V1 ADMIN");
+  await expect(approval.getByRole("textbox",{name:/Írd be pontosan/})).toHaveCount(0);
   await expect(send).toBeEnabled();
   await send.click();
   await expect(panel.getByText(/Egyszeri RCON-parancs elküldve: Broadcast Hello Store/))
@@ -6123,9 +6100,8 @@ test("original Store-v1 admin RCON requires exact one-time native approval and e
   await expect(danger.getByText("DestroyWildDinos")).toBeVisible();
   const sendWipe=danger.getByRole("button",{name:"Adminparancs egyszeri elküldése"});
   await danger.getByLabel("Jóváhagyom a helyi Store-v1 RCON műveletet.").check();
-  await danger.getByLabel(/Írd be pontosan: STORE-V1 DINÓTÖRLÉS/).fill("STORE-V1 ADMIN");
-  await expect(sendWipe).toBeDisabled();
-  await danger.getByLabel(/Írd be pontosan: STORE-V1 DINÓTÖRLÉS/).fill("STORE-V1 DINÓTÖRLÉS");
+  await expect(danger.getByRole("textbox",{name:/Írd be pontosan/})).toHaveCount(0);
+  await expect(sendWipe).toBeEnabled();
   await sendWipe.click();
   await expect(panel.getByText(/Egyszeri RCON-parancs elküldve: DestroyWildDinos/))
     .toBeVisible();
@@ -6155,7 +6131,7 @@ test("Store-v1 admin RCON explains pending SaveWorld at preview and stale approv
   await panel.getByRole("button",{name:"Eredeti adminparancs ellenőrzése"}).click();
   const approval=panel.getByRole("region",{name:"Store-v1 adminparancs végső jóváhagyása"});
   await approval.getByLabel("Jóváhagyom a helyi Store-v1 RCON műveletet.").check();
-  await approval.getByLabel(/Írd be pontosan: STORE-V1 ADMIN/).fill("STORE-V1 ADMIN");
+  await expect(approval.getByRole("textbox",{name:/Írd be pontosan/})).toHaveCount(0);
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ADMIN_SAVE_PENDING__?:()=>void;
   }).__UNTAMED_ADMIN_SAVE_PENDING__?.());
