@@ -26,31 +26,14 @@ internal static class LegacyStoreSaveEvidenceTests
 
     public static Task Run(string sandbox)
     {
-        // #3003: RCON owner/ASA PID alone cannot authorize SaveWorld while
-        // current startup advertising or a requested API runtime is unknown.
-        // Pure synthetic readiness decisions: no real server, RCON or Store.
-        Check(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(
-                  false,false,false,false)==
+        // #3003: RCON ownership can precede full ASA startup. Wait for
+        // this ASA PID's advertising log, never for optional API plugin
+        // health. No real server, RCON or Store is contacted by this test.
+        Check(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(false)==
               "UM-ORIGINAL-SAVE-STARTUP-NOT-ADVERTISED",
             "early ASA PID/RCON does not authorize SaveWorld before join advertising");
-        Check(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(
-                  false,true,true,true)==
-              "UM-ORIGINAL-SAVE-STARTUP-NOT-ADVERTISED",
-            "Loader and API markers cannot bypass unfinished ASA startup");
-        Check(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(
-                  true,true,false,true)==
-              "UM-ORIGINAL-SAVE-API-NOT-VERIFIED",
-            "API DLL alone cannot prove active API hook initialization");
-        Check(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(
-                  true,true,true,false)==
-              "UM-ORIGINAL-SAVE-API-NOT-VERIFIED",
-            "API hook log alone cannot prove module loaded in ASA child");
-        Check(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(
-                  true,false,false,false)==null,
-            "direct ASA can save after current startup advertising without API requirement");
-        Check(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(
-                  true,true,true,true)==null,
-            "API mode can save only when startup, hooks and module are proven");
+        Check(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(true)==null,
+            "advertised ASA may save without coupling to optional API plugin health");
 
         string root=Path.Combine(sandbox,"original-store-save-evidence-lab");
         Directory.CreateDirectory(root);
