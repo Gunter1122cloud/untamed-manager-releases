@@ -1098,6 +1098,12 @@ export type HistoricalActiveStartStatus = {
   mapId:string;mapName:string;running:boolean;confirmedStopped:boolean;
   pid:number|null;serverPid:number|null;loaderPid:number|null;
   requestedMode:"asaApiLoader"|"directAsa";
+  loaderProcessObserved:boolean;loaderConsoleExpectedOnNextStart:boolean;
+  asaJoinAdvertised:boolean;apiHooksLogObserved:boolean;
+  asaApiDllInChildObserved:boolean;
+  apiRuntimeState:"notChecked"|"hooksAndAsaChildDllObserved"|
+    "runtimeUnverified"|"diagnosticUnavailable";
+  pluginsOperationalVerified:false;
   launchModeApprovalRequired:boolean;
   rconConfigured:boolean;originalStartAutomatic:false;
   saveCompleteProven:false;gameplayTravelVerified:false;
