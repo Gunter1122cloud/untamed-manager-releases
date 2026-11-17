@@ -112,6 +112,17 @@ internal static class LegacyStoreV1NativeStartPlanner
         // The four-file Store hash and the launch profile hash are both
         // pinned; no alternative transfer directory is generated.
         var currentSource=LegacyStoreV1OriginalImport.Inspect(sourceProfile);
+        // The old five-map archive hash differs after an independently added
+        // event map. The operator's approval of the STOPPED journals was NOT
+        // consent to adopt those new source bytes for launching ASA.
+        // A separate supported, explicit Obsidian source-pin approval is
+        // required before this historical Start can use changed source bytes.
+        // Never rewrite the old archive hash or approve all local maps here.
+        if(currentSource.SelectedHistoricalSubsetOfExpandedRoster&&
+           !string.Equals(map.HistoricalArchiveSha256,
+               currentSource.FourFilesSha256,StringComparison.Ordinal))
+            throw new InvalidDataException(
+                "UM-STORE-LAUNCH-EXPLICIT-SOURCE-PIN-REQUIRED");
         var originalMap=LegacyStoreV1SourceLaunchParity.RequireOriginalMap(
             map,currentSource);
         var plan=LegacyStoreV1ActiveLaunch.Build(new(
