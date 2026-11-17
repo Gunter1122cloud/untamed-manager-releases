@@ -74,8 +74,23 @@ export type NativeAsaScheduleOverview={
 export type NativeAsaScheduleStatus={
   mapId:string;runnerState:string;jobs:NativeAsaScheduleTask[];
   history:NativeAsaExecutionEntry[];
+  unknownRunIds:string[];blockedScope:"none"|"task"|"supervisor";
+  supportedNextAction:string;
   restartConflicts:string[];protectedStore:boolean;
   autoUpdateAvailable:false;remoteExecutionAllowed:false;
+};
+export type NativeScheduleReviewPreview={
+  token:string;mapId:string;kind:NativeScheduleKind;runId:string;
+  previousStatus:string;outcomeStillUnknown:true;automaticRetry:false;
+  scheduledTaskWillBeDisabled:true;journalBytesWillBeAudited:true;
+  originalRunWillNotExecute:true;
+  evidence:"SCHEDULE_DURABLE_UNCERTAIN_SLOT_REVIEW_PREVIEW";
+};
+export type NativeScheduleReviewReceipt={
+  mapId:string;kind:NativeScheduleKind;runId:string;
+  reviewed:true;outcomeStillUnknown:true;jobDisabled:true;
+  noRconSent:true;noAutomaticReplay:true;oldJournalArchived:true;
+  evidence:"SCHEDULE_UNKNOWN_SLOT_AUDITED_AND_DISABLED";
 };
 export type NativeAsaScheduleSaved={
   job:NativeAsaScheduleTask;restartConflicts:string[];
@@ -2051,6 +2066,10 @@ export const managerBridge = {
     request<NativeAsaScheduleOverview>("schedule.nativeOverview"),
   nativeScheduleStatus: (mapId:string) =>
     request<NativeAsaScheduleStatus>("schedule.nativeStatus",{mapId}),
+  nativeScheduleReviewPreview: (mapId:string,kind:NativeScheduleKind,runId:string) =>
+    request<NativeScheduleReviewPreview>("schedule.nativeReviewPreview",{mapId,kind,runId}),
+  nativeScheduleReviewApply: (mapId:string,token:string) =>
+    request<NativeScheduleReviewReceipt>("schedule.nativeReviewApply",{mapId,token,confirm:true}),
   nativeScheduleSet: (mapId:string,kind:NativeScheduleKind,
       frequency:NativeScheduleFrequency,intervalMinutes:number,
       minuteOfDay:number,daysMask:number) =>
