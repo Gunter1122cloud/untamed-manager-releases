@@ -15,7 +15,6 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
   const [state,setState]=useState<HistoricalActiveStartStatus|null>(null);
   const [preview,setPreview]=useState<HistoricalActiveStartPreview|null>(null);
   const [modePreview,setModePreview]=useState<HistoricalLoaderModePreview|null>(null);
-  const [phrase,setPhrase]=useState("");
   const [busy,setBusy]=useState(false);
   const [checkingControl,setCheckingControl]=useState(false);
   const controlGeneration=useRef(0);
@@ -32,7 +31,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
     const generation=++actionGeneration.current;
     setCheckingControl(false);setBusy(false);
     setState(null);setPreview(null);setModePreview(null);
-    setPhrase("");setError("");setNotice("");
+    setError("");setNotice("");
     managerBridge.historicalActiveStartStatus(mapId).then(v=>{
       if(active&&belongs(mapId,generation)&&v.mapId.toLowerCase()===mapId.toLowerCase())
         setState(v);
@@ -115,7 +114,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
     if(busy||state?.running||!state?.rconConfigured||
        state?.launchModeApprovalRequired)return;
     const requested=mapId,generation=actionGeneration.current;
-    setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
+    setBusy(true);setError("");setNotice("");setPreview(null);
     try{
       const result=await managerBridge.historicalActiveStartPreview(requested);
       if(!belongs(requested,generation))return;
@@ -160,9 +159,9 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
   };
   const start=async()=>{
     if(!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
-       phrase!=="STORE-V1 ACTIVE START"||busy)return;
+       busy)return;
     const token=preview.token,requested=mapId,generation=actionGeneration.current;
-    setPreview(null);setPhrase("");setBusy(true);
+    setPreview(null);setBusy(true);
     setError("");setNotice("");
     try{
       const receipt=await managerBridge.historicalActiveStartApply(
@@ -287,19 +286,15 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
             cache-hiánynál a hivatalos API saját cache-letöltése és
             ellenőrzése szükséges.
           </p>}
-          <label htmlFor="historical-start-phrase">
-            Biztonsági megerősítés: írd be pontosan: STORE-V1 ACTIVE START
-          </label>
-          <input id="historical-start-phrase" spellCheck={false} autoComplete="off"
-            value={phrase} onChange={e=>setPhrase(e.target.value)} maxLength={32}/>
+          <p>Az ellenőrzött indítás külön gombnyomással hagyható jóvá.
+            Nincs automatikus indítás vagy ismétlés.</p>
           <div className="settings-actions">
-            <button type="button" className="primary" disabled={busy||
-              phrase!=="STORE-V1 ACTIVE START"} onClick={()=>{void start();}}>
+            <button type="button" className="primary" disabled={busy} onClick={()=>{void start();}}>
               <Play size={16}/> {preview.launchMode==="asaApiLoader"?
                 "Eredeti Store-v1 API Loader indítása":"Eredeti Store-v1 ASA indítása"}
             </button>
             <button type="button" className="secondary" disabled={busy}
-              onClick={()=>{setPreview(null);setPhrase("");}}>Mégse</button>
+              onClick={()=>{setPreview(null);}}>Mégse</button>
           </div>
         </div>
       </div>}
