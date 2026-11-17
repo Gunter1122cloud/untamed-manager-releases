@@ -22,6 +22,10 @@ public sealed record LegacyStoreV1SaveEvidence(
 {
     public bool LocalSaveCompleteObserved => Phase=="completed" &&
         SaveObservedUtc.HasValue;
+    // Same .ark file changed after dispatch, but the ASA log pair is absent.
+    // This does NOT certify the RCON command caused the file update.
+    public bool LocalWorldMetadataObserved => Phase=="metadataObserved" &&
+        SaveObservedUtc.HasValue;
     public bool SharedStoreWriterCertified=>false;
     public bool BothHostsSaveCompleteCertified=>false;
     public bool GameClientRejoinVerified=>false;
@@ -109,11 +113,13 @@ public static class LegacyStoreV1SaveEvidenceJournal
         if(value.SchemaVersion!=Schema||value.OperationId==Guid.Empty||
            value.MapId==Guid.Empty||value.Pid<=0||value.PidStartedUtc==default||
            value.BeganUtc==default||!Hash(value.OriginalSourceSha256)||
-           value.Phase is not ("prepared" or "completed" or "needsOperator" or "reviewed")||
-           (value.Phase=="completed"&&
+           value.Phase is not ("prepared" or "completed" or "metadataObserved" or
+             "needsOperator" or "reviewed")||
+           ((value.Phase is "completed" or "metadataObserved")&&
              (!value.SaveObservedUtc.HasValue||
               value.SaveObservedUtc.Value<value.BeganUtc))||
-           (value.Phase!="completed"&&value.SaveObservedUtc.HasValue))
+           (value.Phase is not ("completed" or "metadataObserved")&&
+             value.SaveObservedUtc.HasValue))
             throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-SCHEMA");
     }
 
@@ -340,7 +346,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
         // Preserve the completed/reviewed receipt byte-for-byte BEFORE the
         // latest map-scoped receipt is replaced by the next approved save.
         // The original source/Store/ASA paths are never touched.
-        if(prior.Phase is not ("completed" or "reviewed"))
+        if(prior.Phase is not ("completed" or "metadataObserved" or "reviewed"))
             throw new InvalidOperationException(
                 "UM-ORIGINAL-SAVE-JOURNAL-NEEDS-REVIEW");
         string archiveFolder=Path.Combine(Path.GetDirectoryName(file)!,"history");
@@ -397,7 +403,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
         string file=PathFor(managerProfileRoot,mapId);
         using var writer=AcquireWriteLease(file);
         var prior=Load(file);
-        if(prior!=null&&prior.Phase is not ("completed" or "reviewed"))
+        if(prior!=null&&prior.Phase is not ("completed" or "metadataObserved" or "reviewed"))
             throw new InvalidOperationException("UM-ORIGINAL-SAVE-JOURNAL-NEEDS-REVIEW");
         if(prior!=null)ArchivePreviousBeforeNewAttempt(file,prior);
         var evidence=new LegacyStoreV1SaveEvidence(Schema,operationId,mapId,pid,
@@ -432,6 +438,28 @@ public static class LegacyStoreV1SaveEvidenceJournal
            observedUtc>DateTimeOffset.UtcNow.AddMinutes(1))
             throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-RECEIPT-INVALID");
         var next=current with{Phase="completed",SaveObservedUtc=observedUtc};
+        Publish(file,next);
+        return next;
+    }
+
+    /// <summary>
+    /// A restricted, post-dispatch local .ark metadata witness. It never
+    /// asserts SaveComplete, an fsync, shared Store ownership, or restore.
+    /// The caller must have independently observed the same owned ASA PID and
+    /// that its RCON SaveWorld dispatch returned without uncertainty.
+    /// </summary>
+    public static LegacyStoreV1SaveEvidence CompleteWorldMetadata(
+        string managerProfileRoot,Guid operationId,Guid mapId,int pid,
+        DateTimeOffset startedUtc,string originalSha,DateTimeOffset observedUtc,
+        bool worldMetadataObserved,bool doExitSent)
+    {
+        string file=PathFor(managerProfileRoot,mapId);
+        using var writer=AcquireWriteLease(file);
+        var current=RequireAttempt(file,operationId,mapId,pid,startedUtc,originalSha);
+        if(!worldMetadataObserved||doExitSent||observedUtc<current.BeganUtc||
+           observedUtc>DateTimeOffset.UtcNow.AddMinutes(1))
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-METADATA-RECEIPT-INVALID");
+        var next=current with{Phase="metadataObserved",SaveObservedUtc=observedUtc};
         Publish(file,next);
         return next;
     }
