@@ -534,7 +534,6 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
             <Shield size={16}/> Napló rendezése (korábbi SaveWorld, RCON nélkül)
           </button>
         </div>}
-        </div>}
       {job&&<div className="details-line" role="status">
         <span><RefreshCw size={15}/> {job.state==="running"?"Mentés folyamatban":job.state}</span>
         <strong>{job.step}</strong>
