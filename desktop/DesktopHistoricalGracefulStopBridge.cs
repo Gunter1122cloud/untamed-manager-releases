@@ -296,7 +296,8 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                 "historical.saveWorldEvidence" or
                 "historical.saveWorldReviewPreview" or
                 "historical.saveWorldReviewApply" or
-                "historical.saveWorldForensicExport"))
+                "historical.saveWorldForensicExport" or
+                "historical.saveWorldLateEvidence"))
                 return Fail(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
@@ -470,6 +471,35 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         rconSent=false,autoRetry=false,serverStarted=false,
                         nextOperationRequiresNewApproval=true,
                         evidence="OPERATOR_REVIEW_DURABLE_LOCAL_JOURNALS_NO_STORE_MUTATION"
+                    });
+                }
+                if(method=="historical.saveWorldLateEvidence")
+                {
+                    if(!GuidValue(request,"mapId",out var lateMapId)||
+                       Owned(lateMapId) is not {HistoricalStoreProtected:true} lateMap)
+                        return Fail(id,"UM-ASA-SAVE-LATE-ORIGINAL-ONLY");
+                    if(HasActive(lateMapId))
+                        return Fail(id,"UM-ASA-SAVE-LATE-WORKER-ACTIVE");
+                    var receipt=LegacyStoreV1SaveEvidenceJournal.Inspect(
+                        cluster.Store.Root,lateMapId);
+                    if(receipt==null)
+                        return Fail(id,"UM-ASA-SAVE-LATE-RECEIPT-MISSING");
+                    bool Owner()=>verifyReviewRunning(lateMapId,
+                        receipt.Pid,receipt.PidStartedUtc,
+                        receipt.OriginalSourceSha256);
+                    var late=AsaWorldSaveEvidence.InspectLateReadOnly(
+                        lateMap,receipt,Owner);
+                    return Ok(id,new{
+                        mapId=lateMapId,operationId=receipt.OperationId,
+                        stage=late.Stage,
+                        worldFilePresent=late.WorldFilePresent,
+                        worldMetadataNewerThanAttempt=late.WorldMetadataNewerThanAttempt,
+                        worldBytes=late.WorldBytes,worldWriteUtc=late.WorldWriteUtc,
+                        asaLogPresent=late.AsaLogPresent,
+                        asaLogNewerThanAttempt=late.AsaLogNewerThanAttempt,
+                        completionCertified=false,rconSent=false,
+                        grantsOperation=false,oldSaveWorldRetried=false,
+                        evidence="ORIGINAL_ASA_LATE_METADATA_READ_ONLY_NO_CAUSAL_SAVE_PROOF"
                     });
                 }
                 if(method=="historical.saveWorldForensicExport")
