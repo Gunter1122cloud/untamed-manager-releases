@@ -1,5 +1,8 @@
 using System;
 using System.Linq;
+using System.Net.NetworkInformation;
+using System.Security.Cryptography;
+using System.Text;
 using System.IO;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -19,9 +22,13 @@ public sealed class DesktopAsaLifecycleJournalBridge
 {
     private sealed record Pending(Guid Token,Guid MapId,Guid Operation,
         int Pid,DateTimeOffset StartedUtc,string SourceSha,string ProfileJson,
-        Guid? RestartId,string? RestartSnapshot,bool RestartOnly,DateTimeOffset ExpiresUtc);
+        Guid? RestartId,string? RestartSnapshot,bool RestartOnly,DateTimeOffset ExpiresUtc,
+        bool StoppedReview=false);
+    internal sealed record StoppedProof(LocalMap Map,int OldPid,string SourceSha);
     private readonly ClusterService cluster;
     private readonly Func<Guid,LegacyStoreV1GracefulStop.Owned> ownerProof;
+    private readonly Func<Guid,int,StoppedProof> stoppedProof;
+    private readonly bool stoppedReviewEnabled;
     private readonly SemaphoreSlim serial=new(1,1);
     private Pending? pending;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -33,11 +40,16 @@ public sealed class DesktopAsaLifecycleJournalBridge
         this(local,null) { }
     // Synthetic owner proof is available only to isolated native tests.
     internal DesktopAsaLifecycleJournalBridge(ClusterService local,
-        Func<Guid,LegacyStoreV1GracefulStop.Owned>? proof)
+        Func<Guid,LegacyStoreV1GracefulStop.Owned>? proof,
+        Func<Guid,int,StoppedProof>? stopped=null)
     {
         cluster=local??throw new ArgumentNullException(nameof(local));
         ownerProof=proof??(mapId=>
             LegacyStoreV1GracefulStop.PreviewForUnfinishedRestartReview(cluster,mapId));
+        stoppedProof=stopped??ProductionStoppedProof;
+        // Injected running-owner tests must not reach the production
+        // Windows/legacy-profile inspection accidentally.
+        stoppedReviewEnabled=proof==null||stopped!=null;
     }
 
     private static string Ok(string id,object data)=>
@@ -74,6 +86,95 @@ public sealed class DesktopAsaLifecycleJournalBridge
             throw new InvalidDataException("UM-RECOVERY-OWNER-UNVERIFIED");
         return proof;
     }
+    private StoppedProof ProductionStoppedProof(Guid mapId,int oldPid)
+    {
+        var map=Owned(mapId);
+        if(!map.HistoricalStoreProtected||map.Id==Guid.Empty||oldPid<=0||
+           map.AutoStart||map.MonitorRcon||map.RconPort is <1024 or >65535||
+           map.HistoricalArchiveSha256?.Length!=64||
+           !map.HistoricalArchiveSha256.All(Uri.IsHexDigit))
+            throw new InvalidDataException("UM-RECOVERY-STOPPED-MAP-NOT-APPROVED");
+        var state=LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
+            map,cluster.Config.LocalMaps);
+        if(state.Running||!state.ConfirmedStopped||state.Identity!=null||
+           state.LoaderIdentity!=null)
+            throw new InvalidOperationException(
+                "UM-RECOVERY-STOPPED-PROCESS-NOT-VERIFIED");
+        // A stopped map must not inherit a live RCON owner. Absence is
+        // checked again under the installation-wide operation semaphore.
+        try
+        {
+            if(IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners()
+                .Any(p=>p.Port==map.RconPort))
+                throw new InvalidOperationException(
+                    "UM-RECOVERY-STOPPED-RCON-STILL-LISTENING");
+        }
+        catch(NetworkInformationException)
+        {
+            throw new IOException("UM-RECOVERY-STOPPED-RCON-OWNERSHIP-UNKNOWN");
+        }
+        string legacy=Path.Combine(Environment.GetFolderPath(
+            Environment.SpecialFolder.ApplicationData),"Kova");
+        string profile=LegacyStoreV1PinnedSource.PreferredProfile(
+            cluster.Store.Root,legacy);
+        // Verify CURRENT five selected historical owners even with a sixth
+        // local event map. The original session, map roots, lock and source
+        // hashes are still checked by the native source readers.
+        var current=LegacyStoreV1OriginalImport.Inspect(legacy);
+        var local=LegacyStoreV1LocalReader.Inspect(legacy);
+        if(!local.LocalSnapshotReady||current.Maps.Length!=5||
+           !local.Maps.Any(m=>m.MapId==mapId&&m.Selected&&
+               m.Active&&m.SessionMatches&&m.RootMatches&&
+               m.BackupIdentityPresent))
+            throw new InvalidDataException(
+                "UM-RECOVERY-STOPPED-HISTORICAL-SELECTION-INVALID");
+        var source=LegacyStoreV1OriginalImport.Inspect(profile);
+        var original=source.Maps.SingleOrDefault(m=>m.MapId==mapId);
+        var currentMap=current.Maps.SingleOrDefault(m=>m.MapId==mapId);
+        if(original==null||currentMap==null||
+           original.MapKey!=map.HistoricalMapKey||
+           currentMap.MapKey!=map.HistoricalMapKey||
+           !Path.GetFullPath(original.OriginalInstallationRoot).Equals(
+               Path.GetFullPath(map.InstallationPath),StringComparison.OrdinalIgnoreCase)||
+           !Path.GetFullPath(currentMap.OriginalInstallationRoot).Equals(
+               Path.GetFullPath(map.InstallationPath),StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException(
+                "UM-RECOVERY-STOPPED-MAP-IDENTITY-CHANGED");
+        bool pinned=!string.Equals(profile,legacy,StringComparison.OrdinalIgnoreCase);
+        if(pinned)LegacyStoreV1PinnedSource.RequireImmutableIdentity(map,source);
+        else if(map.HistoricalArchiveSha256!=source.FourFilesSha256&&
+            local.Evidence!=
+                "ORIGINAL_FIVE_SELECTED_PINNED_IN_EXPANDED_LOCAL_ROSTER_NO_PEER_CERTIFICATION")
+            throw new InvalidDataException(
+                "UM-RECOVERY-STOPPED-HISTORICAL-SOURCE-CHANGED");
+        if(!AsaRconConfigurationEvidence.Matches(map))
+            throw new InvalidDataException(
+                "UM-RECOVERY-STOPPED-RCON-CONFIGURATION-CHANGED");
+        using var held=new VaultReadSnapshot();
+        string IniTag(string file,int limit)=>File.Exists(file)?
+            Convert.ToHexString(SHA256.HashData(held.Read(file,limit))):"ABSENT";
+        string gus=IniTag(AsaInitialRconSettings.NewIniPath(map.InstallationPath),131072);
+        string game=IniTag(Path.Combine(map.InstallationPath,"ShooterGame",
+            "Saved","Config","WindowsServer","Game.ini"),4_000_000);
+        string evidence=string.Join("\n",source.FourFilesSha256,
+            source.LaunchProfileSha256,current.FourFilesSha256,
+            current.LaunchProfileSha256,local.SessionTag,
+            map.HistoricalArchiveSha256,JsonSerializer.Serialize(map),
+            gus,game,oldPid.ToString());
+        return new(map,oldPid,Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(evidence))));
+    }
+
+    private StoppedProof VerifyStopped(Guid mapId,int oldPid)
+    {
+        var witness=stoppedProof(mapId,oldPid);
+        if(witness.Map.Id!=mapId||!ReferenceEquals(witness.Map,Owned(mapId))||
+           !witness.Map.HistoricalStoreProtected||witness.OldPid!=oldPid||
+           witness.SourceSha.Length!=64||!witness.SourceSha.All(Uri.IsHexDigit))
+            throw new InvalidDataException("UM-RECOVERY-STOPPED-OWNER-UNVERIFIED");
+        return witness;
+    }
+
     public async Task<string> HandleAsync(string raw)
     {
         string? id=null;
