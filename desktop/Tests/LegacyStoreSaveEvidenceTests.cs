@@ -129,6 +129,36 @@ internal static class LegacyStoreSaveEvidenceTests
         Check(File.ReadAllBytes(immutableOriginal).SequenceEqual(original),
             "local receipt lifecycle leaves original Kova-shaped bytes unchanged");
 
+        // Late read-only inspection of the old uncertain SaveWorld. An
+        // intervening autosave or a later log may modify metadata, but
+        // without the ORIGINAL pre-RCON boundary it cannot prove that
+        // the old command completed. Never update the sealed journal.
+        string lateRoot=Path.Combine(root,"late-world-metadata");
+        Directory.CreateDirectory(lateRoot);
+        var lateMap=new LocalMap{Id=id,Name="Aberration",
+            HistoricalMapKey="Aberration_WP",InstallationPath=lateRoot};
+        var lateLayout=AsaSaveLayoutResolver.Resolve(lateMap);
+        Directory.CreateDirectory(Path.GetDirectoryName(lateLayout.WorldFile)!);
+        File.WriteAllBytes(lateLayout.WorldFile,
+            new byte[]{0x41,0x52,0x4b,0x01,0x02});
+        string lateLog=Path.Combine(lateRoot,"ShooterGame",
+            "Saved","Logs","ShooterGame.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(lateLog)!);
+        File.WriteAllText(lateLog,"Saving world\nWorld Save Complete\n");
+        var uncertain=LegacyStoreV1SaveEvidenceJournal.Inspect(root,id)!;
+        Check(Rejects(()=>AsaWorldSaveEvidence.InspectLateReadOnly(
+                  lateMap,uncertain,()=>false)),
+            "late evidence inspection refuses a different/unknown ASA owner");
+        var late=AsaWorldSaveEvidence.InspectLateReadOnly(
+            lateMap,uncertain,()=>true);
+        Check(late.WorldFilePresent&&late.AsaLogPresent&&
+              late.WorldMetadataNewerThanAttempt&&
+              !late.CompletionCertified&&!late.RconSent&&!late.GrantsOperation&&
+              LegacyStoreV1SaveEvidenceJournal.Inspect(root,id)?.Phase=="needsOperator",
+            "post-timeout world/log metadata is visible, old SaveComplete remains unproven");
+        Check(File.ReadAllBytes(immutableOriginal).SequenceEqual(original),
+            "late observation never changes original Store-shaped data");
+
         // Real Windows local coordinator + receipt review. No Kova share or
         // real server process is involved. A crashed Backup journal and its
         // uncertain SaveWorld receipt must BOTH be explicitly reviewed.
