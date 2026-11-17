@@ -14,7 +14,6 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
   const [adminMessage,setAdminMessage]=useState("");
   const [adminDraft,setAdminDraft]=useState<RconAdminPreview|null>(null);
   const [adminApproved,setAdminApproved]=useState(false);
-  const [adminTyped,setAdminTyped]=useState("");
   const [adminReceipt,setAdminReceipt]=useState<RconAdminResult|null>(null);
   const [config,setConfig]=useState<RconConfigStatus|null>(null);
   const [rconPort,setRconPort]=useState("37015");
@@ -34,7 +33,7 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
     const requested=mapId,epoch=requestEpoch.current;
     setBusy(true);setError("");setStatus(null);setResult(null);setReadLog(null);
     setSaveReceipt(null);setSaveEvidence(null);setSaveApproved(false);
-    setAdminDraft(null);setAdminApproved(false);setAdminTyped("");setAdminReceipt(null);
+    setAdminDraft(null);setAdminApproved(false);setAdminReceipt(null);
     try{
       // The optional configuration endpoint must never block existing RCON
       // commands or the admin panel when old/native test bridges omit it.
@@ -64,7 +63,7 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
     setStatus(null);setResult(null);setReadLog(null);
     setSaveReceipt(null);setSaveEvidence(null);setAdminDraft(null);
     setAdminReceipt(null);setConfigPreview(null);setConfig(null);
-    setSaveApproved(false);setAdminApproved(false);setAdminTyped("");
+    setSaveApproved(false);setAdminApproved(false);
     setConfigDone(false);setRconPassword("");setBusy(false);setError("");
     void load();
     return ()=>{++requestEpoch.current;};
@@ -186,7 +185,7 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
     if(!status?.permitted||busy||(!adminMessage.trim()&&adminAction!=="wildWipe"))return;
     const requested=mapId,epoch=requestEpoch.current;
     setBusy(true);setError("");setAdminDraft(null);setAdminReceipt(null);
-    setAdminApproved(false);setAdminTyped("");
+    setAdminApproved(false);
     try{
       const result=await managerBridge.rconAdminPreview(requested,adminAction,
         adminAction==="wildWipe"?"":adminMessage);
@@ -202,11 +201,10 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
   };
   const executeAdmin=async()=>{
     if(!adminDraft||adminDraft.mapId.toLowerCase()!==mapId.toLowerCase()||
-       !adminApproved||busy||
-       (adminDraft.approvalWord!==null&&adminTyped!==adminDraft.approvalWord))return;
+       !adminApproved||busy)return;
     const token=adminDraft.token,requested=mapId,epoch=requestEpoch.current,
-      approvedCommand=adminDraft.command,typed=adminTyped;
-    setAdminDraft(null);setAdminApproved(false);setAdminTyped("");
+      approvedCommand=adminDraft.command,typed=adminDraft.approvalWord??"";
+    setAdminDraft(null);setAdminApproved(false);
     setBusy(true);setError("");setAdminReceipt(null);
     try{
       const receipt=await managerBridge.rconAdminSend(token,typed);
@@ -334,14 +332,12 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
                 onChange={e=>setAdminApproved(e.target.checked)}/>
               Jóváhagyom a parancs egyszeri elküldését: {adminDraft.mapName}
             </label>
-            {adminDraft.approvalWord!==null&&<label>Gépeld be a megerősítő szót: {adminDraft.approvalWord}
-              <input aria-label="Adminparancs megerősítő szó" value={adminTyped}
-                onChange={e=>setAdminTyped(e.target.value)} placeholder={adminDraft.approvalWord}/>
-            </label>}
+            {adminDraft.dangerous&&<p className="muted small">
+              Ellenőrizd még egyszer a fenti parancsot és a célmapot,
+              majd jelöld be a külön jóváhagyást. Begépelés nem kell.</p>}
             <div className="uk-rcon-admin-actions">
               <button type="button" className={adminDraft.dangerous?"danger":"primary"}
-                disabled={!adminApproved||busy||
-                  (adminDraft.approvalWord!==null&&adminTyped!==adminDraft.approvalWord)}
+                disabled={!adminApproved||busy}
                 onClick={()=>{void executeAdmin();}}>Parancs elküldése</button>
               <button type="button" className="secondary" disabled={busy}
                 onClick={()=>{setAdminDraft(null);setAdminApproved(false);}}>Mégsem</button>
