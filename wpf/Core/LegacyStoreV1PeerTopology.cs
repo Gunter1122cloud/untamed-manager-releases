@@ -34,6 +34,34 @@ public static class LegacyStoreV1PeerTopology
             StringComparison.Ordinal);
     }
 
+    // Shared by the actual native launch gate and isolated C# regressions.
+    // Additional members are not added to the exactly five selected writers.
+    public static void RequireDonePeerRoster(JsonElement owned,
+        JsonElement selected,JsonElement configMembers)
+    {
+        if(owned.ValueKind!=JsonValueKind.Array||
+           owned.GetArrayLength() is <5 or >32||
+           selected.ValueKind!=JsonValueKind.Array||
+           selected.GetArrayLength()!=5||
+           configMembers.ValueKind!=JsonValueKind.Array||
+           StoreV1Fingerprint.Compute(configMembers)!=
+               StoreV1Fingerprint.Compute(owned))
+            throw new InvalidDataException("UM-STORE-LIVE-PEER-DONE-INVALID");
+        string[] ownedIds=owned.EnumerateArray()
+            .Select(x=>x.ValueKind==JsonValueKind.Object&&
+                x.TryGetProperty("id",out var id)&&
+                id.ValueKind==JsonValueKind.String?id.GetString()??"":"")
+            .ToArray();
+        string[] selectedIds=selected.EnumerateArray()
+            .Select(x=>x.ValueKind==JsonValueKind.String?x.GetString()??"":"")
+            .ToArray();
+        var unique=new HashSet<string>(ownedIds,StringComparer.OrdinalIgnoreCase);
+        if(unique.Count!=owned.GetArrayLength()||
+           selectedIds.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=5||
+           selectedIds.Any(x=>!unique.Contains(x)))
+            throw new InvalidDataException("UM-STORE-LIVE-PEER-SELECTED-MISMATCH");
+    }
+
     public static void Validate(string localDeviceId,IReadOnlyList<Peer> peers)
     {
         if(!IsOriginalSourceUuid(localDeviceId)||
