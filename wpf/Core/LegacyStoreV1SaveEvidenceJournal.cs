@@ -179,6 +179,77 @@ public static class LegacyStoreV1SaveEvidenceJournal
         }
     }
 
+    // P1 operator-only, read-only diagnosis. No broken/partial receipt is
+    // reinterpreted as "missing", no operation identity is guessed, and no
+    // file is repaired, renamed, deleted, quarantined or RCON-dispatched.
+    // The original bytes remain untouched; only their bounded digest is
+    // returned, never credentials, paths or JSON content.
+    public sealed record ReadOnlyDiagnosis(string State,string ReasonCode,
+        long? ByteLength,string? Sha256,bool OriginalBytesPreserved);
+
+    public static ReadOnlyDiagnosis DiagnoseReadOnly(string managerProfileRoot,
+        Guid mapId)
+    {
+        string? file=null;
+        long? size=null;
+        string? sha=null;
+        try
+        {
+            file=PathFor(managerProfileRoot,mapId);
+            if(AttributesIfPresent(file+".next").HasValue)
+                return new("interrupted","UM-ORIGINAL-SAVE-JOURNAL-INTERRUPTED",
+                    null,null,true);
+            var attrs=AttributesIfPresent(file);
+            if(!attrs.HasValue)
+                return new("missing","UM-ORIGINAL-SAVE-JOURNAL-NOT-PRESENT",
+                    null,null,true);
+            if((attrs.Value&(FileAttributes.Directory|FileAttributes.ReparsePoint))!=0)
+                return new("unsafe","UM-ORIGINAL-SAVE-JOURNAL-UNSAFE",
+                    null,null,true);
+            var info=new FileInfo(file);
+            size=info.Length;
+            // Only hash canonical Manager-local small receipts, never large,
+            // potentially mislocated data or UNC/Store roots.
+            if(size is >=0 and <=4096)
+            {
+                using var stream=new FileStream(file,FileMode.Open,
+                    FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
+                sha=Convert.ToHexString(SHA256.HashData(stream));
+            }
+            Inspect(managerProfileRoot,mapId);
+            return new("valid","UM-ORIGINAL-SAVE-JOURNAL-VALID",
+                size,sha,true);
+        }
+        catch(UnauthorizedAccessException)
+        {
+            return new("inaccessible","UM-ORIGINAL-SAVE-JOURNAL-ACCESS-DENIED",
+                size,sha,true);
+        }
+        catch(System.Text.Json.JsonException)
+        {
+            return new("corrupt","UM-ORIGINAL-SAVE-JOURNAL-MALFORMED",
+                size,sha,true);
+        }
+        catch(InvalidDataException ex)
+        {
+            // Only self-authored stable codes can reach the UI.
+            string code=ex.Message.StartsWith("UM-ORIGINAL-SAVE-JOURNAL-",
+                StringComparison.Ordinal)?ex.Message:
+                "UM-ORIGINAL-SAVE-JOURNAL-INVALID";
+            if(code.Length>90||code.Any(char.IsWhiteSpace))
+                code="UM-ORIGINAL-SAVE-JOURNAL-INVALID";
+            return new(code.Contains("OTHER-MAP",StringComparison.Ordinal)?
+                "otherMap":"corrupt",code,size,sha,true);
+        }
+        catch(IOException)
+        {
+            // Sharing violations and transient I/O errors must not be
+            // mislabeled as irrecoverably corrupt JSON.
+            return new("ioUnavailable","UM-ORIGINAL-SAVE-JOURNAL-IO-UNAVAILABLE",
+                size,sha,true);
+        }
+    }
+
     private static void Publish(string file,LegacyStoreV1SaveEvidence evidence)
     {
         Validate(evidence);
