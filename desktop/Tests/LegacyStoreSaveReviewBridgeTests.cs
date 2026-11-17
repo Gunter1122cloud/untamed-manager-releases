@@ -244,6 +244,62 @@ internal static class LegacyStoreSaveReviewBridgeTests
               cluster.Operations.Observe(installation)?.Phase==
                   UntamedOperationPhase.OperatorReviewed,
             "second approval finishes interrupted paired review without sending command");
+
+        // P1: three-journal crash. In a fully isolated installation,
+        // a matching old-PID Restart and a Backup journal may both be
+        // NeedsOperator. Review SaveEvidence first, Restart second, Backup
+        // last; a synthetic exception between writes must remain resumable.
+        var thirdReceipt=Guid.NewGuid();
+        LegacyStoreV1SaveEvidenceJournal.Begin(cluster.Store.Root,
+            thirdReceipt,map.Id,pid,pidStarted,SourceSha);
+        LegacyStoreV1SaveEvidenceJournal.MarkUncertain(cluster.Store.Root,
+            thirdReceipt,map.Id,pid,pidStarted,SourceSha);
+        using(var third=cluster.Operations.Acquire(
+            installation,UntamedOperationKind.Backup))
+            third.MarkMutationStarted();
+        var restartJournal=new AsaManualRestartJournal(installation);
+        var pendingRestart=restartJournal.Begin(map.Id,pid);
+        restartJournal.Change(pendingRestart.Id,AsaRestartPhase.NeedsOperator);
+        // Synthetic fixture only: emulate a genuine abandoned Restart that
+        // is older than the production three-minute manual-review threshold.
+        string restartFile=Path.Combine(UntamedOperationCoordinator.DefaultRoot,
+            "Restart-v1",UntamedOperationCoordinator.ResourceKey(installation)+".json");
+        File.WriteAllText(restartFile,JsonSerializer.Serialize(
+            restartJournal.Observe()! with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-6)
+            },new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        var pendingCoordinator=cluster.Operations.Observe(installation)!;
+        bool injectedCrash=false;
+        try
+        {
+            cluster.Operations.ReviewRunningBackup(installation,
+                pendingCoordinator.Operation,()=>true,()=>{
+                    LegacyStoreV1SaveEvidenceJournal.ReviewUncertain(
+                        cluster.Store.Root,map.Id,thirdReceipt,SourceSha,()=>true);
+                    throw new IOException("synthetic crash after first of three reviews");
+                },pendingRestart.Id,map.Id,pid);
+        }
+        catch(IOException){injectedCrash=true;}
+        Check(injectedCrash&&
+              LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id)?.Phase=="reviewed"&&
+              restartJournal.Observe()?.Phase==AsaRestartPhase.NeedsOperator&&
+              cluster.Operations.Observe(installation)?.Phase==UntamedOperationPhase.NeedsOperator,
+            "three-journal crash after SaveEvidence retains both pending recovery blockers");
+        var paired=await Call(bridge,"historical.saveWorldReviewPreview",
+            new{mapId=map.Id});
+        Check(paired.GetProperty("ok").GetBoolean()&&
+              paired.GetProperty("data").GetProperty("pairedRestartReview").GetBoolean(),
+            "running review inventories and binds the matching interrupted Restart");
+        var pairedReceipt=await Call(bridge,"historical.saveWorldReviewApply",
+            new{token=paired.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true,confirmation="REVIEW STORE SAVE"});
+        Check(pairedReceipt.GetProperty("ok").GetBoolean()&&
+              pairedReceipt.GetProperty("data").GetProperty("pairedRestartReviewed").GetBoolean()&&
+              !pairedReceipt.GetProperty("data").GetProperty("rconSent").GetBoolean()&&
+              restartJournal.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+              cluster.Operations.Observe(installation)?.Phase==UntamedOperationPhase.OperatorReviewed&&
+              !LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id)!.LocalSaveCompleteObserved,
+            "three-journal review is resumed idempotently without Send/SaveComplete/Stop");
     }
 
     public static async Task Run(string testRoot)
