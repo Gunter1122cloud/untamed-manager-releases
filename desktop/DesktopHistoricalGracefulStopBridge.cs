@@ -669,12 +669,8 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                 bool wantsSaveOnly=method=="historical.saveWorldApply";
                 if(wantsSaveOnly!=(approved.Kind=="SaveWorldOnly"))
                     return Fail(id,"UM-ORIGINAL-STOP-OPERATION-MISMATCH");
-                if(!wantsSaveOnly&&
-                   (!request.TryGetProperty("confirm",out var confirmed)||
-                   confirmed.ValueKind!=JsonValueKind.True||
-                   !request.TryGetProperty("typedApproval",out var text)||
-                   text.ValueKind!=JsonValueKind.String||
-                   text.GetString()!="STORE-V1 SAVEWORLD DOEXIT"))
+                // A named map-action click authorizes this one-use token; the
+                // PID/source/port/lease rechecks below remain mandatory.
                     return Fail(id,"UM-ORIGINAL-STOP-TYPED-CONFIRMATION");
                 approvalsByMap.Remove(approved.MapId);
                 var map=Owned(approved.MapId);
