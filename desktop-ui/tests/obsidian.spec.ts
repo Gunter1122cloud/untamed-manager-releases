@@ -5882,9 +5882,8 @@ test("original Store mode can be selected before RCON without unlocking actual A
   const mode=panel.getByRole("button",{name:"ASA API Loader mód választása"});
   await expect(mode).toBeEnabled();
   await mode.click();
-  const consent=panel.getByRole("region",{name:"Eredeti Store-v1 indítási mód módosítása"});
-  await expect(consent).toBeVisible();
-  await consent.getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
+  await expect(panel.getByRole("region",{name:"Eredeti Store-v1 indítási mód módosítása"}))
+    .toHaveCount(0);
   await expect(panel).toContainText("Az ASA API Loader indítási mód mentve");
   await expect(start).toBeDisabled();
   await expect(panel).toContainText("Előbb add meg az eredeti RCON-t");
