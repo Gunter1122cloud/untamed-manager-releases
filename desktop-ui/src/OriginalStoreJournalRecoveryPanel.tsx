@@ -32,12 +32,18 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
       // separate step; it sends no commands or writes to original korábbi Manager.
       const proof=await managerBridge.originalStoreLifecycleRecoveryPreview(mapId);
       if(currentMap.current!==mapId)return;
+      const stopped=proof.reviewMode==="stopped";
       if(!proof.token||proof.pid<=0||
          proof.mapId.toLowerCase()!==mapId.toLowerCase()||
-         !proof.exactWindowsProcessVerified||!proof.rconListenerOwnerVerified||
+         (!stopped&&(!proof.exactWindowsProcessVerified||
+           !proof.rconListenerOwnerVerified||
+           !(proof.originalStoreSessionVerified||proof.approvedObsidianSourcePinned)))||
+         (stopped&&(!proof.stoppedWindowsProcessVerified||
+           !proof.rconListenerAbsent||!proof.historicalSelectedOwnerVerified||
+           proof.pairedJournals!==2||!proof.restartId||
+           proof.exactWindowsProcessVerified||proof.rconListenerOwnerVerified))||
          !proof.priorCommandOutcomeUnknown||
          !proof.previousOperationWillNotBeRetried||
-         !(proof.originalStoreSessionVerified||proof.approvedObsidianSourcePinned)||
          (proof.pairedJournals===2&&!proof.restartId)||
          (proof.restartId&&(proof.restartOldPid!==proof.pid||
            proof.restartNewPid!==0)))
@@ -56,8 +62,10 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
          result.processStopped||result.rconCommandSent||
          result.noAutomaticRetry!==true||
          (proof.restartId&&(!result.restartJournalAudited||
-           result.oldRunningPid!==proof.pid||
+           (stopped?result.oldStoppedPid!==proof.pid:
+             result.oldRunningPid!==proof.pid)||
            result.restartMarkedSuccessful!==false))||
+         (stopped&&result.reviewMode!=="stopped")||
          (proof.pairedJournals===2&&result.pairedJournalsReviewed!==2))
         throw new Error("UM-RECOVERY-INVALID-NATIVE-RECEIPT");
       setReceipt(true);
@@ -89,9 +97,10 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
       <p className="muted small">Helyi műveleti napló: {journal.operationId??"nem olvasható"}
         {" · "}{journal.changedUtc??"időpont nem olvasható"}
         {" · "}{journal.blockingCode??"ismeretlen blokkoló"}.
-        A gomb frissen ellenőrzi az eredeti ASA PID-et és indítási időt,
-        az RCON-tulajdonost, a Store-forrást és a naplók azonosítóját,
-        majd kizárólag a Manager saját helyreállítási naplóját rendezi.</p>
+        A gomb frissen ellenőrzi a Store-forrást és a naplók azonosítóját.
+        Futó régi ASA esetén a pontos PID-et és RCON-tulajdonost,
+        leállított régi ASA esetén a teljes folyamatcsalád és RCON-listener
+        hiányát ellenőrzi. Ezután kizárólag a Manager naplóit rendezi.</p>
       {journal.restartJournalExists&&<div className="warning-inline">
         <ShieldCheck size={16}/>
         <span><b>Restart-v1 napló:</b> {journal.restartId??"ismeretlen"}
@@ -107,8 +116,8 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
           "Ellenőrzés és helyi naplórendezés"}
       </button>}
       {verifiedPid!==null&&!receipt&&<p className="muted small" role="status">
-        Igazolt korábbi ASA PID: {verifiedPid}. A végső naplórendezés külön
-        natív ellenőrzést végez; nem küld RCON-parancsot.
+        Naplóban rögzített korábbi ASA PID: {verifiedPid}. A végső rendezés
+        külön, friss natív ellenőrzést végez; nem küld RCON-parancsot.
       </p>}
       {receipt&&<div className="success-inline" role="status"><CheckCircle2 size={16}/>
         A Manager helyi naplói auditálva. A korábbi parancs kimenetele
