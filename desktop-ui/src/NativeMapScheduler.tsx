@@ -190,6 +190,24 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
         (e instanceof Error?e.message:""));
     }finally{if(target===currentMap.current)setReviewing(false);}
   };
+  const resumeSupervisor=async()=>{
+    if(reviewing||busy||status?.supportedNextAction!=="schedule.nativeResume")return;
+    const target=mapId;
+    setReviewing(true);setReviewNotice("");
+    try{
+      const receipt=await managerBridge.nativeScheduleResume(target);
+      if(currentMap.current!==target)return;
+      if(!receipt.supervisorResumed||receipt.oldSlotReplayed||
+         receipt.oldTaskReenabled||!receipt.nextTaskRequiresExplicitOptIn)
+        throw new Error("UM-ASA-SCHEDULE-RESUME-RECEIPT-NOT-VERIFIED");
+      await reload();
+      setReviewNotice("A helyi ütemező újra felügyel, de a régi slotot nem pótolta. "+
+        "A feladatok új aktiválásához külön hozzájárulás szükséges.");
+    }catch(e){
+      if(currentMap.current===target)setError("Az ütemező nem indítható újra biztonságosan: "+
+        (e instanceof Error?e.message:"A tartós napló még nincs rendezve."));
+    }finally{if(currentMap.current===target)setReviewing(false);}
+  };
   const reload=useCallback(async()=>{
     setBusy(true);
     try {
@@ -226,6 +244,11 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
         Következő ellenőrzött lépés: {status.supportedNextAction}.
         Az eredeti slotot nem ismételjük meg automatikusan.
       </p>}
+    {status?.supportedNextAction==="schedule.nativeResume"&&
+      <button type="button" className="secondary" disabled={busy||reviewing}
+        onClick={()=>{void resumeSupervisor();}}>
+        <Shield size={16}/> Helyi ütemező felügyeletének újraindítása – régi slot nélkül
+      </button>}
     {reviewNotice&&<p className="success-inline" role="status">
       <CheckCircle2 size={16}/>{reviewNotice}</p>}
     {reviewPreview&&<div className="warning-inline" role="region"
