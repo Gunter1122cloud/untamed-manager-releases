@@ -57,6 +57,8 @@ static bool IsError(JsonElement value,string code)=>
     !value.GetProperty("ok").GetBoolean() &&
     value.GetProperty("error").GetString()==code;
 
+OriginalStoreExpandedDonePeerTests.Run();
+
 AsaInitialRconSettings.ValidateExistingAdminPassword("Old7!xx");
 Check(true,"existing ASA INI credentials may be shorter than new credentials");
 bool weakNewDenied=false;
