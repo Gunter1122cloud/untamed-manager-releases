@@ -20,7 +20,6 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
   const [reconcileFailed,setReconcileFailed]=useState(false);
   const [reconcileNonce,setReconcileNonce]=useState(0);
   const [reviewJournalId,setReviewJournalId]=useState<string|null>(null);
-  const [reviewTyped,setReviewTyped]=useState("");
   const mapRef=useRef(mapId);
   mapRef.current=mapId;
   const mounted=useRef(false);
@@ -31,7 +30,7 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
   useEffect(()=>{
     ++actionRevision.current;
     setPreview(null);setApproved(false);setError("");setBusy(false);
-    setJobId(null);setStatus(null);setReviewJournalId(null);setReviewTyped("");
+    setJobId(null);setStatus(null);setReviewJournalId(null);
     setMessage(recentStopReceipts.get(mapId)??"");
   },[mapId]);
   // Reattach only a verified, in-memory running job. A finished Stop is NOT
@@ -159,13 +158,13 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
   };
 
   const reviewStopped=async()=>{
-    if(!reviewJournalId||reviewTyped!=="REVIEW STOPPED ASA"||
+    if(!reviewJournalId||
        busy||jobId||reconciling)return;
     const requested=mapId,reviewId=reviewJournalId;
     setBusy(true);setError("");
     try{
       const receipt=await managerBridge.freshAsaStopReview(
-        requested,reviewId,reviewTyped);
+        requested,reviewId,"REVIEW STOPPED ASA");
       if(!belongs(requested))return;
       if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||
          receipt.journalId.toLowerCase()!==reviewId.toLowerCase()||
@@ -173,7 +172,7 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
          receipt.serverStarted!==false||receipt.storeTouched!==false||
          receipt.evidence!=="LOCAL_ASA_STOP_JOURNAL_OPERATOR_REVIEW_NO_DISPATCH")
         throw new Error("UM-ASA-STOP-REVIEW-RECEIPT-MISMATCH");
-      setReviewJournalId(null);setReviewTyped("");
+      setReviewJournalId(null);
       setReconcileNonce(n=>n+1);
       setMessage("A korábbi Stop-napló felülvizsgálata rögzítve. Nem történt új SaveWorld, DoExit, Kill vagy Start. A mentés épségét ez nem tanúsítja.");
     }catch{
@@ -198,12 +197,10 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
       ha a natív Windows-folyamatellenőrzés igazoltan leállított állapotot ad.
       Ez nem küld SaveWorld, DoExit, Kill vagy Start parancsot, és nem igazolja
       a lemezre mentett világot.</p>
-      <label>Jóváhagyó szöveg: REVIEW STOPPED ASA
-        <input type="text" value={reviewTyped} disabled={busy||reconciling}
-          onChange={e=>setReviewTyped(e.target.value)} autoComplete="off"/>
-      </label>
-      <button type="button" className="secondary"
-        disabled={busy||reconciling||reviewTyped!=="REVIEW STOPPED ASA"}
+      <p>Az igazoltan leállított ASA-naplót az alábbi külön
+         gombbal jóváhagyhatod. RCON-parancs és Start nem indul.</p>
+       <button type="button" className="secondary"
+        disabled={busy||reconciling}
         onClick={()=>{void reviewStopped();}}>Igazoltan leállított Stop-napló felülvizsgálata</button>
     </div>}
     {preview&&<div className="historical-preview" role="region" aria-label="ASA leállítás jóváhagyása">
