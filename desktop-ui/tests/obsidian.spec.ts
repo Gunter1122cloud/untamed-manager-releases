@@ -1534,8 +1534,7 @@ test.beforeEach(async ({ page }) => {
             evidence:"ORIGINAL_STORE_V1_RESTART_TWO_STAGE_PREFLIGHT"};
         }
         case "historical.restartApply": {
-          if(m.token!==originalRestartToken||m.confirm!==true||
-             m.typedApproval!=="STORE-V1 SAVEWORLD DOEXIT START"||
+          if(m.token!==originalRestartToken||
              !originalRestartApproved||originalRestartQueued)
             throw new Error("Original Store Restart approval mismatch");
           originalRestartQueued=true;
@@ -1729,8 +1728,7 @@ test.beforeEach(async ({ page }) => {
           };
         }
         case "historical.gracefulStopApply": {
-          if(m.token!==originalStopToken||m.confirm!==true||
-             m.typedApproval!=="STORE-V1 SAVEWORLD DOEXIT"||originalStopQueued||
+          if(m.token!==originalStopToken||originalStopQueued||
              !historicalActiveStarted)
             throw new Error("Original Store Stop approval invalid");
           originalStopQueued=true;
@@ -6532,7 +6530,7 @@ test("unreadable original Store SaveWorld is visible on Save and Restart without
   const stopPanel=page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"});
   await expect(stopPanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
   await expect(stopPanel.getByRole("button",{
-    name:"Eredeti SaveWorld/DoExit előellenőrzése"
+    name:"SaveWorld + szabályos DoExit indítása"
   })).toBeDisabled();
   await expect(savePanel.getByTestId("store-durable-save-evidence"))
     .toContainText("Tartós napló nem ellenőrizhető");
@@ -6541,7 +6539,7 @@ test("unreadable original Store SaveWorld is visible on Save and Restart without
     .toBeDisabled();
   await expect(restartPanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
   await expect(restartPanel.getByRole("button",{
-    name:"Store-v1 újraindítás előellenőrzése"
+    name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"
   })).toBeDisabled();
   await restartPanel.getByRole("button",{name:"Store-v1 napló újraellenőrzése"}).click();
   await expect(restartPanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
@@ -6557,13 +6555,13 @@ test("unreadable original Store SaveWorld is visible on Save and Restart without
     .toBeEnabled();
   await restartPanel.getByRole("button",{name:"Store-v1 napló újraellenőrzése"}).click();
   await expect(restartPanel.getByRole("button",{
-    name:"Store-v1 újraindítás előellenőrzése"
+    name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"
   })).toBeEnabled();
   await stopPanel.getByRole("button",{
     name:"Store-v1 leállítási napló újraellenőrzése"
   }).click();
   await expect(stopPanel.getByRole("button",{
-    name:"Eredeti SaveWorld/DoExit előellenőrzése"
+    name:"SaveWorld + szabályos DoExit indítása"
   })).toBeEnabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
@@ -6590,7 +6588,7 @@ test("original Store-v1 SaveWorld-only refuses unresolved durable journal withou
   await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
 });
 
-test("original Store-v1 manual Restart requires exact two-stage approval and displays new PID without claiming gameplay readiness",async({page})=>{
+test("historical Store-v1 one-click Restart retains PID and game-readiness boundaries",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
@@ -6598,15 +6596,13 @@ test("original Store-v1 manual Restart requires exact two-stage approval and dis
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"});
-  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"}))
     .toBeEnabled();
-  await panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}).click();
-  const approval=panel.getByRole("region",{name:"Store-v1 újraindítás jóváhagyása"});
-  await expect(approval).toContainText("régi PID 42101");
-  const apply=approval.getByRole("button",{name:"Store-v1 Restart végrehajtása"});
-  await expect(approval.getByRole("textbox",{name:"Store-v1 újraindítás jóváhagyó szöveg"})).toHaveCount(0);
-  await expect(apply).toBeEnabled();
-  await apply.click();
+  const restart=panel.getByRole("button",{
+    name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"
+  });
+  await expect(restart).toBeEnabled();
+  await restart.click();
   await expect(panel.getByText(/Új eredeti ASA PID: 42102/)).toBeVisible();
   await expect(panel.getByText(/Régi PID 42101 → új PID 42102/)).toBeVisible();
   await expect(panel).toContainText("játékbeli csatlakozás és karakterutazás");
@@ -6614,7 +6610,7 @@ test("original Store-v1 manual Restart requires exact two-stage approval and dis
     __UNTAMED_RESTART_SENDS__?:()=>number
   }).__UNTAMED_RESTART_SENDS__?.());
   expect(sent).toBe(1);
-  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"}))
     .toBeDisabled();
 });
 
@@ -6630,13 +6626,13 @@ test("historical Store-v1 Restart explains unfinished SaveWorld receipt and perm
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"});
   await expect(panel.getByText(/Függő Store-v1 SaveWorld-bizonylat/)).toBeVisible();
-  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"}))
     .toBeDisabled();
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_RESTART_CLEAR_PENDING_SAVE__?:()=>void;
   }).__UNTAMED_RESTART_CLEAR_PENDING_SAVE__?.());
   await panel.getByRole("button",{name:"Store-v1 napló újraellenőrzése"}).click();
-  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"}))
     .toBeEnabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_RESTART_SENDS__?:()=>number;
@@ -6654,18 +6650,16 @@ test("original Store-v1 Restart fails closed after synthetic Stop-to-Start crash
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"});
-  await panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}).click();
-  const approval=panel.getByRole("region",{name:"Store-v1 újraindítás jóváhagyása"});
-  await approval.getByRole("button",{name:"Store-v1 Restart végrehajtása"}).click();
+  await panel.getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"}).click();
   await expect(panel.getByText(/A Store-v1 Restart megszakadt/)).toBeVisible();
-  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"}))
     .toBeDisabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_RESTART_SENDS__?:()=>number
   }).__UNTAMED_RESTART_SENDS__?.())).toBe(1);
 });
 
-test("original Store-v1 real SaveWorld then DoExit requires exact typed approval, shows durable result and no Kill",async({page})=>{
+test("historical Store-v1 one-click SaveWorld and DoExit shows durable result without Kill",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
@@ -6674,16 +6668,13 @@ test("original Store-v1 real SaveWorld then DoExit requires exact typed approval
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"});
   await expect(panel).toBeVisible();
-  await panel.getByRole("button",{name:"Eredeti SaveWorld/DoExit előellenőrzése"}).click();
-  const approval=panel.getByRole("region",{name:"Eredeti Store-v1 leállítás jóváhagyása"});
-  await expect(approval).toBeVisible();
-  const apply=approval.getByRole("button",{name:"SaveWorld és szabályos DoExit"});
-  await expect(approval.getByRole("textbox",{name:"Pontos jóváhagyó szöveg"})).toHaveCount(0);
-  await expect(apply).toBeEnabled();
-  await apply.click();
+  const stop=panel.getByRole("button",{name:"SaveWorld + szabályos DoExit indítása"});
+  await expect(stop).toBeEnabled();
+  await stop.click();
+  await expect(stop).toBeDisabled();
   await expect(panel.getByText(/A régi ASA-folyamat szabályosan kilépett/)).toBeVisible();
   await expect(panel.getByText(/mentésjelzés megfigyelve/)).toBeVisible();
-  await expect(panel.getByRole("button",{name:"Eredeti SaveWorld/DoExit előellenőrzése"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:"SaveWorld + szabályos DoExit indítása"})).toBeDisabled();
   await expect(panel.getByRole("button",{name:/Kill|Erőltetett|Újraindítás/})).toHaveCount(0);
 });
 
@@ -6702,10 +6693,10 @@ test("old original Store Stop NEEDS_OPERATOR journal survives UI remount and dis
   await expect(journal).toBeVisible();
   await expect(journal.getByText(/Korábbi műveleti napló/)).toBeVisible();
   await expect(journal.getByText(/Kézi ellenőrzés szükséges/)).toBeVisible();
-  await expect(panel.getByRole("button",{name:"Eredeti SaveWorld/DoExit előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"SaveWorld + szabályos DoExit indítása"}))
     .toBeDisabled();
-  await expect(panel.getByRole("button",{name:"SaveWorld és szabályos DoExit"}))
-    .toHaveCount(0);
+  await expect(panel.getByRole("button",{name:"SaveWorld + szabályos DoExit indítása"}))
+    .toBeDisabled();
 });
 
 test("real admin RCON UI requires two-stage approval and exact typed phrase for destructive actions",async({page})=>{
