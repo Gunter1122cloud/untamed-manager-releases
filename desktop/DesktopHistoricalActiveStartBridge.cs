@@ -331,6 +331,34 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                             !stopped.Running&&stopped.Identity==null&&
                             stopped.LoaderIdentity==null;
                     }
+                    // P2 read-only evidence layers. A visible console
+                    // belongs to a future approved launch, not proof that
+                    // an already-running child loaded any plugin.
+                    string apiRuntimeState="notChecked";
+                    bool joinAdvertised=false,apiHooksObserved=false,
+                        apiDllObserved=false;
+                    if(observed.Running&&observed.Identity is {Pid:>0} child)
+                    {
+                        try
+                        {
+                            var runtime=AsaRuntimeLogEvidence.Inspect(
+                                map,child,observed.LoaderIdentity);
+                            joinAdvertised=runtime.JoinAdvertised;
+                            apiHooksObserved=map.StartWithAsaApi&&
+                                runtime.ApiInitialized;
+                            apiDllObserved=map.StartWithAsaApi&&
+                                AsaApiModuleEvidence.IsLoaded(map,child);
+                            apiRuntimeState=apiHooksObserved&&apiDllObserved?
+                                "hooksAndAsaChildDllObserved":
+                                "runtimeUnverified";
+                        }
+                        catch(Exception ex) when(ex is IOException or
+                            UnauthorizedAccessException or InvalidOperationException or
+                            ArgumentException or NotSupportedException)
+                        {
+                            apiRuntimeState="diagnosticUnavailable";
+                        }
+                    }
                     return Ok(id,new{
                         mapId,mapName=map.Name,running=observed.Running,
                         confirmedStopped,
@@ -338,6 +366,13 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         serverPid=observed.Identity?.Pid,
                         loaderPid=observed.LoaderIdentity?.Pid,
                         requestedMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",
+                        loaderProcessObserved=observed.LoaderIdentity is {Pid:>0},
+                        loaderConsoleExpectedOnNextStart=map.StartWithAsaApi,
+                        asaJoinAdvertised=joinAdvertised,
+                        apiHooksLogObserved=apiHooksObserved,
+                        asaApiDllInChildObserved=apiDllObserved,
+                        apiRuntimeState,
+                        pluginsOperationalVerified=false,
                         launchModeApprovalRequired=map.HistoricalLaunchModeNeedsApproval,
                         rconConfigured=map.RconPort>0&&
                             !string.IsNullOrWhiteSpace(map.RconPasswordProtected),
