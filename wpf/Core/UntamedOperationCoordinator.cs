@@ -119,10 +119,28 @@ public sealed class UntamedOperationCoordinator
     /// per-operation audit file. No Store lock, session or ASA file is changed.
     /// </summary>
     internal void ReviewStoppedBackup(string installation,Guid? expectedOperation,
-        Func<bool> verifyOriginalAndStopped,Action reviewLocalReceipt)
+        Func<bool> verifyOriginalAndStopped,Action reviewLocalReceipt)=>
+        ReviewBackupCore(installation,expectedOperation,verifyOriginalAndStopped,
+            reviewLocalReceipt,running:false);
+
+    // P0: the original ASA may STILL BE RUNNING after an uncertain
+    // SaveWorld. Requiring Stop first is circular because Stop itself is
+    // intentionally denied by the outstanding Backup + SaveEvidence.
+    // Only the native host may call this under an explicit one-shot
+    // approval bound to exact receipt/PID/start/source/port and map.
+    // The generic coordinator does not manufacture that proof.
+    internal void ReviewRunningBackup(string installation,Guid? expectedOperation,
+        Func<bool> verifyOriginalRunning,Action reviewLocalReceipt)=>
+        ReviewBackupCore(installation,expectedOperation,verifyOriginalRunning,
+            reviewLocalReceipt,running:true);
+
+    private void ReviewBackupCore(string installation,Guid? expectedOperation,
+        Func<bool> verifyOwner,Action reviewLocalReceipt,bool running)
     {
-        ArgumentNullException.ThrowIfNull(verifyOriginalAndStopped);
+        ArgumentNullException.ThrowIfNull(verifyOwner);
         ArgumentNullException.ThrowIfNull(reviewLocalReceipt);
+        if(expectedOperation==Guid.Empty)
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-REVIEW-COORDINATOR-ID");
         string key=ResourceKey(installation);
         using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
         if(!semaphore.WaitOne(0))
@@ -139,8 +157,15 @@ public sealed class UntamedOperationCoordinator
                  UntamedOperationPhase.NeedsOperator)&&
                old.Kind!=UntamedOperationKind.Backup)
                 throw new UnauthorizedAccessException("UNTAMED_OPERATION_REVIEW_NOT_BACKUP");
-            if(!verifyOriginalAndStopped())
-                throw new UnauthorizedAccessException("UNTAMED_OPERATION_REVIEW_SOURCE_OR_STOP_UNVERIFIED");
+            if(running&&old!=null&&old.Kind!=UntamedOperationKind.Backup)
+                throw new UnauthorizedAccessException("UM-ORIGINAL-SAVE-REVIEW-OTHER-OPERATION");
+            // An OS lease held by another Manager/worker prevents this
+            // path from entering. The owner callback must be renewed under
+            // this SAME installation semaphore, not trusted from preview.
+            if(!verifyOwner())
+                throw new UnauthorizedAccessException(running?
+                    "UM-ORIGINAL-SAVE-REVIEW-RUNNING-OWNER-CHANGED":
+                    "UNTAMED_OPERATION_REVIEW_SOURCE_OR_STOP_UNVERIFIED");
             reviewLocalReceipt();
             if(old!=null&&old.Phase is
                 (UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
@@ -163,6 +188,10 @@ public sealed class UntamedOperationCoordinator
                     stream.Write(bytes);
                     stream.Flush(flushToDisk:true);
                 }
+                if(!verifyOwner())
+                    throw new UnauthorizedAccessException(running?
+                        "UM-ORIGINAL-SAVE-REVIEW-RUNNING-OWNER-CHANGED":
+                        "UNTAMED_OPERATION_REVIEW_SOURCE_OR_STOP_UNVERIFIED");
                 Write(journal,old with{
                     Phase=UntamedOperationPhase.OperatorReviewed,
                     UpdatedUtc=DateTimeOffset.UtcNow});
