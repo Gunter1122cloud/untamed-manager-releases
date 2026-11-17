@@ -1703,6 +1703,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "operations.scheduleCreate" | "operations.scheduleDisable" |
   "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" |
   "schedule.nativeReviewPreview" | "schedule.nativeReviewApply" |
+  "schedule.nativeResume" |
   "schedule.nativeOverview" |
   "maps.maintenanceStatus" | "maps.maintenanceSet" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.openFolder" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
@@ -1759,6 +1760,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
    "historical.saveWorldPreview" | "historical.saveWorldApply" |
    "historical.saveWorldStatus" | "historical.saveWorldEvidence" |
    "historical.saveWorldReviewPreview" | "historical.saveWorldReviewApply" |
+   "historical.saveWorldForensicExport" | "historical.saveWorldLateEvidence" |
    "historical.restartPreview" | "historical.restartApply" |
    "historical.restartStatus" | "historical.restartRecovery" |
    "historical.adminPreview" | "historical.adminSend" |
@@ -1784,7 +1786,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   categoryId?: number; sort?: number; descending?: boolean;
   mapName?: string; installRoot?: string; steamExe?: string;
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
-   confirm?: boolean; ackUnknownOutcome?:boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; journalId?:string; watchId?: string; sessionName?: string;
+   confirm?: boolean; ackUnknownOutcome?:boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; runId?:string; journalId?:string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
   intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;
