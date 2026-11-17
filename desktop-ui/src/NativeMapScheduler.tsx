@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useState} from "react";
+import {useCallback,useEffect,useRef,useState} from "react";
 import {AlertTriangle,CalendarClock,CheckCircle2,RefreshCw,Save,Shield,RotateCcw} from "lucide-react";
 import {managerBridge,type NativeAsaScheduleStatus,
   type NativeScheduleFrequency,type NativeScheduleKind,
@@ -143,6 +143,8 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
 }
 export function NativeMapScheduler({mapId}:{mapId:string}){
   const [status,setStatus]=useState<NativeAsaScheduleStatus|null>(null);
+  const currentMap=useRef(mapId);
+  currentMap.current=mapId;
   const [error,setError]=useState("");
   const [busy,setBusy]=useState(false);
   const [reviewing,setReviewing]=useState(false);
@@ -155,16 +157,16 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
     try{
       const proof=await managerBridge.nativeScheduleReviewPreview(
         target,entry.kind,entry.runId);
-      if(target!==mapId)return;
+      if(target!==currentMap.current)return;
       if(proof.mapId.toLowerCase()!==target.toLowerCase()||
          proof.runId!==entry.runId||!proof.outcomeStillUnknown||
          !proof.scheduledTaskWillBeDisabled||!proof.originalRunWillNotExecute)
         throw new Error("UM-ASA-SCHEDULE-REVIEW-INVALID-PREVIEW");
       setReviewPreview(proof);
     }catch(e){
-      if(target===mapId)setError("A bizonytalan ütemezési slot még nem rendezhető: "+
+      if(target===currentMap.current)setError("A bizonytalan ütemezési slot még nem rendezhető: "+
         (e instanceof Error?e.message:"Ismeretlen, csak olvasható ellenőrzési hiba"));
-    }finally{if(target===mapId)setReviewing(false);}
+    }finally{if(target===currentMap.current)setReviewing(false);}
   };
   const approveSlot=async()=>{
     if(reviewing||busy||!reviewPreview)return;
@@ -172,7 +174,7 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
     setReviewing(true);setReviewPreview(null);setReviewNotice("");
     try{
       const receipt=await managerBridge.nativeScheduleReviewApply(target,proof.token);
-      if(target!==mapId)return;
+      if(target!==currentMap.current)return;
       if(receipt.mapId.toLowerCase()!==target.toLowerCase()||
          receipt.runId!==proof.runId||!receipt.outcomeStillUnknown||
          !receipt.noRconSent||!receipt.noAutomaticReplay||
@@ -183,17 +185,23 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
         "A napló auditálva, az adott feladat kikapcsolva. "+
         "Nincs parancsismétlés; későbbi aktiváláshoz új jóváhagyás kell.");
     }catch(e){
-      if(target===mapId)setError("A naplófelülvizsgálat eredménye nem igazolható. "+
+      if(target===currentMap.current)setError("A naplófelülvizsgálat eredménye nem igazolható. "+
         "Frissítsd a helyi státuszt; ne indítsd újra a régi parancsot. "+
         (e instanceof Error?e.message:""));
-    }finally{if(target===mapId)setReviewing(false);}
+    }finally{if(target===currentMap.current)setReviewing(false);}
   };
   const reload=useCallback(async()=>{
     setBusy(true);
-    try {setStatus(await managerBridge.nativeScheduleStatus(mapId));setError("");}
-    catch(e){setError("A map natív ütemezése nem olvasható: "+
-      (e instanceof Error?e.message:"ismeretlen hiba"));setStatus(null);}
-    finally{setBusy(false);}
+    try {
+      const fresh=await managerBridge.nativeScheduleStatus(mapId);
+      if(currentMap.current!==mapId)return;
+      setStatus(fresh);setError("");
+    }catch(e){
+      if(currentMap.current===mapId){
+        setError("A map natív ütemezése nem olvasható: "+
+          (e instanceof Error?e.message:"ismeretlen hiba"));setStatus(null);
+      }
+    }finally{if(currentMap.current===mapId)setBusy(false);}
   },[mapId]);
   useEffect(()=>{
     setReviewPreview(null);setReviewNotice("");
