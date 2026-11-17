@@ -20,13 +20,12 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
   const [verifiedPid,setVerifiedPid]=useState<number|null>(null);
   const [changedSource,setChangedSource]=
     useState<OriginalStoreLifecycleRecoveryPreview|null>(null);
-  const [sourceConfirmation,setSourceConfirmation]=useState("");
   const inFlight=useRef(false);
   const currentMap=useRef(mapId);
   useEffect(()=>{
     currentMap.current=mapId;
     setError("");setReceipt(false);setVerifiedPid(null);
-    setChangedSource(null);setSourceConfirmation("");
+    setChangedSource(null);
   },[mapId,journal.operationId,journal.restartId]);
 
   const recover=async(approveChangedSource=false)=>{
@@ -64,11 +63,11 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
       setVerifiedPid(proof.pid);
       if(proof.historicalSourceReapprovalRequired&&!approveChangedSource){
         setChangedSource(proof);
-        setSourceConfirmation("");
+        
         return; // Different old/current hashes require a second explicit click.
       }
       if(proof.historicalSourceReapprovalRequired&&
-         (!changedSource||sourceConfirmation!==sourceApproval))
+         !changedSource)
         throw new Error("UM-RECOVERY-SOURCE-REAPPROVAL-REQUIRED");
       setChangedSource(null); // Never keep a consumed or failed approval token.
       // Explicit click is consent for an audited LOCAL journal review, not
@@ -156,19 +155,16 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
           <p className="muted small">Aktuális SHA-256:
             <code>{changedSource.historicalCurrentFourFilesSha256}</code>
           </p>
-          <label htmlFor="source-reapproval-phrase">
-            A külön jóváhagyáshoz írd be pontosan: <b>{sourceApproval}</b>
-          </label>
-          <input id="source-reapproval-phrase" value={sourceConfirmation}
-            autoComplete="off" spellCheck={false}
-            onChange={e=>setSourceConfirmation(e.target.value)}/>
-          <div className="button-row">
-            <button type="button" disabled={busy||sourceConfirmation!==sourceApproval}
+          <p>A két forráslenyomat eltér. A következő külön kattintás
+              kizárólag a leállított map helyi naplóinak auditált rendezését
+              engedélyezi; nem indít ASA-t vagy Store-átalakítást.</p>
+           <div className="button-row">
+            <button type="button" disabled={busy}
               onClick={()=>{void recover(true);}}>
               {busy?"Újraellenőrzés…":"Forráseltérés és naplórendezés jóváhagyása"}
             </button>
             <button type="button" disabled={busy} onClick={()=>{
-              setChangedSource(null);setSourceConfirmation("");
+              setChangedSource(null);
             }}>Mégse</button>
           </div>
         </div>
