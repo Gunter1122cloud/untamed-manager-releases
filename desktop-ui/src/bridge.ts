@@ -1247,7 +1247,7 @@ export type HistoricalSaveEvidenceStatus={
     originalBytesPreserved:true;
   };
   unreadable?:boolean;errorCode?:string|null;
-  operationId:string|null;pid:number|null;pidStartedUtc:string|null;
+  operationId:string|null;beganUtc:string|null;pid:number|null;pidStartedUtc:string|null;
   saveObservedUtc:string|null;localSaveCompleteObserved:boolean;
   bothHostsSaveCompleteCertified:false;sharedStoreWriterCertified:false;
   gameClientRejoinVerified:false;productionRestoreAllowed:false;
@@ -1255,7 +1255,7 @@ export type HistoricalSaveEvidenceStatus={
   evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM";
 };
 export type HistoricalLateSaveEvidence={
-  mapId:string;operationId:string;stage:
+  mapId:string;operationId:string;receiptPhase:string;receiptBeganUtc:string;stage:
     "WORLD_METADATA_LATER_CAUSALITY_UNKNOWN"|
     "WORLD_NOT_NEWER_THAN_ORIGINAL_RECEIPT"|
     "WORLD_FILE_UNAVAILABLE";

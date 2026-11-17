@@ -5,6 +5,14 @@ import {managerBridge,type HistoricalSaveWorldPreview,
   type HistoricalSaveEvidenceStatus,type HistoricalSaveReviewPreview,
   type HistoricalLateSaveEvidence} from "./bridge";
 
+// Match GUIDs from native JSON independently of N/D/braced serialization.
+// A missing or invalid ID never authorizes correlation to a SaveWorld attempt.
+function canonicalSaveId(value:string|null|undefined):string|null{
+  if(!value)return null;
+  const normalized=value.trim().replace(/[{}-]/g,"").toLowerCase();
+  return /^[a-f0-9]{32}$/.test(normalized)?normalized:null;
+}
+
 /** Real, explicitly approved original ACTIVE/DONE SaveWorld. Never DoExit. */
 export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
   mapId:string;running:boolean;onSaved:()=>Promise<void>
@@ -213,21 +221,63 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
     const requested=mapId,revision=epoch.current;
     setBusy(true);setLateSave(null);setError("");
     try{
-      const inspected=await managerBridge.historicalSaveWorldLateEvidence(requested);
-      if(!belongs(requested,revision))return;
-      if(inspected.mapId.toLowerCase()!==requested.toLowerCase()||
-         inspected.operationId!==durableSave.operationId||
-         inspected.completionCertified||inspected.rconSent||
-         inspected.grantsOperation||inspected.oldSaveWorldRetried)
-        throw new Error("UM-ASA-SAVE-LATE-NONCAUSAL-RECEIPT");
-      setLateSave(inspected);
-      setNotice("A régi SaveWorld utáni fájlállapotot csak olvasással ellenőriztem. "+
-        "A korábbi parancs eredménye továbbra is ISMERETLEN; új RCON nem ment ki.");
+      // A review, a new save or a second Manager can replace the receipt
+      // while this React panel still holds the preceding operationId.
+      // Read the native receipt on BOTH sides of the late metadata request.
+      // At most one read-only reconciliation is allowed; never redispatch.
+      let reconciled=false;
+      for(let attempt=0;attempt<2;attempt++){
+        const before=await managerBridge.historicalSaveWorldEvidence(requested);
+        if(!belongs(requested,revision))return;
+        if(before.mapId.toLowerCase()!==requested.toLowerCase()||
+           before.productionRestoreAllowed||before.bothHostsSaveCompleteCertified||
+           before.sharedStoreWriterCertified)
+          throw new Error("UM-ASA-SAVE-LATE-MAP-OR-AUTHORITY");
+        if(before.unreadable||before.phase==="unreadable"||
+           !canonicalSaveId(before.operationId)||
+           !["prepared","needsOperator","reviewed"].includes(before.phase)){
+          setDurableSave(before);setDurableUnknown(Boolean(before.unreadable));
+          throw new Error("UM-ASA-SAVE-LATE-RECEIPT-NOT-ELIGIBLE");
+        }
+        const inspected=await managerBridge.historicalSaveWorldLateEvidence(requested);
+        const after=await managerBridge.historicalSaveWorldEvidence(requested);
+        if(!belongs(requested,revision))return;
+        if(inspected.mapId.toLowerCase()!==requested.toLowerCase()||
+           after.mapId.toLowerCase()!==requested.toLowerCase())
+          throw new Error("UM-ASA-SAVE-LATE-MAP-MISMATCH");
+        if(inspected.completionCertified||inspected.rconSent||
+           inspected.grantsOperation||inspected.oldSaveWorldRetried||
+           after.productionRestoreAllowed||after.sharedStoreWriterCertified||
+           after.bothHostsSaveCompleteCertified)
+          throw new Error("UM-ASA-SAVE-LATE-READONLY-CONTRACT");
+        const stable=canonicalSaveId(before.operationId)!==null&&
+          canonicalSaveId(before.operationId)===canonicalSaveId(after.operationId)&&
+          canonicalSaveId(before.operationId)===canonicalSaveId(inspected.operationId)&&
+          before.phase===after.phase&&before.phase===inspected.receiptPhase&&
+          before.beganUtc===after.beganUtc&&
+          before.beganUtc===inspected.receiptBeganUtc&&
+          before.pid===after.pid&&before.pidStartedUtc===after.pidStartedUtc;
+        // Always reconcile the UI's stale receipt from the durable source,
+        // but never display metadata from a different operation as its result.
+        setDurableSave(after);setDurableChecked(true);
+        setDurableUnknown(Boolean(after.unreadable));
+        if(stable){
+          setLateSave(inspected);
+          setNotice("A jelenlegi SaveWorld-bizonylat késői fájlállapotát csak olvasással ellenőriztem. "+
+            "Az előző parancs eredménye továbbra is ISMERETLEN; új RCON nem ment ki.");
+          reconciled=true;
+          break;
+        }
+      }
+      if(!reconciled)
+        throw new Error("UM-ASA-SAVE-LATE-RECEIPT-CHANGED");
     }catch(e){
-      if(belongs(requested,revision))
-        setError("Késői mentésbizonyíték vizsgálat nem igazolható. "+
-          "Nem indult új SaveWorld, nem oldottunk fel naplót. "+
-          (e instanceof Error?e.message:"Ellenőrizd az eredeti ASA PID-et."));
+      if(belongs(requested,revision)){
+        const code=e instanceof Error&&/^UM-ASA-SAVE-LATE-[A-Z-]+$/.test(e.message)?
+          e.message:"UM-ASA-SAVE-LATE-READONLY-FAILED";
+        setError("A késői mentésnyom nem kapcsolható biztonságosan ugyanahhoz a "+
+          "tartós művelethez: "+code+". Nem indult SaveWorld és nincs naplófeloldás.");
+      }
     }finally{if(belongs(requested,revision))setBusy(false);}
   };
   const exportUncertainReceipt=async()=>{

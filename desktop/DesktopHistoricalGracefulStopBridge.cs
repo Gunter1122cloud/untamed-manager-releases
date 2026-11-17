@@ -518,6 +518,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         lateMap,receipt,Owner);
                     return Ok(id,new{
                         mapId=lateMapId,operationId=receipt.OperationId,
+                        receiptPhase=receipt.Phase,receiptBeganUtc=receipt.BeganUtc,
                         stage=late.Stage,
                         worldFilePresent=late.WorldFilePresent,
                         worldMetadataNewerThanAttempt=late.WorldMetadataNewerThanAttempt,
@@ -570,6 +571,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         errorCode=unreadable?
                             "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
                         operationId=evidence?.OperationId,
+                        beganUtc=evidence?.BeganUtc,
                         pid=evidence?.Pid,
                         pidStartedUtc=evidence?.PidStartedUtc,
                         saveObservedUtc=evidence?.SaveObservedUtc,

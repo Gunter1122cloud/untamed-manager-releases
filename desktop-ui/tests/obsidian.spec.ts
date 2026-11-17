@@ -579,6 +579,13 @@ test.beforeEach(async ({ page }) => {
     let originalSaveRecoveryFixture=false;
     let originalSaveRecoveryRunning=false;
     let originalSaveReviewed=false;
+    // Synthetic second Manager updates a receipt after this UI has mounted.
+    let lateReceiptRevision=false,lateReceiptRace=false,lateReceiptReads=0;
+    const lateReplacementId="00000000-0000-4000-8000-000000009989";
+    (window as typeof window & {__UNTAMED_SAVE_LATE_REPLACED__?:()=>void})
+      .__UNTAMED_SAVE_LATE_REPLACED__=()=>{lateReceiptRevision=true;};
+    (window as typeof window & {__UNTAMED_SAVE_LATE_RACING__?:()=>void})
+      .__UNTAMED_SAVE_LATE_RACING__=()=>{lateReceiptRace=true;lateReceiptReads=0;};
     (window as typeof window & {__UNTAMED_SAVE_REVIEW_FIXTURE__?:()=>void})
       .__UNTAMED_SAVE_REVIEW_FIXTURE__=()=>{
         originalSaveRecoveryFixture=true;
@@ -1628,8 +1635,11 @@ test.beforeEach(async ({ page }) => {
             errorCode:originalSaveUnreadable?
               "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
             operationId:originalSaveUnreadable?null:
-              originalSaveRecoveryFixture?originalSaveJob:
+              originalSaveRecoveryFixture?(lateReceiptRace?
+                (++lateReceiptReads%2===0?lateReplacementId:originalSaveJob):
+                (lateReceiptRevision?lateReplacementId:originalSaveJob)):
               originalSaveQueued?originalSaveJob:null,
+            beganUtc:"2026-11-08T18:33:00Z",
             pid:originalSaveQueued?42101:null,
             pidStartedUtc:originalSaveQueued?"2026-11-08T18:00:00Z":null,
             saveObservedUtc:complete?"2026-11-08T18:35:00Z":null,
@@ -1638,6 +1648,25 @@ test.beforeEach(async ({ page }) => {
             gameClientRejoinVerified:false,productionRestoreAllowed:false,
             fsyncCertified:false,sourceStateCertifiedForCurrentWriter:false,
             evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM"
+          };
+        }
+        case "historical.saveWorldLateEvidence": {
+          if(m.mapId!==two||!originalSaveRecoveryFixture)
+            throw new Error("UM-ASA-SAVE-LATE-RECEIPT-MISSING");
+          return {
+            mapId:two,
+            // N-format/uppercase must match the native D-format GUID.
+            operationId:(lateReceiptRevision?lateReplacementId:originalSaveJob)
+              .replaceAll("-","").toUpperCase(),
+            receiptPhase:"needsOperator",
+            receiptBeganUtc:"2026-11-08T18:33:00Z",
+            stage:"WORLD_METADATA_LATER_CAUSALITY_UNKNOWN",
+            worldFilePresent:true,worldMetadataNewerThanAttempt:true,
+            worldBytes:60833792,worldWriteUtc:"2026-11-17T16:27:02.914628Z",
+            asaLogPresent:true,asaLogNewerThanAttempt:false,
+            completionCertified:false,rconSent:false,grantsOperation:false,
+            oldSaveWorldRetried:false,
+            evidence:"ORIGINAL_ASA_LATE_METADATA_READ_ONLY_NO_CAUSAL_SAVE_PROOF"
           };
         }
         case "historical.saveWorldReviewPreview": {
@@ -6434,6 +6463,53 @@ test("Store-v1 interrupted SaveWorld can be explicitly reviewed when stopped wit
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Operátori felülvizsgálat megtörtént");
   await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"})).toHaveCount(0);
+});
+
+test("late SaveWorld evidence rebinds a replaced receipt in one UI instance, no RCON",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_REVIEW_RUNNING_FIXTURE__?:()=>void;
+  }).__UNTAMED_SAVE_REVIEW_RUNNING_FIXTURE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Függőben / bizonytalan");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_LATE_REPLACED__?:()=>void;
+  }).__UNTAMED_SAVE_LATE_REPLACED__?.());
+  await panel.getByRole("button",{
+    name:"Késői mentésnyomok ellenőrzése (RCON nélkül)"
+  }).click();
+  await expect(panel).toContainText("Fájlbizonyíték: WORLD_METADATA_LATER_CAUSALITY_UNKNOWN");
+  await expect(panel).toContainText("60833792 bájt");
+  await expect(panel).not.toContainText("NONCAUSAL-RECEIPT");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
+});
+
+test("late SaveWorld evidence rejects a racing second Manager receipt and never redispatches",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_REVIEW_RUNNING_FIXTURE__?:()=>void;
+  }).__UNTAMED_SAVE_REVIEW_RUNNING_FIXTURE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Függőben / bizonytalan");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_LATE_RACING__?:()=>void;
+  }).__UNTAMED_SAVE_LATE_RACING__?.());
+  await panel.getByRole("button",{
+    name:"Késői mentésnyomok ellenőrzése (RCON nélkül)"
+  }).click();
+  await expect(panel).toContainText("UM-ASA-SAVE-LATE-RECEIPT-CHANGED");
+  await expect(panel).not.toContainText("Fájlbizonyíték:");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
 });
 
 test("P0 running Store-v1 SaveWorld: owner-pinned unknown receipt can be reviewed without new RCON or Stop",async({page})=>{
