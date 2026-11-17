@@ -224,12 +224,32 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             journal.Phase==UntamedOperationPhase.NeedsOperator||
             operationBlocked&&running==null))||
             restart?.Phase==AsaRestartPhase.NeedsOperator;
+        bool saveReviewCandidate=!unreadableSaveEvidence&&
+            saveEvidence?.Phase is "prepared" or "needsOperator" or "reviewed"&&
+            journal?.Kind is null or UntamedOperationKind.Backup&&
+            (pendingSaveEvidence||operationBlocked);
+        // Status is a read-only dispatch guide, NOT review authorization.
+        // The named review endpoint will separately check the old PID,
+        // process-start, source, active worker, lease and restart journal.
+        string nextAction=running!=null?"WAIT_FOR_ACTIVE_WORKER":
+            unreadableSaveEvidence?"EXPORT_UNREADABLE_SAVE_JOURNAL_FOR_OPERATOR":
+            saveReviewCandidate?"historical.saveWorldReviewPreview":
+            operationBlocked&&journal?.Kind==UntamedOperationKind.Launch?
+                "servers.lifecycleRecoveryPreview":
+            restartPending?"servers.lifecycleRecoveryPreview":
+            operationBlocked?"OPERATION_KIND_SPECIFIC_REVIEW_REQUIRED":
+            "NEW_PREFLIGHT_REQUIRED";
         return new{
             mapId,operationId=journal?.Operation,
             phase=journal?.Phase.ToString()??"None",
             operationKind=journal?.Kind.ToString()??"None",
             updatedUtc=journal?.UpdatedUtc,
             blocked,requiresOperator=needsOperator,
+            nextAction,blockingJournal=running!=null?"inMemoryWorker":
+                unreadableSaveEvidence?"saveEvidenceUnreadable":
+                saveReviewCandidate?"saveEvidence+coordinator":
+                restartPending?"restart":
+                operationBlocked?"coordinator":"none",
             inMemoryRunning=running!=null,
             jobId=running?.Id,
             // Distinguish the live task kind without exposing Store secrets.
