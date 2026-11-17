@@ -1413,8 +1413,7 @@ test.beforeEach(async ({ page }) => {
         }
         case "historical.activeStartApply": {
           if(!historicalRconAttached||historicalActiveStarted||
-             m.token!==historicalStartToken||m.confirm!==true||
-             m.typedApproval!=="STORE-V1 ACTIVE START")
+             m.token!==historicalStartToken)
             throw new Error("Original Store approval denied");
           historicalActiveStarted=true;
           state.local.maps[1].running=true;state.local.maps[1].status="Fut";
@@ -3146,9 +3145,8 @@ test.beforeEach(async ({ page }) => {
             evidence:"EXACT_LOCAL_ASA_PID_OS_IDENTITY_RCON_KILL_PREFLIGHT"};
         }
         case "servers.ownedKillApply": {
-          if(!m.confirm||m.typedApproval!=="KILL LOCAL ASA"||
-             m.token!=="00000000-0000-4000-8000-000000009222")
-            throw new Error("UM-KILL-TYPED-APPROVAL-REQUIRED");
+          if(m.token!=="00000000-0000-4000-8000-000000009222")
+            throw new Error("UM-KILL-ACTION-TOKEN-INVALID");
           state.local.maps[0].running=false;
           state.local.maps[0].status="Leállítva";
           return {mapId:one,pid:44117,confirmedStopped:true,
@@ -6831,7 +6829,7 @@ test("CurseForge official Galaxy browses categories, projects, versions, and pre
   await page.screenshot({path:"test-results/curseforge-galaxy-1600.png",fullPage:true});
 });
 
-test("map header always shows four real lifecycle actions and Kill requires native typed approval",async({page})=>{
+test("map header has one-click map-bound lifecycle actions with Kill data-loss scope",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"The Island részletei"}).click();
   const bar=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
@@ -6840,16 +6838,9 @@ test("map header always shows four real lifecycle actions and Kill requires nati
   await expect(bar.getByRole("button",{name:"Indítás",exact:true})).toBeDisabled();
   await expect(bar.getByRole("button",{name:"Kill",exact:true})).toBeEnabled();
   await bar.getByRole("button",{name:"Kill",exact:true}).click();
-  const approval=bar.getByRole("region",{name:"Kill jóváhagyása"});
-  await expect(approval).toContainText("nem küld SaveWorld parancsot");
-  const apply=approval.getByRole("button",{name:"Művelet végrehajtása"});
-  await expect(apply).toBeDisabled();
-  await expect(approval.getByRole("textbox",{
-    name:"Életciklus művelet jóváhagyó szövege"
-  })).toHaveCount(0);
-  await approval.getByRole("checkbox").check();
-  await expect(apply).toBeEnabled();
-  await apply.click();
+  await expect(bar).toContainText("nem küld SaveWorldot");
+  await expect(bar.getByRole("region",{name:"Kill jóváhagyása"})).toHaveCount(0);
+  await expect(bar.getByRole("checkbox")).toHaveCount(0);
   await expect(bar).toContainText("bizonyított helyi ASA PID megszűnt");
   await expect(bar.getByRole("button",{name:"Indítás",exact:true})).toBeEnabled();
 });
@@ -6861,9 +6852,7 @@ test("ASA Stop job remains linked to the correct map across navigation without r
   await page.getByRole("button",{name:"The Island részletei"}).click();
   const bar=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
   await bar.getByRole("button",{name:"Leállítás",exact:true}).click();
-  const approval=bar.getByRole("region",{name:"Leállítás jóváhagyása"});
-  await approval.getByRole("checkbox").check();
-  await approval.getByRole("button",{name:"Művelet végrehajtása"}).click();
+
   await expect(bar).toContainText("folyamatban");
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").first().click();
@@ -6876,19 +6865,20 @@ test("ASA Stop job remains linked to the correct map across navigation without r
   await expect(resumed).toContainText("művelet befejeződött",{timeout:15000});
 });
 
-test("ASA Kill approval cannot carry over to another map",async({page})=>{
+test("single-click ASA Kill cannot affect another map or leave a pending approval",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"The Island részletei"}).click();
   const bar=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
   await bar.getByRole("button",{name:"Kill",exact:true}).click();
-  await expect(bar.getByRole("region",{name:"Kill jóváhagyása"})).toBeVisible();
+  await expect(bar).toContainText("bizonyított helyi ASA PID megszűnt");
+  await expect(bar.getByRole("region",{name:"Kill jóváhagyása"})).toHaveCount(0);
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await expect(page.getByRole("region",{name:"Kill jóváhagyása"})).toHaveCount(0);
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   await expect(page.getByRole("region",{name:"Kill jóváhagyása"})).toHaveCount(0);
-  await expect(page.getByRole("button",{name:"Kill",exact:true})).toBeEnabled();
+  await expect(page.getByRole("button",{name:"Kill",exact:true})).toBeDisabled();
 });
 test("original korábbi kezelőalkalmazás Store maps retain four buttons but disable destructive Kill",async({page})=>{
   await page.addInitScript(()=>{(window as any).__UNTAMED_PROTECT_TEST_MAP__?.();});
