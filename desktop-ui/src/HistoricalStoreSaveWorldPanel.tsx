@@ -168,8 +168,9 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       const completedVerified=job?.state==="completed"&&
         evidence.phase==="completed"&&evidence.localSaveCompleteObserved&&
         evidence.operationId===jobId;
-      const manuallyReviewed=job?.state==="needsOperator"&&
-        evidence.phase==="reviewed";
+      const manuallyReviewed=(job?.state==="needsOperator"||
+          job?.state==="reviewed")&&evidence.phase==="reviewed"&&
+        evidence.operationId===jobId;
       if(jobId&&!review.blocked&&!evidence.unreadable&&
          (completedVerified||manuallyReviewed)){
         setJobId("");setJob(null);finished.current=false;
@@ -248,7 +249,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
     }finally{if(belongs(requested,revision))setBusy(false);}
   };
   const reviewPreviousSave=async()=>{
-    if(busy||running||!durableChecked||durableUnknown||
+    if(busy||recovery?.inMemoryRunning||!durableChecked||durableUnknown||
        !durableSave||!["prepared","needsOperator","reviewed"].includes(
          durableSave.phase))return;
     const requested=mapId,revision=epoch.current;
@@ -258,7 +259,9 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       const proof=await managerBridge.historicalSaveWorldReviewPreview(requested);
       if(!belongs(requested,revision))return;
       if(proof.mapId.toLowerCase()!==requested.toLowerCase()||
-         proof.originalStoreFilesWritten||!proof.confirmedStopped)
+         proof.originalStoreFilesWritten||
+         proof.confirmedStopped===proof.runningOwned||
+         !proof.previousOutcomeStillUnknown)
         throw new Error("UM-STORE-SAVE-REVIEW-PREVIEW-MISMATCH");
       setReviewPreview(proof);
     }catch{
@@ -279,6 +282,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       if(!belongs(requested,revision))return;
       if(result.mapId.toLowerCase()!==requested.toLowerCase()||
          result.phase!=="reviewed"||!result.oldReceiptArchived||
+         !result.previousOutcomeStillUnknown||result.rconSent||
          result.originalStoreFilesWritten||!result.nextOperationRequiresNewApproval)
         throw new Error("UM-STORE-SAVE-REVIEW-RECEIPT-MISMATCH");
       const [newEvidence,newRecovery]=await Promise.all([
@@ -291,9 +295,13 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
          newRecovery.blocked||newRecovery.sharedStoreMutated||newRecovery.lockCleared)
         throw new Error("UM-STORE-SAVE-REVIEW-STATUS-MISMATCH");
       setDurableSave(newEvidence);setRecovery(newRecovery);
-      setNotice("A korábbi bizonytalan helyi SaveWorld tartósan archiválva, "+
-        "a műveleti napló operátori ellenőrzéssel feloldva. "+
-        "A következő SaveWorld új, külön jóváhagyást igényel.");
+      if(jobId&&newEvidence.operationId===jobId){
+        setJobId("");setJob(null);finished.current=false;
+      }
+      setNotice("A korábbi SaveWorld kimenetele továbbra is ISMERETLEN. "+
+        "A helyi mentésbizonylat és a műveleti napló változatlan előzménye "+
+        "auditáltan archiválva; nem küldtünk új parancsot. "+
+        "A következő SaveWorld vagy Stop új előellenőrzést és külön jóváhagyást igényel.");
     }catch{
       if(belongs(requested,revision))
         setError("A Store-v1 naplófelülvizsgálat eredménye nem igazolható. "+
@@ -354,25 +362,31 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
           a második gazdagép SaveComplete állapotát, az fsync-et vagy a teljes
           cluster visszaállíthatóságát. Production restore továbbra is tiltott.</p>
       </div>
-      {!running&&durableChecked&&!durableUnknown&&durableSave&&
+      {durableChecked&&!durableUnknown&&durableSave&&
         ["prepared","needsOperator","reviewed"].includes(durableSave.phase)&&
         <div className="historical-preview" role="region"
           aria-label="Korábbi Store-v1 mentés felülvizsgálata">
           <h3>Megszakadt mentés operátori felülvizsgálata</h3>
-          <p className="muted small">Csak igazoltan leállított ASA és változatlan
-            eredeti Store-session esetén engedélyezett. A régi helyi
-            napló másolata megmarad. Nincs automatikus SaveWorld, Start,
-            Store-lock törlés vagy eredeti fájlmódosítás.</p>
+          <p className="muted small">Futó ASA esetén a korábbi saját
+            PID, indulási idő, RCON-tulajdon, forrás és az aktív worker hiánya
+            külön igazolandó; leállított ASA esetén külön stopped-proof kell.
+            A korábbi mentés kimenetele ISMERETLEN marad. Az eredeti naplók
+            archiválva maradnak; nincs RCON, újrapróbálás, Store-lock
+            törlés vagy eredeti fájlmódosítás.</p>
           {!reviewPreview&&<button className="secondary" type="button"
-            disabled={busy} onClick={()=>{void reviewPreviousSave();}}>
+            disabled={busy||!!recovery?.inMemoryRunning}
+            onClick={()=>{void reviewPreviousSave();}}>
             <Shield size={16}/> Korábbi SaveWorld operátori ellenőrzése
           </button>}
           {reviewPreview&&<div className="warning-inline">
             <Shield size={16}/>
-            <div><strong>Az eredeti map leállított állapota és forrása igazolt</strong>
+            <div><strong>{reviewPreview.runningOwned?
+              "A régi saját ASA PID és RCON-tulajdon igazolt":
+              "Az eredeti map leállított állapota és forrása igazolt"}</strong>
               <p>Korábbi állapot: {reviewPreview.phase}.
-                A napló archiválását és a következő külön jóváhagyásos
-                mentés lehetőségét hagyod jóvá.</p>
+                A mentés kimenetele ismeretlen marad. Kizárólag a régi
+                naplók auditált felülvizsgálását és az új, külön
+                előellenőrzéshez kötött műveleteket hagyod jóvá.</p>
               <p>A korábbi mentési napló rendezése külön, az alábbi
                   gombbal jóváhagyható.</p>
                <div className="settings-actions">
