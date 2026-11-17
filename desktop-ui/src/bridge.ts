@@ -1245,6 +1245,12 @@ export type HistoricalSaveEvidenceStatus={
   fsyncCertified:false;sourceStateCertifiedForCurrentWriter:false;
   evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM";
 };
+export type HistoricalSaveForensicExportReceipt={
+  mapId:string;fileName:string;sourceSlot:"current"|"next";
+  failureCode:string;bytes:number;sha256:string;
+  originalUntouched:true;sendsRcon:false;grantsRecovery:false;
+  automaticRetry:false;evidence:"EXPLICIT_MANAGER_LOCAL_FORENSIC_COPY_NO_UNLOCK";
+};
 export type HistoricalSaveReviewPreview={
   token:string;mapId:string;phase:"prepared"|"needsOperator"|"reviewed";
   operationId:string;coordinatorPhase:string;
@@ -2300,6 +2306,10 @@ export const managerBridge = {
     request<HistoricalGracefulStopStatus>("historical.saveWorldStatus",{jobId}),
   historicalSaveWorldEvidence: (mapId:string) =>
     request<HistoricalSaveEvidenceStatus>("historical.saveWorldEvidence",{mapId}),
+  historicalSaveWorldForensicExport: (mapId:string) =>
+    request<HistoricalSaveForensicExportReceipt>("historical.saveWorldForensicExport",{
+      mapId,confirm:true
+    }),
   historicalSaveWorldReviewPreview: (mapId:string) =>
     request<HistoricalSaveReviewPreview>("historical.saveWorldReviewPreview",{mapId}),
   historicalSaveWorldReviewApply: (token:string,confirmation:string) =>
