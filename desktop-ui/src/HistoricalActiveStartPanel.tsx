@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,Play,Shield} from "lucide-react";
 import {managerBridge,type HistoricalActiveStartPreview,
-  type HistoricalActiveStartStatus,type HistoricalLoaderModePreview} from "./bridge";
+  type HistoricalActiveStartStatus} from "./bridge";
 
 /**
  * Starts a preserved historical Store-v1 ASA map with native source,
@@ -14,7 +14,6 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
 }){
   const [state,setState]=useState<HistoricalActiveStartStatus|null>(null);
   const [preview,setPreview]=useState<HistoricalActiveStartPreview|null>(null);
-  const [modePreview,setModePreview]=useState<HistoricalLoaderModePreview|null>(null);
   const [busy,setBusy]=useState(false);
   const [checkingControl,setCheckingControl]=useState(false);
   const controlGeneration=useRef(0);
@@ -30,7 +29,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
     controlGeneration.current++;
     const generation=++actionGeneration.current;
     setCheckingControl(false);setBusy(false);
-    setState(null);setPreview(null);setModePreview(null);
+    setState(null);setPreview(null);
     setError("");setNotice("");
     managerBridge.historicalActiveStartStatus(mapId).then(v=>{
       if(active&&belongs(mapId,generation)&&v.mapId.toLowerCase()===mapId.toLowerCase())
@@ -39,30 +38,23 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
       setError("A Store-v1 folyamatállapot nem ellenőrizhető.");});
     return ()=>{active=false;controlGeneration.current++;};
   },[mapId,rconAttached]);
+  // Selecting a known stopped launch mode is one deliberate UI action.
+  // Native preview + apply still recheck the exact map, stopped process,
+  // original source and journal before saving the Manager-only preference.
   const changeMode=async(useApi=state?.requestedMode!=="asaApiLoader")=>{
-    if(!state?.confirmedStopped||busy||preview||modePreview)return;
+    if(!state?.confirmedStopped||busy||preview)return;
     const requested=mapId,generation=actionGeneration.current;
     setBusy(true);setError("");setNotice("");
     try{
-      const result=await managerBridge.historicalLoaderModePreview(requested,useApi);
+      const plan=await managerBridge.historicalLoaderModePreview(requested,useApi);
       if(!belongs(requested,generation))return;
-      if(result.mapId.toLowerCase()!==requested.toLowerCase())
+      if(plan.mapId.toLowerCase()!==requested.toLowerCase())
         throw new Error("UM-STORE-MODE-PREVIEW-OTHER-MAP");
-      setModePreview(result);
-    }catch{
-      if(belongs(requested,generation))setError("A helyi ASA/Loader-folyamat, indítási mód vagy műveleti napló nem igazolt. A módválasztáshoz még nem kell RCON.");
-    }finally{if(belongs(requested,generation))setBusy(false);}
-  };
-  const applyMode=async()=>{
-    if(!modePreview||busy)return;
-    if(modePreview.mapId.toLowerCase()!==mapId.toLowerCase())return;
-    const token=modePreview.token,requested=mapId,generation=actionGeneration.current;
-    setModePreview(null);setBusy(true);setError("");setNotice("");
-    try{
-      const receipt=await managerBridge.historicalLoaderModeApply(token);
+      const receipt=await managerBridge.historicalLoaderModeApply(plan.token);
       if(!belongs(requested,generation))return;
-      if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||receipt.serverStarted||
-         receipt.originalStoreTouched)throw new Error("UM-STORE-MODE-RECEIPT");
+      if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||
+         receipt.serverStarted||receipt.originalStoreTouched)
+        throw new Error("UM-STORE-MODE-RECEIPT");
       setPreview(null);
       setNotice(receipt.mode==="asaApiLoader"?
         "Az ASA API Loader indítási mód mentve; ASA-szerver nem indult.":
@@ -71,10 +63,12 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         const status=await managerBridge.historicalActiveStartStatus(requested);
         if(belongs(requested,generation))setState(status);
       }catch{
-        if(belongs(requested,generation))setError("A módválasztás mentve, de a képernyő frissítése nem sikerült. Nem indítottunk ASA-szervert.");
+        if(belongs(requested,generation))
+          setError("Az indítási mód mentve, de a nézet nem frissült. ASA nem indult.");
       }
     }catch{
-      if(belongs(requested,generation))setError("A módváltás eredménye nem igazolt. Nem indítunk automatikusan ASA-t.");
+      if(belongs(requested,generation))
+        setError("Az indítási mód mentése elutasítva. Ellenőrizd a folyamatállapotot; ASA nem indult.");
     }finally{if(belongs(requested,generation))setBusy(false);}
   };
   // The original Store map's RCON handoff is separate from Process.Start.
@@ -132,7 +126,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         "UM-STORE-RUNTIME-RCON-INI-MISMATCH":"Az ASA jelenlegi RCON INI és a helyi Obsidian RCON-profil nem egyezik. Ellenőrizd a jóváhagyott beállításokat.",
         "UM-STORE-NATIVE-EXE-RCON-PARITY":"A helyi ASA EXE vagy RCON INI azonossága nem igazolható.",
         "UM-STORE-NATIVE-BACKUP-RECOVERY":"A telepítésnél korábbi mentési/visszaállítási helyreállítás vár kezelői rendezésre.",
-        "UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED":"Válaszd ki és hagyd jóvá az ASA API Loader vagy a közvetlen indítási módot.",
+        "UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED":"Válaszd ki az ASA API Loader vagy a közvetlen indítási módot.",
         "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR":"Az előző Restart megszakadt, a helyi Restart-v1 napló kézi rendezést igényel. A map nem indulhat el újra automatikusan.",
         "UM-STORE-PIN-MANIFEST-MISSING":"Hiányzik a jóváhagyott eredeti forrás Obsidianban tárolt ellenőrzőjegyzéke. Az eredeti fájlokat ne írd felül; ellenőrizd az átvételt.",
         "UM-STORE-PIN-MANIFEST-INVALID":"Az átvett Store-v1 forrás ellenőrzőjegyzéke hibás. Az eredeti fájlok megőrzendők; újraellenőrzés szükséges.",
@@ -214,12 +208,12 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         host korábbi kezelőalkalmazás ACTIVE/DONE-jelölőjét; a tényleges clusterutazás külön bizonyítandó.</p>
       <div className="details-line"><span>Kiválasztott indítás</span>
         <b>{state?.launchModeApprovalRequired?
-          "Még nem jóváhagyott · indítás tiltva":
+          "Válassz indítási módot · indítás tiltva":
           state?.requestedMode==="asaApiLoader"?"ASA API Loader":"Közvetlen ASA"}</b></div>
       {state?.launchModeApprovalRequired&&<div className="warning-inline" role="alert">
         <Shield size={17}/> A mapot leállított eredeti profilból importáltad. Az
         eredeti indítási mód nem bizonyítható a futó folyamat nélkül.
-        Az első Start előtt jóvá kell hagyni az ASA API Loader vagy
+        Az első Start előtt ki kell választani az ASA API Loader vagy
         közvetlen ASA módot; ez a meglévő RCON csatlakoztatása előtt is elvégezhető.
         Addig az Obsidian natív rétege semmilyen indítást nem enged.
       </div>}
@@ -229,33 +223,17 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
           state?.confirmedStopped?"Leállítás igazolva":"Folyamatállapot nem igazolt"}</b></div>
       <div className="settings-actions">
         <button type="button" className="secondary"
-          disabled={busy||!state?.confirmedStopped||!!preview||!!modePreview} onClick={()=>{void changeMode();}}>
+          disabled={busy||!state?.confirmedStopped||!!preview} onClick={()=>{void changeMode();}}>
           <Shield size={16}/> {state?.requestedMode==="asaApiLoader"?
             "Közvetlen ASA mód választása":"ASA API Loader mód választása"}
         </button>
         {state?.launchModeApprovalRequired&&
           state.requestedMode==="directAsa"&&
           <button type="button" className="secondary"
-            disabled={busy||!state.confirmedStopped||!!preview||!!modePreview} onClick={()=>{void changeMode(false);}}>
-            <Shield size={16}/> Közvetlen ASA mód kifejezett jóváhagyása
+            disabled={busy||!state.confirmedStopped||!!preview} onClick={()=>{void changeMode(false);}}>
+            <Shield size={16}/> Közvetlen ASA mód kiválasztása
           </button>}
       </div>
-      {modePreview&&<div className="warning-inline" role="region"
-        aria-label="Eredeti Store-v1 indítási mód módosítása">
-        <Shield size={17}/>
-        <div>
-          <b>{modePreview.useApi?"ASA API Loader":"Közvetlen ASA"} indítás</b>
-          <p>Csak a helyi Manager maponkénti indítási kapcsolója módosul.
-            Nem indul szerver, nem változik Store-session, cluster-lock vagy
-            karakteradat. A következő Start külön előellenőrzést igényel.</p>
-          <div className="settings-actions">
-            <button type="button" className="primary" disabled={busy}
-              onClick={()=>{void applyMode();}}>Indítási mód mentése</button>
-            <button type="button" className="secondary" disabled={busy}
-              onClick={()=>setModePreview(null)}>Mégse</button>
-          </div>
-        </div>
-      </div>}
       <div className="details-line"><span>Meglévő RCON</span>
         <b>{state?.rconConfigured?"Managerhez kapcsolva":"Előbb add meg az eredeti RCON-t"}</b></div>
       <div className="settings-actions">
