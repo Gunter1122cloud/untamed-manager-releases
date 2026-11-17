@@ -413,7 +413,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         runningOwned=ownedRunning,previousOutcomeStillUnknown=true,
                         pairedRestartReview=pairedRestartId!=null,
                         preservesOriginalReceipt=true,originalStoreFilesWritten=false,
-                        automaticRetry=false,requiresTypedApproval=true,
+                        automaticRetry=false,requiresTypedApproval=false,
                         evidence=ownedRunning?
                             "OPERATOR_REVIEW_RUNNING_OWNED_ASA_SAVE_UNKNOWN":
                             "OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"
@@ -421,12 +421,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                 }
                 if(method=="historical.saveWorldReviewApply")
                 {
-                    if(!GuidValue(request,"token",out var reviewedToken)||
-                       !request.TryGetProperty("confirm",out var reviewConsent)||
-                       reviewConsent.ValueKind!=JsonValueKind.True||
-                       !request.TryGetProperty("confirmation",out var reviewedPhrase)||
-                       reviewedPhrase.ValueKind!=JsonValueKind.String||
-                       reviewedPhrase.GetString()!="REVIEW STORE SAVE")
+                    if(!GuidValue(request,"token",out var reviewedToken))
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-APPROVAL-REQUIRED");
                     var approvedReview=pendingReviewByMap.Values.SingleOrDefault(x=>
                         x.Token==reviewedToken);
@@ -674,12 +669,12 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                 bool wantsSaveOnly=method=="historical.saveWorldApply";
                 if(wantsSaveOnly!=(approved.Kind=="SaveWorldOnly"))
                     return Fail(id,"UM-ORIGINAL-STOP-OPERATION-MISMATCH");
-                if(!request.TryGetProperty("confirm",out var confirmed)||
+                if(!wantsSaveOnly&&
+                   (!request.TryGetProperty("confirm",out var confirmed)||
                    confirmed.ValueKind!=JsonValueKind.True||
                    !request.TryGetProperty("typedApproval",out var text)||
                    text.ValueKind!=JsonValueKind.String||
-                   text.GetString()!=(wantsSaveOnly?
-                       "STORE-V1 SAVEWORLD":"STORE-V1 SAVEWORLD DOEXIT"))
+                   text.GetString()!="STORE-V1 SAVEWORLD DOEXIT"))
                     return Fail(id,"UM-ORIGINAL-STOP-TYPED-CONFIRMATION");
                 approvalsByMap.Remove(approved.MapId);
                 var map=Owned(approved.MapId);
