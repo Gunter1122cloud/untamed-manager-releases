@@ -268,8 +268,10 @@ internal static class LegacyStoreV1GracefulStop
 
     // Constructed ONLY before MarkMutationStarted and before the RCON
     // SaveWorld write path. An uncertain or attempted dispatch must not use it.
-    internal sealed class SaveWorldNotDispatchedException(string code)
-        : InvalidOperationException(code);
+    internal sealed class SaveWorldNotDispatchedException : InvalidOperationException
+    {
+        internal SaveWorldNotDispatchedException(string code) : base(code) { }
+    }
 
     // Separate, real SaveWorld operation on an existing ACTIVE/DONE Store map.
     // It uses the SAME owner/source/port guards and installation journal as
