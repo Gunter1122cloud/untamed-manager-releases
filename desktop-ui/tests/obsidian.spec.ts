@@ -566,6 +566,9 @@ test.beforeEach(async ({ page }) => {
     let originalSaveReattached=false;
     let originalSaveHold=false;
     let originalSaveEvidenceTampered=false;
+    let originalSaveMetadataOnly=false;
+    (window as typeof window & {__UNTAMED_SAVE_METADATA_ONLY__?:()=>void})
+      .__UNTAMED_SAVE_METADATA_ONLY__=()=>{originalSaveMetadataOnly=true;};
     let originalSaveUnreadable=false;
     (window as typeof window & {
       __UNTAMED_SAVE_UNREADABLE_RECEIPT__?:()=>void;
@@ -1627,7 +1630,8 @@ test.beforeEach(async ({ page }) => {
             mapId:originalSaveWrongEvidenceMap?one:two,
             phase:originalSaveUnreadable?"unreadable":originalSaveRecoveryFixture?
               (originalSaveReviewed?"reviewed":"needsOperator"):
-              originalSaveQueued?(complete?"completed":"prepared"):"none",
+              originalSaveQueued?(complete?
+                originalSaveMetadataOnly?"metadataObserved":"completed":"prepared"):"none",
             unreadable:originalSaveUnreadable,
             errorCode:originalSaveUnreadable?
               "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
@@ -1640,11 +1644,16 @@ test.beforeEach(async ({ page }) => {
             pid:originalSaveQueued?42101:null,
             pidStartedUtc:originalSaveQueued?"2026-11-08T18:00:00Z":null,
             saveObservedUtc:complete?"2026-11-08T18:35:00Z":null,
-            localSaveCompleteObserved:complete&&!originalSaveUnreadable,
+            localSaveCompleteObserved:complete&&!originalSaveUnreadable&&
+              !originalSaveMetadataOnly,
+            localWorldMetadataObserved:complete&&!originalSaveUnreadable&&
+              originalSaveMetadataOnly,
             bothHostsSaveCompleteCertified:false,sharedStoreWriterCertified:false,
             gameClientRejoinVerified:false,productionRestoreAllowed:false,
             fsyncCertified:false,sourceStateCertifiedForCurrentWriter:false,
-            evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM"
+            evidence:originalSaveMetadataOnly?
+              "MANAGER_LOCAL_WORLD_METADATA_ONLY_NO_SHARED_STORE_QUORUM":
+              "MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM"
           };
         }
         case "historical.saveWorldLateEvidence": {
@@ -1707,7 +1716,7 @@ test.beforeEach(async ({ page }) => {
             step:held?"Natív mentési művelet megfigyelése":
               "Store-v1 SaveWorld igazolva; az ASA tovább fut",
             changedUtc:"2026-11-08T18:35:00Z",
-            confirmedStopped:false,preExitSaveLogAndWorldObserved:!held,
+            confirmedStopped:false,preExitSaveLogAndWorldObserved:!held&&!originalSaveMetadataOnly,
             finalDoExitSaveCertified:false,gameClientRejoinVerified:false,
             automaticRetry:false,forceKill:false,storeTouched:false,
             evidence:"ORIGINAL_STORE_V1_SAVEWORLD_ONLY_NO_DOEXIT_STATE"};
@@ -6319,6 +6328,37 @@ test("Store SaveComplete UI distinguishes durable local log evidence from live c
   await expect(panel).toContainText("Helyi SaveComplete napló tartósan igazolt");
   await expect(evidence).not.toContainText("Két gép SaveComplete igazolva");
   await expect(evidence).toContainText("nem igazolja a jelenlegi Store-írójogot");
+});
+
+test("SaveWorld stable .ark without ASA log reports restricted evidence and no replay",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_METADATA_ONLY__?:()=>void;
+  }).__UNTAMED_SAVE_METADATA_ONLY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await panel.getByRole("button",{name:"SaveWorld mentés indítása"}).click();
+  await expect(panel).toContainText("Korlátozott helyi bizonyíték");
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Saját .ark frissült és stabil; ASA SaveComplete NEM igazolt");
+  await expect(panel).not.toContainText("Helyi SaveComplete napló tartósan igazolt");
+  await expect(panel).toContainText("Production restore továbbra is tiltott");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(1);
+  await panel.getByRole("button",{
+    name:"Store-v1 mentési napló újraellenőrzése"
+  }).click();
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
+    .toBeEnabled();
+  // Read-only refresh must never re-send the old SaveWorld.
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(1);
 });
 
 test("Store-v1 SaveWorld explains competing installation lease and sends no RCON",async({page})=>{
