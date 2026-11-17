@@ -1239,7 +1239,7 @@ export type HistoricalSaveWorldQueued={
   evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_ONLY_JOB_QUEUED";
 };
 export type HistoricalSaveEvidenceStatus={
-  mapId:string;phase:"none"|"prepared"|"completed"|"needsOperator"|"reviewed"|"unreadable";
+  mapId:string;phase:"none"|"prepared"|"completed"|"metadataObserved"|"needsOperator"|"reviewed"|"unreadable";
   diagnosis?:{
     state:"missing"|"interrupted"|"unsafe"|"inaccessible"|"corrupt"|"otherMap"|
       "ioUnavailable"|"valid";
@@ -1249,10 +1249,12 @@ export type HistoricalSaveEvidenceStatus={
   unreadable?:boolean;errorCode?:string|null;
   operationId:string|null;beganUtc:string|null;pid:number|null;pidStartedUtc:string|null;
   saveObservedUtc:string|null;localSaveCompleteObserved:boolean;
+  localWorldMetadataObserved:boolean;
   bothHostsSaveCompleteCertified:false;sharedStoreWriterCertified:false;
   gameClientRejoinVerified:false;productionRestoreAllowed:false;
   fsyncCertified:false;sourceStateCertifiedForCurrentWriter:false;
-  evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM";
+  evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM"|
+    "MANAGER_LOCAL_WORLD_METADATA_ONLY_NO_SHARED_STORE_QUORUM";
 };
 export type HistoricalLateSaveEvidence={
   mapId:string;operationId:string;receiptPhase:string;receiptBeganUtc:string;stage:
