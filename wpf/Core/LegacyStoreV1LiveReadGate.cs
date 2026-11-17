@@ -218,23 +218,10 @@ public static class LegacyStoreV1LiveReadGate
                !Str(config,"mode","shared")||
                !LegacyStoreV1PeerTopology.SameOriginalUncDirectory(
                    path,SharedRoot(Text(config,"path")))||
-               !StoreV1Fingerprint.Matches(config,Text(peer,"configHash"))||
-               owned.ValueKind!=JsonValueKind.Array||
-               owned.GetArrayLength() is <5 or >32||
-               selected.ValueKind!=JsonValueKind.Array||selected.GetArrayLength()!=5||
-               StoreV1Fingerprint.Compute(Need(config,"members"))!=
-                   StoreV1Fingerprint.Compute(owned))
+               !StoreV1Fingerprint.Matches(config,Text(peer,"configHash")))
                 throw new InvalidDataException("UM-STORE-LIVE-PEER-DONE-INVALID");
-            var ids=owned.EnumerateArray().Select(x=>Text(x,"id")).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            // Exactly five original selected writers; any additional
-            // current member is independent, not an extra Store writer.
-            var selectedIds=selected.EnumerateArray()
-                .Select(x=>x.ValueKind==JsonValueKind.String?x.GetString()??"":"")
-                .ToArray();
-            if(ids.Count!=owned.GetArrayLength()||
-               selectedIds.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=5||
-               selectedIds.Any(x=>!ids.Contains(x)))
-                throw new InvalidDataException("UM-STORE-LIVE-PEER-SELECTED-MISMATCH");
+            LegacyStoreV1PeerTopology.RequireDonePeerRoster(
+                owned,selected,Need(config,"members"));
             topology.Add(new LegacyStoreV1PeerTopology.Peer(
                 peerIds[i],
                 owned.EnumerateArray().Select(x=>Text(x,"id")).ToArray(),
