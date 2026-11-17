@@ -1279,7 +1279,7 @@ export type HistoricalSaveReviewPreview={
   runningOwned:boolean;previousOutcomeStillUnknown:true;
   pairedRestartReview:boolean;
   preservesOriginalReceipt:true;originalStoreFilesWritten:false;
-  automaticRetry:false;requiresTypedApproval:true;
+  automaticRetry:false;requiresTypedApproval:false;
   evidence:"OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"|
     "OPERATOR_REVIEW_RUNNING_OWNED_ASA_SAVE_UNKNOWN";
 };
@@ -2326,10 +2326,8 @@ export const managerBridge = {
     request<HistoricalGracefulStopStatus>("historical.gracefulStopStatus",{jobId}),
   historicalSaveWorldPreview: (mapId:string) =>
     request<HistoricalSaveWorldPreview>("historical.saveWorldPreview",{mapId}),
-  historicalSaveWorldApply: (token:string,typedApproval:string) =>
-    request<HistoricalSaveWorldQueued>("historical.saveWorldApply",{
-      token,typedApproval,confirm:true
-    }),
+  historicalSaveWorldApply: (token:string) =>
+    request<HistoricalSaveWorldQueued>("historical.saveWorldApply",{token}),
   historicalSaveWorldStatus: (jobId:string) =>
     request<HistoricalGracefulStopStatus>("historical.saveWorldStatus",{jobId}),
   historicalSaveWorldEvidence: (mapId:string) =>
@@ -2342,10 +2340,8 @@ export const managerBridge = {
     request<HistoricalLateSaveEvidence>("historical.saveWorldLateEvidence",{mapId}),
   historicalSaveWorldReviewPreview: (mapId:string) =>
     request<HistoricalSaveReviewPreview>("historical.saveWorldReviewPreview",{mapId}),
-  historicalSaveWorldReviewApply: (token:string,confirmation:string) =>
-    request<HistoricalSaveReviewReceipt>("historical.saveWorldReviewApply",{
-      token,confirmation,confirm:true
-    }),
+  historicalSaveWorldReviewApply: (token:string) =>
+    request<HistoricalSaveReviewReceipt>("historical.saveWorldReviewApply",{token}),
   historicalRconLiveStatus: (mapId:string) =>
     request<HistoricalRconLiveStatus>("historical.rconLiveStatus",{mapId}),
   historicalRconPlayers: (mapId:string) =>
