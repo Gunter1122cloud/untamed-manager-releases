@@ -4645,7 +4645,7 @@ test("adopting an observed live map opens actual lifecycle UI without navigating
   await takeover.getByRole("button",{name:"Vezérlés átvétele – natív ellenőrzéssel"}).click();
   await expect(page.getByRole("region",{name:"Megfigyelési map adatlapja"})).toHaveCount(0);
   await expect(page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"})).toBeVisible();
-  await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeEnabled();
+  await expect(page.getByRole("button",{name:"Szerver szabályos leállítása"})).toBeEnabled();
   await expect(page.getByRole("region",{name:"Valódi ASA normál újraindítása"})).toBeVisible();
 });
 
@@ -8528,11 +8528,9 @@ test("fresh Stop refuses a different job status without reporting server exit",a
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
-  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
   await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
   await expect(panel).toContainText("UM-ASA-STOP-STATUS-INVALID");
-  await expect(panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Szerver szabályos leállítása"}))
     .toBeDisabled();
   await expect(panel.locator(".success-inline").filter({hasText:"ASA-folyamat kilépett"}))
     .toHaveCount(0);
@@ -8546,8 +8544,6 @@ test("fresh Stop requires confirmed process exit before saying completed",async(
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
-  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
   await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
   await expect(panel).toContainText("UM-ASA-STOP-STATUS-INVALID");
   await expect(panel.locator(".success-inline").filter({hasText:"ASA-folyamat kilépett"}))
@@ -8562,12 +8558,10 @@ test("fresh Restart rejects a completed receipt from another native job",async({
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
-  await panel.getByRole("button",{name:"Újraindítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását/).click();
   await panel.getByRole("button",{name:"Szerver újraindítása"}).click();
   await expect(panel).toContainText("UM-ASA-RESTART-STATUS-INVALID");
   await expect(panel).not.toContainText("44117 → 44118");
-  await expect(panel.getByRole("button",{name:"Újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Szerver újraindítása"}))
     .toBeDisabled();
 });
 
@@ -8579,8 +8573,6 @@ test("fresh Restart cannot claim success without an observed new PID",async({pag
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
-  await panel.getByRole("button",{name:"Újraindítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását/).click();
   await panel.getByRole("button",{name:"Szerver újraindítása"}).click();
   await expect(panel).toContainText("UM-ASA-RESTART-STATUS-INVALID");
   await expect(panel.locator(".success-inline")).toHaveCount(0);
@@ -8598,13 +8590,11 @@ test("durable interrupted Stop survives native Manager memory loss and requires 
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   let panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
-  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
   await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
   await expect(panel.getByRole("region",{
     name:"Megszakadt Stop-napló felülvizsgálata"
   })).toBeVisible();
-  await expect(panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Szerver szabályos leállítása"}))
     .toBeDisabled();
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").first().click();
@@ -8614,7 +8604,7 @@ test("durable interrupted Stop survives native Manager memory loss and requires 
   await expect(review.getByRole("textbox",{name:/Jóváhagyó szöveg/})).toHaveCount(0);
   await review.getByRole("button",{name:"Igazoltan leállított Stop-napló felülvizsgálata"}).click();
   await expect(panel).toContainText("UM-ASA-STOP-REVIEW-UNVERIFIED");
-  await expect(panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Szerver szabályos leállítása"}))
     .toBeDisabled();
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_STOP_REVIEW_OS_STOPPED__?:()=>void;
@@ -8638,11 +8628,9 @@ test("fresh Stop NeedsOperator keeps the second Stop blocked, including after na
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
-  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
   await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
   await expect(panel).toContainText("UM-ASA-STOP-NEEDS-OPERATOR");
-  await expect(panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Szerver szabályos leállítása"}))
     .toBeDisabled();
   await expect(panel.locator(".success-inline")).toHaveCount(0);
   expect(await page.evaluate(()=>(window as typeof window & {
@@ -8652,25 +8640,22 @@ test("fresh Stop NeedsOperator keeps the second Stop blocked, including after na
   await page.locator(".premium-map-line.is-local").first().click();
   const reopened=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
   await expect(reopened).toContainText("UM-ASA-STOP-NEEDS-OPERATOR");
-  await expect(reopened.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+  await expect(reopened.getByRole("button",{name:"Szerver szabályos leállítása"}))
     .toBeDisabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number;
   }).__UNTAMED_LOCAL_STOP_APPLIES__?.())).toBe(1);
 });
 
-test("ASA normal Stop requires approval and never force-kills or claims SaveComplete",async({page})=>{
+test("one-click normal Stop never force-kills or claims SaveComplete",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   await expect(page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"})).toBeVisible();
-  await page.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
-  await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toBeVisible();
-  await expect(page.getByText(/SaveWorld → új, stabil \.ark megfigyelése \(SaveComplete naplósor, ha létezik\) → DoExit → PID-ellenőrzés/)).toBeVisible();
-  const confirm=page.getByRole("button",{name:"Szerver szabályos leállítása"});
-  await expect(confirm).toBeDisabled();
-  await page.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
-  await confirm.click();
+  const stop=page.getByRole("button",{name:"Szerver szabályos leállítása"});
+  await expect(stop).toBeEnabled();
+  await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toHaveCount(0);
+  await stop.click();
   await expect(page.locator(".success-inline").filter({hasText:"ASA-folyamat kilépett"})).toBeVisible({timeout:12000});
   await expect(page.locator(".success-inline").filter({hasText:"SaveWorld/DoExit lemezmentése nincs igazolva"})).toBeVisible();
   await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toHaveCount(0);
@@ -8684,15 +8669,13 @@ test("fresh Stop reattaches the exact in-memory job after map navigation without
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
-  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
   await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
   await expect(panel).toContainText("Leállítás: running");
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const resumed=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
   await expect(resumed).toContainText("Leállítás: running");
-  await expect(resumed.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeDisabled();
+  await expect(resumed.getByRole("button",{name:"Szerver szabályos leállítása"})).toBeDisabled();
   const before=await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number
   }).__UNTAMED_LOCAL_STOP_APPLIES__?.());
@@ -8718,7 +8701,7 @@ test("fresh Restart blocks unreviewed durable native journal despite a stale das
   const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
   await expect(panel.getByRole("region",{name:"Megszakadt helyi Restart rendezése"}))
     .toBeVisible();
-  await expect(panel.getByRole("button",{name:"Újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Szerver újraindítása"}))
     .toBeDisabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_LOCAL_RESTART_APPLIES__?:()=>number;
@@ -8734,7 +8717,7 @@ test("fresh Restart denies foreign map journal during native reconciliation",asy
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
   await expect(panel).toContainText("UM-ASA-RESTART-CURRENT-MAP-MISMATCH");
-  await expect(panel.getByRole("button",{name:"Újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Szerver újraindítása"}))
     .toBeDisabled();
   await expect(panel.getByRole("region",{name:"Megszakadt helyi Restart rendezése"}))
     .toHaveCount(0);
@@ -8748,15 +8731,13 @@ test("fresh Restart reattaches a running native job without restarting it twice"
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
-  await panel.getByRole("button",{name:"Újraindítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását/).click();
   await panel.getByRole("button",{name:"Szerver újraindítása"}).click();
   await expect(panel).toContainText("Újraindítás: running");
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const resumed=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
   await expect(resumed).toContainText("Újraindítás: running");
-  await expect(resumed.getByRole("button",{name:"Újraindítás előellenőrzése"})).toBeDisabled();
+  await expect(resumed.getByRole("button",{name:"Szerver újraindítása"})).toBeDisabled();
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_RELEASE_LOCAL_RESTART__?:()=>void
   }).__UNTAMED_RELEASE_LOCAL_RESTART__?.());
@@ -8778,25 +8759,22 @@ test("interrupted lifecycle journal disables fresh ASA Start and Stop in map Ove
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   await expect(page.getByText(/Félbeszakadt helyi ASA-művelet/)).toBeVisible();
-  await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Szerver szabályos leállítása"})).toBeDisabled();
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await expect(page.getByText(/Félbeszakadt helyi ASA-művelet/)).toBeVisible();
   await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"})).toBeDisabled();
 });
 
-test("real ASA manual Restart waits for approval and reports old and new PIDs",async({page})=>{
+test("one-click normal Restart preserves old and new PID evidence",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   await expect(page.getByRole("region",{name:"Valódi ASA normál újraindítása"})).toBeVisible();
-  await page.getByRole("button",{name:"Újraindítás előellenőrzése"}).click();
-  await expect(page.getByRole("region",{name:"ASA újraindítás jóváhagyása"})).toBeVisible();
-  const start=page.getByRole("button",{name:"Szerver újraindítása",exact:true});
-  await expect(start).toBeDisabled();
-  await page.getByText(/Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását/).click();
-  await expect(start).toBeEnabled();
-  await start.click();
+  const restart=page.getByRole("button",{name:"Szerver újraindítása",exact:true});
+  await expect(restart).toBeEnabled();
+  await expect(page.getByRole("region",{name:"ASA újraindítás jóváhagyása"})).toHaveCount(0);
+  await restart.click();
   await expect(page.locator(".success-inline").filter({hasText:"44117 → 44118"}))
     .toBeVisible({timeout:12000});
   await expect(page.getByText(/nem végez kényszerített Kill-t/)).toBeVisible();
@@ -8811,8 +8789,8 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   await expect(page.getByText(/manuális ASA újraindítás megszakadt/)).toBeVisible();
-  await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeDisabled();
-  await expect(page.getByRole("button",{name:"Újraindítás előellenőrzése"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Szerver szabályos leállítása"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Szerver újraindítása"})).toBeDisabled();
   const recovery=page.getByRole("region",{name:"Megszakadt helyi Restart rendezése"});
   await expect(recovery).toBeVisible();
   await expect(recovery).toContainText("Régi PID: 44117");
@@ -8827,9 +8805,9 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   // The old PID may remain VISIBLE as historical audit metadata in the
   // journal details. What matters is that the blocker is cleared and a
   // brand-new independently approved Restart is enabled.
-  await expect(page.getByRole("button",{name:"Újraindítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"Szerver újraindítása"}))
     .toBeEnabled();
-  await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"Szerver szabályos leállítása"}))
     .toBeEnabled();
   const reviewCount=await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_FRESH_RESTART_REVIEWS__?:()=>number
