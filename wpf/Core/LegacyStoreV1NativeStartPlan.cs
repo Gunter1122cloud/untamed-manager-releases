@@ -97,7 +97,7 @@ internal static class LegacyStoreV1NativeStartPlanner
            !original.SharedSessionMatches||!original.NoPendingConversion||
            !original.NoMutationMarker||!original.LocalMapBindingMatches||
            !original.HistoricalFilesUnchanged||original.DonePeers!=2||
-           original.ActiveMaps!=10||
+           original.ActiveMaps is <10 or >64||
            string.IsNullOrWhiteSpace(original.VerifiedOriginalSharedPath)||
            original.SourceStateSha256.Length!=64)
             throw new InvalidOperationException("UM-STORE-NATIVE-ORIGINAL-TWO-HOST-NOT-READY");
