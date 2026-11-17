@@ -1378,6 +1378,71 @@ try
             Check(replayDenied&&journalDispatches==1,
                 "receipt failure permanently denies further automatic scheduler ticks");
         }
+
+        // P2: a NEW Manager instance may inspect but cannot replay the
+        // old claimed slot. Two operators' preview tokens are bound to the
+        // exact SHA-256 of the persisted schedule journal.
+        using(var first=new DesktopScheduledAsaOperationsSupervisor(
+            scheduleCluster,rcon,restarter,SyntheticRunner,_=>true,
+            isolatedMinimumReviewAge:TimeSpan.Zero))
+        using(var second=new DesktopScheduledAsaOperationsSupervisor(
+            scheduleCluster,rcon,restarter,SyntheticRunner,_=>true,
+            isolatedMinimumReviewAge:TimeSpan.Zero))
+        {
+            var pending=first.History(m1.Id).Single(x=>
+                x.Kind=="SaveWorld"&&x.Status=="claimed-no-auto-retry");
+            var status1=await Call(first.HandleAsync,"schedule.nativeStatus",
+                new{mapId=m1.Id});
+            IsOk(status1,"prior unknown scheduled claim is inspectable after Manager restart");
+            Check(status1.GetProperty("data").GetProperty("blockedScope").GetString()=="task"&&
+                  status1.GetProperty("data").GetProperty("unknownRunIds")[0]
+                    .GetGuid()==pending.RunId,
+                "only task is blocked, not every other map on this host");
+            int countBefore=journalDispatches;
+            var future=first.Snapshot().Single(x=>x.MapId==m1.Id&&x.Kind=="SaveWorld")
+                .NextDueUtc;
+            await first.TickOnceAsync(future.AddMinutes(1));
+            Check(journalDispatches==countBefore&&
+                  first.History(m1.Id).Any(x=>x.Status==
+                      "skipped-blocked-prior-unknown-slot"),
+                "next due occurrence is skipped while old slot remains UNKNOWN");
+            var old=await Call(first.HandleAsync,"schedule.nativeReviewPreview",
+                new{mapId=m1.Id,kind="SaveWorld",runId=pending.RunId});
+            IsOk(old,"unknown slot has explicit operator review without execution");
+            string oldToken=old.GetProperty("data").GetProperty("token").GetString()!;
+            var otherPreview=await Call(second.HandleAsync,
+                "schedule.nativeReviewPreview",
+                new{mapId=m1.Id,kind="SaveWorld",runId=pending.RunId});
+            IsOk(otherPreview,"two Manager instances may read the old journal");
+            var invalid=await Call(first.HandleAsync,"schedule.nativeReviewApply",
+                new{mapId=m1.Id,token=Guid.NewGuid(),confirm=true});
+            Check(!invalid.GetProperty("ok").GetBoolean(),
+                "invalid approval token cannot review unknown slot");
+            var approval=await Call(first.HandleAsync,"schedule.nativeReviewApply",
+                new{mapId=m1.Id,token=oldToken,confirm=true});
+            IsOk(approval,"exact one-time approval archives old journal and disables schedule");
+            Check(approval.GetProperty("data").GetProperty("outcomeStillUnknown").GetBoolean()&&
+                  approval.GetProperty("data").GetProperty("noRconSent").GetBoolean()&&
+                  approval.GetProperty("data").GetProperty("oldJournalArchived").GetBoolean()&&
+                  first.History(m1.Id).Any(x=>x.RunId==pending.RunId&&
+                      x.Status=="operator-reviewed-unknown-no-replay")&&
+                  !first.Snapshot().Single(x=>x.MapId==m1.Id&&
+                      x.Kind=="SaveWorld").Enabled,
+                "approved review never certifies old SaveWorld and disables next slot");
+            var replay=await Call(first.HandleAsync,"schedule.nativeReviewApply",
+                new{mapId=m1.Id,token=oldToken,confirm=true});
+            Check(!replay.GetProperty("ok").GetBoolean(),
+                "one-shot schedule review token cannot be replayed");
+            var staleSecond=await Call(second.HandleAsync,"schedule.nativeReviewApply",
+                new{mapId=m1.Id,
+                    token=otherPreview.GetProperty("data").GetProperty("token").GetString(),
+                    confirm=true});
+            Check(!staleSecond.GetProperty("ok").GetBoolean(),
+                "second Manager stale journal SHA cannot approve superseded old state");
+            await first.TickOnceAsync(future.AddHours(2));
+            Check(journalDispatches==countBefore,
+                "reviewed old claim never runs automatically after Manager reload");
+        }
     }
 
     // An adopted running ASA map keeps the same local registry size.
