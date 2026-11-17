@@ -143,7 +143,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         "UM-STORE-PIN-OWNER-CHANGED":"A map tulajdonosa vagy forrásazonossága eltér az átvett Store-v1 profiltól. Indítás letiltva.",
         "UM-STORE-PIN-MAP-ROOT-CHANGED":"Az eredeti map telepítési gyökere eltér a megőrzött forrástól. Ellenőrizd a jóváhagyott helyi profilt.",
         "UM-STORE-PIN-CLUSTER-METADATA":"Az eredeti runtime clusterazonosító vagy átviteli útvonal nem olvasható a megőrzött forrásból.",
-        "UM-STORE-PIN-NOT-YET-APPROVED":"Az eredeti forrás még nem került jóváhagyottan az Obsidian saját profiljába; előbb az átvételt kell véglegesíteni."
+        "UM-STORE-PIN-NOT-YET-APPROVED":"Az eredeti forrás még nem került jóváhagyottan az Obsidian saját profiljába; előbb az átvételt kell véglegesíteni.",
         "UM-STORE-LIVE-PEER-DONE-INVALID":"A régi DONE peer-forrás nem egyezik. Ellenőrizd az 5 történeti mapot, a teljes maplistát és a hash-/session-azonosságot. ASA nem indult.",
         "UM-STORE-LIVE-PEER-SELECTED-MISMATCH":"A peer 5 eredeti kiválasztott mapja nem része az ellenőrzött tulajdonosi listának. ASA nem indult.",
         "UM-STORE-TOPOLOGY-PEER-INVALID":"A Store-v1 peer mapazonossága vagy listamérete sérült. ASA nem indult.",
