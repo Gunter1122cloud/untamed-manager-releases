@@ -412,6 +412,29 @@ public sealed partial class WindowsProcessInspector
         }
         return string.Equals(prefix, requiredArguments.Trim(), StringComparison.Ordinal);
     }
+    // Synthetic regression can inspect Windows launch flags WITHOUT
+    // creating any ASA or API process or changing a map configuration.
+    internal static ProcessStartInfo BuildLaunchStartInfo(
+        LocalMap map,AsaApiLaunchPlan launch)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        ArgumentNullException.ThrowIfNull(launch);
+        string executable=launch.ExecutablePath;
+        string directory=launch.UseApi ? Path.GetDirectoryName(executable)! :
+            string.IsNullOrWhiteSpace(map.InstallationPath) ?
+            Path.GetDirectoryName(executable)! : Path.GetFullPath(map.InstallationPath);
+        return new ProcessStartInfo(executable,launch.Arguments) {
+            WorkingDirectory=directory,
+            UseShellExecute=false,
+            CreateNoWindow=!launch.UseApi,
+            WindowStyle=launch.UseApi ?
+                ProcessWindowStyle.Normal:ProcessWindowStyle.Hidden,
+            RedirectStandardOutput=false,
+            RedirectStandardError=false,
+            RedirectStandardInput=false
+        };
+    }
+
     public ProcessIdentity Launch(LocalMap map)
     {
         if (string.IsNullOrWhiteSpace(map.ExecutablePath)) throw new InvalidOperationException("Missing executable path");
@@ -419,13 +442,13 @@ public sealed partial class WindowsProcessInspector
         string exe=launch.ExecutablePath,arguments=launch.Arguments;
         if (!File.Exists(exe)) throw new FileNotFoundException("ASA server executable not found",exe);
         // No Windows job object, no kill-on-dispose. Server survives Manager UI exit/update.
-        var psi = new ProcessStartInfo(exe,arguments) {
-            WorkingDirectory=launch.UseApi ? Path.GetDirectoryName(exe)! :
-                string.IsNullOrWhiteSpace(map.InstallationPath) ?
-                Path.GetDirectoryName(exe)! : Path.GetFullPath(map.InstallationPath),
-            UseShellExecute=false, CreateNoWindow=true
-        };
-        using var process=Process.Start(psi) ?? throw new InvalidOperationException("Process.Start returned null");
+        // The AsaApiLoader is a console application. Previous releases hid
+        // BOTH its startup/errors and the console of the ASA child it spawns.
+        // Match interactive ASA managers: show the genuine Loader console
+        // for explicitly API-enabled maps. No cmd.exe/batch wrapper and no
+        // redirected pipe whose missing consumer could stall the Loader.
+        using var process=Process.Start(BuildLaunchStartInfo(map,launch))
+            ?? throw new InvalidOperationException("Process.Start returned null");
         return new ProcessIdentity {
             Pid=process.Id, StartedUtc=new DateTimeOffset(process.StartTime.ToUniversalTime()),
             ExecutablePath=exe, Arguments=arguments
