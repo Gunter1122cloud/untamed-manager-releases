@@ -521,8 +521,15 @@ public sealed class UntamedOperationCoordinator
     }
     private static UntamedOperationRecord? Read(string path,string key)
     {
-        if(!File.Exists(path))return null;
-        if((File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0||new FileInfo(path).Length is <2 or >16384)
+        // File.Exists returns false for access failures and directories.
+        // A disguised/unreadable durable journal must NEVER be interpreted
+        // as an absent journal permitting a new ASA operation.
+        FileAttributes attrs;
+        try { attrs=File.GetAttributes(path); }
+        catch(FileNotFoundException) { return null; }
+        catch(DirectoryNotFoundException) { return null; }
+        if((attrs&(FileAttributes.ReparsePoint|FileAttributes.Directory))!=0||
+           new FileInfo(path).Length is <2 or >16384)
             throw new InvalidDataException("UNTAMED_OPERATION_JOURNAL_INVALID");
         try
         {

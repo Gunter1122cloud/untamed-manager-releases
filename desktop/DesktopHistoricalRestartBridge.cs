@@ -157,7 +157,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         var map=Owned(mapId);
         if(map==null||!map.HistoricalStoreProtected)
             throw new UnauthorizedAccessException("UM-ORIGINAL-RESTART-LOCAL-ONLY");
-        var entry=new AsaManualRestartJournal(map.InstallationPath).Observe();
+        var journalDiagnosis=AsaLocalJournalReadOnly.Inspect(
+            cluster.Operations,map.InstallationPath);
+        var entry=journalDiagnosis.Restart;
         Job? running;
         bool localNeedsOperator;
         lock(sync)
@@ -166,10 +168,13 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             running=tracked?.State is "queued" or "running"?tracked:null;
             localNeedsOperator=tracked?.State=="needsOperator";
         }
-        bool pendingRestart=entry!=null&&entry.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
-        var operation=cluster.Operations.Observe(map.InstallationPath);
-        bool pendingOperation=operation?.Phase is UntamedOperationPhase.Prepared or
-            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator;
+        bool pendingRestart=journalDiagnosis.RestartUnreadable||
+            entry!=null&&entry.Phase is not
+                (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
+        var operation=journalDiagnosis.Operation;
+        bool pendingOperation=journalDiagnosis.OperationUnreadable||
+            operation?.Phase is UntamedOperationPhase.Prepared or
+                UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator;
         // Recovery is read-only. A half-written/.next or tampered local
         // SaveWorld receipt must still be reported with its exact map ID;
         // mutating Restart preview/apply continue using strict Inspect().
@@ -186,6 +191,10 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             saveEvidenceUnreadable=saveUnreadable,
             saveEvidenceErrorCode=saveUnreadable?
                 "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
+            operationJournalUnreadable=journalDiagnosis.OperationUnreadable,
+            restartJournalUnreadable=journalDiagnosis.RestartUnreadable,
+            operationJournalErrorCode=journalDiagnosis.OperationErrorCode,
+            restartJournalErrorCode=journalDiagnosis.RestartErrorCode,
             blocked=pendingRestart||pendingOperation||pendingSave||
                 running!=null||localNeedsOperator,
             requiresOperator=localNeedsOperator||

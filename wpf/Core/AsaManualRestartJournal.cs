@@ -44,10 +44,15 @@ public sealed class AsaManualRestartJournal
     public AsaRestartRecord? Observe()
     {
         ValidateFolder();
-        if(!File.Exists(path))return null;
+        // File.Exists quietly returns false for directories and ACL errors.
+        // Only an explicitly missing receipt can permit a new Restart.
+        FileAttributes attrs;
+        try { attrs=File.GetAttributes(path); }
+        catch(FileNotFoundException) { return null; }
+        catch(DirectoryNotFoundException) { return null; }
         var file=new FileInfo(path);
-        if(file.Length is <=0 or >8192||
-           (file.Attributes&FileAttributes.ReparsePoint)!=0)
+        if((attrs&(FileAttributes.Directory|FileAttributes.ReparsePoint))!=0||
+           file.Length is <=0 or >8192)
             throw new InvalidDataException("UM-ASA-RESTART-JOURNAL-INVALID");
         var snapshot=JsonSerializer.Deserialize<AsaRestartRecord>(
             File.ReadAllText(path),Json);

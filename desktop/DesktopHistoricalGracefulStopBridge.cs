@@ -194,11 +194,14 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         // The journal is the durable authority across GUI/Manager crashes.
         // It is always READ ONLY here; no phase reset, retry, TTL unlock,
         // original Store/INI mutation or process launch is permitted.
-        var journal=cluster.Operations.Observe(map.InstallationPath);
-        // The manual original Restart has a separate durable journal.
-        // It must also block SaveWorld and Stop UI during Stopping/Starting.
-        var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
-        bool restartPending=restart!=null&&restart.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
+        var journalDiagnosis=AsaLocalJournalReadOnly.Inspect(
+            cluster.Operations,map.InstallationPath);
+        var journal=journalDiagnosis.Operation;
+        // Even an inaccessible/corrupt journal blocks this map. A read-only
+        // screen may diagnose it but may NOT clear or replay its operation.
+        var restart=journalDiagnosis.Restart;
+        bool restartPending=journalDiagnosis.RestartUnreadable||
+            restart!=null&&restart.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
         Job? running;
         bool localNeedsOperator;
         lock(sync)
@@ -207,9 +210,10 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             running=tracked?.State is "queued" or "running"?tracked:null;
             localNeedsOperator=tracked?.State=="needsOperator";
         }
-        bool operationBlocked=journal!=null&&journal.Phase is
-            UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
-            UntamedOperationPhase.NeedsOperator;
+        bool operationBlocked=journalDiagnosis.OperationUnreadable||
+            journal!=null&&journal.Phase is
+                UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
+                UntamedOperationPhase.NeedsOperator;
         var (saveEvidence,unreadableSaveEvidence)=
             LegacyStoreV1SaveEvidenceJournal.InspectReadOnly(
                 cluster.Store.Root,mapId);
@@ -220,7 +224,8 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             saveEvidence?.Phase is "prepared" or "needsOperator";
         bool blocked=operationBlocked||restartPending||pendingSaveEvidence||
             running!=null||localNeedsOperator;
-        bool needsOperator=localNeedsOperator||unreadableSaveEvidence||pendingSaveEvidence||(journal!=null&&(
+        bool needsOperator=journalDiagnosis.AnyUnreadable||
+            localNeedsOperator||unreadableSaveEvidence||pendingSaveEvidence||(journal!=null&&(
             journal.Phase==UntamedOperationPhase.NeedsOperator||
             operationBlocked&&running==null))||
             restart?.Phase==AsaRestartPhase.NeedsOperator;
@@ -232,6 +237,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         // The named review endpoint will separately check the old PID,
         // process-start, source, active worker, lease and restart journal.
         string nextAction=running!=null?"WAIT_FOR_ACTIVE_WORKER":
+            journalDiagnosis.AnyUnreadable?"INSPECT_LOCAL_OPERATION_JOURNAL_ACCESS_OR_CORRUPTION":
             unreadableSaveEvidence?"historical.saveWorldForensicExport":
             saveReviewCandidate?"historical.saveWorldReviewPreview":
             operationBlocked&&journal?.Kind==UntamedOperationKind.Launch?
@@ -259,7 +265,14 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             operationKind=journal?.Kind.ToString()??"None",
             updatedUtc=journal?.UpdatedUtc,
             blocked,requiresOperator=needsOperator,
-            nextAction,blockingJournal=running!=null?"inMemoryWorker":
+            nextAction,
+            operationJournalUnreadable=journalDiagnosis.OperationUnreadable,
+            restartJournalUnreadable=journalDiagnosis.RestartUnreadable,
+            operationJournalErrorCode=journalDiagnosis.OperationErrorCode,
+            restartJournalErrorCode=journalDiagnosis.RestartErrorCode,
+            blockingJournal=running!=null?"inMemoryWorker":
+                journalDiagnosis.OperationUnreadable?"coordinatorUnreadable":
+                journalDiagnosis.RestartUnreadable?"restartUnreadable":
                 unreadableSaveEvidence?"saveEvidenceUnreadable":
                 saveReviewCandidate?"saveEvidence+coordinator":
                 restartPending?"restart":
