@@ -6070,13 +6070,11 @@ test("new Store API Loader mode needs separate approval and permits direct opt-o
   const mode=page.getByRole("region",{name:"Új Store-map ASA API indítási módja"});
   await expect(mode).toBeVisible();
   await expect(mode).toContainText("Közvetlen ArkAscendedServer");
+  await expect(mode.getByRole("region",{name:"Új Store-map ASA API módváltási előnézete"})).toHaveCount(0);
   await mode.getByRole("button",{name:"ASA API Loader választása"}).click();
-  await expect(mode.getByRole("region",{name:"Új Store-map ASA API módváltási előnézete"})).toContainText("Nem történik");
-  await mode.getByRole("button",{name:"Módváltás jóváhagyása"}).click();
   await expect(mode).toContainText("ASA API Loader indítási mód mentve");
   await expect(mode).toContainText("UM-API-CACHE-NO-LOCAL-KEY");
   await mode.getByRole("button",{name:"Váltás közvetlen ASA indításra"}).click();
-  await mode.getByRole("button",{name:"Módváltás jóváhagyása"}).click();
   await expect(mode).toContainText("Közvetlen ASA indítási mód mentve");
   await expect(mode).toContainText("Közvetlen ArkAscendedServer");
   await expect(page.getByRole("button",{name:/Eredeti Store-v1 API Loader indítása/})).toHaveCount(0);
@@ -7298,7 +7296,10 @@ test("first setup follows one RCON bootstrap route and returns to native Start w
   await expect(page.getByRole("button",{name:"Vissza az ASA Start előnézethez"})).toBeVisible();
   await page.getByRole("button",{name:"Vissza az ASA Start előnézethez"}).click();
   await expect(page.getByRole("region",{name:"Valódi ASA első indítása"})).toBeVisible();
-  await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true})).toHaveCount(0);
+  // The one-click Start control exists after RCON bootstrap, but neither
+  // returning to its panel nor saving the RCON INI dispatched a Start.
+  await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true})).toHaveCount(1);
+  await expect(page.getByText(/ASA szerverfolyamat indítva, PID:/)).toHaveCount(0);
   await expect(page.getByRole("button",{name:"Első RCON beállítása"})).toHaveCount(0);
 });
 
@@ -7353,7 +7354,8 @@ test("RCON native commit receipt survives a failed subsequent status refresh wit
   expect(applyCount).toBe(1);
   await page.getByRole("button",{name:"Vissza az ASA Start előnézethez"}).click();
   await expect(page.getByRole("region",{name:"Valódi ASA első indítása"})).toBeVisible();
-  await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true})).toHaveCount(1);
+  await expect(page.getByText(/ASA szerverfolyamat indítva, PID:/)).toHaveCount(0);
 });
 
 test("original local Store-v1 five-map source proof is explicit and never enables launch",async({page})=>{
