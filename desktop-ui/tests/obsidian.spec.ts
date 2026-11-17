@@ -567,6 +567,9 @@ test.beforeEach(async ({ page }) => {
     let originalSaveHold=false;
     let originalSaveEvidenceTampered=false;
     let originalSaveMetadataOnly=false;
+    let originalSaveNoRconDispatch=false;
+    (window as typeof window & {__UNTAMED_SAVE_NO_DISPATCH__?:()=>void})
+      .__UNTAMED_SAVE_NO_DISPATCH__=()=>{originalSaveNoRconDispatch=true;};
     (window as typeof window & {__UNTAMED_SAVE_METADATA_ONLY__?:()=>void})
       .__UNTAMED_SAVE_METADATA_ONLY__=()=>{originalSaveMetadataOnly=true;};
     let originalSaveUnreadable=false;
@@ -1583,7 +1586,8 @@ test.beforeEach(async ({ page }) => {
             (originalSaveRecoveryFixture&&!originalSaveReviewed),
           requiresOperator:originalSaveUnreadable||oldStopNeedsOperator||
             (originalSaveRecoveryFixture&&!originalSaveReviewed),
-          saveEvidencePhase:originalSaveUnreadable?"unreadable":"none",
+          saveEvidencePhase:originalSaveUnreadable?"unreadable":
+            originalSaveNoRconDispatch?"notDispatched":"none",
           saveEvidenceUnreadable:originalSaveUnreadable,
           saveEvidenceErrorCode:originalSaveUnreadable?
             "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
@@ -1617,7 +1621,8 @@ test.beforeEach(async ({ page }) => {
              !originalSavePending||!historicalActiveStarted||oldStopNeedsOperator)
             throw new Error("Original Store SaveWorld approval denied");
           originalSavePending=false;
-          originalSaveQueued=true;originalSaveDispatches++;
+          originalSaveQueued=true;
+          if(!originalSaveNoRconDispatch)originalSaveDispatches++;
           return {jobId:originalSaveJob,started:true,
             automaticRetry:false,forceKill:false,storeTouched:false,
             evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_ONLY_JOB_QUEUED"};
@@ -1628,7 +1633,8 @@ test.beforeEach(async ({ page }) => {
           const complete=originalSaveQueued&&!(originalSaveReattached&&originalSaveHold);
           return {
             mapId:originalSaveWrongEvidenceMap?one:two,
-            phase:originalSaveUnreadable?"unreadable":originalSaveRecoveryFixture?
+            phase:originalSaveUnreadable?"unreadable":originalSaveNoRconDispatch?
+              "notDispatched":originalSaveRecoveryFixture?
               (originalSaveReviewed?"reviewed":"needsOperator"):
               originalSaveQueued?(complete?
                 originalSaveMetadataOnly?"metadataObserved":"completed":"prepared"):"none",
@@ -1643,10 +1649,13 @@ test.beforeEach(async ({ page }) => {
             beganUtc:"2026-11-08T18:33:00Z",
             pid:originalSaveQueued?42101:null,
             pidStartedUtc:originalSaveQueued?"2026-11-08T18:00:00Z":null,
-            saveObservedUtc:complete?"2026-11-08T18:35:00Z":null,
-            localSaveCompleteObserved:complete&&!originalSaveUnreadable&&
+            saveObservedUtc:complete&&!originalSaveNoRconDispatch?
+              "2026-11-08T18:35:00Z":null,
+            localSaveCompleteObserved:complete&&!originalSaveNoRconDispatch&&
+              !originalSaveUnreadable&&
               !originalSaveMetadataOnly,
-            localWorldMetadataObserved:complete&&!originalSaveUnreadable&&
+            localWorldMetadataObserved:complete&&!originalSaveNoRconDispatch&&
+              !originalSaveUnreadable&&
               originalSaveMetadataOnly,
             bothHostsSaveCompleteCertified:false,sharedStoreWriterCertified:false,
             gameClientRejoinVerified:false,productionRestoreAllowed:false,
@@ -1712,8 +1721,9 @@ test.beforeEach(async ({ page }) => {
           return {
             jobId:originalSaveWrongStatusJob?"00000000-0000-4000-8000-000000001695":originalSaveJob,
             kind:"SaveWorldOnly",
-            state:held?"running":"completed",
+            state:held?"running":originalSaveNoRconDispatch?"notDispatched":"completed",
             step:held?"Natív mentési művelet megfigyelése":
+              originalSaveNoRconDispatch?"SaveWorld NEM lett kiküldve":
               "Store-v1 SaveWorld igazolva; az ASA tovább fut",
             changedUtc:"2026-11-08T18:35:00Z",
             confirmedStopped:false,preExitSaveLogAndWorldObserved:!held&&!originalSaveMetadataOnly,
@@ -6328,6 +6338,34 @@ test("Store SaveComplete UI distinguishes durable local log evidence from live c
   await expect(panel).toContainText("Helyi SaveComplete napló tartósan igazolt");
   await expect(evidence).not.toContainText("Két gép SaveComplete igazolva");
   await expect(evidence).toContainText("nem igazolja a jelenlegi Store-írójogot");
+});
+
+test("pre-dispatch SaveWorld rejection is recoverable without sending RCON",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_NO_DISPATCH__?:()=>void;
+  }).__UNTAMED_SAVE_NO_DISPATCH__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await panel.getByRole("button",{name:"SaveWorld mentés indítása"}).click();
+  await expect(panel).toContainText("SaveWorld NEM ment ki");
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("SaveWorld nem lett kiküldve");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
+  await panel.getByRole("button",{
+    name:"Store-v1 mentési napló újraellenőrzése"
+  }).click();
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
+    .toBeEnabled();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
 });
 
 test("SaveWorld stable .ark without ASA log reports restricted evidence and no replay",async({page})=>{
