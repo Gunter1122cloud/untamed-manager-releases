@@ -15,35 +15,25 @@ namespace UntamedManager.Core;
 /// </summary>
 internal static class LegacyStoreV1GracefulStop
 {
-    internal sealed record Owned(LocalMap Map,ProcessIdentity Process,string SourceSha)
-    {
-        // Observed Windows Loader process, never a proof of API initialization.
-        public ProcessIdentity? LoaderProcess {get;init;}
-    }
+    internal sealed record Owned(LocalMap Map,ProcessIdentity Process,string SourceSha);
 
-    // Deliberately strict readiness classification for a NEW SaveWorld only.
-    // The PID/RCON listener alone is not proof that ASA finished startup.
-    // The API path additionally requires current-session hooks AND a DLL
-    // observed inside the exact running ASA child, never merely a Loader PID.
-    internal static string? SaveOnlyStartupBlocker(bool joinAdvertised,
-        bool apiRequested,bool apiHooks,bool apiModule)
-    {
-        if(!joinAdvertised)return "UM-ORIGINAL-SAVE-STARTUP-NOT-ADVERTISED";
-        if(apiRequested&&(!apiHooks||!apiModule))
-            return "UM-ORIGINAL-SAVE-API-NOT-VERIFIED";
-        return null;
-    }
+    // The PID and RCON listener can be ready BEFORE the ASA has finished
+    // starting up. A NEW SaveWorld therefore requires current-run join
+    // advertising, but never relies on ASA API plugin status: an API plugin
+    // failure is an operator-visible Loader concern, not a prerequisite for
+    // ordinary ASA world persistence.
+    internal static string? SaveOnlyStartupBlocker(bool joinAdvertised)=>
+        joinAdvertised?null:"UM-ORIGINAL-SAVE-STARTUP-NOT-ADVERTISED";
 
     internal static string? SaveOnlyStartupBlocker(Owned owned)
     {
         ArgumentNullException.ThrowIfNull(owned);
-        // Read-only, bounded current-session logs; no ASA/Store mutation.
+        // Do not require ArkApi.log, hook markers or DLL module enumeration
+        // for SaveWorld. The API Loader's actual console can now be visible;
+        // the separate read-only API health probe remains diagnostic.
         var runtime=AsaRuntimeLogEvidence.Inspect(
-            owned.Map,owned.Process,owned.LoaderProcess);
-        bool module=owned.Map.StartWithAsaApi && runtime.ApiInitialized &&
-            AsaApiModuleEvidence.IsLoaded(owned.Map,owned.Process);
-        return SaveOnlyStartupBlocker(runtime.JoinAdvertised,
-            owned.Map.StartWithAsaApi,runtime.ApiInitialized,module);
+            owned.Map,owned.Process,null);
+        return SaveOnlyStartupBlocker(runtime.JoinAdvertised);
     }
 
     private static bool Same(ProcessIdentity left,ProcessIdentity right)=>
@@ -114,7 +104,7 @@ internal static class LegacyStoreV1GracefulStop
                 throw new InvalidOperationException(
                     "UM-RECOVERY-RESTART-OLD-PID-OR-PHASE-MISMATCH");
         }
-        return new(map,identity,fingerprint){LoaderProcess=state.LoaderIdentity};
+        return new(map,identity,fingerprint);
     }
 
     internal static string OriginalSource(LocalMap map) =>
