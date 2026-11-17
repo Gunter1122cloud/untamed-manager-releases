@@ -295,7 +295,8 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                 "historical.saveWorldStatus" or
                 "historical.saveWorldEvidence" or
                 "historical.saveWorldReviewPreview" or
-                "historical.saveWorldReviewApply"))
+                "historical.saveWorldReviewApply" or
+                "historical.saveWorldForensicExport"))
                 return Fail(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
@@ -469,6 +470,30 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         rconSent=false,autoRetry=false,serverStarted=false,
                         nextOperationRequiresNewApproval=true,
                         evidence="OPERATOR_REVIEW_DURABLE_LOCAL_JOURNALS_NO_STORE_MUTATION"
+                    });
+                }
+                if(method=="historical.saveWorldForensicExport")
+                {
+                    if(!GuidValue(request,"mapId",out var exportMapId)||
+                       Owned(exportMapId) is not {HistoricalStoreProtected:true})
+                        return Fail(id,"UM-ORIGINAL-SAVE-FORENSIC-LOCAL-ONLY");
+                    if(!request.TryGetProperty("confirm",out var consent)||
+                       consent.ValueKind!=JsonValueKind.True)
+                        return Fail(id,"UM-ORIGINAL-SAVE-FORENSIC-APPROVAL-REQUIRED");
+                    // This is a byte-copy of an invalid Manager receipt,
+                    // never permission to unlock or run ASA. No worker races.
+                    if(HasActive(exportMapId))
+                        return Fail(id,"UM-ORIGINAL-SAVE-FORENSIC-WORKER-ACTIVE");
+                    var exported=LegacyStoreV1SaveEvidenceJournal.ExportUnreadable(
+                        cluster.Store.Root,exportMapId,true);
+                    return Ok(id,new{
+                        mapId=exported.MapId,fileName=exported.FileName,
+                        sourceSlot=exported.SourceSlot,
+                        failureCode=exported.FailureCode,
+                        bytes=exported.Bytes,sha256=exported.Sha256,
+                        originalUntouched=true,sendsRcon=false,
+                        grantsRecovery=false,automaticRetry=false,
+                        evidence="EXPLICIT_MANAGER_LOCAL_FORENSIC_COPY_NO_UNLOCK"
                     });
                 }
                 if(method=="historical.saveWorldEvidence")
