@@ -67,7 +67,11 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       }else if(result.inMemoryRunning){
         setError("Másik Store-v1 művelet fut. Mentést nem indítunk és nem küldünk újra.");
       }else if(result.blocked){
-        setError(result.saveEvidenceUnreadable?
+        setError(result.operationJournalUnreadable||result.restartJournalUnreadable?
+          "A helyi Operations-v1 / Restart-v1 napló nem olvasható: "+
+          (result.operationJournalErrorCode??result.restartJournalErrorCode??"UM-JOURNAL-UNREADABLE")+
+          ". A naplók megmaradnak; nincs új SaveWorld vagy automatikus feloldás.":
+          result.saveEvidenceUnreadable?
           "Sérült vagy félbeszakadt helyi SaveWorld-bizonylat "+
           "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). A map naplója megmarad; "+
           "helyreállítás csak külön operátori ellenőrzéssel lehetséges.":
@@ -178,7 +182,11 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
          (completedVerified||manuallyReviewed)){
         setJobId("");setJob(null);finished.current=false;
       }
-      if(evidence.unreadable||review.saveEvidenceUnreadable)
+      if(review.operationJournalUnreadable||review.restartJournalUnreadable)
+        setError("Helyi műveleti napló olvasási hiba: "+
+          (review.operationJournalErrorCode??review.restartJournalErrorCode??"UM-JOURNAL-UNREADABLE")+
+          ". Új SaveWorld nem indult; a napló megmaradt.");
+      else if(evidence.unreadable||review.saveEvidenceUnreadable)
         setError("Sérült vagy félbeszakadt SaveWorld-bizonylat "+
           "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). A helyi fájlok változatlanok; "+
           "automatikus feloldás nincs.");

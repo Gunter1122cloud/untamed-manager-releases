@@ -33,7 +33,11 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
         setJobId(result.jobId);
         setNotice("A meglévő eredeti Store-v1 újraindítás állapotához visszacsatlakozva; nincs új RCON-küldés.");
       }else if(result.requiresOperator||result.blocked){
-        setError(result.saveEvidenceUnreadable
+        setError(result.operationJournalUnreadable||result.restartJournalUnreadable
+          ? "A helyi Operations-v1 vagy Restart-v1 napló nem olvasható ("+
+            (result.operationJournalErrorCode??result.restartJournalErrorCode??"UM-JOURNAL-UNREADABLE")+
+            "). A helyi eredeti napló ellenőrzéséig nincs Restart vagy RCON."
+          : result.saveEvidenceUnreadable
           ? "Sérült vagy félbeszakadt Store-v1 SaveWorld-bizonylat "+
             "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). Az eredeti napló megmarad; "+
             "nincs Restart, RCON-küldés vagy automatikus feloldás."
@@ -102,6 +106,10 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
       if(result.inMemoryRunning&&result.jobId){
         setJobId(result.jobId);
         setNotice("A már futó újraindítás állapotához visszacsatlakozva; nincs új RCON.");
+      }else if(result.operationJournalUnreadable||result.restartJournalUnreadable){
+        setError("Operations-v1 / Restart-v1 naplóellenőrzési hiba: "+
+          (result.operationJournalErrorCode??result.restartJournalErrorCode??"UM-JOURNAL-UNREADABLE")+
+          ". Nincs automatikus feloldás vagy RCON.");
       }else if(result.saveEvidenceUnreadable){
         setError("Sérült vagy félbeszakadt SaveWorld-bizonylat "+
           "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). Kézi naplóellenőrzés szükséges; "+
@@ -177,7 +185,11 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
       </button>
       {recovery?.blocked&&<div className="warning-inline" role="status">
         <AlertTriangle size={17}/>
-        {recovery.saveEvidenceUnreadable
+        {recovery.operationJournalUnreadable||recovery.restartJournalUnreadable
+          ? <>Helyi Operations-v1 / Restart-v1 napló nem olvasható.
+              Hibakód: {recovery.operationJournalErrorCode??recovery.restartJournalErrorCode}.
+              Nincs újraindítás, az eredeti napló érintetlen.</>
+          : recovery.saveEvidenceUnreadable
           ? <>Sérült Store-v1 SaveWorld-bizonylat ({recovery.saveEvidencePhase}).
               A napló megmarad; kézi ellenőrzés és külön helyreállítás szükséges.</>
           : recovery.saveEvidencePending

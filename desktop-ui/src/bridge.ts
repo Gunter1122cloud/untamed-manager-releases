@@ -484,11 +484,13 @@ export type AsaLifecycleJournal = {
   mapId:string;mapName:string;journalExists:boolean;
   operationId?:string|null;
   phase?:string|null;kind?:string|null;changedUtc?:string|null;
-  classification?:"none"|"inProgressOrInterrupted"|"unknownOutcome"|"closed"|"unverified";
+  classification?:"none"|"inProgressOrInterrupted"|"unknownOutcome"|"closed"|"unverified"|"unreadable";
+  journalUnreadable?:boolean;restartJournalUnreadable?:boolean;
+  journalErrorCode?:string|null;restartJournalErrorCode?:string|null;
   blockingCode?:string|null;recoverySupported?:boolean;
   restartJournalExists?:boolean;restartId?:string|null;restartPhase?:string|null;
   restartChangedUtc?:string|null;restartOldPid?:number|null;restartNewPid?:number|null;
-  restartClassification?:"unknownOutcome"|"operatorReviewed"|"closed";
+  restartClassification?:"unknownOutcome"|"operatorReviewed"|"closed"|"unreadable";
   needsOperatorReview:boolean;autoResumeAllowed:false;
   storeTouched:false;evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY";
 };
@@ -1194,6 +1196,8 @@ export type HistoricalRestartQueued = {
 export type HistoricalRestartRecovery = {
   mapId:string;phase:"None"|"Stopping"|"Starting"|"Completed"|"NeedsOperator";
   entryBelongsToMap:boolean;blocked:boolean;requiresOperator:boolean;
+  operationJournalUnreadable?:boolean;restartJournalUnreadable?:boolean;
+  operationJournalErrorCode?:string|null;restartJournalErrorCode?:string|null;
   // Restart is also blocked by an unfinished SaveWorld-only receipt.
   saveEvidencePhase?:"none"|"prepared"|"needsOperator"|"unreadable";
   saveEvidencePending?:boolean;
@@ -1294,6 +1298,8 @@ export type HistoricalGracefulStopQueued = {
 };
 export type HistoricalGracefulStopRecovery = {
   mapId:string;operationId:string|null;
+  operationJournalUnreadable?:boolean;restartJournalUnreadable?:boolean;
+  operationJournalErrorCode?:string|null;restartJournalErrorCode?:string|null;
   phase:"None"|"Prepared"|"Mutating"|"Completed"|
     "CancelledBeforeMutation"|"NeedsOperator"|"OperatorReviewed";
   operationKind:string;updatedUtc:string|null;

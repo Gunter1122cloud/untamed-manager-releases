@@ -39,7 +39,11 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
       else if(result.inMemoryRunning)
         setError("Másik Store-v1 művelet fut. Nem indítunk új leállítást.");
       if(result.requiresOperator)
-        setError(result.saveEvidenceUnreadable
+        setError(result.operationJournalUnreadable||result.restartJournalUnreadable
+          ? "Helyi műveleti napló olvashatatlan: "+
+            (result.operationJournalErrorCode??result.restartJournalErrorCode??"UM-JOURNAL-UNREADABLE")+
+            ". Sem Stop, sem RCON nem indul, az eredeti fájlok megmaradnak."
+          : result.saveEvidenceUnreadable
           ? "Sérült vagy félbeszakadt Store-v1 SaveWorld-bizonylat "+
             "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). A helyi naplók megmaradnak; "+
             "Stop, RCON és automatikus feloldás tiltva."
@@ -109,7 +113,11 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
          result.sharedStoreMutated||result.lockCleared)
         throw new Error("UM-STORE-STOP-RECOVERY-WRONG-MAP");
       setRecovery(result);setRecoveryChecked(true);
-      if(result.saveEvidenceUnreadable)
+      if(result.operationJournalUnreadable||result.restartJournalUnreadable)
+        setError("Helyi Operations-v1 / Restart-v1 napló nem olvasható: "+
+          (result.operationJournalErrorCode??result.restartJournalErrorCode??"UM-JOURNAL-UNREADABLE")+
+          ". Kézi vizsgálat szükséges, új RCON-parancs nem indult.");
+      else if(result.saveEvidenceUnreadable)
         setError("Sérült vagy félbeszakadt SaveWorld-bizonylat "+
           "(UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE). Nincs automatikus feloldás.");
       else if(result.blocked||result.requiresOperator)
@@ -191,7 +199,10 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
         aria-label="Tartós Store-v1 műveleti helyreállítás">
         <AlertTriangle size={18}/>
         <div>
-          <b>{recovery.saveEvidenceUnreadable?
+          <b>{recovery.operationJournalUnreadable||recovery.restartJournalUnreadable?
+            "Helyi napló olvashatatlan · "+
+              (recovery.operationJournalErrorCode??recovery.restartJournalErrorCode):
+            recovery.saveEvidenceUnreadable?
             "Sérült Store-v1 SaveWorld-bizonylat · unreadable":
             "Korábbi műveleti napló · "+recovery.phase}</b>
           <p>{recovery.inMemoryRunning
