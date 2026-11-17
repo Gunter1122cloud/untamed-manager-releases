@@ -117,18 +117,26 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
               managerBridge.historicalSaveWorldEvidence(requested)
             ]);
             if(!active||!belongs(requested,revision))return;
+            const fullLog=receipt.phase==="completed"&&
+              receipt.localSaveCompleteObserved&&!receipt.localWorldMetadataObserved;
+            const worldOnly=receipt.phase==="metadataObserved"&&
+              receipt.localWorldMetadataObserved&&!receipt.localSaveCompleteObserved;
             if(recovered.mapId.toLowerCase()!==requested.toLowerCase()||
                recovered.sharedStoreMutated||recovered.lockCleared||
                receipt.mapId.toLowerCase()!==requested.toLowerCase()||
-               receipt.phase!=="completed"||
+               (!fullLog&&!worldOnly)||
                !canonicalSaveId(receipt.operationId)||
                canonicalSaveId(receipt.operationId)!==canonicalSaveId(expectedJob)||
-               !receipt.localSaveCompleteObserved||receipt.productionRestoreAllowed||
+               receipt.productionRestoreAllowed||
                receipt.bothHostsSaveCompleteCertified||receipt.sharedStoreWriterCertified)
               throw new Error("UM-STORE-SAVE-DURABLE-RECEIPT-MISMATCH");
             setRecovery(recovered);setDurableSave(receipt);setDurableUnknown(false);
-            setNotice("Helyi SaveComplete napló tartósan igazolt: új ASA naplójelzés és stabil .ark. "+
-              "A szerver tovább fut; fsync és játékbeli karakterutazás külön igazolandó.");
+            setNotice(fullLog?
+              "Helyi SaveComplete napló tartósan igazolt: új ASA naplójelzés és stabil .ark. "+
+                "A szerver tovább fut; fsync és játékbeli karakterutazás külön igazolandó.":
+              "Korlátozott helyi bizonyíték: a saját .ark megváltozott és stabil. "+
+                "ASA SaveComplete napló NEM igazolt, a parancs és a fájlfrissülés "+
+                "közvetlen oksága ismeretlen. A szerver fut; nincs fsync vagy restore tanúsítás.");
           }catch{
             if(active&&belongs(requested,revision)){
               setDurableUnknown(true);
@@ -186,7 +194,10 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       // evidence and unblocked native recovery. This never changes its
       // saved journal or reissues a command.
       const completedVerified=job?.state==="completed"&&
-        evidence.phase==="completed"&&evidence.localSaveCompleteObserved&&
+        ((evidence.phase==="completed"&&evidence.localSaveCompleteObserved&&
+          !evidence.localWorldMetadataObserved)||
+         (evidence.phase==="metadataObserved"&&evidence.localWorldMetadataObserved&&
+          !evidence.localSaveCompleteObserved))&&
         canonicalSaveId(evidence.operationId)!==null&&
         canonicalSaveId(evidence.operationId)===canonicalSaveId(jobId);
       const manuallyReviewed=(job?.state==="needsOperator"||
@@ -502,6 +513,9 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
           durableUnknown?"Tartós napló nem ellenőrizhető – további mentés igazolása tilos":
           durableSave?.phase==="completed"&&durableSave.localSaveCompleteObserved?
             "Korábbi helyi ASA naplójelzés + stabil világfájl rögzítve":
+          durableSave?.phase==="metadataObserved"&&durableSave.localWorldMetadataObserved?
+            "Saját .ark frissült és stabil; ASA SaveComplete NEM igazolt "+
+            "(korlátozott helyi fájlmegfigyelés)":
           durableSave?.phase==="prepared"||durableSave?.phase==="needsOperator"?
             "Függőben / bizonytalan – kézi ellenőrzést igényel":
           durableSave?.phase==="reviewed"?
