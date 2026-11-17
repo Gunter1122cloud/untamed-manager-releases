@@ -117,6 +117,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         {
             job.State=state;job.Step=step;job.ChangedUtc=DateTimeOffset.UtcNow;
             job.PreExitSaveObserved=receipt.SaveCompleteObserved;
+            job.PreExitWorldMetadataObserved=receipt.WorldMetadataObserved;
             job.ConfirmedStopped=false;
         }
     }

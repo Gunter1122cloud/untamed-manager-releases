@@ -721,8 +721,10 @@ internal static class MapScopedNativeLifecycleJobsTests
             "original SaveWorld final receipt survives delayed evidence");
         Check(stableSave.GetProperty("state").GetString()=="completed"&&
               stableSave.GetProperty("step").GetString()==
-                "Store-v1 SaveWorld igazolva; az ASA tovább fut",
-            "late Store SaveWorld RCON callback cannot erase verified final save");
+                "ASA SaveComplete log + stabil .ark helyileg igazolt; a szerver fut"&&
+              stableSave.GetProperty("preExitSaveLogAndWorldObserved").GetBoolean()&&
+              !stableSave.GetProperty("preExitWorldMetadataObserved").GetBoolean(),
+            "late Store SaveWorld progress callback cannot overwrite full log-backed completion");
         lock(saved)Check(saved.Count==2&&
             saved.Contains(maps[0].Id)&&saved.Contains(maps[1].Id),
             "exactly one synthetic SaveWorld action per original Store map");
