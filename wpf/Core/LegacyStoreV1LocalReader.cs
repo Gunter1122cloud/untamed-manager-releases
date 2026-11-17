@@ -55,7 +55,7 @@ public static class LegacyStoreV1LocalReader
     // matches the original five members, in the original order, and those
     // exact member objects still occur in the current cluster in that order.
     // No new Store session, ownership or remote peer evidence is inferred.
-    private static bool MatchesPinnedHistoricalSubset(
+    internal static bool MatchesPinnedHistoricalSubset(
         JsonElement current,JsonElement pinned,string[] selection)
     {
         if(Text(current,"id")!=Text(pinned,"id")||
