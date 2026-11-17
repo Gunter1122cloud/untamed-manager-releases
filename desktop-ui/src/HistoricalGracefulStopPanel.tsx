@@ -12,7 +12,6 @@ import {managerBridge,type HistoricalGracefulStopPreview,
 export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
   mapId:string;running:boolean;onStopped:()=>Promise<void>
 }){
-  const [preview,setPreview]=useState<HistoricalGracefulStopPreview|null>(null);
   const [job,setJob]=useState<HistoricalGracefulStopStatus|null>(null);
   const [jobId,setJobId]=useState("");
   const [recovery,setRecovery]=useState<HistoricalGracefulStopRecovery|null>(null);
@@ -21,12 +20,13 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const notified=useRef(false);
+  const actionInFlight=useRef(false);
   const currentMap=useRef(mapId);
   currentMap.current=mapId;
   const belongs=(requested:string)=>currentMap.current===requested;
   useEffect(()=>{
     let active=true;
-    setPreview(null);setJob(null);setJobId("");
+    setJob(null);setJobId("");
     setRecovery(null);setRecoveryChecked(false);
     setError("");setNotice("");notified.current=false;
     managerBridge.historicalGracefulStopRecovery(mapId).then(result=>{
@@ -105,7 +105,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
     if(busy||(jobId&&job?.state!=="completed"&&job?.state!=="needsOperator"))
       return;
     const requested=mapId;
-    setBusy(true);setPreview(null);setError("");setNotice("");
+    setBusy(true);setError("");setNotice("");
     try{
       const result=await managerBridge.historicalGracefulStopRecovery(requested);
       if(!belongs(requested))return;
@@ -139,36 +139,42 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
     }finally{if(belongs(requested))setBusy(false);}
   };
   const inspect=async()=>{
-    if(busy||jobId||!running||!recoveryChecked||
-       !recovery||recovery.blocked||recovery.inMemoryRunning)return;
+    if(actionInFlight.current||busy||jobId||!running||!recoveryChecked||
+       !recovery||recovery.blocked||recovery.inMemoryRunning||error)return;
+    actionInFlight.current=true;
     const requested=mapId;
-    setBusy(true);setError("");setNotice("");setPreview(null);
+    setBusy(true);setError("");setNotice("");
+    let applyAttempted=false;
     try{
-      const response=await managerBridge.historicalGracefulStopPreview(requested);
+      const proof=await managerBridge.historicalGracefulStopPreview(requested);
       if(!belongs(requested))return;
-      if(response.mapId.toLowerCase()!==requested.toLowerCase())
+      if(!proof.token||proof.mapId.toLowerCase()!==requested.toLowerCase()||
+         !proof.usesSaveWorld||!proof.usesDoExit||proof.originalStoreTouched)
         throw new Error("UM-STORE-STOP-PREVIEW-MAP-MISMATCH");
-      setPreview(response);
-    }catch{
-      if(belongs(requested))setError("A helyi Store-v1 map forrásprofilja, ASA PID-je vagy RCON-portja nem igazolható. Nem küldtünk SaveWorld parancsot.");
-    }finally{if(belongs(requested))setBusy(false);}
-  };
-  const stop=async()=>{
-    if(!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
-       busy)return;
-    const requested=mapId,token=preview.token;
-    setBusy(true);setError("");setNotice("");setPreview(null);
-    try{
-      const receipt=await managerBridge.historicalGracefulStopApply(
-        token,"STORE-V1 SAVEWORLD DOEXIT");
+      // One user gesture, map/PID/source-bound native preflight and one-use apply.
+      applyAttempted=true;
+      const result=await managerBridge.historicalGracefulStopApply(proof.token);
       if(!belongs(requested))return;
-      if(!receipt.jobId)throw new Error("UM-STORE-STOP-JOB-MISSING");
-      setJobId(receipt.jobId);
-      setNotice("A SaveWorld/DoExit feladat elindult. Új mentésigazolás nélkül a DoExit nem kerül elküldésre.");
-    }catch{
-      if(belongs(requested))
-        setError("A leállítás eredménye nem igazolható; a háttérfeladat már elindulhatott. Ellenőrizd a natív Stop naplót, mielőtt új műveletet kérsz.");
-    }finally{if(belongs(requested))setBusy(false);}
+      if(!result.jobId||!result.started||result.forceKill||
+         result.storeTouched||result.automaticRetry)
+        throw new Error("UM-STORE-STOP-JOB-RECEIPT-MISMATCH");
+      setJobId(result.jobId);
+      setNotice("SaveWorld + szabályos DoExit elindult a kiválasztott mapon. "+
+        "Nincs Kill, Store-konverzió vagy automatikus újraküldés.");
+    }catch(e){
+      if(belongs(requested)){
+        const code=e instanceof Error?e.message:"";
+        setError(!applyAttempted?
+          "A helyi PID/forrás/RCON előellenőrzése sikertelen; Stop nem indult ("+
+            (/^UM-[A-Z0-9-]+$/.test(code)?code:"UM-STORE-STOP-PREFLIGHT-FAILED")+").":
+          "A SaveWorld/DoExit feladat már elindulhatott ("+
+            (/^UM-[A-Z0-9-]+$/.test(code)?code:"UM-STORE-STOP-APPLY-UNKNOWN")+"). "+
+            "Ne indíts újra; a natív műveleti naplót kell egyeztetni.");
+      }
+    }finally{
+      actionInFlight.current=false;
+      if(belongs(requested))setBusy(false);
+    }
   };
   return <section className="glass panel historical-graceful-stop"
     aria-label="Eredeti Store-v1 SaveWorld és DoExit">
@@ -177,7 +183,9 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
       <span className="mod-tag amber"><LockKeyhole size={13}/> Manuális · biztonságos</span>
     </div>
     <div className="panel-inner">
-      <p className="muted small">Valódi RCON SaveWorld csak a saját ASA-folyamatnak,
+      <p className="muted small">Hatókör: kizárólag a kiválasztott map ({mapId}).
+        Ez SaveWorld és szabályos DoExit, nem Kill vagy konverzió.
+        Valódi RCON SaveWorld csak a saját ASA-folyamatnak,
         új „World Save Complete” naplóbejegyzés és stabil világfájl ellenőrzése,
         majd szabályos DoExit és Windows PID-kilépés. Nincs Kill, automatikus
         újraindítás, Store-konverzió vagy shared lock törlése.</p>
@@ -188,11 +196,11 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
           onClick={()=>{void refreshRecovery();}}>
           <RefreshCw size={16}/> Store-v1 leállítási napló újraellenőrzése
         </button>
-        <button className="secondary" type="button"
-          disabled={busy||!running||!!preview||!!jobId||
+        <button className="primary" type="button"
+          disabled={busy||!running||!!jobId||!!error||
             !recoveryChecked||!recovery||recovery.blocked||recovery.inMemoryRunning}
           onClick={()=>{void inspect();}}>
-          <Shield size={16}/> Eredeti SaveWorld/DoExit előellenőrzése
+          <Square size={16}/> SaveWorld + szabályos DoExit indítása
         </button>
       </div>
       {recovery?.blocked&&<div className="warning-inline" role="region"
@@ -213,28 +221,6 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
           <p>{recovery.requiresOperator
             ?"Kézi ellenőrzés szükséges az újabb műveletek előtt."
             :"A folyamat állapotát a natív háttérfeladatból figyeljük."}</p>
-        </div>
-      </div>}
-      {preview&&<div className="warning-inline" role="region"
-          aria-label="Eredeti Store-v1 leállítás jóváhagyása">
-        <AlertTriangle size={18}/>
-        <div>
-          <b>{preview.mapName} · PID {preview.pid} · TCP {preview.rconPort}</b>
-          <p>{preview.originalPeerCheckRequiredForLocalOperation?
-            "A még át nem vett eredeti profil régi ACTIVE/DONE ellenőrzése szükséges.":
-            "A jóváhagyott helyi Obsidian-profil leállítása nem függ a másik host régi korábbi Manager-jelölőjétől."}</p>
-          <p>A program SaveWorld paranccsal kezdi a leállítást, és csak új
-              mentésjelzés után küld DoExit-et. A következő külön gombbal
-              hagyhatod jóvá a műveletet.</p>
-          <div className="settings-actions">
-            <button type="button" className="primary"
-              disabled={busy}
-              onClick={()=>{void stop();}}>
-              <Square size={16}/> SaveWorld és szabályos DoExit
-            </button>
-            <button type="button" className="secondary" disabled={busy}
-              onClick={()=>{setPreview(null);}}>Mégse</button>
-          </div>
         </div>
       </div>}
       {job&&<div className="details-line" role="status">
