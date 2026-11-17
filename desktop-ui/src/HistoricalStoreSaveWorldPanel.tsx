@@ -2,7 +2,8 @@ import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,RefreshCw,Save,Shield} from "lucide-react";
 import {managerBridge,type HistoricalSaveWorldPreview,
   type HistoricalGracefulStopRecovery,type HistoricalGracefulStopStatus,
-  type HistoricalSaveEvidenceStatus,type HistoricalSaveReviewPreview} from "./bridge";
+  type HistoricalSaveEvidenceStatus,type HistoricalSaveReviewPreview,
+  type HistoricalLateSaveEvidence} from "./bridge";
 
 /** Real, explicitly approved original ACTIVE/DONE SaveWorld. Never DoExit. */
 export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
@@ -16,6 +17,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
   const [preview,setPreview]=useState<HistoricalSaveWorldPreview|null>(null);
   const [reviewPreview,setReviewPreview]=useState<HistoricalSaveReviewPreview|null>(null);
   const [exportedEvidence,setExportedEvidence]=useState("");
+  const [lateSave,setLateSave]=useState<HistoricalLateSaveEvidence|null>(null);
   const [busy,setBusy]=useState(false);
   const [jobId,setJobId]=useState("");
   const [job,setJob]=useState<HistoricalGracefulStopStatus|null>(null);
@@ -32,7 +34,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
     const revision=++epoch.current;
     finished.current=false;
     setChecked(false);setRecovery(null);setPreview(null);setBusy(false);
-    setReviewPreview(null);setExportedEvidence("");
+    setReviewPreview(null);setExportedEvidence("");setLateSave(null);
     setJobId("");setJob(null);setNotice("");setError("");
     setDurableSave(null);setDurableUnknown(false);setDurableChecked(false);
     managerBridge.historicalSaveWorldEvidence(mapId).then(result=>{
@@ -196,6 +198,30 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       }
     }finally{if(belongs(requested,revision))setBusy(false);}
   };
+  const inspectLateEvidence=async()=>{
+    if(busy||!running||!durableChecked||!durableSave||
+       !["prepared","needsOperator","reviewed"].includes(durableSave.phase)||
+       recovery?.inMemoryRunning)return;
+    const requested=mapId,revision=epoch.current;
+    setBusy(true);setLateSave(null);setError("");
+    try{
+      const inspected=await managerBridge.historicalSaveWorldLateEvidence(requested);
+      if(!belongs(requested,revision))return;
+      if(inspected.mapId.toLowerCase()!==requested.toLowerCase()||
+         inspected.operationId!==durableSave.operationId||
+         inspected.completionCertified||inspected.rconSent||
+         inspected.grantsOperation||inspected.oldSaveWorldRetried)
+        throw new Error("UM-ASA-SAVE-LATE-NONCAUSAL-RECEIPT");
+      setLateSave(inspected);
+      setNotice("A régi SaveWorld utáni fájlállapotot csak olvasással ellenőriztem. "+
+        "A korábbi parancs eredménye továbbra is ISMERETLEN; új RCON nem ment ki.");
+    }catch(e){
+      if(belongs(requested,revision))
+        setError("Késői mentésbizonyíték vizsgálat nem igazolható. "+
+          "Nem indult új SaveWorld, nem oldottunk fel naplót. "+
+          (e instanceof Error?e.message:"Ellenőrizd az eredeti ASA PID-et."));
+    }finally{if(belongs(requested,revision))setBusy(false);}
+  };
   const exportUncertainReceipt=async()=>{
     if(busy||!durableChecked||!durableUnknown||recovery?.inMemoryRunning)
       return;
@@ -350,6 +376,26 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
         onClick={()=>{void refreshDurable();}}>
         <RefreshCw size={16}/> Store-v1 mentési napló újraellenőrzése
       </button>
+      {running&&durableChecked&&durableSave&&
+        ["prepared","needsOperator","reviewed"].includes(durableSave.phase)&&
+        <div className="historical-preview" role="region"
+          aria-label="Késői SaveWorld fájlbizonyíték csak olvasás">
+          <p>A korábbi 90 másodperces figyelésen túl is ellenőrizhető a
+            világfájl és a ShooterGame.log újabb metaadata – új parancs nélkül.
+            Régi dispatch-határ hiányában ez önmagában nem SaveComplete.</p>
+          <button type="button" className="secondary" disabled={busy||
+              !!recovery?.inMemoryRunning}
+            onClick={()=>{void inspectLateEvidence();}}>
+            <RefreshCw size={16}/> Késői mentésnyomok ellenőrzése (RCON nélkül)
+          </button>
+          {lateSave&&<p className="muted small" role="status">
+            Fájlbizonyíték: {lateSave.stage}.
+            {lateSave.worldBytes!==null?" Világfájl méret: "+lateSave.worldBytes+" bájt.":""}
+            {lateSave.worldWriteUtc?" Módosult: "+lateSave.worldWriteUtc+".":""}
+            {lateSave.asaLogPresent?" ASA napló létezik.":" ASA napló nem igazolt."}
+            A korábbi művelet továbbra is ISMERETLEN; SaveComplete nincs hitelesítve.
+          </p>}
+        </div>}
       {durableUnknown&&durableChecked&&
         <div className="warning-inline" role="region"
           aria-label="Sérült SaveWorld napló biztonságos exportja">
