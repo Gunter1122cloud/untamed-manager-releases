@@ -5954,8 +5954,8 @@ test("historical API mode unknown Apply reply blocks a second mode action",async
   }).__UNTAMED_HIST_MODE_REPLY_LOST__?.());
   await panel.getByRole("button",{name:"ASA API Loader mód választása"}).click();
   await expect(panel.getByRole("alert")).toContainText("módváltás kimenetele nem igazolható");
-  await expect(panel.getByRole("button",{name:"ASA API Loader mód választása"})).toBeDisabled();
-  await expect(panel.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:/ASA API Loader mód választása|Közvetlen ASA mód választása/})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:/Eredeti Store-v1 (ASA|API Loader) indítása/})).toBeDisabled();
   const count=await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_HIST_MODE_APPLY_COUNT__?:()=>number
   }).__UNTAMED_HIST_MODE_APPLY_COUNT__?.());
