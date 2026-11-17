@@ -47,6 +47,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     private readonly Dictionary<Guid,ReviewApproval> pendingReviewByMap=new();
     private readonly Func<Guid,string,bool> verifyReviewSource;
     private readonly Func<Guid,int,DateTimeOffset,string,bool> verifyReviewRunning;
+    private readonly TimeSpan minimumRunningReviewAge;
     // Per-map Store SaveWorld/DoExit receipts must remain observable when
     // a second independent map starts another approved native operation.
     private readonly Dictionary<Guid,Job> jobsByMap=new();
@@ -66,11 +67,14 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         Func<Guid,int,DateTimeOffset,string,Action<string>,Task<AsaGracefulStopReceipt>>? executor,
         Func<Guid,int,DateTimeOffset,string,Action<string>,Task<LegacyStoreV1GracefulStop.SaveOnlyReceipt>>? saver=null,
         Func<Guid,string,bool>? reviewVerifier=null,
-        Func<Guid,int,DateTimeOffset,string,bool>? runningReviewVerifier=null)
+        Func<Guid,int,DateTimeOffset,string,bool>? runningReviewVerifier=null,
+        TimeSpan? isolatedRunningReviewMinimumAge=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         verifyReviewSource=reviewVerifier??VerifyReviewOriginal;
         verifyReviewRunning=runningReviewVerifier??VerifyReviewRunningOriginal;
+        minimumRunningReviewAge=isolatedRunningReviewMinimumAge??
+            TimeSpan.FromMinutes(3);
         nativePreview=probe==null;
         preview=probe??(map=>LegacyStoreV1GracefulStop.Preview(cluster,map));
         stop=executor??((map,pid,started,source,stage)=>
@@ -299,11 +303,6 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-OTHER-OPERATION");
                     if(HasActive(reviewedMapId))
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-WORKER-ACTIVE");
-                    // Do not review an in-flight save that merely has a
-                    // prepared receipt but no Backup lease yet.
-                    if(DateTimeOffset.UtcNow-reviewedEvidence.BeganUtc<
-                       TimeSpan.FromMinutes(3) && reviewedEvidence.Phase!="reviewed")
-                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-TOO-RECENT");
                     var restart=new AsaManualRestartJournal(
                         reviewedMap.InstallationPath).Observe();
                     if(restart!=null&&restart.Phase is not
@@ -312,6 +311,14 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                     bool ownedRunning=verifyReviewRunning(reviewedMapId,
                         reviewedEvidence.Pid,reviewedEvidence.PidStartedUtc,
                         reviewedEvidence.OriginalSourceSha256);
+                    // A second Manager could still be between durable
+                    // intent and acquiring the operation semaphore.
+                    // Never review a FRESH running ASA SaveWorld receipt.
+                    if(ownedRunning&&
+                       DateTimeOffset.UtcNow-reviewedEvidence.BeganUtc<
+                           minimumRunningReviewAge&&
+                       reviewedEvidence.Phase!="reviewed")
+                        return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-TOO-RECENT");
                     bool ownerStopped=!ownedRunning&&
                         verifyReviewSource(reviewedMapId,
                             reviewedEvidence.OriginalSourceSha256);
