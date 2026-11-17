@@ -671,7 +671,6 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                     return Fail(id,"UM-ORIGINAL-STOP-OPERATION-MISMATCH");
                 // A named map-action click authorizes this one-use token; the
                 // PID/source/port/lease rechecks below remain mandatory.
-                    return Fail(id,"UM-ORIGINAL-STOP-TYPED-CONFIRMATION");
                 approvalsByMap.Remove(approved.MapId);
                 var map=Owned(approved.MapId);
                 if(map==null||!map.HistoricalStoreProtected||
