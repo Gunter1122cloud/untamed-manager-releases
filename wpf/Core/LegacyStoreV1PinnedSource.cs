@@ -82,10 +82,12 @@ public static class LegacyStoreV1PinnedSource
         if(string.Equals(pinned,originalKovaProfile,StringComparison.OrdinalIgnoreCase))
             return originalKovaProfile;
         var proof=VerifyPinned(pinned);
+        var selection=LegacyStoreV1OriginalImport.Inspect(pinned);
         if(!string.Equals(map.HistoricalArchiveSha256,proof.FourFileHash,
-               StringComparison.Ordinal))
+               StringComparison.Ordinal)&&
+           !selection.SelectedHistoricalSubsetOfExpandedRoster)
             throw new InvalidDataException("UM-STORE-PIN-MAP-IDENTITY");
-        RequireImmutableIdentity(map,LegacyStoreV1OriginalImport.Inspect(pinned));
+        RequireImmutableIdentity(map,selection);
         return pinned;
     }
 
@@ -105,10 +107,12 @@ public static class LegacyStoreV1PinnedSource
             return false;
         }
         var proof=VerifyPinned(pinned);
+        var selection=LegacyStoreV1OriginalImport.Inspect(pinned);
         if(!string.Equals(map.HistoricalArchiveSha256,proof.FourFileHash,
-            StringComparison.Ordinal))
+             StringComparison.Ordinal)&&
+           !selection.SelectedHistoricalSubsetOfExpandedRoster)
             throw new InvalidDataException("UM-STORE-PIN-MAP-IDENTITY");
-        RequireImmutableIdentity(map,LegacyStoreV1OriginalImport.Inspect(pinned));
+        RequireImmutableIdentity(map,selection);
         return true;
     }
 
@@ -125,8 +129,11 @@ public static class LegacyStoreV1PinnedSource
         ArgumentNullException.ThrowIfNull(source);
         if(!map.HistoricalStoreProtected||map.Id==Guid.Empty||
            map.ObservedReadOnlyImported||
-           !string.Equals(map.HistoricalArchiveSha256,
-               source.FourFilesSha256,StringComparison.Ordinal))
+           map.HistoricalArchiveSha256?.Length!=64||
+           !map.HistoricalArchiveSha256.All(Uri.IsHexDigit)||
+           (!string.Equals(map.HistoricalArchiveSha256,
+               source.FourFilesSha256,StringComparison.Ordinal)&&
+            !source.SelectedHistoricalSubsetOfExpandedRoster))
             throw new InvalidDataException("UM-STORE-PIN-OWNER-CHANGED");
         var original=source.Maps.SingleOrDefault(x=>x.MapId==map.Id);
         if(original==null||
