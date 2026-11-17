@@ -49,11 +49,12 @@ public static class LegacyStoreV1PeerTopology
                !Guid.TryParse(peer.DeviceId,out var device)||
                !devices.Add(device)||peer.MemberIds==null||
                peer.MapNames==null||peer.SelectedIds==null||
-               peer.MemberIds.Count!=5||peer.MapNames.Count!=5||
+               peer.MemberIds.Count is <5 or >32||
+                peer.MapNames.Count!=peer.MemberIds.Count||
                peer.SelectedIds.Count!=5)
                 throw new InvalidDataException("UM-STORE-TOPOLOGY-PEER-INVALID");
             var owned=new HashSet<Guid>();
-            for(int i=0;i<5;i++)
+            for(int i=0;i<peer.MemberIds.Count;i++)
             {
                 string? name=peer.MapNames[i];
                 if(!Guid.TryParse(peer.MemberIds[i],out var mapId)||
@@ -69,11 +70,11 @@ public static class LegacyStoreV1PeerTopology
                 if(!Guid.TryParse(selectedId,out var parsed)||!selected.Add(parsed))
                     throw new InvalidDataException("UM-STORE-TOPOLOGY-DUPLICATE-SELECTION");
             }
-            if(!owned.SetEquals(selected))
+            if(selected.Count!=5||!selected.IsSubsetOf(owned))
                 throw new InvalidDataException("UM-STORE-TOPOLOGY-SELECTION-MISMATCH");
         }
         if(!devices.Contains(local)||devices.Count!=2||
-           mapIds.Count!=10||mapNames.Count!=10)
+           mapIds.Count is <10 or >64||mapNames.Count!=mapIds.Count)
             throw new InvalidDataException("UM-STORE-TOPOLOGY-LOCAL-OWNER-INVALID");
     }
 
