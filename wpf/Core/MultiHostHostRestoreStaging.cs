@@ -221,6 +221,19 @@ public static class MultiHostHostRestoreStaging
         CancellationToken ct=default,Action<int>? afterCopiedForTesting=null)
     {
         ct.ThrowIfCancellationRequested();
+        string target=Path.Combine(approved.Parent,approved.StageDirectoryName);
+        // A Stage and interrupted-stage Finalize must serialize across
+        // independent Manager processes on the exact same output. Otherwise
+        // two concurrent creators can both pass Inspect() before either
+        // creates .incomplete, silently writing into one another's stage.
+        string key=Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(Path.GetFullPath(target).ToUpperInvariant())));
+        using var lease=new Semaphore(1,1,
+            "Global\\Untamed-HostRestore-Publish-"+key);
+        if(!lease.WaitOne(0))
+            throw new IOException("UM-HOSTRESTORE-STAGE-BUSY");
+        try
+        {
         var current=Inspect(approved.SourceSandbox,approved.HostId,
             approved.Parent,ownership,protectedRoots);
         if(current!=approved)
@@ -228,7 +241,6 @@ public static class MultiHostHostRestoreStaging
         var manifest=MultiHostClusterBackupArchive.VerifyIsolatedSandbox(
             approved.SourceSandbox);
         var members=SelectHost(manifest,approved.HostId);
-        string target=Path.Combine(approved.Parent,approved.StageDirectoryName);
         string partial=target+".incomplete";
         // No pre-existing destination is ever replaced, including another
         // Manager's own interrupted stage.
@@ -273,6 +285,8 @@ public static class MultiHostHostRestoreStaging
                 "-TARGET-LENGTH-"+target.Length,ex);
         }
         return Verify(target);
+        }
+        finally { lease.Release(); }
     }
     private static Receipt VerifyInternal(string target,bool allowPartial)
     {

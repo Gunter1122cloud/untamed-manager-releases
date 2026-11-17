@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Text;
 using System.Text.Json;
 using System.Collections.Generic;
@@ -226,6 +228,57 @@ internal static class MultiHostOfflineCatalogAssemblerTests
                 Check(File.ReadAllBytes(stageWorld).SequenceEqual(
                     sourceHashes["maps/"+stagedMap.MapId.ToString("N")+"/Saved/world.ark"]),
                     "real host world bytes preserve original identity and restore mapping");
+            }
+
+            // P2: two independent native staging workers for one host must
+            // not both pass the same preview. The first holds the exact
+            // cross-process publish semaphore; the second is refused before
+            // it can enter the same .incomplete directory or alter bytes.
+            string raceParent=Path.Combine(sandbox,"host-restore-race");
+            Directory.CreateDirectory(raceParent);
+            var racePlan=MultiHostHostRestoreStaging.Inspect(destination,hosts[0],
+                raceParent,expanded);
+            using(var entered=new ManualResetEventSlim(false))
+            using(var release=new ManualResetEventSlim(false))
+            {
+                var first=Task.Run(()=>{
+                    try
+                    {
+                        MultiHostHostRestoreStaging.Stage(racePlan,expanded,
+                            afterCopiedForTesting:copied=>{
+                                if(copied!=1)return;
+                                entered.Set();
+                                if(!release.Wait(TimeSpan.FromSeconds(20)))
+                                    throw new IOException("SYNTHETIC_STAGE_RELEASE_TIMEOUT");
+                                throw new IOException("SYNTHETIC_STAGE_INTERRUPTED");
+                            });
+                        return false;
+                    }
+                    catch(IOException ex)
+                    {
+                        return ex.Message=="SYNTHETIC_STAGE_INTERRUPTED";
+                    }
+                });
+                try
+                {
+                    Check(entered.Wait(TimeSpan.FromSeconds(20)),
+                        "first host stage has entered its active exclusive copy lease");
+                    bool secondDenied=false;
+                    try{_ = MultiHostHostRestoreStaging.Stage(racePlan,expanded);}
+                    catch(IOException ex) when(ex.Message=="UM-HOSTRESTORE-STAGE-BUSY")
+                    {secondDenied=true;}
+                    Check(secondDenied,
+                        "second native Manager cannot join an in-progress host stage");
+                }
+                finally { release.Set(); }
+                Check(first.GetAwaiter().GetResult(),
+                    "synthetic interrupted stage retains original partial for later review");
+                var racedPartial=Path.Combine(raceParent,
+                    racePlan.StageDirectoryName+".incomplete");
+                Check(Directory.Exists(racedPartial)&&
+                      !Directory.Exists(Path.Combine(raceParent,
+                          racePlan.StageDirectoryName)),
+                    "failed concurrent copy never publishes or overwrites incomplete host stage");
             }
 
             // P1: replay a crash just AFTER all SHA-256 stage verification
