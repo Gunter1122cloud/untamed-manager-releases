@@ -36,6 +36,27 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     private static bool UnknownSlot(string status)=>status is
         "claimed-no-auto-retry" or "interrupted-needs-operator" or
         "failed-needs-operator-no-retry";
+    private sealed class OwnedSlot : IDisposable
+    {
+        private readonly Semaphore gate;
+        public OwnedSlot(Semaphore held){gate=held;}
+        public void Dispose(){try{gate.Release();}finally{gate.Dispose();}}
+    }
+    private OwnedSlot AcquireOwnedSlot(Guid mapId,string kind)
+    {
+        // Held across runner execution AND the terminal claim write.
+        // A second Manager cannot review a live/paused dispatch even if
+        // the prior claim has exceeded its ordinary timeout.
+        string key=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            folder.ToUpperInvariant()+"|"+mapId.ToString("N")+"|"+kind)));
+        var gate=new Semaphore(1,1,"Global\\Untamed-AsaScheduleSlot-"+key);
+        if(!gate.WaitOne(0))
+        {
+            gate.Dispose();
+            throw new IOException("UM-ASA-SCHEDULE-SLOT-OTHER-WORKER");
+        }
+        return new OwnedSlot(gate);
+    }
     private sealed class State
     {
         public State() { }
@@ -383,6 +404,10 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     if(minimumReviewAge>TimeSpan.Zero&&
                        DateTimeOffset.UtcNow-candidate.ClaimedUtc<minimumReviewAge)
                         return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-REVIEW-TOO-RECENT"));
+                    // An old persisted claim might still be inside another
+                    // Manager's long-running RCON worker. This is NOT a
+                    // timeout unlock: the OS semaphore is mandatory.
+                    using(var slot=AcquireOwnedSlot(mapId,kind)){}
                     var token=Guid.NewGuid();
                     reviewTokens[mapId]=new(token,mapId,kind,runId,
                         Locked(JournalHash),DateTimeOffset.UtcNow);
@@ -407,6 +432,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 reviewTokens.Remove(mapId); // tokens cannot be replayed
                 if(DateTimeOffset.UtcNow-permit.CreatedUtc>TimeSpan.FromMinutes(5))
                     return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-REVIEW-EXPIRED"));
+                using var reviewSlot=AcquireOwnedSlot(mapId,permit.Kind);
                 var finalized=Locked(()=>{
                     if(JournalHash()!=permit.JournalSha256)
                         throw new InvalidOperationException(
@@ -644,6 +670,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     return !missed;
                 });
                 if(!dispatched)continue;
+                using var activeSlot=AcquireOwnedSlot(observed.MapId,observed.Kind);
                 string status="failed-no-auto-retry",evidence="";
                 try
                 {
