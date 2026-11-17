@@ -423,6 +423,28 @@ internal static class LegacyStoreSaveReviewBridgeTests
         File.WriteAllBytes(interruptedReceiptNext,incomplete);
         byte[] originalEvidence=File.ReadAllBytes(Path.Combine(
             receiptDirectory,map.Id.ToString("N")+".json"));
+        var deniedExport=await Call(bridge,"historical.saveWorldForensicExport",
+            new{mapId=map.Id,confirm=false});
+        Check(!deniedExport.GetProperty("ok").GetBoolean(),
+            "unreadable receipt forensic copy requires explicit operator click");
+        var exported=await Call(bridge,"historical.saveWorldForensicExport",
+            new{mapId=map.Id,confirm=true});
+        Check(exported.GetProperty("ok").GetBoolean()&&
+              exported.GetProperty("data").GetProperty("originalUntouched").GetBoolean()&&
+              !exported.GetProperty("data").GetProperty("grantsRecovery").GetBoolean()&&
+              !exported.GetProperty("data").GetProperty("sendsRcon").GetBoolean()&&
+              exported.GetProperty("data").GetProperty("bytes").GetInt64()==
+                  incomplete.Length,
+            "operator exports malformed next file without granting new ASA action");
+        string archivedForensics=Path.Combine(cluster.Store.Root,
+            "historical-save-evidence-forensic-v1",
+            exported.GetProperty("data").GetProperty("fileName").GetString()!);
+        Check(File.ReadAllBytes(archivedForensics).SequenceEqual(incomplete)&&
+              File.ReadAllBytes(interruptedReceiptNext).SequenceEqual(incomplete)&&
+              File.ReadAllBytes(Path.Combine(
+                  receiptDirectory,map.Id.ToString("N")+".json"))
+                  .SequenceEqual(originalEvidence),
+            "forensic export is byte-identical and leaves original .next and receipt intact");
         var degradedEvidence=await Call(bridge,"historical.saveWorldEvidence",
             new{mapId=map.Id});
         Check(degradedEvidence.GetProperty("ok").GetBoolean()&&
