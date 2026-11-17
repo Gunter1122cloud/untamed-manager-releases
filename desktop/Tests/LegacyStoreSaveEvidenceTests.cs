@@ -26,6 +26,15 @@ internal static class LegacyStoreSaveEvidenceTests
 
     public static Task Run(string sandbox)
     {
+        // #3003: RCON ownership can precede full ASA startup. Wait for
+        // this ASA PID's advertising log, never for optional API plugin
+        // health. No real server, RCON or Store is contacted by this test.
+        Check(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(false)==
+              "UM-ORIGINAL-SAVE-STARTUP-NOT-ADVERTISED",
+            "early ASA PID/RCON does not authorize SaveWorld before join advertising");
+        Check(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(true)==null,
+            "advertised ASA may save without coupling to optional API plugin health");
+
         string root=Path.Combine(sandbox,"original-store-save-evidence-lab");
         Directory.CreateDirectory(root);
         var id=Guid.NewGuid();

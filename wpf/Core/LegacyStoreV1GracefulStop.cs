@@ -17,6 +17,25 @@ internal static class LegacyStoreV1GracefulStop
 {
     internal sealed record Owned(LocalMap Map,ProcessIdentity Process,string SourceSha);
 
+    // The PID and RCON listener can be ready BEFORE the ASA has finished
+    // starting up. A NEW SaveWorld therefore requires current-run join
+    // advertising, but never relies on ASA API plugin status: an API plugin
+    // failure is an operator-visible Loader concern, not a prerequisite for
+    // ordinary ASA world persistence.
+    internal static string? SaveOnlyStartupBlocker(bool joinAdvertised)=>
+        joinAdvertised?null:"UM-ORIGINAL-SAVE-STARTUP-NOT-ADVERTISED";
+
+    internal static string? SaveOnlyStartupBlocker(Owned owned)
+    {
+        ArgumentNullException.ThrowIfNull(owned);
+        // Do not require ArkApi.log, hook markers or DLL module enumeration
+        // for SaveWorld. The API Loader's actual console can now be visible;
+        // the separate read-only API health probe remains diagnostic.
+        var runtime=AsaRuntimeLogEvidence.Inspect(
+            owned.Map,owned.Process,null);
+        return SaveOnlyStartupBlocker(runtime.JoinAdvertised);
+    }
+
     private static bool Same(ProcessIdentity left,ProcessIdentity right)=>
         left.Pid>0&&left.Pid==right.Pid&&
         left.StartedUtc==right.StartedUtc&&
@@ -300,6 +319,13 @@ internal static class LegacyStoreV1GracefulStop
                 throw new InvalidOperationException("UM-ORIGINAL-SAVE-OWNER-CHANGED");
         }
         Verify();
+        // No new SaveWorld command may be sent before the SAME ASA launch's
+        // join-advertising evidence. For Loader mode the API hooks and DLL in
+        // the running ASA child must be independently verified as well.
+        // Test execution seams bypass filesystem observations but never
+        // assert that a real ASA save occurred.
+        if(execute==null && SaveOnlyStartupBlocker(locked) is { } readinessError)
+            throw new InvalidOperationException(readinessError);
         // Witness must exist before ANY mutating RCON byte. A missing log or
         // world witness does not strand the durable journal after no send.
         var witness=execute==null?
@@ -321,6 +347,9 @@ internal static class LegacyStoreV1GracefulStop
                 try{Verify();return true;}catch{return false;}
             },TimeSpan.FromSeconds(90),ct);
             observed=result.CompletionObserved;
+            if(!observed)
+                stage?.Invoke("A mentés kimenetele bizonytalan: "+result.Stage+
+                    "; nincs igazolt SaveComplete, nincs automatikus újraküldés");
         }
         if(!observed)
             throw new InvalidOperationException("UM-ORIGINAL-SAVE-COMPLETION-NOT-OBSERVED");
