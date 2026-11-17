@@ -424,9 +424,9 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                        !args.TryGetProperty("kind",out var kindArg)||
                        kindArg.ValueKind!=JsonValueKind.String)
                         return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-REVIEW-IDENTITY"));
-                    string kind=kindArg.GetString()??"";
+                    string reviewKind=kindArg.GetString()??"";
                     var candidate=Locked(()=>Read().History.SingleOrDefault(x=>
-                        x.RunId==runId&&x.MapId==mapId&&x.Kind==kind));
+                        x.RunId==runId&&x.MapId==mapId&&x.Kind==reviewKind));
                     if(candidate==null||!UnknownSlot(candidate.Status))
                         return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-REVIEW-NOT-PENDING"));
                     if(minimumReviewAge>TimeSpan.Zero&&
@@ -435,12 +435,13 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     // An old persisted claim might still be inside another
                     // Manager's long-running RCON worker. This is NOT a
                     // timeout unlock: the OS semaphore is mandatory.
-                    using(var slot=AcquireOwnedSlot(mapId,kind)){}
-                    var token=Guid.NewGuid();
-                    reviewTokens[mapId]=new(token,mapId,kind,runId,
+                    using(var slot=AcquireOwnedSlot(mapId,reviewKind)){}
+                    var previewToken=Guid.NewGuid();
+                    reviewTokens[mapId]=new(previewToken,mapId,reviewKind,runId,
                         Locked(JournalHash),DateTimeOffset.UtcNow);
                     return Task.FromResult(Ok(id,new{
-                        token,mapId,kind,runId,previousStatus=candidate.Status,
+                        token=previewToken,mapId,kind=reviewKind,runId,
+                        previousStatus=candidate.Status,
                         outcomeStillUnknown=true,automaticRetry=false,
                         scheduledTaskWillBeDisabled=true,
                         journalBytesWillBeAudited=true,
