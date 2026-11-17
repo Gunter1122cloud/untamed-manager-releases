@@ -383,7 +383,7 @@ internal static class LegacyStoreSaveReviewBridgeTests
             approved.GetProperty("data").GetProperty("oldReceiptArchived").GetBoolean(),
             "scoped native token reviews both journals without sending RCON");
         var secondApproved=await Call(bridge,"historical.saveWorldReviewApply",
-            new{token=secondToken,});
+            new{token=secondToken});
         Check(secondApproved.GetProperty("ok").GetBoolean()&&
               secondApproved.GetProperty("data").GetProperty("mapId").GetGuid()==secondMap.Id,
             "second map's review succeeds after first map commit, without replay");
