@@ -108,6 +108,8 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
         if(risky||facts.StoreFlagPresent||facts.ClusterSwitchPresent||
            facts.TransferOverridePresent||facts.ConversionFlagPresent)
             throw new InvalidDataException("UM-LIVE-STORE-REQUIRES-HISTORICAL-IMPORT");
+        // A matching child alone cannot hide protected flags on its Loader parent.
+        _=DesktopRunningAsaAdoptionBridge.ExactLoaderParent(server,all);
         var exe=Path.GetFullPath(server.ExecutablePath);
         var directory=Directory.GetParent(exe);
         if(directory==null||!directory.Name.Equals("Win64",StringComparison.OrdinalIgnoreCase)||

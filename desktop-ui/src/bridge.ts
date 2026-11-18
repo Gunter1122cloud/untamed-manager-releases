@@ -223,13 +223,13 @@ export type RunningAsaAdoptPreview = {
   token:string;mapId:string;mapName:string;mapKey:string;pid:number;
   gamePort:number;queryPort:number;noProcessMutation:true;
   storeWriterAuthorized:false;requiresExternalControllerStopped:true;
-  requiresRconSetup:true;
+  requiresRconSetup:true;useApi?:boolean;loaderPid?:number|null;
   evidence:"EXACT_NONSTORE_RUNNING_ADOPTION_PREVIEW_NO_WRITE";
 };
 export type RunningAsaAdoptReceipt = {
   mapId:string;mapName:string;pid:number;lifecycleAuthorized:true;
   storeWriterAuthorized:false;rconRequiresSeparateConfiguration:true;
-  processStarted:false;processStopped:false;
+  processStarted:false;processStopped:false;useApi?:boolean;loaderPid?:number|null;
   evidence:"NATIVE_WMI_EXACT_PROCESS_ADOPTED_LOCAL_MANAGER_PROFILE";
 };
 

@@ -272,6 +272,29 @@ internal static class RunningAsaRegistrationTests
                     "non-Store takeover preview checks observed candidate without ownership changes");
                 string adoptToken=adoptPreview.GetProperty("data")
                     .GetProperty("token").GetString()!;
+                string loaderPath=Path.Combine(bin,"AsaApiLoader.exe");
+                File.WriteAllBytes(loaderPath,new byte[]{77,90,0,1});
+                var loaderSample=new LocalRunningAsaDiscovery.Sample(81200,1,started.AddSeconds(-1),
+                    "AsaApiLoader.exe",loaderPath,command.Replace(exe,loaderPath));
+                var loaderChild=sample with{ParentPid=loaderSample.Pid};
+                observations=new[]{loaderSample,loaderChild};
+                var apiPreview=await AdoptCall(takeover,"servers.runningAdoptPreview",new{mapId=map.Id});
+                Check(apiPreview.GetProperty("ok").GetBoolean()&&
+                    apiPreview.GetProperty("data").GetProperty("useApi").GetBoolean()&&
+                    apiPreview.GetProperty("data").GetProperty("loaderPid").GetInt32()==loaderSample.Pid,
+                    "verified non-Store Loader pair has a preview without modifying process or ownership");
+                string apiToken=apiPreview.GetProperty("data").GetProperty("token").GetString()!;
+                observations=new[]{loaderSample with{StartedUtc=started.AddSeconds(-2)},loaderChild};
+                var changedParent=await AdoptCall(takeover,"servers.runningAdoptApply",
+                    new{token=apiToken,confirm=true,externalControllerStopped=true});
+                Check(!changedParent.GetProperty("ok").GetBoolean()&&map.ObservedReadOnlyImported,
+                    "Loader PID creation time changed, preview cannot grant ownership");
+                observations=new[]{loaderSample with{CommandLine=loaderSample.CommandLine+" -usestore"},loaderChild};
+                var unsafeParent=await AdoptCall(takeover,"servers.runningAdoptPreview",new{mapId=map.Id});
+                Check(!unsafeParent.GetProperty("ok").GetBoolean()&&map.ObservedReadOnlyImported,
+                    "protected Store flags in Loader parent cannot bypass direct child checks");
+                File.Delete(loaderPath);
+                observations=new[]{sample};
                 var noApproval=await AdoptCall(takeover,
                     "servers.runningAdoptApply",
                     new{token=adoptToken,confirm=true,externalControllerStopped=false});

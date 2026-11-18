@@ -106,7 +106,7 @@ function LiveAdoptControls({process,afterAdopt}:{
         onClick={()=>{void prepare();}}>Vezérlés átvételének ellenőrzése</button>:
         <div aria-label="Natív vezérlésátvétel előnézet">
           <p>{preview.mapName} · {preview.mapKey} · PID {preview.pid} ·
-            Game {preview.gamePort} / Query {preview.queryPort}</p>
+            Game {preview.gamePort} / Query {preview.queryPort} · {preview.useApi?"ASA API Loader PID "+preview.loaderPid:"közvetlen ASA"}</p>
           <label className="muted small">
             <input type="checkbox" checked={approved} disabled={busy}
               onChange={e=>setApproved(e.target.checked)}/>
@@ -296,7 +296,7 @@ export function LocalRunningAsaPanel({onRegistered}:{
           </>}
           {p.loaderParentObserved && <p>ASA API Loader szülőfolyamat észlelve (csak megfigyelés).</p>}
           {p.processKind==="asaServer" && p.matchState==="profileCandidate" &&
-            p.observedReadOnlyImported && p.profileMapId && !p.loaderParentObserved &&
+            p.observedReadOnlyImported && p.profileMapId &&
             !p.launchFacts?.storeFlagPresent && !p.launchFacts?.clusterSwitchPresent &&
             !p.launchFacts?.transferOverridePresent && !p.launchFacts?.conversionFlagPresent &&
             <LiveAdoptControls process={p} afterAdopt={()=>{

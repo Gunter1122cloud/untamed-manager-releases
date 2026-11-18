@@ -1496,7 +1496,7 @@ public sealed partial class ClusterService : IAsyncDisposable
     /// configuration editor can remove the observation-only protection.
     /// </summary>
     public void AdoptObservedNonStore(Guid id,string exactArguments,
-        ProcessIdentity expected)
+        ProcessIdentity expected,ProcessIdentity? expectedLoader=null)
     {
         var original=Config.LocalMaps.SingleOrDefault(m=>m.Id==id) ??
             throw new UnauthorizedAccessException("UM-ADOPT-LOCAL-MAP-REQUIRED");
@@ -1552,6 +1552,23 @@ public sealed partial class ClusterService : IAsyncDisposable
             Pid=expected.Pid,StartedUtc=expected.StartedUtc,
             ExecutablePath=exe,Arguments=exactArguments
         };
+        if(expectedLoader!=null)
+        {
+            string loader=Path.Combine(root,"ShooterGame","Binaries","Win64","AsaApiLoader.exe");
+            if(expectedLoader.Pid<=0||expectedLoader.Pid==expected.Pid||
+               expectedLoader.StartedUtc.Year<2020||expectedLoader.StartedUtc>expected.StartedUtc||
+               !string.Equals(Path.GetFullPath(expectedLoader.ExecutablePath),loader,StringComparison.OrdinalIgnoreCase)||
+               !string.Equals(expectedLoader.Arguments,exactArguments,StringComparison.Ordinal))
+                throw new InvalidDataException("UM-ADOPT-LOADER-IDENTITY");
+            replacement.ApiLoaderPath=loader;
+            replacement.ApiLoaderArguments=exactArguments;
+            replacement.StartWithAsaApi=true;
+            replacement.LastLoader=new ProcessIdentity{
+                Pid=expectedLoader.Pid,StartedUtc=expectedLoader.StartedUtc,
+                ExecutablePath=loader,Arguments=exactArguments
+            };
+            _=AsaApiLaunchPolicy.Resolve(replacement);
+        }
         replacement.AutoStart=false;
         replacement.MonitorRcon=false;
         using var operation=Operations.Acquire(root,UntamedOperationKind.Configuration);
@@ -1559,7 +1576,26 @@ public sealed partial class ClusterService : IAsyncDisposable
             throw new InvalidOperationException("UM-ADOPT-PROFILE-CHANGED");
         // Fresh, independent WMI evidence is authoritative; a renderer-provided
         // PID or an earlier observation can never authorize promotion by itself.
-        var now=new WindowsProcessInspector().Inspect(replacement);
+        var inspector=new WindowsProcessInspector();
+        // Always inspect the family if a Loader binary exists, including
+        // direct adoption. This prevents an unacknowledged API parent from
+        // being silently classified as a direct ASA process.
+        var now=expectedLoader!=null?inspector.InspectFamily(replacement,Config.LocalMaps):
+            inspector.Inspect(replacement,Config.LocalMaps);
+        if(expectedLoader!=null)
+        {
+            if(!SameIdentity(now.LoaderIdentity,replacement.LastLoader))
+                throw new InvalidOperationException("UM-ADOPT-LOADER-CHANGED");
+        }
+        else if(File.Exists(Path.Combine(root,"ShooterGame","Binaries","Win64","AsaApiLoader.exe")))
+        {
+            var directProbe=JsonSerializer.Deserialize<LocalMap>(JsonSerializer.Serialize(replacement))!;
+            directProbe.ApiLoaderPath=Path.Combine(root,"ShooterGame","Binaries","Win64","AsaApiLoader.exe");
+            directProbe.ApiLoaderArguments=exactArguments;
+            var family=inspector.InspectFamily(directProbe,Config.LocalMaps);
+            if(!family.Running||family.LoaderIdentity!=null||!SameIdentity(family.Identity,replacement.LastProcess))
+                throw new InvalidOperationException("UM-ADOPT-LOADER-IDENTITY");
+        }
         if(!now.Running || now.Identity==null || now.ConfirmedStopped ||
            now.Identity.Pid!=expected.Pid ||
            now.Identity.StartedUtc!=expected.StartedUtc ||

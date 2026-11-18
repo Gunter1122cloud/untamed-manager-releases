@@ -16,13 +16,14 @@ namespace UntamedDesktop;
 /// Explicit two-step take-over of an already registered, running, NON-STORE
 /// ASA process. Preview is read-only; apply only persists Manager configuration.
 /// The Core independently checks the real Windows process under a machine-wide
-/// installation lock. Historical Kova Store, loader processes and ambiguous
+/// installation lock. Historical Store and ambiguous
 /// identities cannot use this path. No RCON, SaveWorld or process mutation here.
 /// </summary>
 public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
 {
     private sealed record Approval(Guid Token,Guid MapId,int Pid,
-        DateTimeOffset StartedUtc,string CommandHash,DateTimeOffset ExpiresUtc);
+        DateTimeOffset StartedUtc,string CommandHash,DateTimeOffset ExpiresUtc,
+        int? LoaderPid=null,DateTimeOffset? LoaderStartedUtc=null,string? LoaderCommandHash=null);
     private readonly ClusterService cluster;
     private readonly Func<IReadOnlyList<LocalRunningAsaDiscovery.Sample>> observe;
     private readonly SemaphoreSlim serial=new(1,1);
@@ -50,8 +51,38 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
             Guid.TryParse(el.GetString(),out value)&&value!=Guid.Empty;
     }
 
+    internal static LocalRunningAsaDiscovery.Sample? ExactLoaderParent(
+        LocalRunningAsaDiscovery.Sample server,IReadOnlyList<LocalRunningAsaDiscovery.Sample> snapshot)
+    {
+        var parents=snapshot.Where(x=>x.Pid==server.ParentPid&&
+            x.Name.Equals("AsaApiLoader.exe",StringComparison.OrdinalIgnoreCase)).ToArray();
+        if(parents.Length==0)return null;
+        var parent=parents[0];
+        if(parents.Length!=1||snapshot.Count(x=>x.Pid==parent.Pid)!=1||
+           parent.Pid==server.Pid||parent.StartedUtc is not {Year:>=2020}||
+           server.StartedUtc is not {Year:>=2020}||parent.StartedUtc>server.StartedUtc||
+           string.IsNullOrWhiteSpace(server.ExecutablePath)||
+           string.IsNullOrWhiteSpace(parent.ExecutablePath))
+            throw new InvalidDataException("UM-ADOPT-LOADER-IDENTITY");
+        string loader=Path.Combine(Path.GetDirectoryName(server.ExecutablePath)!,"AsaApiLoader.exe");
+        var childArgs=LocalRunningAsaDiscovery.CommandArguments(server.CommandLine,server.ExecutablePath);
+        var parentArgs=LocalRunningAsaDiscovery.CommandArguments(parent.CommandLine,parent.ExecutablePath);
+        if(!string.Equals(Path.GetFullPath(parent.ExecutablePath),Path.GetFullPath(loader),StringComparison.OrdinalIgnoreCase)||
+           !File.Exists(loader)||string.IsNullOrWhiteSpace(childArgs)||
+           !string.Equals(childArgs,parentArgs,StringComparison.Ordinal))
+            throw new InvalidDataException("UM-ADOPT-LOADER-ARGUMENTS-MISMATCH");
+        if(!AsaObservedLaunchArguments.TryRead(parentArgs,out _,out var flags)||
+           AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(flags)||
+           flags.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries).Any(x=>
+              x.Contains("store",StringComparison.OrdinalIgnoreCase)||
+              x.StartsWith("-cluster",StringComparison.OrdinalIgnoreCase)||
+              x.StartsWith("-convert",StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidDataException("UM-LIVE-STORE-REQUIRES-HISTORICAL-IMPORT");
+        return parent;
+    }
+
     private (LocalMap Map,LocalRunningAsaDiscovery.Sample Server,
-        string Arguments) Candidate(Guid mapId,
+        string Arguments,LocalRunningAsaDiscovery.Sample? Loader) Candidate(Guid mapId,
             IReadOnlyList<LocalRunningAsaDiscovery.Sample> snapshot)
     {
         var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==mapId);
@@ -68,7 +99,6 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
                 x.MatchState=="profileCandidate"&&
                 x.ObservedReadOnlyImported&&
                 x.ProfileMapId==mapId.ToString("D")&&
-                !x.LoaderParentObserved&&
                 x.StartedUtc is {Year:>=2020}&&
                 x.Pid>0).ToArray();
         if(matching.Length!=1)
@@ -122,7 +152,10 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
            KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
            KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             throw new InvalidDataException("UM-ADOPT-STORE-OR-RECOVERY-LOCKED");
-        return(map,server,args);
+        var loader=ExactLoaderParent(server,snapshot);
+        if(match.LoaderParentObserved!=(loader!=null))
+            throw new InvalidDataException("UM-ADOPT-LOADER-IDENTITY");
+        return(map,server,args,loader);
     }
 
     public async Task<string> HandleAsync(string raw)
@@ -154,16 +187,18 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
                 {
                     if(!GuidField(j,"mapId",out var mapId))
                         return Fail(id,"UM-ADOPT-MAP-ID");
-                    var (map,server,args)=Candidate(mapId,observe());
+                    var (map,server,args,loader)=Candidate(mapId,observe());
                     if(pending.Count>12)pending.Clear();
                     var token=Guid.NewGuid();
                     pending[token]=new(token,mapId,server.Pid,
                         server.StartedUtc!.Value,Hash(server.CommandLine!),
-                        DateTimeOffset.UtcNow.AddMinutes(3));
+                        DateTimeOffset.UtcNow.AddMinutes(3),loader?.Pid,loader?.StartedUtc,
+                        loader==null?null:Hash(loader.CommandLine!));
                     return Ok(id,new{
                         token,mapId=map.Id,mapName=map.Name,
                         mapKey=map.ObservedMapKey,pid=server.Pid,
                         gamePort=map.GamePort,queryPort=map.QueryPort,
+                        useApi=loader!=null,loaderPid=loader?.Pid,
                         noProcessMutation=true,storeWriterAuthorized=false,
                         requiresExternalControllerStopped=true,
                         requiresRconSetup=true,
@@ -178,11 +213,13 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
                    !j.TryGetProperty("externalControllerStopped",out var other)||
                    other.ValueKind!=JsonValueKind.True)
                     return Fail(id,"UM-ADOPT-EXPLICIT-APPROVAL-REQUIRED");
-                var (chosen,active,launchArgs)=Candidate(pinned.MapId,observe());
+                var (chosen,active,launchArgs,loader)=Candidate(pinned.MapId,observe());
                 if(active.Pid!=pinned.Pid ||
                    active.StartedUtc!=pinned.StartedUtc ||
                    Hash(active.CommandLine!)!=pinned.CommandHash ||
-                   chosen.Id!=pinned.MapId)
+                   chosen.Id!=pinned.MapId||loader?.Pid!=pinned.LoaderPid||
+                   loader?.StartedUtc!=pinned.LoaderStartedUtc||
+                   (loader==null?null:Hash(loader.CommandLine!))!=pinned.LoaderCommandHash)
                     return Fail(id,"UM-ADOPT-PROCESS-CHANGED");
                 var witness=new ProcessIdentity {
                     Pid=active.Pid,StartedUtc=active.StartedUtc!.Value,
@@ -190,9 +227,14 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
                 };
                 // Core's fresh physical WMI inspection + installation lease
                 // are independent of this UI and synthetic observation.
-                cluster.AdoptObservedNonStore(chosen.Id,launchArgs,witness);
+                var loaderWitness=loader==null?null:new ProcessIdentity{
+                    Pid=loader.Pid,StartedUtc=loader.StartedUtc!.Value,
+                    ExecutablePath=loader.ExecutablePath!,Arguments=launchArgs
+                };
+                cluster.AdoptObservedNonStore(chosen.Id,launchArgs,witness,loaderWitness);
                 return Ok(id,new{
                     mapId=chosen.Id,mapName=chosen.Name,pid=active.Pid,
+                    useApi=loader!=null,loaderPid=loader?.Pid,
                     lifecycleAuthorized=true,storeWriterAuthorized=false,
                     rconRequiresSeparateConfiguration=true,
                     processStarted=false,processStopped=false,
