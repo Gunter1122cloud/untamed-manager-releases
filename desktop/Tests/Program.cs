@@ -6546,6 +6546,12 @@ try
         var full=await Call(worldBridge.HandleAsync,"backup.fullLocalCreate",new{mapId=localMap.Id,confirm=true});
         IsOk(full,"full local stopped-map world and INI package");
         string fullPoint=full.GetProperty("data").GetProperty("point").GetString()!;
+        bool unsignedDenied=false;
+        string unsignedInstaller=Path.Combine(root,"unsigned-updater-fixture.exe");
+        File.WriteAllText(unsignedInstaller,"synthetic unsigned installer");
+        try{UpdateCenter.CheckAuthenticodePublisher(unsignedInstaller,new string('A',40));}
+        catch(InvalidDataException){unsignedDenied=true;}
+        Check(unsignedDenied,"real Windows Authenticode verifier rejects unsigned package with configured publisher pin");
         var stagedFull=await Call(worldBridge.HandleAsync,"backup.fullLocalStage",new{mapId=localMap.Id,point=fullPoint,confirm=true});
         IsOk(stagedFull,"verified full local package restore to new folder only");
         string restoredFolder=Path.Combine(localProfile,stagedFull.GetProperty("data").GetProperty("relativeFolder").GetString()!);

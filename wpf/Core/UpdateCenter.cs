@@ -99,17 +99,7 @@ public static class UpdateCenter
     public static void CheckAuthenticodePublisher(string path,string configuredThumbprint)
     {
         if(string.IsNullOrWhiteSpace(configuredThumbprint))return;
-        // A configured publisher is pinned; an unsigned or different signer is rejected.
-        using var certificate=new X509Certificate2(X509Certificate.CreateFromSignedFile(path));
-        string actual=certificate.Thumbprint.Replace(" ","",StringComparison.Ordinal).ToUpperInvariant();
-        string expected=configuredThumbprint.Replace(" ","",StringComparison.Ordinal).ToUpperInvariant();
-        if(!CryptographicOperations.FixedTimeEquals(
-            Encoding.ASCII.GetBytes(actual),Encoding.ASCII.GetBytes(expected)))
-            throw new InvalidDataException("Installer publisher certificate does not match the pinned identity");
-        using var chain=new X509Chain();
-        chain.ChainPolicy.RevocationMode=X509RevocationMode.Online;
-        if(!chain.Build(certificate))
-            throw new InvalidDataException("Installer signing certificate chain validation failed");
+        AuthenticodePublisher.Verify(path,configuredThumbprint);
     }
     public static string StageUpdater(string installedHelperPath)
     {

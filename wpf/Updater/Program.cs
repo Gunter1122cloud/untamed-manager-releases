@@ -144,8 +144,14 @@ public sealed class UpdateForm : Form
             // Obsidian release can NEVER install without an exact SHA pin.
             if(tag.Contains("-obsidian-",StringComparison.OrdinalIgnoreCase))
                 expectedSha256=Required("--sha256");
+            string? publisherPin=_arguments.Contains("--publisher-pin")?Required("--publisher-pin"):null;
+            void VerifyPackage()
+            {
+                if(expectedSha256!=null)VerifyObsidianInstaller(installer,expectedSha256);
+                if(publisherPin!=null)AuthenticodePublisher.Verify(installer,publisherPin);
+            }
             if(!File.Exists(installer))throw new FileNotFoundException("Installer not found",installer);
-            if(expectedSha256!=null)VerifyObsidianInstaller(installer,expectedSha256);
+            VerifyPackage();
             if(!File.Exists(appExe))throw new FileNotFoundException("Installed Manager EXE missing",appExe);
             if(!Directory.Exists(Path.GetDirectoryName(appExe)))
                 throw new DirectoryNotFoundException("Manager install folder missing");
@@ -162,7 +168,7 @@ public sealed class UpdateForm : Form
             catch(ArgumentException){} // Already exited.
             // Recheck after waiting for the original Manager to exit.
             // A staged installer may have changed during the handoff.
-            if(expectedSha256!=null)VerifyObsidianInstaller(installer,expectedSha256);
+            VerifyPackage();
             Update("Korábbi alkalmazás mentése…",25);
             _phase="snapshot";transaction.Prepare(Path.GetDirectoryName(appExe)!);snapshotPrepared=true;
             UpdateHistory.Append("snapshot-prepared",expected);
@@ -172,7 +178,7 @@ public sealed class UpdateForm : Form
             _phase="installer";
             // Last integrity gate immediately before executing an external
             // Setup process. A mismatch invokes the existing full rollback.
-            if(expectedSha256!=null)VerifyObsidianInstaller(installer,expectedSha256);
+            VerifyPackage();
             var start=new ProcessStartInfo(installer){UseShellExecute=false,
                 CreateNoWindow=true,WorkingDirectory=Path.GetDirectoryName(installer)!};
             foreach(var arg in new[]{"/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART",

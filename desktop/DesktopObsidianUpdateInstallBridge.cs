@@ -218,6 +218,11 @@ public sealed class DesktopObsidianUpdateInstallBridge
                     "--profile","default",
                     "--backup",backup
                 })start.ArgumentList.Add(argument);
+                if(!string.IsNullOrWhiteSpace(publisher))
+                {
+                    start.ArgumentList.Add("--publisher-pin");
+                    start.ArgumentList.Add(publisher);
+                }
                 using var process=Process.Start(start)??
                     throw new IOException("Verified external updater could not start");
                 return Ok(id,new{
