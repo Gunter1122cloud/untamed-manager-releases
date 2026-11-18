@@ -19,7 +19,8 @@ const displayEventStatus:Record<string,string>={
   "manager-start-skipped-no-replay":"Manager újraindításakor kihagyva",
   "skipped-blocked-prior-unknown-slot":"Kihagyva: régi bizonytalan slot még felülvizsgálandó",
   "blocked-prior-unknown-slot":"Régi bizonytalan slot miatt blokkolva",
-  "operator-reviewed-unknown-no-replay":"Operátor felülvizsgálta: kimenetel továbbra is ismeretlen"
+  "operator-reviewed-unknown-no-replay":"Operátor felülvizsgálta: kimenetel továbbra is ismeretlen",
+  "skipped-overlapping-restart-wipe":"Kihagyva: ugyanebben a ciklusban restart utáni wipe esedékes"
 };
 function eventStatus(raw:string){return displayEventStatus[raw]??raw;}
 
@@ -29,6 +30,7 @@ function localDate(value:string|null|undefined){
   return Number.isNaN(date.getTime())?"Nem ellenőrizhető":
     date.toLocaleString("hu-HU",{timeZone:"Europe/Budapest"});
 }
+function kindLabel(kind:NativeScheduleKind){return kind==="SaveWorld"?"SaveWorld":kind==="WildWipe"?"Dinowipe":"Újraindítás";}
 type Draft={
   kind:NativeScheduleKind;frequency:NativeScheduleFrequency;
   minutes:number;clock:string;daysMask:number;postRestartWipe:boolean;wipeDelaySeconds:number;
@@ -52,6 +54,7 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
   const existing=status.jobs.find(j=>j.kind===kind);
   const [draft,setDraft]=useState<Draft>(()=>defaultDraft(kind));
   const canConfigure=status.canConfigure??!status.protectedStore;
+  const [wipeConsent,setWipeConsent]=useState(false);
   const actionInFlight=useRef(false);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
@@ -61,14 +64,14 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
       kind,frequency:existing.frequency,minutes:existing.intervalMinutes,
       clock:clockOf(existing.minuteOfDay),daysMask:existing.daysMask,postRestartWipe:!!existing.postRestartWipe,wipeDelaySeconds:existing.wipeDelaySeconds??0
     }:defaultDraft(kind));
-    setMessage("");setError("");
+    setMessage("");setError("");setWipeConsent(false);
   },[mapId,kind,existing?.nextDueUtc,existing?.enabled]);
   const valid=parseClock(draft.clock)>=0 && draft.daysMask>0 &&
     (!draft.postRestartWipe||Number.isInteger(draft.wipeDelaySeconds)&&draft.wipeDelaySeconds>=0&&draft.wipeDelaySeconds<=600) &&
     (draft.frequency==="Once"?[1,2].includes(draft.minutes):draft.frequency!=="Interval"||
       Number.isInteger(draft.minutes)&&draft.minutes>=15&&draft.minutes<=10080);
   const change=async(enable:boolean)=>{
-    if(actionInFlight.current||busy||(enable&&(!valid||!canConfigure)))return;
+    if(actionInFlight.current||busy||(enable&&(!valid||!canConfigure||(kind==="WildWipe"&&!wipeConsent))))return;
     actionInFlight.current=true;
     setBusy(true);setMessage("");setError("");
     try{
@@ -83,10 +86,10 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
         (e instanceof Error?e.message:"Ellenőrizd a map állapotát."));
     }finally{actionInFlight.current=false;setBusy(false);}
   };
-  return <section className="native-schedule-editor" aria-label={kind==="SaveWorld"?"SaveWorld ütemezése":"Újraindítás ütemezése"}>
+  return <section className="native-schedule-editor" aria-label={kindLabel(kind)+" ütemezése"}>
     <header>
       <h3>{kind==="SaveWorld"?<Save size={18}/>:<RotateCcw size={18}/>}
-        {kind==="SaveWorld"?"Automatikus SaveWorld":"Automatikus újraindítás"}</h3>
+        {kind==="SaveWorld"?"Automatikus SaveWorld":kind==="WildWipe"?"Önálló automatikus dinowipe":"Automatikus újraindítás"}</h3>
       <span className={existing?.enabled?"native-schedule-on":"native-schedule-off"}>
         {existing?.enabled?"Bekapcsolva":"Kikapcsolva"}</span>
     </header>
@@ -97,11 +100,11 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
     </div>
     <div className="native-schedule-controls">
       <label>Gyakoriság
-        <select aria-label={kind==="SaveWorld"?"SaveWorld gyakoriság":"Újraindítás gyakoriság"} value={draft.frequency}
+        <select aria-label={kindLabel(kind)+" gyakoriság"} value={draft.frequency}
           disabled={busy||!canConfigure}
           onChange={e=>setDraft(old=>({...old,frequency:e.target.value as NativeScheduleFrequency,
             minutes:e.target.value==="Once"?2:e.target.value==="Interval"?Math.max(15,old.minutes):old.minutes}))}>
-          {kind==="SaveWorld"&&<option value="Interval">Adott percenként</option>}<option value="Daily">Megadott napokon</option>
+          {kind!=="Restart"&&<option value="Interval">Adott percenként</option>}<option value="Daily">Megadott napokon</option>
           <option value="Once">Egyszeri próba</option>
         </select>
       </label>
@@ -111,13 +114,13 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
           <option value={1}>1 perc múlva</option><option value={2}>2 perc múlva</option>
         </select>
       </label>}
-      {draft.frequency==="Interval"&&kind==="SaveWorld"&&<label>Ismétlés (perc)
-        <input aria-label="SaveWorld gyakorisága percben" type="number" min={15} max={10080}
+      {draft.frequency==="Interval"&&kind!=="Restart"&&<label>Ismétlés (perc)
+        <input aria-label={kindLabel(kind)+" gyakorisága percben"} type="number" min={15} max={10080}
           step={5} value={draft.minutes} disabled={busy||!canConfigure}
           onChange={e=>setDraft(old=>({...old,minutes:Number(e.target.value)}))}/>
       </label>}
       {draft.frequency==="Daily"&&<label>Időpont (Budapest)
-        <input aria-label={kind==="SaveWorld"?"SaveWorld időpont":"Újraindítás időpont"}
+        <input aria-label={kindLabel(kind)+" időpont"}
           type="time" value={draft.clock} disabled={busy||!canConfigure}
           onChange={e=>setDraft(old=>({...old,clock:e.target.value}))}/>
       </label>}
@@ -145,9 +148,10 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
       <input type="number" min={0} max={600} step={15} aria-label="Dinowipe késleltetése másodpercben" disabled={busy||!canConfigure}
         value={draft.wipeDelaySeconds} onChange={e=>setDraft(old=>({...old,wipeDelaySeconds:Number(e.target.value)}))}/>
     </label>}
-    <p className="muted small">A mentés a kijelölt map automatikus {kind==="SaveWorld"?"SaveWorld":"SaveWorld → DoExit → Start"} feladatát aktiválja. {draft.frequency==="Once"?"Az egyszeri próba nem ismétlődik.":""}</p>
+    {kind==="WildWipe"&&<label className="native-schedule-consent"><input type="checkbox" checked={wipeConsent} disabled={busy||!canConfigure} onChange={e=>setWipeConsent(e.target.checked)}/> Jóváhagyom a vad dinók automatikus törlését a kiválasztott helyi mapon.</label>}
+    <p className="muted small">A mentés a kijelölt map automatikus {kind==="SaveWorld"?"SaveWorld":kind==="WildWipe"?"DestroyWildDinos":"SaveWorld → DoExit → Start"} feladatát aktiválja. {draft.frequency==="Once"?"Az egyszeri próba nem ismétlődik.":""}</p>
     <div className="native-schedule-buttons">
-      <button type="button" className="primary" disabled={!valid||busy||!canConfigure}
+      <button type="button" className="primary" disabled={!valid||busy||!canConfigure||(kind==="WildWipe"&&!wipeConsent)}
         onClick={()=>{void change(true);}}>{busy?"Mentés...":"Ütemezés mentése"}</button>
       <button type="button" className="secondary" disabled={!existing?.enabled||busy}
         onClick={()=>{void change(false);}}>Kikapcsolás</button>
@@ -284,6 +288,7 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
     {status&&<div className="native-schedule-grid">
       <ScheduleEditor key={mapId+"-save"} mapId={mapId} kind="SaveWorld" status={status} onChanged={reload}/>
       <ScheduleEditor key={mapId+"-restart"} mapId={mapId} kind="Restart" status={status} onChanged={reload}/>
+      <ScheduleEditor key={mapId+"-wipe"} mapId={mapId} kind="WildWipe" status={status} onChanged={reload}/>
     </div>}
     {status&&<section className="native-schedule-history" aria-label="Végrehajtási napló">
       <details>
@@ -292,7 +297,7 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
         {status.history.length===0?<p className="muted">Még nincs végrehajtási esemény ezen a mapon.</p>:
           <div className="native-schedule-history-list">
             {status.history.map(entry=><article key={entry.runId} className="native-schedule-history-event">
-              <strong>{entry.kind==="SaveWorld"?"SaveWorld":"Újraindítás"} · {eventStatus(entry.status)}</strong>
+              <strong>{kindLabel(entry.kind)} · {eventStatus(entry.status)}</strong>
               <span>Tervezett: {localDate(entry.scheduledUtc)} · Észlelt: {localDate(entry.claimedUtc)}</span>
               <span>Lezárva: {localDate(entry.finishedUtc)} · Azonosító: {entry.runId.slice(0,8)}</span>
               {entry.evidence&&<small>Natív igazolás: {entry.evidence}</small>}

@@ -95,8 +95,20 @@ public sealed class DesktopRconAdminBridge
             throw new InvalidOperationException("UM-RCON-LISTENER-UNVERIFIED");
         return(map,identity);
     }
-    public async Task<string> HandleAsync(string raw)
+    public Task<string> HandleAsync(string raw)=>HandleCoreAsync(raw,null,null);
+    internal Task<string> HandleScheduledWipeAsync(string raw,int pid,DateTimeOffset startedUtc)
     {
+        if(pid<=0||startedUtc==default)throw new InvalidDataException("UM-SCHEDULE-WIPE-IDENTITY");
+        return HandleCoreAsync(raw,pid,startedUtc);
+    }
+    private async Task<string> HandleCoreAsync(string raw,int? expectedPid,DateTimeOffset? expectedStart)
+    {
+        void DemandScheduledIdentity(ProcessIdentity identity,string action)
+        {
+            if(expectedPid.HasValue&&(action!="wildWipe"||identity.Pid!=expectedPid.Value||
+                identity.StartedUtc!=expectedStart))
+                throw new InvalidOperationException("UM-SCHEDULE-WIPE-IDENTITY-CHANGED");
+        }
         string? id=null;
         try
         {
@@ -133,6 +145,7 @@ public sealed class DesktopRconAdminBridge
                     string message=rawMessage.GetString()??"";
                     string command=BuildCommand(action,message);
                     var (map,identity)=RequireOwned(mapId);
+                    DemandScheduledIdentity(identity,action);
                     // A rejected preview must not invalidate another map's approval.
                     // A valid replacement for this same map may reuse its slot.
                     if(!pendingByMap.ContainsKey(mapId)&&pendingByMap.Count>=25)
@@ -176,6 +189,7 @@ public sealed class DesktopRconAdminBridge
                         return Fail(id,"UM-RCON-ADMIN-TYPED-APPROVAL-REQUIRED");
                 }
                 var (owned,identityNow)=RequireOwned(job.MapId);
+                DemandScheduledIdentity(identityNow,job.Action);
                 if(identityNow.Pid!=job.Pid||
                    identityNow.StartedUtc!=job.ProcessStartUtc||
                    JsonSerializer.Serialize(owned)!=job.Profile)

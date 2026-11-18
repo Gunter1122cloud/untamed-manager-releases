@@ -1357,6 +1357,19 @@ try
                     intervalMinutes=0,minuteOfDay=240,daysMask=127,confirm=true});
             Check(IsError(protectedAttempt,"UM-ASA-SCHEDULE-NATIVE-DENIED"),
                 "Store-v1 protection cannot be bypassed by an isolated runner hook");
+            m1.HistoricalStoreProtected=false;
+            // Existing test schedules are disabled before the dedicated
+            // wipe slot to isolate dispatch count; no real ASA/RCON.
+            foreach(var job in recovered.Snapshot().Where(x=>x.Enabled))
+                recovered.Disable(job.MapId,job.Kind);
+            var wipe=recovered.Configure(m2.Id,"WildWipe","Once",1,0,127);
+            int beforeWipe=sent;
+            await recovered.TickOnceAsync(wipe.NextDueUtc);
+            await recovered.TickOnceAsync(wipe.NextDueUtc.AddSeconds(1));
+            Check(sent==beforeWipe+1&&recovered.History(m2.Id).Any(x=>
+                x.Kind=="WildWipe"&&x.Status=="executed-no-fsync-or-client-certification")&&
+                !recovered.Snapshot().Single(x=>x.Kind=="WildWipe").Enabled,
+                "standalone wipe uses a durable one-shot slot and never replays");
         }
         // Force a durable receipt write failure AFTER a synthetic dispatch:
         // no live ASA binary, port, RCON or protected Store is touched.

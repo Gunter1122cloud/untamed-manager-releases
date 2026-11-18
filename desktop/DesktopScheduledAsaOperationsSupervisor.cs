@@ -68,6 +68,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private readonly ClusterService cluster;
     private readonly DesktopRconReadOnlyBridge rcon;
+    private readonly DesktopRconAdminBridge freshWipeAdmin;
     private readonly DesktopFreshAsaRestartBridge restart;
     private readonly DesktopHistoricalGracefulStopBridge? historicalStop;
     private readonly DesktopHistoricalRestartBridge? historicalRestart;
@@ -107,6 +108,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         minimumReviewAge=isolatedMinimumReviewAge??TimeSpan.FromMinutes(5);
         this.cluster=cluster??throw new ArgumentNullException(nameof(cluster));
         this.rcon=rcon??throw new ArgumentNullException(nameof(rcon));
+        freshWipeAdmin=new DesktopRconAdminBridge(cluster);
         this.restart=restart??throw new ArgumentNullException(nameof(restart));
         this.historicalStop=historicalStop;
         this.historicalRestart=historicalRestart;
@@ -183,7 +185,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             throw new InvalidDataException("UM-ASA-SCHEDULE-JOURNAL-INVALID");
         if(state.Jobs==null||state.Jobs.Count>10000||
            state.Jobs.Any(j=>j==null||j.MapId==Guid.Empty||
-                (j.Kind!="SaveWorld"&&j.Kind!="Restart")||
+                (j.Kind!="SaveWorld"&&j.Kind!="Restart"&&j.Kind!="WildWipe")||
                 (j.Frequency!="Interval"&&j.Frequency!="Daily"&&j.Frequency!="Once")||
                 (j.PostRestartWipe&&j.Kind!="Restart")||
                 j.WipeDelaySeconds is <0 or >600||(!j.PostRestartWipe&&j.WipeDelaySeconds!=0)||
@@ -194,7 +196,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             throw new InvalidDataException("UM-ASA-SCHEDULE-JOURNAL-INVALID");
         if(state.History==null||state.History.Count>MaxHistory||
            state.History.Any(e=>e==null||e.RunId==Guid.Empty||e.MapId==Guid.Empty||
-               (e.Kind!="SaveWorld"&&e.Kind!="Restart")||
+               (e.Kind!="SaveWorld"&&e.Kind!="Restart"&&e.Kind!="WildWipe")||
                string.IsNullOrWhiteSpace(e.Status)||e.Status.Length>90||
                e.Evidence==null||e.Evidence.Length>240)||
            state.History.GroupBy(e=>e.RunId).Any(g=>g.Count()>1))
@@ -295,7 +297,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     public ScheduledAsaOperation Configure(Guid mapId,string kind,string frequency,
         int intervalMinutes,int minuteOfDay,int daysMask,bool postRestartWipe=false,int wipeDelaySeconds=0)
     {
-        if(mapId==Guid.Empty || kind is not ("SaveWorld" or "Restart") ||
+        if(mapId==Guid.Empty || kind is not ("SaveWorld" or "Restart" or "WildWipe") ||
            frequency is not ("Interval" or "Daily" or "Once") ||
            (kind=="Restart"&&frequency=="Interval") ||
            (frequency=="Once"&&intervalMinutes is <1 or >2) ||
@@ -323,7 +325,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     }
     public ScheduledAsaOperation Disable(Guid mapId,string kind)
     {
-        if(kind is not ("SaveWorld" or "Restart"))
+        if(kind is not ("SaveWorld" or "Restart" or "WildWipe"))
             throw new InvalidDataException("UM-ASA-SCHEDULE-KIND");
         Owned(mapId);
         return Locked(()=>{
@@ -639,6 +641,17 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         var map=Owned(job.MapId);
         if(!HistoricalEligible(map)||Fingerprint(map)!=job.Fingerprint)
             throw new InvalidOperationException("UM-ASA-SCHEDULE-HISTORICAL-CHANGED");
+        if(job.Kind=="WildWipe")
+        {
+            var proof=LegacyStoreV1GracefulStop.Preview(cluster,job.MapId);
+            if(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(proof)!=null)
+                throw new InvalidOperationException("UM-SCHEDULE-WIPE-NOT-READY");
+            var pid=proof.Process.Pid;
+            var started=proof.Process.StartedUtc;
+            return await DispatchStandaloneWipeAsync(job.MapId,job.Fingerprint,
+                raw=>historicalAdmin!.HandleScheduledWipeAsync(raw,pid,started),
+                "historical","STORE-V1 DINÓTÖRLÉS",ct);
+        }
         bool save=job.Kind=="SaveWorld";
         Func<string,Task<string>> handle=save?historicalStop!.HandleAsync:historicalRestart!.HandleAsync;
         string prefix=save?"historical.saveWorld":"historical.restart";
@@ -746,8 +759,49 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         }
         throw new InvalidOperationException("UM-SCHEDULE-HISTORICAL-TIMEOUT");
     }
+    private async Task<string> DispatchStandaloneWipeAsync(Guid mapId,string fingerprint,
+        Func<string,Task<string>> handle,string prefix,string approval,CancellationToken ct)
+    {
+        // Only a durable enabled/claimed standalone WildWipe can dispatch.
+        // Recheck configuration, cancellation and the claimed slot before
+        // sending. Native admin preview/apply binds exact current PID/epoch,
+        // acquires the installation operation lease and does NOT retry.
+        bool StillApproved()=>Locked(()=>Read().Jobs.Any(x=>x.MapId==mapId&&
+            x.Kind=="WildWipe"&&x.Enabled&&x.Fingerprint==fingerprint&&
+            x.LastStatus=="claimed-no-auto-retry"))&&
+            Eligible(Owned(mapId))&&Fingerprint(Owned(mapId))==fingerprint;
+        ct.ThrowIfCancellationRequested();
+        if(!StillApproved())return "WILD_WIPE_DISABLED_BEFORE_DISPATCH";
+        var preview=Decode(await handle(Message(prefix+".adminPreview",
+            new{mapId,action="wildWipe",message=""})));
+        if(preview.GetProperty("mapId").GetGuid()!=mapId||
+           preview.GetProperty("command").GetString()!="DestroyWildDinos")
+            throw new InvalidDataException("UM-SCHEDULE-WIPE-PREVIEW");
+        ct.ThrowIfCancellationRequested();
+        if(!StillApproved())return "WILD_WIPE_DISABLED_BEFORE_DISPATCH";
+        var result=Decode(await handle(Message(prefix+".adminSend",
+            new{token=preview.GetProperty("token").GetGuid(),confirm=true,typedApproval=approval})));
+        if(result.GetProperty("mapId").GetGuid()!=mapId||
+           result.GetProperty("command").GetString()!="DestroyWildDinos"||
+           !result.GetProperty("commandSent").GetBoolean()||
+           !result.GetProperty("oneShot").GetBoolean())
+            throw new InvalidDataException("UM-SCHEDULE-WIPE-RECEIPT");
+        return "WILD_WIPE_SINGLE_SEND_GAME_EFFECT_UNVERIFIED";
+    }
     private async Task<string> RunNativeAsync(Guid mapId,string kind,CancellationToken ct)
     {
+        if(kind=="WildWipe")
+        {
+            var map=Owned(mapId);
+            var state=cluster.Check(map);
+            if(!state.Running||state.ConfirmedStopped||state.Identity is not {Pid:>0} child||
+               !RconPortOwnership.IsOwnedListener(map.RconPort,child.Pid)||
+               !AsaRuntimeLogEvidence.Inspect(map,child,state.LoaderIdentity).JoinAdvertised)
+                throw new InvalidOperationException("UM-SCHEDULE-WIPE-NOT-READY");
+            return await DispatchStandaloneWipeAsync(mapId,Fingerprint(map),
+                raw=>freshWipeAdmin.HandleScheduledWipeAsync(raw,child.Pid,child.StartedUtc),
+                "rcon","DINÓTÖRLÉS",ct);
+        }
         if(kind=="SaveWorld")
         {
             var map=Owned(mapId);
@@ -860,6 +914,21 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                             actual.MapId,actual.Kind,observed.NextDueUtc,now,
                             now,"skipped-blocked-prior-unknown-slot",
                             "PRIOR_SLOT_NEEDS_OPERATOR"));
+                        Write(state);return false;
+                    }
+                    // If a restart with a post-ready wipe is due in this
+                    // same tick, do not issue a second standalone wipe. Keep
+                    // the skipped occurrence durable even if the restart fails.
+                    if(actual.Kind=="WildWipe"&&due.Any(x=>x.MapId==actual.MapId&&
+                        x.Kind=="Restart"&&x.PostRestartWipe))
+                    {
+                        state.Jobs[ix]=actual with {NextDueUtc=Next(actual,now),
+                            Enabled=actual.Frequency!="Once",LastClaimedUtc=now,
+                            LastStatus="skipped-overlapping-restart-wipe",
+                            LastEvidence="POST_RESTART_WIPE_TAKES_PRECEDENCE"};
+                        AddHistory(state,new ScheduledAsaExecution(claimId,actual.MapId,
+                            actual.Kind,observed.NextDueUtc,now,now,
+                            "skipped-overlapping-restart-wipe","POST_RESTART_WIPE_TAKES_PRECEDENCE"));
                         Write(state);return false;
                     }
                     var next=Next(actual,now);

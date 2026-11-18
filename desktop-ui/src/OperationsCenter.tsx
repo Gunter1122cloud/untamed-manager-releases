@@ -200,7 +200,7 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
                 <td>{map.pid??"Nem mérhető"}</td>
                 <td>{map.memoryVerified&&map.memoryMiB!==null?
                   map.memoryMiB.toLocaleString("hu-HU")+" MiB":"Nem mérhető"}</td>
-                <td>{next?<><strong>{next.kind==="SaveWorld"?"SaveWorld":"Újraindítás"}</strong>
+                <td>{next?<><strong>{next.kind==="SaveWorld"?"SaveWorld":next.kind==="WildWipe"?"Dinowipe":"Újraindítás"}</strong>
                   <span> · {localDate(next.nextDueUtc)}</span></>:
                   nativeOverview?"Nincs beállítva":"Nem ellenőrizhető"}</td>
                 <td><button type="button" className="secondary" onClick={()=>onOpenMap(map.mapId)}>

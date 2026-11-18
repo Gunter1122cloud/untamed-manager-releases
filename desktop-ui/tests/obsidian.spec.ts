@@ -2353,7 +2353,7 @@ test.beforeEach(async ({ page }) => {
         case "schedule.nativeSet": {
           const map=state.local.maps.find(x=>x.id===m.mapId);
           if(!map||(map.storeProtected&&!map.rconConfigured)||!m.confirm||
-            !["SaveWorld","Restart"].includes(m.kind??"")||
+            !["SaveWorld","Restart","WildWipe"].includes(m.kind??"")||
             !["Interval","Daily","Once"].includes(m.frequency??"")||
             (m.kind==="Restart"&&m.frequency==="Interval")||
             (m.frequency==="Once"&&![1,2].includes(m.intervalMinutes??0))||
@@ -3648,6 +3648,21 @@ test("real native per-map SaveWorld and Restart schedule controls save in one de
   await expect(page.locator(".ops-summary")).toContainText("Natív ASA feladat");
 });
 
+
+test("standalone wild wipe requires distinct opt-in and persists independently",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Ütemező"}).click();
+  const wipe=page.getByRole("region",{name:"Dinowipe ütemezése"});
+  const save=wipe.getByRole("button",{name:"Ütemezés mentése"});
+  await expect(save).toBeDisabled();
+  await wipe.getByRole("combobox",{name:"Dinowipe gyakoriság"}).selectOption("Once");
+  await wipe.getByRole("checkbox",{name:/Jóváhagyom a vad dinók/}).check();
+  await save.click();
+  await expect(wipe.getByText("Bekapcsolva")).toBeVisible();
+  await expect(page.getByRole("region",{name:"Újraindítás ütemezése"}).getByText("Kikapcsolva")).toBeVisible();
+});
 
 test("pinned Store-v1 one-time Restart saves exact post-ready wild wipe setting without additional approval",async({page})=>{
   await page.goto("/");

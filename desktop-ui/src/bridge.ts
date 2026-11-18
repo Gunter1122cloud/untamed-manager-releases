@@ -52,7 +52,7 @@ export type MapMaintenanceStatus={
   storeProtected:boolean;requiresStopped:true;serverProcessModified:false;
   evidence:"PERSISTED_LOCAL_MANAGER_MAINTENANCE_ONLY";
 };
-export type NativeScheduleKind = "SaveWorld"|"Restart";
+export type NativeScheduleKind = "SaveWorld"|"Restart"|"WildWipe";
 export type NativeScheduleFrequency = "Interval"|"Daily"|"Once";
 export type NativeAsaScheduleTask = {
   mapId:string;kind:NativeScheduleKind;frequency:NativeScheduleFrequency;
