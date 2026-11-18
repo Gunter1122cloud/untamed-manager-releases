@@ -1779,6 +1779,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
   "backup.fullLocalCreate" | "backup.fullLocalHistory" | "backup.fullLocalStage" |
+  "backup.retentionPreview" | "backup.retentionProtect" | "backup.retentionQuarantine" | "backup.retentionReturn" |
   "backup.originalBatchPreview" | "backup.originalBatchCreate" | "backup.originalBatchStatus" | "backup.originalBatchJournalRepairPreview" | "backup.originalBatchJournalRepairApply" |
   "backup.restorePreview" | "backup.restore" |
   "backup.scheduleStatus" | "backup.scheduleCreate" | "backup.scheduleDisable" |
@@ -1812,7 +1813,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   sourceMap?: string;destinationMap?: string; profileId?: string;
   hostId?:string;hostName?:string;mapIds?:string[];
   clusterId?:string;transferDirectory?:string;transferRoot?:string;
-  backupDirectory?:string };
+  backupDirectory?:string; fullLocal?:boolean; keepLatest?:number; protect?:boolean };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -1841,7 +1842,9 @@ function timeoutFor(method: WireRequest["method"]): number {
       method === "historical.pairedEvidence" || method === "backup.create" ||
       method === "backup.restore" ||
       method === "backup.originalBatchCreate" || method === "backup.fullLocalCreate" ||
-      method === "backup.fullLocalHistory" || method === "backup.fullLocalStage") return 60 * 60_000; // bounded large-file workflows
+      method === "backup.fullLocalHistory" || method === "backup.fullLocalStage" ||
+      method === "backup.retentionPreview" || method === "backup.retentionProtect" ||
+      method === "backup.retentionQuarantine" || method === "backup.retentionReturn") return 60 * 60_000; // bounded large-file workflows
   return 120_000;
 }
 
@@ -2129,7 +2132,7 @@ export const managerBridge = {
     request<ScheduledStoppedBackupState>("backup.scheduleDisable",{mapId,confirm:true}),
   backupRetentionPreview:(mapId:string,keepLatest:number)=>request<{mapId:string;keepLatest:number;points:Array<{point:string;eligible:boolean;protected:boolean;verified:boolean;createdUtc:string;bytes:number;reason:string}>;quarantine:Array<{point:string;status:string}>;evidence:"VERIFIED_MANAGED_BACKUP_RETENTION_PREVIEW"}>("backup.retentionPreview",{mapId,keepLatest}),
   backupRetentionAction:(mapId:string,keepLatest:number,kind:"Protect"|"Quarantine"|"Return",point:string,protect?:boolean)=>
-    request<{mapId:string;point:string;completed:true;evidence:"MANAGED_BACKUP_CATALOG_ONLY"}>("backup.retention"+kind,{mapId,keepLatest,point,protect,confirm:true}),
+    request<{mapId:string;point:string;completed:true;evidence:"MANAGED_BACKUP_CATALOG_ONLY"}>(`backup.retention${kind}`,{mapId,keepLatest,point,protect,confirm:true}),
   backupFullLocalHistory:(mapId:string)=>request<{mapId:string;points:Array<{point:string;files:number;bytes:number;createdUtc:string}>;evidence:"VERIFIED_LOCAL_INSTALLATION_FILE_ARCHIVES"}>("backup.fullLocalHistory",{mapId}),
   backupFullLocalCreate:(mapId:string)=>request<{mapId:string;point:string;files:number;bytes:number;createdUtc:string;sharedTransferIncluded:false;databaseConsistencyCertified:false;evidence:"VERIFIED_STOPPED_LOCAL_INSTALLATION_FILES"}>("backup.fullLocalCreate",{mapId,confirm:true}),
   backupFullLocalStage:(mapId:string,point:string)=>request<{mapId:string;point:string;relativeFolder:string;files:number;bytes:number;productionRestoreAllowed:false;evidence:"VERIFIED_NEW_LOCAL_RESTORE_FOLDER_NO_LIVE_REPLACEMENT"}>("backup.fullLocalStage",{mapId,point,confirm:true}),
