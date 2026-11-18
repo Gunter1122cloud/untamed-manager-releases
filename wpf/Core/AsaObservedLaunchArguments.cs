@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.IO;
 using System.Text.RegularExpressions;
 
 namespace UntamedManager.Core;
@@ -36,6 +37,56 @@ public static class AsaObservedLaunchArguments
         return true;
     }
 
+    // Shared narrow Loader-child grammar. Physical ancestry must be
+    // independently verified by the caller. Never grants Store ownership.
+    internal static string? ExactArguments(string? command,string? exe)
+    {
+        if(string.IsNullOrWhiteSpace(command)||string.IsNullOrWhiteSpace(exe)||
+           command.Length>8192||command.Any(char.IsControl))return null;
+        try
+        {
+            string line=command.Trim(),actual;
+            if(line.StartsWith('"'))
+            {
+                int end=line.IndexOf('"',1);
+                if(end<2||(line.Length>end+1&&!char.IsWhiteSpace(line[end+1])))return null;
+                actual=line[1..end];line=line[(end+1)..].Trim();
+            }
+            else
+            {
+                if(!line.StartsWith(exe,StringComparison.OrdinalIgnoreCase)||
+                   (line.Length>exe.Length&&!char.IsWhiteSpace(line[exe.Length])))return null;
+                actual=exe;line=line[exe.Length..].Trim();
+            }
+            return Path.IsPathFullyQualified(actual)&&Path.IsPathFullyQualified(exe)&&
+                string.Equals(Path.GetFullPath(actual),Path.GetFullPath(exe),
+                    StringComparison.OrdinalIgnoreCase)?line:null;
+        }
+        catch(Exception e) when(e is ArgumentException or NotSupportedException or IOException)
+        {return null;}
+    }
+    internal static bool NonStoreLoaderArguments(string? arguments)
+    {
+        if(!TryRead(arguments,out _,out var flags)||ContainsProtectedOrSecretSwitch(flags))
+            return false;
+        return !flags.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries).Any(token=>
+            token.Contains("store",StringComparison.OrdinalIgnoreCase)||
+            token.StartsWith("-cluster",StringComparison.OrdinalIgnoreCase)||
+            token.StartsWith("-convert",StringComparison.OrdinalIgnoreCase));
+    }
+    internal static bool MatchesNonStoreLoaderChild(string? command,string server,
+        string loader,string launch)
+    {
+        if(!NonStoreLoaderArguments(launch))return false;
+        string? child=ExactArguments(command,server);
+        if(child==null)
+            return string.Equals(ExactArguments(command,loader),launch,StringComparison.Ordinal);
+        if(child.Equals(launch,StringComparison.Ordinal))return true;
+        return child.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries).All(token=>
+            token.Equals("-log",StringComparison.OrdinalIgnoreCase)||
+            token.Equals("-NoBattlEye",StringComparison.OrdinalIgnoreCase)||
+            token.Equals("-NoHangDetection",StringComparison.OrdinalIgnoreCase));
+    }
     public static bool ContainsProtectedOrSecretSwitch(string flags)
     {
         if(flags==null)return true;

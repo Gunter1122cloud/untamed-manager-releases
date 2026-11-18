@@ -8,8 +8,8 @@ import { managerBridge, type RunningLocalAsaSnapshot, type RunningLocalAsaProces
 /** Two-stage registration changes ONLY the local Manager profile, never ASA. */
 function LiveImportControls({process,afterImport}:{process:RunningLocalAsaProcess;afterImport:()=>void}) {
   const [name,setName]=useState(process.mapKey.replace(/_WP$/i,"").replace(/_/g," "));
-  const [game,setGame]=useState(String(process.launchFacts?.gamePort??""));
-  const [query,setQuery]=useState(String(process.launchFacts?.queryPort??""));
+  const [game,setGame]=useState(String(process.launchFacts?.gamePort??process.loaderLaunchFacts?.gamePort??""));
+  const [query,setQuery]=useState(String(process.launchFacts?.queryPort??process.loaderLaunchFacts?.queryPort??""));
   const [preview,setPreview]=useState<RunningAsaImportPreview|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
@@ -315,9 +315,9 @@ export function LocalRunningAsaPanel({onRegistered}:{
               void inspect();void onRegistered?.();
             }}/>}
           {p.processKind==="asaServer" && p.matchState==="unregistered" &&
-            p.launchFacts?.argumentsValidated && !p.launchFacts.storeFlagPresent &&
-            !p.launchFacts.clusterSwitchPresent && !p.launchFacts.transferOverridePresent &&
-            !p.launchFacts.conversionFlagPresent && p.startedUtc &&
+            (p.launchFacts?.argumentsValidated||p.loaderLaunchFacts?.argumentsValidated) &&
+            !p.launchFacts?.storeFlagPresent && !p.launchFacts?.clusterSwitchPresent &&
+            !p.launchFacts?.transferOverridePresent && !p.launchFacts?.conversionFlagPresent && p.startedUtc &&
             !p.loaderLaunchFacts?.storeFlagPresent && !p.loaderLaunchFacts?.clusterSwitchPresent &&
             !p.loaderLaunchFacts?.transferOverridePresent && !p.loaderLaunchFacts?.conversionFlagPresent &&
             <LiveImportControls process={p} afterImport={()=>{

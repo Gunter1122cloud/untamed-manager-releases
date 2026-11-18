@@ -65,11 +65,9 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
            string.IsNullOrWhiteSpace(parent.ExecutablePath))
             throw new InvalidDataException("UM-ADOPT-LOADER-IDENTITY");
         string loader=Path.Combine(Path.GetDirectoryName(server.ExecutablePath)!,"AsaApiLoader.exe");
-        var childArgs=LocalRunningAsaDiscovery.CommandArguments(server.CommandLine,server.ExecutablePath);
         var parentArgs=LocalRunningAsaDiscovery.CommandArguments(parent.CommandLine,parent.ExecutablePath);
         if(!string.Equals(Path.GetFullPath(parent.ExecutablePath),Path.GetFullPath(loader),StringComparison.OrdinalIgnoreCase)||
-           !File.Exists(loader)||string.IsNullOrWhiteSpace(childArgs)||
-           !string.Equals(childArgs,parentArgs,StringComparison.Ordinal))
+           !File.Exists(loader)||string.IsNullOrWhiteSpace(parentArgs))
             throw new InvalidDataException("UM-ADOPT-LOADER-ARGUMENTS-MISMATCH");
         if(!AsaObservedLaunchArguments.TryRead(parentArgs,out _,out var flags)||
            AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(flags)||
@@ -78,6 +76,9 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
               x.StartsWith("-cluster",StringComparison.OrdinalIgnoreCase)||
               x.StartsWith("-convert",StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("UM-LIVE-STORE-REQUIRES-HISTORICAL-IMPORT");
+        if(!AsaObservedLaunchArguments.MatchesNonStoreLoaderChild(server.CommandLine,
+            server.ExecutablePath,loader,parentArgs))
+            throw new InvalidDataException("UM-ADOPT-LOADER-ARGUMENTS-MISMATCH");
         return parent;
     }
 
@@ -123,8 +124,12 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
                    map.ObservedMapKey+"?listen",
                    StringComparison.OrdinalIgnoreCase)==true))
             throw new InvalidDataException("UM-ADOPT-DUPLICATE-PROCESS");
+        var loader=ExactLoaderParent(server,snapshot);
+        if(match.LoaderParentObserved!=(loader!=null))
+            throw new InvalidDataException("UM-ADOPT-LOADER-IDENTITY");
+        var source=loader??server;
         string? args=LocalRunningAsaDiscovery.CommandArguments(
-            server.CommandLine,server.ExecutablePath);
+            source.CommandLine,source.ExecutablePath);
         if(string.IsNullOrWhiteSpace(args)||args.Length>2048 ||
            args.Any(char.IsControl) ||
            !LocalRunningAsaDiscovery.TryReadLaunchArguments(
@@ -132,8 +137,8 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
            !observedKey.Equals(map.ObservedMapKey,
                StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("UM-ADOPT-LAUNCH-UNVERIFIED");
-        var facts=LocalAsaLaunchFacts.Parse(server.CommandLine,
-            server.ExecutablePath);
+        var facts=LocalAsaLaunchFacts.Parse(source.CommandLine,
+            source.ExecutablePath);
         if(!facts.ArgumentsValidated||facts.StoreFlagPresent||
            facts.ClusterSwitchPresent||facts.TransferOverridePresent||
            facts.ConversionFlagPresent||
@@ -152,9 +157,6 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
            KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
            KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             throw new InvalidDataException("UM-ADOPT-STORE-OR-RECOVERY-LOCKED");
-        var loader=ExactLoaderParent(server,snapshot);
-        if(match.LoaderParentObserved!=(loader!=null))
-            throw new InvalidDataException("UM-ADOPT-LOADER-IDENTITY");
         return(map,server,args,loader);
     }
 

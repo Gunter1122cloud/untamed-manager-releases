@@ -283,6 +283,20 @@ internal static class RunningAsaRegistrationTests
                     apiPreview.GetProperty("data").GetProperty("useApi").GetBoolean()&&
                     apiPreview.GetProperty("data").GetProperty("loaderPid").GetInt32()==loaderSample.Pid,
                     "verified non-Store Loader pair has a preview without modifying process or ownership");
+                var bareChild=loaderChild with{CommandLine="\""+exe+"\" -log -NoBattlEye"};
+                observations=new[]{loaderSample,bareChild};
+                var barePreview=await AdoptCall(takeover,"servers.runningAdoptPreview",new{mapId=map.Id});
+                Check(barePreview.GetProperty("ok").GetBoolean()&&
+                    barePreview.GetProperty("data").GetProperty("useApi").GetBoolean(),
+                    "bare ASA child is recognized using its exact Loader parent");
+                var inheritedChild=loaderChild with{CommandLine=loaderSample.CommandLine};
+                observations=new[]{loaderSample,inheritedChild};
+                var inheritedPreview=await AdoptCall(takeover,"servers.runningAdoptPreview",new{mapId=map.Id});
+                Check(inheritedPreview.GetProperty("ok").GetBoolean(),
+                    "inherited Loader argv0 is recognized under exact ancestry");
+                observations=new[]{loaderSample,bareChild with{CommandLine=bareChild.CommandLine+" -Port=9999"}};
+                Check(!(await AdoptCall(takeover,"servers.runningAdoptPreview",new{mapId=map.Id}))
+                    .GetProperty("ok").GetBoolean(),"bare child cannot override game port");
                 string apiToken=apiPreview.GetProperty("data").GetProperty("token").GetString()!;
                 observations=new[]{loaderSample with{StartedUtc=started.AddSeconds(-2)},loaderChild};
                 var changedParent=await AdoptCall(takeover,"servers.runningAdoptApply",

@@ -159,11 +159,18 @@ public static class LocalRunningAsaDiscovery
             string? key=directKey??(hasLoaderParent?parentKey:null);
             // A loader-derived key is never enough for a profileCandidate,
             // registration, process reattachment, or any lifecycle authority.
-            var matches=directKey==null?Array.Empty<LocalMap>():maps.Where(m=>
-                string.Equals(ProfileMap(m),directKey,StringComparison.OrdinalIgnoreCase)&&
+            bool verifiedNonStorePair=hasLoaderParent&&parents.Length==1&&
+                samples.Count(x=>x.Pid==p.Pid)==1&&
+                samples.Count(x=>x.Pid==parents[0].Pid)==1&&
+                AsaObservedLaunchArguments.MatchesNonStoreLoaderChild(p.CommandLine,
+                    p.ExecutablePath!,parents[0].ExecutablePath!,
+                    CommandArguments(parents[0].CommandLine,parents[0].ExecutablePath)??"");
+            string? eligibleKey=directKey??(verifiedNonStorePair?parentKey:null);
+            var matches=eligibleKey==null?Array.Empty<LocalMap>():maps.Where(m=>
+                string.Equals(ProfileMap(m),eligibleKey,StringComparison.OrdinalIgnoreCase)&&
                 (isLoader?PossibleLoaderProfile(m,p.ExecutablePath):
                     SamePath(m.ExecutablePath,p.ExecutablePath))).ToArray();
-            string matchState=!validPath||!stable||directKey==null?"unverified":
+            string matchState=!validPath||!stable||eligibleKey==null?"unverified":
                 matches.Length>1?"ambiguous":
                 matches.Length==1?"profileCandidate":"unregistered";
             var selected=matchState=="profileCandidate"?matches[0]:null;
