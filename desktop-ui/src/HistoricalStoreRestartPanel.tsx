@@ -1,11 +1,12 @@
+import {useMapEvidenceRefresh} from "./useMapEvidenceRefresh";
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,RefreshCw,Shield,RotateCw} from "lucide-react";
 import {managerBridge,type HistoricalRestartStatus,
   type HistoricalRestartRecovery} from "./bridge";
 
 /** Native original ACTIVE Store-v1 Restart; no WebView arguments or RCON bytes. */
-export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
-  mapId:string;running:boolean;onRestarted:()=>Promise<void>
+export function HistoricalStoreRestartPanel({mapId,running,onRestarted,refreshRevision=0}:{
+  mapId:string;running:boolean;onRestarted:()=>Promise<void>;refreshRevision?:number
 }){
   const [recovery,setRecovery]=useState<HistoricalRestartRecovery|null>(null);
   const [checked,setChecked]=useState(false);
@@ -67,9 +68,14 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
         setJob(result);
         if(result.state==="completed"&&!finished.current){
           finished.current=true;
+          const evidence=result.preExitSaveLogAndWorldObserved&&!result.preExitWorldMetadataObserved
+            ?"Helyi SaveComplete napló és stabil .ark megfigyelve."
+            :result.preExitWorldMetadataObserved&&!result.preExitSaveLogAndWorldObserved?
+              "Korlátozott helyi világfájl-bizonyíték; ASA SaveComplete napló NEM igazolt, a közvetlen okság ismeretlen."
+              :"A mentési bizonyíték szintje nem egyértelmű.";
           setNotice("Új eredeti ASA PID: "+result.newPid+
-            ". A régi folyamat kilépése és az előző mentésjelzés ellenőrizve. "+
-            "A játékbeli csatlakozás és karakterutazás külön igazolandó.");
+            ". A régi folyamat kilépése igazolt. "+evidence+
+            " A játékbeli csatlakozás és karakterutazás külön igazolandó.");
           try{setRecovery(await managerBridge.historicalRestartRecovery(mapId));}
           catch{/* No inferred unlock when native recovery is unavailable. */}
           try{await onRestarted();}
@@ -90,12 +96,12 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
     const interval=window.setInterval(()=>{void poll();},1800);
     return ()=>{alive=false;window.clearInterval(interval);};
   },[jobId,mapId,onRestarted]);
-  const refreshRecovery=async()=>{
+  const refreshRecovery=async(automatic=false)=>{
     // Read-only check: clearing a SaveWorld recovery receipt in its own
     // panel must not require closing/restarting this Manager or repeating RCON.
-    if(busy)return;
+    if(busy||(jobId&&job?.state!=="completed"&&job?.state!=="needsOperator"))return;
     const requested=mapId;
-    setBusy(true);setChecked(false);setError("");setNotice("");
+    setBusy(true);setChecked(false);setError("");if(!automatic)setNotice("");
     
     try{
       const result=await managerBridge.historicalRestartRecovery(requested);
@@ -120,7 +126,10 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
       }else if(result.blocked||result.requiresOperator){
         setError("A tartós Store-v1 napló további kézi ellenőrzést igényel.");
       }else{
-        setNotice("A helyi naplók nem jeleznek függő műveletet. "+
+        if(jobId&&job?.state==="completed"&&!result.inMemoryRunning&&!automatic){
+          setJobId("");setJob(null);finished.current=false;
+        }
+        if(!automatic)setNotice("A helyi naplók nem jeleznek függő műveletet. "+
           "Ez még nem igazolja a szerver játékbeli készenlétét.");
       }
     }catch{
@@ -130,6 +139,7 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
       }
     }finally{if(belongs(requested))setBusy(false);}
   };
+  useMapEvidenceRefresh(refreshRevision,busy||!!jobId&&job?.state!=="completed"&&job?.state!=="needsOperator",()=>refreshRecovery(true));
   const inspect=async()=>{
     if(actionInFlight.current||busy||!running||!checked||!recovery||
        recovery.blocked||recovery.inMemoryRunning||jobId||error)return;
@@ -175,8 +185,8 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
       <span className="mod-tag amber"><Shield size={13}/> Natív egyszeri művelet</span>
     </div>
     <div className="panel-inner">
-      <p className="muted small">SaveWorld → új ASA mentésnapló és stabil .ark →
-        DoExit → a régi Windows PID kilépése → az eredeti ACTIVE -usestore
+      <p className="muted small">SaveWorld → helyi SaveComplete és stabil .ark vagy korlátozott világfájl-bizonyíték →
+        DoExit → a régi Windows PID kilépése → a megőrzött -usestore
         indítás újbóli ellenőrzése → új helyi ASA PID. Az opcionális ASA API Loader
         módnál a gyermek ASA PID és RCON-tulajdonlás külön igazolandó.
         A kétgépes Store session/lock változatlan. Nincs automatikus újrapróbálás vagy konverzió.</p>

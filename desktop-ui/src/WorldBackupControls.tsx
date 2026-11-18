@@ -52,6 +52,99 @@ function retainWorldReceipt(mapId:string,receipt:WorldBackupCreated|WorldBackupR
   recentWorldReceipts.set(mapId,receipt);
 }
 
+function ManagedRetention({map}:{map:PublicMap}){
+  const [keep,setKeep]=useState(3);
+  const [plan,setPlan]=useState<Awaited<ReturnType<typeof managerBridge.backupRetentionPreview>>|null>(null);
+  const [confirm,setConfirm]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [notice,setNotice]=useState("");
+  const flight=useRef(false);
+  const valid=Number.isInteger(keep)&&keep>=1&&keep<=500;
+  const reload=async()=>{
+    const result=await managerBridge.backupRetentionPreview(map.id,keep);
+    if(result.mapId.toLowerCase()!==map.id.toLowerCase()||result.keepLatest!==keep||
+       result.evidence!=="VERIFIED_MANAGED_BACKUP_RETENTION_PREVIEW")throw new Error("UM-BACKUP-RETENTION-RECEIPT");
+    setPlan(result);
+  };
+  const run=async(kind?:"Protect"|"Quarantine"|"Return",point?:string,protect?:boolean)=>{
+    if(flight.current||!valid||kind&&(!confirm||!point||plan?.keepLatest!==keep))return;
+    flight.current=true;setBusy(true);setConfirm(false);setNotice("");
+    let committed=false;
+    try{
+      if(kind&&point){
+        const result=await managerBridge.backupRetentionAction(map.id,keep,kind,point,protect);
+        if(result.mapId.toLowerCase()!==map.id.toLowerCase()||result.point!==point||
+           !result.completed||result.evidence!=="MANAGED_BACKUP_CATALOG_ONLY")throw new Error("UM-BACKUP-RETENTION-RECEIPT");
+        committed=true;setNotice("A mentéskatalógus művelete elkészült.");
+      }
+      await reload();
+    }catch(e){setPlan(null);setNotice(committed?"A művelet elkészült, de a katalógus frissítése sikertelen.":"A retenciós művelet nem igazolható: "+(e instanceof Error?e.message:"ismeretlen hiba"));}
+    finally{flight.current=false;setBusy(false);}
+  };
+  return <section className="uk-world-backup-confirm" aria-label="Helyi mentések megőrzése">
+    <div><b>Helyi mentések megőrzése és karanténja</b>
+      <p>A legutóbbi ép mentések, védett és hibás pontok megmaradnak. Az áthelyezés külön helyi karanténba történik; nem végleges törlés és nem éles restore.</p>
+      <label>Megőrzendő legutóbbi ép pontok száma <input type="number" min={1} max={500} value={keep} disabled={busy}
+        onChange={e=>{setKeep(Number(e.target.value));setPlan(null);setConfirm(false);}}/></label>
+      <button className="secondary" type="button" disabled={busy||!valid} onClick={()=>void run()}>Megőrzési előnézet</button>
+      {plan&&<><label><input type="checkbox" checked={confirm} disabled={busy} onChange={e=>setConfirm(e.target.checked)}/> Jóváhagyom a következő kijelölt katalógusműveletet.</label>
+      {plan.points.map(p=><div key={p.point} className="settings-actions">
+        <span>{p.point} · {p.protected?"Védett":p.verified?(p.eligible?"Karanténjelölt":"Megőrzendő"):"Nem igazolt"}</span>
+        <button type="button" className="secondary" disabled={busy||!confirm||!p.verified} onClick={()=>void run("Protect",p.point,!p.protected)}>{p.protected?"Védelem feloldása":"Védelem"}</button>
+        <button type="button" className="secondary" disabled={busy||!confirm||!p.eligible} onClick={()=>void run("Quarantine",p.point)}>Karanténba</button>
+      </div>)}
+      {plan.quarantine.map(p=><div key={p.point} className="settings-actions"><span>{p.point} · {p.status}</span>
+        <button type="button" className="secondary" disabled={busy||!confirm||p.status!=="verified-quarantine"} onClick={()=>void run("Return",p.point)}>Vissza a mentéskatalógusba</button></div>)}</>}
+      {notice&&<p role="status">{notice}</p>}
+    </div>
+  </section>;
+}
+
+function FullLocalBackup({map}:{map:PublicMap}){
+  const [points,setPoints]=useState<Array<{point:string;files:number;bytes:number;createdUtc:string}>>([]);
+  const [busy,setBusy]=useState(false);
+  const [notice,setNotice]=useState("");
+  const flight=useRef(false);
+  const mounted=useRef(true);
+  useEffect(()=>{mounted.current=true;return ()=>{mounted.current=false;};},[]);
+  const action=async(kind:"list"|"create"|"stage",point?:string)=>{
+    if(flight.current||kind==="create"&&map.running)return;
+    flight.current=true;setBusy(true);setNotice("");
+    try{
+      if(kind==="create"){
+        const result=await managerBridge.backupFullLocalCreate(map.id);
+        if(result.mapId.toLowerCase()!==map.id.toLowerCase()||
+           result.sharedTransferIncluded!==false||result.databaseConsistencyCertified!==false||
+           result.evidence!=="VERIFIED_STOPPED_LOCAL_INSTALLATION_FILES")throw new Error("UM-BACKUP-FULL-RECEIPT");
+        if(mounted.current)setNotice("Ellenőrzött helyi mentés elkészült: "+result.files+" fájl.");
+      }else if(kind==="stage"){
+        if(!point)return;
+        const result=await managerBridge.backupFullLocalStage(map.id,point);
+        if(result.mapId.toLowerCase()!==map.id.toLowerCase()||result.point!==point||
+           result.productionRestoreAllowed!==false||
+           result.evidence!=="VERIFIED_NEW_LOCAL_RESTORE_FOLDER_NO_LIVE_REPLACEMENT")throw new Error("UM-BACKUP-FULL-RECEIPT");
+        if(mounted.current)setNotice("Ellenőrzött visszaállítási másolat a Manager profiljában: "+result.relativeFolder);
+      }
+      const history=await managerBridge.backupFullLocalHistory(map.id);
+      if(history.mapId.toLowerCase()!==map.id.toLowerCase()||
+         history.evidence!=="VERIFIED_LOCAL_INSTALLATION_FILE_ARCHIVES")throw new Error("UM-BACKUP-FULL-HISTORY");
+      if(mounted.current)setPoints(history.points);
+    }catch(e){if(mounted.current)setNotice(backupResourceError(e,"A helyi mentési művelet nem igazolható. Éles restore vagy automatikus Stop nem indult."));}
+    finally{flight.current=false;if(mounted.current)setBusy(false);}
+  };
+  return <section className="uk-world-backup-confirm" aria-label="Teljes helyi map fájlmentése">
+    <div><b>Teljes helyi map fájlmentése</b>
+      <p>Leállított, külön telepítésű map SavedArks/SaveGames, Game.ini, GameUserSettings.ini és meglévő ASA API/pluginfájljai. A közös transfer és a külső adatbázis konzisztenciája külön mentendő.</p>
+      <button className="primary" type="button" disabled={busy||map.running||map.observedReadOnlyImported} onClick={()=>void action("create")}>Teljes helyi fájlmentés készítése</button>
+      <button className="secondary" type="button" disabled={busy} onClick={()=>void action("list")}>Teljes mentések ellenőrzése</button>
+      {points.map(p=><div key={p.point} className="settings-actions"><span>{new Date(p.createdUtc).toLocaleString("hu-HU")} · {p.files} fájl</span>
+        <button type="button" className="secondary" disabled={busy} onClick={()=>void action("stage",p.point)}>Visszaállítás külön mappába</button></div>)}
+      {notice&&<p role="status">{notice}</p>}
+      <small>Nem írja felül az éles mapot, nem indít vagy állít le szervert.</small>
+    </div>
+  </section>;
+}
+
 export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selectedMap?:string}){
   const [chosen,setChosen]=useState(selectedMap??maps[0]?.id??"");
   const [history,setHistory]=useState<WorldBackupHistory|null>(null);
@@ -62,6 +155,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   const [busy,setBusy]=useState(false);
   const [scheduled,setScheduled]=useState<ScheduledStoppedBackupState|null>(null);
   const [scheduleMinutes,setScheduleMinutes]=useState(120);
+  const [scheduleFullLocal,setScheduleFullLocal]=useState(false);
   const [scheduleConfirm,setScheduleConfirm]=useState(false);
   const [scheduleBusy,setScheduleBusy]=useState(false);
   const [scheduleNotice,setScheduleNotice]=useState("");
@@ -97,26 +191,26 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   },[chosen]);
   useEffect(()=>{
     let active=true;
-    setScheduled(null);setScheduleConfirm(false);setScheduleNotice("");
+    setScheduled(null);setScheduleConfirm(false);setScheduleNotice("");setScheduleFullLocal(false);
     void managerBridge.backupScheduleStatus(chosen).then(result=>{
-      if(active)setScheduled(result);
+      if(active){setScheduled(result);setScheduleFullLocal(result.fullLocal===true);}
     }).catch(()=>{
       if(active)setScheduleNotice("Az automatikus mentések állapota nem olvasható.");
     });
     return ()=>{active=false;};
   },[chosen]);
   const changeSchedule=async(enable:boolean)=>{
-    if(!current||!scheduleConfirm||scheduleBusy)return;
+    if(!current||!scheduleConfirm||scheduleBusy||(enable&&!(scheduled?.canSchedule??!current.storeProtected)))return;
     const requestedMap=chosen;
     setScheduleBusy(true);setScheduleNotice("");
     try{
       const result=enable
-        ?await managerBridge.backupScheduleCreate(requestedMap,scheduleMinutes)
+        ?await managerBridge.backupScheduleCreate(requestedMap,scheduleMinutes,scheduleFullLocal)
         :await managerBridge.backupScheduleDisable(requestedMap);
       if(selectedRef.current!==requestedMap)return;
       setScheduled(result);setScheduleConfirm(false);
       setScheduleNotice(enable?
-        "Ütemezés bekapcsolva. Mentés csak igazoltan leállított, nem Store-v1 mapnál készül.":
+        "Ütemezés bekapcsolva. Mentés csak igazoltan leállított, helyben azonosított mapnál készül.":
         "Az ütemezés kikapcsolva. Meglévő archívum nem törlődött.");
     }catch(e){
       if(selectedRef.current===requestedMap)setScheduleNotice("Ütemezés nem módosítható: "+
@@ -342,6 +436,8 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         <button className="primary" type="button" disabled={!chosen||busy||current?.running||history?.recoveryRequired}
           onClick={()=>{void preview();}}><Save size={15}/> Világmentés készítése</button>
       </div>
+      {current&&<FullLocalBackup key={current.id} map={current}/>}
+      {current&&!current.observedReadOnlyImported&&<ManagedRetention key={current.id} map={current}/>}
       {originalLocalFive.length>=5&&<section className="uk-world-backup-confirm"
         aria-label="Eredeti Store-v1 ötmapos helyi mentés">
         <div>
@@ -442,19 +538,23 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
           <b>Automatikus mentés – csak leállított helyi mapról</b>
           <p>Az engedélyezett időpontban a Manager ellenőrzi, hogy az ASA map igazoltan leállt-e.
             Futó vagy bizonytalan állapotú mapot kihagy; nem küld SaveWorld/RCON parancsot, nem állítja le,
-            nem indítja újra és nem állítja vissza a szervert. Store-v1 mapokra nem engedélyezhető.
+            nem indítja újra és nem állítja vissza a szervert. Átvett Store-v1 mapnál a helyi, jóváhagyott forrásazonosság is szükséges. Választható világmentés vagy teljes helyi fájlmentés (világ, INI, meglévő API/pluginfájlok); egyik sem teljes clustermentés.
             A mentések külön SHA-256 archívumba kerülnek, automatikus törlés nélkül.</p>
           {scheduled&&<p role="status">
             Állapot: <b>{scheduled.enabled?"Bekapcsolva":"Kikapcsolva"}</b>
-            {" · "}{scheduled.lastStatus}
+            {" · "}{scheduled.fullLocal?"Teljes helyi fájlmentés":"Világmentés"}{" · "}{scheduled.lastStatus}
             {scheduled.nextDueUtc?" · Következő: "+new Date(scheduled.nextDueUtc).toLocaleString("hu-HU"):""}
             {scheduled.lastPoint?" · Utolsó pont: "+scheduled.lastPoint.slice(0,8)+"…":""}
             {" · Motor: "}{scheduled.runnerState}
           </p>}
+          <label><input type="checkbox" aria-label="Teljes helyi mentés ütemezése"
+            checked={scheduleFullLocal} disabled={scheduleBusy||!scheduled}
+            onChange={e=>{setScheduleFullLocal(e.target.checked);setScheduleConfirm(false);}}/>
+            Teljes helyi fájlmentés (világ, INI, meglévő API/pluginfájlok)</label>
           <label>Ismétlés percben (60–10080)
             <input aria-label="Automatikus mentés időköze percben" type="number"
               min={60} max={10080} step={30} value={scheduleMinutes}
-              disabled={scheduleBusy||Boolean(current?.storeProtected)}
+              disabled={scheduleBusy||!(scheduled?.canSchedule??!current?.storeProtected)}
               onChange={e=>setScheduleMinutes(Number(e.target.value))}/>
           </label>
           <label><input aria-label="Automatikus mentés jóváhagyása" type="checkbox"
@@ -464,7 +564,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
           {scheduleNotice&&<p role="status">{scheduleNotice}</p>}
         </div>
         <button type="button" className="primary" disabled={scheduleBusy||!scheduleConfirm||
-          !scheduled||Boolean(current?.storeProtected)||!Number.isInteger(scheduleMinutes)||
+          !scheduled||!(scheduled.canSchedule??!current?.storeProtected)||!Number.isInteger(scheduleMinutes)||
           scheduleMinutes<60||scheduleMinutes>10080}
           onClick={()=>{void changeSchedule(true);}}>Mentés ütemezése</button>
         <button type="button" className="secondary" disabled={scheduleBusy||!scheduleConfirm||!scheduled?.enabled}

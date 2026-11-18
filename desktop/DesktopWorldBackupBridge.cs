@@ -266,6 +266,35 @@ public sealed class DesktopWorldBackupBridge
         }
     }
 
+    private string FullCollection(LocalMap map)=>Path.Combine(cluster.Store.Root,"local-backups",map.Id.ToString("N"));
+    private static bool Overlap(string a,string b)
+    {
+        a=Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar);
+        b=Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar);
+        return a.Equals(b,StringComparison.OrdinalIgnoreCase)||
+            a.StartsWith(b+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)||
+            b.StartsWith(a+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase);
+    }
+    private ProcessCheck FullStopped(Guid mapId,string approvedRoot)
+    {
+        var map=Owned(mapId);
+        if(map.ObservedReadOnlyImported||map.Maintenance||
+           !string.Equals(Path.GetFullPath(map.InstallationPath),approvedRoot,StringComparison.OrdinalIgnoreCase)||
+           !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
+           UntamedWorldBackup.InstallationRecoveryRequired(map)||
+           (map.HistoricalStoreProtected&&!LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,map)))
+            throw new InvalidOperationException("UM-BACKUP-FULL-LOCAL-IDENTITY");
+        if(cluster.Config.LocalMaps.Any(x=>x.Id!=mapId&&Overlap(x.InstallationPath,approvedRoot)))
+            throw new InvalidOperationException("UM-BACKUP-FULL-SHARED-INSTALLATION");
+        if(cluster.Config.LocalMaps.Any(x=>Overlap(FullCollection(map),x.InstallationPath)))
+            throw new InvalidOperationException("UM-BACKUP-FULL-DESTINATION-OVERLAP");
+        UniqueWorldDirectory(map);
+        var state=inspect(map);
+        if(!state.ConfirmedStopped||state.Running||state.Identity!=null||state.LoaderIdentity!=null)
+            throw new InvalidOperationException("UM-BACKUP-CONFIRMED-STOP-REQUIRED");
+        return state;
+    }
+
     public async Task<string> HandleAsync(string raw)
     {
         string? id=null;
@@ -284,6 +313,8 @@ public sealed class DesktopWorldBackupBridge
             string? method=methodRaw.GetString();
             if(method is not ("backup.history" or "backup.preview" or
                 "backup.create" or "backup.restorePreview" or "backup.restore" or
+                "backup.fullLocalCreate" or "backup.fullLocalHistory" or "backup.fullLocalStage" or
+                "backup.retentionPreview" or "backup.retentionProtect" or "backup.retentionQuarantine" or "backup.retentionReturn" or
                 "backup.scheduleStatus" or "backup.scheduleCreate" or
                 "backup.scheduleDisable" or
                 "backup.originalBatchPreview" or "backup.originalBatchCreate" or
@@ -493,7 +524,14 @@ public sealed class DesktopWorldBackupBridge
                            interval.ValueKind!=JsonValueKind.Number||
                            !interval.TryGetInt32(out int minutes))
                             return Fail(id,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED");
-                        scheduled.Configure(owned.Id,minutes);
+                        bool fullLocal=false;
+                        if(root.TryGetProperty("fullLocal",out var scope))
+                        {
+                            if(scope.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                                return Fail(id,"UM-BACKUP-SCHEDULE-SCOPE");
+                            fullLocal=scope.GetBoolean();
+                        }
+                        scheduled.Configure(owned.Id,minutes,fullLocal:fullLocal);
                     }
                     else if(method=="backup.scheduleDisable")
                     {
@@ -511,12 +549,128 @@ public sealed class DesktopWorldBackupBridge
                         lastAttemptUtc=row?.LastAttemptUtc,
                         lastStatus=row?.LastStatus??"not-configured",
                         lastPoint=row?.LastPoint,
+                        fullLocal=row?.FullLocal??false,
                         runnerState=scheduled.RuntimeState,
                         storeProtected=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(owned),
+                        canSchedule=scheduled.CanSchedule(owned),
                         automaticRestoreAllowed=false,
                         automaticServerStopAllowed=false,
                         evidence="PERSISTED_OPT_IN_STOPPED_NONSTORE_WORLD_BACKUPS"
                     });
+                }
+                if(method is "backup.retentionPreview" or "backup.retentionProtect" or "backup.retentionQuarantine" or "backup.retentionReturn")
+                {
+                    if(!root.TryGetProperty("mapId",out var mid)||mid.ValueKind!=JsonValueKind.String||
+                       !Guid.TryParse(mid.GetString(),out var mapId)||mapId==Guid.Empty)
+                        return Fail(id,"UM-BACKUP-INVALID-MAP");
+                    var map=Owned(mapId);
+                    if(map.ObservedReadOnlyImported)return Fail(id,"UM-BACKUP-MAP-NOT-LOCAL");
+                    if(!root.TryGetProperty("keepLatest",out var keep)||keep.ValueKind!=JsonValueKind.Number||
+                       !keep.TryGetInt32(out int count)||count is <1 or >500)
+                        return Fail(id,"UM-BACKUP-RETENTION-COUNT");
+                    var rule=new RetentionRule(count,TimeSpan.FromDays(30),0);
+                    if(method!="backup.retentionPreview")
+                    {
+                        if(!root.TryGetProperty("confirm",out var confirmation)||confirmation.ValueKind!=JsonValueKind.True)
+                            return Fail(id,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED");
+                        if(!root.TryGetProperty("point",out var item)||item.ValueKind!=JsonValueKind.String||
+                           item.GetString() is not string point)
+                            return Fail(id,"UM-BACKUP-RETENTION-POINT");
+                        if(method=="backup.retentionReturn")
+                        {
+                            if(!System.Text.RegularExpressions.Regex.IsMatch(point,@"\A[0-9a-f]{32}\z"))
+                                return Fail(id,"UM-BACKUP-RETENTION-POINT");
+                            string transaction=Path.Combine(cluster.Store.Root,"backup-quarantine",mapId.ToString("N"),point);
+                            await Task.Run(()=>ManagedBackupRetention.RestoreToCatalog(cluster,mapId,transaction));
+                        }
+                        else
+                        {
+                            if(!System.Text.RegularExpressions.Regex.IsMatch(point,@"\A[0-9]{14}-[0-9a-f]{32}\z"))
+                                return Fail(id,"UM-BACKUP-RETENTION-POINT");
+                            string package=Path.Combine(FullCollection(map),point);
+                            if(method=="backup.retentionProtect")
+                            {
+                                if(!root.TryGetProperty("protect",out var protect)||
+                                   protect.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                                    return Fail(id,"UM-BACKUP-RETENTION-PROTECT");
+                                await Task.Run(()=>ManagedBackupRetention.Protect(cluster,mapId,package,protect.GetBoolean()));
+                            }
+                            else await Task.Run(()=>ManagedBackupRetention.Quarantine(cluster,mapId,package,rule));
+                        }
+                        // A completed movement must not be reported as failed by a subsequent
+                        // catalog refresh. The renderer refreshes separately.
+                        return Ok(id,new{mapId,point,completed=true,evidence="MANAGED_BACKUP_CATALOG_ONLY"});
+                    }
+                    var plan=await Task.Run(()=>ManagedBackupRetention.Preview(cluster,mapId,rule));
+                    var quarantine=await Task.Run(()=>ManagedBackupRetention.InspectQuarantine(cluster,mapId));
+                    return Ok(id,new{
+                        mapId,keepLatest=count,
+                        points=plan.Items.Select(x=>new{point=Path.GetFileName(x.Backup.Package),x.Eligible,
+                            x.Backup.Protected,x.Backup.Verified,x.Backup.CreatedUtc,x.Backup.Bytes,x.Reason}).ToArray(),
+                        quarantine=quarantine.Select(x=>new{point=Path.GetFileName(x.Transaction),x.Status}).ToArray(),
+                        evidence="VERIFIED_MANAGED_BACKUP_RETENTION_PREVIEW"
+                    });
+                }
+                if(method is "backup.fullLocalCreate" or "backup.fullLocalHistory" or "backup.fullLocalStage")
+                {
+                    if(!root.TryGetProperty("mapId",out var fullMap)||
+                       fullMap.ValueKind!=JsonValueKind.String||
+                       !Guid.TryParse(fullMap.GetString(),out var localId))
+                        return Fail(id,"UM-BACKUP-INVALID-MAP");
+                    var map=Owned(localId);
+                    if(map.ObservedReadOnlyImported)return Fail(id,"UM-BACKUP-MAP-NOT-LOCAL");
+                    string collection=FullCollection(map);
+                    _=UntamedOperationCoordinator.ResourceKey(collection);
+                    if(cluster.Config.LocalMaps.Any(x=>Overlap(collection,x.InstallationPath)))
+                        return Fail(id,"UM-BACKUP-FULL-DESTINATION-OVERLAP");
+                    if(method=="backup.fullLocalHistory")
+                    {
+                        var history=await Task.Run(()=>LocalBackupCatalog.Inspect(collection,map.Id));
+                        return Ok(id,new{mapId=map.Id,points=history.Where(x=>x.Valid).Select(x=>new{
+                            point=Path.GetFileName(x.PackageDirectory),files=x.FileCount,
+                            bytes=x.TotalBytes,createdUtc=x.CreatedUtc}).ToArray(),
+                            evidence="VERIFIED_LOCAL_INSTALLATION_FILE_ARCHIVES"});
+                    }
+                    if(!root.TryGetProperty("confirm",out var confirmation)||confirmation.ValueKind!=JsonValueKind.True)
+                        return Fail(id,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED");
+                    if(method=="backup.fullLocalStage")
+                    {
+                        if(!root.TryGetProperty("point",out var pointField)||pointField.ValueKind!=JsonValueKind.String||
+                           pointField.GetString() is not string point||
+                           !System.Text.RegularExpressions.Regex.IsMatch(point,@"\A[0-9]{14}-[0-9a-f]{32}\z"))
+                            return Fail(id,"UM-BACKUP-FULL-POINT");
+                        string relative=Path.Combine("local-restore-staging",map.Id.ToString("N"),Guid.NewGuid().ToString("N"));
+                        string target=Path.Combine(cluster.Store.Root,relative);
+                        if(cluster.Config.LocalMaps.Any(x=>Overlap(target,x.InstallationPath)))
+                            return Fail(id,"UM-BACKUP-FULL-DESTINATION-OVERLAP");
+                        var manifest=await Task.Run(()=>LocalBackupWorkflow.RestoreToNewFolder(
+                            Path.Combine(collection,point),target,map.Id));
+                        return Ok(id,new{mapId=map.Id,point,relativeFolder=relative,files=manifest.Files.Count,
+                            bytes=manifest.Files.Sum(x=>x.Size),productionRestoreAllowed=false,
+                            evidence="VERIFIED_NEW_LOCAL_RESTORE_FOLDER_NO_LIVE_REPLACEMENT"});
+                    }
+                    string approvedRoot=Path.GetFullPath(map.InstallationPath);
+                    string package=DateTime.UtcNow.ToString("yyyyMMddHHmmss",System.Globalization.CultureInfo.InvariantCulture)+"-"+Guid.NewGuid().ToString("N");
+                    var result=await Task.Run(()=>{
+                        ProcessCheck Verify()=>FullStopped(map.Id,approvedRoot);
+                        var proof=Verify();
+                        string ini=Path.Combine(approvedRoot,"ShooterGame","Saved","Config","WindowsServer");
+                        if(!File.Exists(Path.Combine(ini,"Game.ini"))||!File.Exists(Path.Combine(ini,"GameUserSettings.ini")))
+                            throw new InvalidDataException("UM-BACKUP-FULL-INI-MISSING");
+                        string bin=Path.Combine(approvedRoot,"ShooterGame","Binaries","Win64");
+                        bool api=Directory.Exists(Path.Combine(bin,"ArkApi"))||
+                            Directory.Exists(Path.Combine(bin,"UntamedDisabledPlugins"))||
+                            File.Exists(Path.Combine(bin,"AsaApiLoader.exe"))||File.Exists(Path.Combine(bin,"Version.dll"))||
+                            File.Exists(Path.Combine(approvedRoot,"Version.dll"));
+                        var scope=LocalBackupScope.WorldAndProfiles|LocalBackupScope.Ini;
+                        if(api)scope|=LocalBackupScope.Plugins;
+                        return LocalBackupWorkflow.Create(map,proof,Path.Combine(collection,package),
+                            scope,checkCurrent:Verify,limits:BackupResourcePolicy.ForManagerProfile(cluster.Store.Root));
+                    });
+                    return Ok(id,new{mapId=map.Id,point=package,files=result.Manifest.Files.Count,
+                        bytes=result.Manifest.Files.Sum(x=>x.Size),createdUtc=result.Manifest.CreatedUtc,
+                        sharedTransferIncluded=false,databaseConsistencyCertified=false,
+                        evidence="VERIFIED_STOPPED_LOCAL_INSTALLATION_FILES"});
                 }
                 if(method=="backup.history")
                 {

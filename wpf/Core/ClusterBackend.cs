@@ -1783,6 +1783,7 @@ public sealed partial class ClusterService : IAsyncDisposable
             throw new InvalidOperationException("ASA process state changed before launch");
         // Mark BEFORE spawn. An interrupted start must never be retried
         // automatically; the operator can reattach to its exact process.
+        RecoveryNativeStartBoundary.Demand(id);
         lease.MarkMutationStarted();
         var identity=_inspector.Launch(map);
         // The server may outlive the Manager UI. The durable identity is used
@@ -1831,6 +1832,7 @@ public sealed partial class ClusterService : IAsyncDisposable
         exact.StartWithAsaApi=inspected.UseApi;
         exact.ApiLoaderPath=inspected.UseApi?map.ApiLoaderPath:"";
         exact.ApiLoaderArguments=inspected.UseApi?inspected.Arguments:"";
+        RecoveryNativeStartBoundary.Demand(mapId);
         lease.MarkMutationStarted(); // durable interruption marker BEFORE Process.Start
         var started=_inspector.Launch(exact);
         string expectedExe=inspected.UseApi?map.ApiLoaderPath:map.ExecutablePath;

@@ -225,6 +225,235 @@ var incompleteFiveCapture=await Call(
 Check(IsError(incompleteFiveCapture,"UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS"),
     "travel capture reports the exact five-local-map prerequisite without reading ASA files");
 await SteamPublicBuildParsingTests.RunAsync(root);
+// Native rolling lifecycle journal, using a disposable profile and injected
+// process observations and execution. Neither fixture nor tests launch ASA.
+{
+    string batchRoot=Path.Combine(root,"lifecycle-batch-fixture");
+    await using var batchCluster=new ClusterService("batch-fixture",batchRoot);
+    var one=new LocalMap{Name="Batch A",InstallationPath=Path.Combine(batchRoot,"a")};
+    var two=new LocalMap{Name="Batch B",InstallationPath=Path.Combine(batchRoot,"b")};
+    batchCluster.Config.LocalMaps.Add(one);batchCluster.Config.LocalMaps.Add(two);
+    int calls=0;
+    Task<string> Never(string raw)=>throw new InvalidOperationException("Unexpected real bridge");
+    using var batch=new DesktopLifecycleBatchBridge(batchCluster,Never,Never,Never,Never,Never,Never,Never,
+        _=>new ProcessCheck(false,"synthetic stopped",null,true),
+        (map,action,historical,ct)=>{
+            Interlocked.Increment(ref calls);
+            if(map==one.Id)throw new InvalidOperationException("UM-BATCH-SYNTHETIC-UNCERTAIN");
+            return Task.FromResult<(int,Guid?)>((0,null));
+        });
+    var denied=await Call(batch.HandleAsync,"operations.lifecycleBatchPreview",
+        new{mapIds=new[]{Guid.NewGuid()},action="start",delaySeconds=0});
+    Check(!denied.GetProperty("ok").GetBoolean()&&calls==0,"batch denies remote target before any dispatch");
+    var plan=await Call(batch.HandleAsync,"operations.lifecycleBatchPreview",
+        new{mapIds=new[]{one.Id,two.Id},action="start",delaySeconds=0});
+    IsOk(plan,"batch previews named local stopped maps");
+    var token=plan.GetProperty("data").GetProperty("token").GetGuid();
+    var noConsent=await Call(batch.HandleAsync,"operations.lifecycleBatchApply",new{token,confirm=false});
+    Check(!noConsent.GetProperty("ok").GetBoolean()&&calls==0,"batch requires explicit apply consent");
+    var applied=await Call(batch.HandleAsync,"operations.lifecycleBatchApply",new{token,confirm=true});
+    IsOk(applied,"batch claims a durable journal before dispatch");
+    var jobId=applied.GetProperty("data").GetProperty("jobId").GetGuid();
+    JsonElement current=default;
+    for(int n=0;n<100;n++)
+    {
+        current=(await Call(batch.HandleAsync,"operations.lifecycleBatchCurrent")).GetProperty("data").GetProperty("receipt");
+        if(current.GetProperty("state").GetString()=="needsReview")break;
+        await Task.Delay(20);
+    }
+    Check(calls==1&&current.GetProperty("state").GetString()=="needsReview"&&
+          current.GetProperty("targets")[1].GetProperty("state").GetString()=="skipped",
+        "rolling batch stops after uncertain first dispatch and skips the next map");
+    var replay=await Call(batch.HandleAsync,"operations.lifecycleBatchApply",new{token,confirm=true});
+    Check(!replay.GetProperty("ok").GetBoolean()&&calls==1,"batch approval cannot be replayed");
+    Check(!batch.CanManagerUpdate(),"unreviewed batch blocks manager update");
+    JsonElement review=default;
+    for(int n=0;n<100;n++)
+    {
+        review=await Call(batch.HandleAsync,"operations.lifecycleBatchReview",new{jobId,confirm=true});
+        if(review.GetProperty("ok").GetBoolean())break;
+        await Task.Delay(20);
+    }
+    IsOk(review,"batch journal can be explicitly reviewed without redispatch");
+    Check(calls==1&&batch.CanManagerUpdate(),"review releases batch update block without replay");
+}
+// Deterministic calendar tests: no Windows clock changes and no RCON.
+{
+    var sample=new ScheduledAsaOperation(Guid.NewGuid(),"Restart","Daily",0,60,127,
+        new string('A',64),true,default,null,"scheduled","",TimeZoneId:"Europe/Budapest",
+        DayMinutes:new[]{150,180,240,300,360,420,480});
+    var spring=DesktopScheduledAsaOperationsSupervisor.Next(sample,
+        new DateTimeOffset(2026,3,29,0,0,0,TimeSpan.Zero));
+    Check(spring==new DateTimeOffset(2026,3,29,1,0,0,TimeSpan.Zero),
+        "weekly scheduler advances missing Budapest spring wall time to first valid minute");
+    var autumn=DesktopScheduledAsaOperationsSupervisor.Next(sample,
+        new DateTimeOffset(2026,10,25,0,0,0,TimeSpan.Zero));
+    Check(autumn==new DateTimeOffset(2026,10,25,1,30,0,TimeSpan.Zero)&&
+          DesktopScheduledAsaOperationsSupervisor.Next(sample,autumn)==
+             new DateTimeOffset(2026,10,26,2,0,0,TimeSpan.Zero),
+        "weekly scheduler chooses later repeated-hour slot once and honors Monday-specific time");
+    var utc=DesktopScheduledAsaOperationsSupervisor.Next(sample with{TimeZoneId="UTC"},
+        new DateTimeOffset(2026,10,25,0,0,0,TimeSpan.Zero));
+    Check(utc==new DateTimeOffset(2026,10,25,2,30,0,TimeSpan.Zero),
+        "explicit UTC timezone is used rather than host-local clock");
+    var once=sample with{Frequency="Once",DayMinutes=null,OnceAtUtc=utc};
+    Check(DesktopScheduledAsaOperationsSupervisor.Next(once,utc.AddDays(-1))==utc&&
+          DesktopScheduledAsaOperationsSupervisor.Next(once with{NextDueUtc=utc},utc)==DateTimeOffset.MaxValue,
+        "date-specific one-time job has one durable occurrence and no replay");
+}
+// Discord tests inject transport: no request leaves the CI machine.
+{
+    string notifyRoot=Path.Combine(root,"discord-notify-fixture");
+    await using var notifyCluster=new ClusterService("notify-fixture",notifyRoot);
+    int sends=0;bool failNext=false;string body="";
+    using var notify=new DesktopDiscordNotifications(notifyCluster,(uri,payload,ct)=>{
+        sends++;body=payload;
+        if(failNext)throw new IOException("synthetic network uncertainty");
+        return Task.FromResult(System.Net.HttpStatusCode.NoContent);
+    });
+    string url="https://discord.com/api/webhooks/123456789012345678/"+new string('a',64);
+    var denied=await Call(notify.HandleAsync,"notifications.save",new{credential="https://example.com/api/webhooks/123456789012345678/"+new string('a',64),categories=new[]{"schedule"},warningsOnly=false,confirm=true});
+    Check(!denied.GetProperty("ok").GetBoolean()&&sends==0,"webhook allows only exact Discord HTTPS endpoint");
+    var saved=await Call(notify.HandleAsync,"notifications.save",new{credential=url,categories=new[]{"schedule"},warningsOnly=false,confirm=true});
+    IsOk(saved,"webhook saves protected configuration");
+    Check(!saved.GetRawText().Contains(url)&&!File.ReadAllText(Path.Combine(notifyRoot,"discord-notifications-v1.json")).Contains(url),
+        "webhook URL is not returned and never stored as plaintext");
+    DesktopDiscordNotifications.Record(notifyCluster,null,"backup",false);
+    DesktopDiscordNotifications.Record(notifyCluster,null,"schedule",false);
+    await notify.TickOnceAsync();await notify.TickOnceAsync();
+    Check(sends==1&&body.Contains("schedule-completed")&&body.Contains("allowed_mentions")&&!body.Contains(url),
+        "webhook delivers only selected event code once with mentions suppressed");
+    failNext=true;
+    DesktopDiscordNotifications.Record(notifyCluster,null,"schedule",true);
+    await notify.TickOnceAsync();await notify.TickOnceAsync();
+    var status=await Call(notify.HandleAsync,"notifications.status");
+    Check(sends==2&&status.GetProperty("data").GetProperty("lastStatus").GetString()=="delivery-unknown-no-replay",
+        "uncertain webhook delivery is durably claimed and not retried");
+    IsOk(await Call(notify.HandleAsync,"notifications.clear",new{confirm=true}),"webhook can be explicitly removed");
+}
+// Watchdog fatal-exit classification, explicit intent, and one-shot native
+// dispatch using an isolated profile and fake process witness. No ASA launch.
+{
+    Check(DesktopWatchdogRecovery.FatalExitCode(unchecked((int)0xC0000005))&&
+          DesktopWatchdogRecovery.FatalExitCode(unchecked((int)0xC0000409))&&
+          !DesktopWatchdogRecovery.FatalExitCode(0)&&!DesktopWatchdogRecovery.FatalExitCode(1),
+        "watchdog requires known fatal Windows exit, not clean or ambiguous code");
+    string recoveryRoot=Path.Combine(root,"watchdog-recovery-fixture");
+    await using var recoveryCluster=new ClusterService("recovery-fixture",recoveryRoot);
+    var m=new LocalMap{Name="Recovery test",InstallationPath=Path.Combine(recoveryRoot,"asa"),
+        RconHost="127.0.0.1",RconPort=45678,RconPasswordProtected="synthetic",StartWithAsaApi=true,HistoricalStoreProtected=true};
+    recoveryCluster.Config.LocalMaps.Add(m);recoveryCluster.Save();
+    var start=DateTimeOffset.UtcNow.AddHours(-1);
+    var child=new ProcessIdentity{Pid=52311,StartedUtc=start,ExecutablePath="synthetic-asa"};
+    var loader=new ProcessIdentity{Pid=52310,StartedUtc=start,ExecutablePath="synthetic-loader"};
+    bool stopped=false;var fake=new SyntheticRecoveryExitWitness();
+    using var hostGate=new SemaphoreSlim(1,1);int launches=0;
+    Task<string> NoNative(string raw)=>throw new InvalidOperationException("unexpected real request");
+    using var recovery=new DesktopWatchdogRecovery(recoveryCluster,hostGate,()=>true,()=>{},()=>false,
+        NoNative,NoNative,NoNative,
+        _=>stopped?new ProcessCheck(false,"stopped",null,true):
+            new ProcessCheck(true,"running",child,false,loader),
+        _=>fake,_=>new string('A',64),(_,_)=>Task.FromResult(true),
+        _=>{launches++;return Task.FromResult((52320,DateTimeOffset.UtcNow));});
+    IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=m.Id,confirm=true}),"watchdog arms exact Store-v1 API family");
+    var now=DateTimeOffset.UtcNow;
+    await recovery.TickOnceAsync(now);Check(launches==0,"running map never auto-starts");
+    stopped=true;fake.Exited=true;fake.Code=unchecked((int)0xC0000005);
+    await recovery.TickOnceAsync(now.AddSeconds(10));await recovery.TickOnceAsync(now.AddSeconds(20));
+    Check(launches==0,"fatal exit requires three distinct stopped samples");
+    await recovery.TickOnceAsync(now.AddSeconds(30));
+    Check(launches==1&&!recovery.CanManagerUpdate(),"confirmed crash claims one start and blocks Manager handoff during readiness");
+    await recovery.TickOnceAsync(now.AddSeconds(40));await recovery.TickOnceAsync(now.AddSeconds(50));
+    Check(launches==1,"failed recovery never repeats its native launch");
+    // Separate exact epoch and retained stop intent suppress a manual stop
+    // even when the process exits with a crash-style code.
+    stopped=false;fake.Exited=false;
+    child=new ProcessIdentity{Pid=52312,StartedUtc=DateTimeOffset.UtcNow.AddMinutes(-1),ExecutablePath="synthetic-asa"};
+    loader=new ProcessIdentity{Pid=52313,StartedUtc=child.StartedUtc,ExecutablePath="synthetic-loader"};
+    IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=m.Id,confirm=true}),"operator may explicitly arm a new verified family");
+    RecoveryStopIntent.Mark(m,child);
+    stopped=true;fake.Exited=true;
+    await recovery.TickOnceAsync(now.AddSeconds(60));
+    var result=await Call(recovery.HandleAsync,"recovery.status");
+    Check(launches==1&&result.GetProperty("data").GetProperty("maps")[0].GetProperty("status").GetString()=="disarmed",
+        "durable intentional stop suppresses automatic recovery");
+}
+// Local moderation command and durable receipt tests, no real RCON.
+{
+    string banRoot=Path.Combine(root,"moderation-fixture");
+    await using var banCluster=new ClusterService("moderation-fixture",banRoot);
+    var first=new LocalMap{Name="Ban first",InstallationPath=Path.Combine(banRoot,"a")};
+    var second=new LocalMap{Name="Ban second",InstallationPath=Path.Combine(banRoot,"b"),HistoricalStoreProtected=true};
+    banCluster.Config.LocalMaps.AddRange(new[]{first,second});
+    int sends=0;var permits=new Dictionary<Guid,(Guid Map,string Command)>();
+    Task<string> FakeAdmin(string raw)
+    {
+        using var doc=JsonDocument.Parse(raw);var a=doc.RootElement;
+        string? method=a.GetProperty("method").GetString();string id=a.GetProperty("id").GetString()!;
+        if(method!.EndsWith("Preview"))
+        {
+            Guid token=Guid.NewGuid();Guid map=a.GetProperty("mapId").GetGuid();
+            string command=a.GetProperty("message").GetString()!;permits[token]=(map,command);
+            return Task.FromResult(JsonSerializer.Serialize(new{id,ok=true,data=new{token,mapId=map,command}}));
+        }
+        var pair=permits[a.GetProperty("token").GetGuid()];sends++;
+        return Task.FromResult(JsonSerializer.Serialize(new{id,ok=true,data=new{mapId=pair.Map,command=pair.Command,commandSent=true,oneShot=true}}));
+    }
+    var mod=new DesktopBanManager(banCluster,FakeAdmin,FakeAdmin);
+    string eos=new string('a',32);
+    var denied=await Call(mod.HandleAsync,"moderation.preview",new{mapIds=new[]{first.Id},action="ban",eosId=eos+";DoExit",reason="test",reviewHours=0});
+    Check(!denied.GetProperty("ok").GetBoolean()&&sends==0,"moderation rejects injected EOS commands");
+    var pre=await Call(mod.HandleAsync,"moderation.preview",new{mapIds=new[]{first.Id,second.Id},action="ban",eosId=eos,reason="test",reviewHours=24});
+    IsOk(pre,"moderation previews exact local native targets");
+    var token=pre.GetProperty("data").GetProperty("token").GetGuid();
+    IsOk(await Call(mod.HandleAsync,"moderation.apply",new{token,confirm=true,typedApproval="MODERÁCIÓ"}),"moderation dispatches fresh and Store-v1 targets through native admin");
+    Check(sends==2,"moderation sends one command per selected installation");
+    var replay=await Call(mod.HandleAsync,"moderation.apply",new{token,confirm=true,typedApproval="MODERÁCIÓ"});
+    Check(!replay.GetProperty("ok").GetBoolean()&&sends==2,"moderation token cannot replay");
+    var history=await Call(mod.HandleAsync,"moderation.history");
+    Check(history.GetProperty("data").GetProperty("rows")[0].GetProperty("targets")[0].GetProperty("status").GetString()=="sent-effect-unverified",
+        "moderation durable journal distinguishes send from verified game effect");
+}
+// Shared payload cache uses only a deliberately tiny clean fixture. No
+// Valve downloads, ASA processes or production installations.
+{
+    string cacheRoot=Path.Combine(root,"steam-cache-fixture");
+    string installA=Path.Combine(root,"steam-cache-target-a");
+    string installB=Path.Combine(root,"steam-cache-target-b");
+    var maps=new[]{new LocalMap{InstallationPath=installA},new LocalMap{InstallationPath=installB}};
+    int fetches=0;
+    Task Fetch(string stage,CancellationToken ct)
+    {
+        fetches++;
+        foreach(string dir in new[]{@"steamapps",@"ShooterGame\Content\Paks",@"ShooterGame\Saved",@"ShooterGame\Binaries\Win64"})
+            Directory.CreateDirectory(Path.Combine(stage,dir));
+        File.WriteAllText(Path.Combine(stage,@"steamapps\appmanifest_2430930.acf"),"\"appid\" \"2430930\"\n\"buildid\" \"987654\"");
+        File.WriteAllText(Path.Combine(stage,@"ShooterGame\Binaries\Win64\ArkAscendedServer.exe"),"tiny-fixture-exe");
+        File.WriteAllText(Path.Combine(stage,@"ShooterGame\Content\Paks\pakchunk0-WindowsServer.pak"),"tiny-fixture-pak");
+        File.WriteAllText(Path.Combine(stage,@"ShooterGame\Content\Paks\custom-mod.pak"),"never cache");
+        File.WriteAllText(Path.Combine(stage,@"ShooterGame\Saved\private.ark"),"never copy");
+        return Task.CompletedTask;
+    }
+    var payload=await SteamSharedPayloadCache.PrepareAsync(cacheRoot,maps,"987654",Fetch,default,0);
+    var hit=await SteamSharedPayloadCache.PrepareAsync(cacheRoot,maps,"987654",Fetch,default,0);
+    Check(fetches==1&&hit.CacheHit&&payload.Index.Files.Length==2,"one clean Steam cache fetch per public Windows build");
+    foreach(string install in new[]{installA,installB})
+    {
+        Directory.CreateDirectory(Path.Combine(install,@"ShooterGame\Saved"));
+        File.WriteAllText(Path.Combine(install,@"ShooterGame\Saved\private.ark"),"keep-target-world");
+        SteamSharedPayloadCache.Seed(hit,install,()=>{},default);
+        Check(File.ReadAllText(Path.Combine(install,@"ShooterGame\Saved\private.ark"))=="keep-target-world"&&
+            File.ReadAllText(Path.Combine(install,@"ShooterGame\Content\Paks\pakchunk0-WindowsServer.pak"))=="tiny-fixture-pak"&&
+            !File.Exists(Path.Combine(install,@"ShooterGame\Content\Paks\custom-mod.pak"))&&
+            !File.Exists(Path.Combine(install,@"steamapps\appmanifest_2430930.acf")),
+            "cache seeds allowlisted payload only, preserving world and leaving target Steam manifest untouched");
+    }
+    File.AppendAllText(Path.Combine(hit.Root,@"ShooterGame\Content\Paks\pakchunk0-WindowsServer.pak"),"corruption");
+    bool denied=false;
+    try{await SteamSharedPayloadCache.PrepareAsync(cacheRoot,maps,"987654",Fetch,default,0);}
+    catch(InvalidDataException){denied=true;}
+    Check(denied&&fetches==1,"corrupt cache entry is rejected without implicit redownload");
+}
 NativeWebViewDispatchContractTests.Run();
 LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();
@@ -1312,6 +1541,20 @@ try
             Check(history.Any(x=>x.MapId==m1.Id&&x.Kind=="Restart")&&
                   history.Any(x=>x.MapId==m2.Id&&x.Kind=="Restart"&&!x.Enabled),
                 "native schedule journal retains both independent map identities");
+            var once=supervisor.Configure(m2.Id,"Restart","Once",1,240,127);
+            int beforeFreeze=sent;
+            Check(supervisor.TryFreezeForManagerUpdate(),"idle native scheduler can be frozen for Manager handoff");
+            try{
+                await supervisor.TickOnceAsync(once.NextDueUtc);
+                Check(sent==beforeFreeze&&supervisor.Snapshot().Single(x=>x.MapId==m2.Id&&x.Kind=="Restart").Enabled,
+                    "frozen scheduler neither dispatches nor claims the due restart");
+            }finally{supervisor.ReleaseManagerUpdateFreeze();}
+            await supervisor.TickOnceAsync(once.NextDueUtc);
+            Check(!supervisor.Snapshot().Single(x=>x.MapId==m2.Id&&x.Kind=="Restart").Enabled,
+                "one-minute test Restart disables itself after its single durable execution");
+            int afterOnce=sent;
+            await supervisor.TickOnceAsync(once.NextDueUtc.AddSeconds(1));
+            Check(sent==afterOnce,"one-time schedule never replays the claimed slot");
         }
         using(var recovered=new DesktopScheduledAsaOperationsSupervisor(
             scheduleCluster,rcon,restarter,SyntheticRunner,_=>true))
@@ -1343,6 +1586,19 @@ try
                     intervalMinutes=0,minuteOfDay=240,daysMask=127,confirm=true});
             Check(IsError(protectedAttempt,"UM-ASA-SCHEDULE-NATIVE-DENIED"),
                 "Store-v1 protection cannot be bypassed by an isolated runner hook");
+            m1.HistoricalStoreProtected=false;
+            // Existing test schedules are disabled before the dedicated
+            // wipe slot to isolate dispatch count; no real ASA/RCON.
+            foreach(var job in recovered.Snapshot().Where(x=>x.Enabled))
+                recovered.Disable(job.MapId,job.Kind);
+            var wipe=recovered.Configure(m2.Id,"WildWipe","Once",1,0,127);
+            int beforeWipe=sent;
+            await recovered.TickOnceAsync(wipe.NextDueUtc);
+            await recovered.TickOnceAsync(wipe.NextDueUtc.AddSeconds(1));
+            Check(sent==beforeWipe+1&&recovered.History(m2.Id).Any(x=>
+                x.Kind=="WildWipe"&&x.Status=="executed-no-fsync-or-client-certification")&&
+                !recovered.Snapshot().Single(x=>x.Kind=="WildWipe").Enabled,
+                "standalone wipe uses a durable one-shot slot and never replays");
         }
         // Force a durable receipt write failure AFTER a synthetic dispatch:
         // no live ASA binary, port, RCON or protected Store is touched.
@@ -6525,6 +6781,26 @@ try
                     Pid=23563,ExecutablePath="synthetic.exe",
                     StartedUtc=DateTimeOffset.UtcNow
                 },stopped));
+        string configDir=Path.Combine(localInstall,"ShooterGame","Saved","Config","WindowsServer");
+        Directory.CreateDirectory(configDir);
+        File.WriteAllText(Path.Combine(configDir,"Game.ini"),"[/script/shootergame.shootergamemode]");
+        File.WriteAllText(Path.Combine(configDir,"GameUserSettings.ini"),"[ServerSettings]");
+        var full=await Call(worldBridge.HandleAsync,"backup.fullLocalCreate",new{mapId=localMap.Id,confirm=true});
+        IsOk(full,"full local stopped-map world and INI package");
+        string fullPoint=full.GetProperty("data").GetProperty("point").GetString()!;
+        bool unsignedDenied=false;
+        string unsignedInstaller=Path.Combine(root,"unsigned-updater-fixture.exe");
+        File.WriteAllText(unsignedInstaller,"synthetic unsigned installer");
+        try{UpdateCenter.CheckAuthenticodePublisher(unsignedInstaller,new string('A',40));}
+        catch(InvalidDataException){unsignedDenied=true;}
+        Check(unsignedDenied,"real Windows Authenticode verifier rejects unsigned package with configured publisher pin");
+        var stagedFull=await Call(worldBridge.HandleAsync,"backup.fullLocalStage",new{mapId=localMap.Id,point=fullPoint,confirm=true});
+        IsOk(stagedFull,"verified full local package restore to new folder only");
+        string restoredFolder=Path.Combine(localProfile,stagedFull.GetProperty("data").GetProperty("relativeFolder").GetString()!);
+        Check(File.ReadAllBytes(Path.Combine(restoredFolder,Path.GetRelativePath(localInstall,arkFile))).SequenceEqual(worldBeforeBackup)&&
+              File.ReadAllBytes(arkFile).SequenceEqual(worldBeforeBackup)&&
+              !stagedFull.GetProperty("data").GetProperty("productionRestoreAllowed").GetBoolean(),
+              "staged full restore preserves original local world without any live replacement");
         var empty=await Call(worldBridge.HandleAsync,"backup.history",
             new{mapId=localMap.Id});
         IsOk(empty,"initial genuine map backup archive is readable");
@@ -6734,6 +7010,11 @@ try
                 "running ASA cannot be silently stopped or auto-backed-up");
             stopped=true;
             scheduleConfigured=scheduled.Configure(localMap.Id,60,scheduleNow);
+            Check(scheduled.TryFreezeForManagerUpdate(),"idle backup scheduler can be frozen for Manager handoff");
+            try{
+                var frozen=scheduled.TickOnce(scheduleNow.AddMinutes(61)).Single();
+                Check(frozen.LastPoint==null&&frozen.LastAttemptUtc==null,"frozen backup scheduler makes no new archive and claims no slot");
+            }finally{scheduled.ReleaseManagerUpdateFreeze();}
             var completed=scheduled.TickOnce(scheduleNow.AddMinutes(61)).Single();
             Check(completed.LastStatus=="verified-backup-created" &&
                   completed.LastPoint!=null &&
@@ -6769,6 +7050,34 @@ try
                   missed.LastPoint==null &&
                   missed.NextDueUtc>scheduleNow.AddHours(4),
                 "missed backup windows are consumed durably without replay");
+            // Full archives use the same local catalog as manual full backup.
+            var fullScheduled=scheduled.Configure(localMap.Id,60,scheduleNow,fullLocal:true);
+            Check(fullScheduled.FullLocal,"full scope must be explicitly selected");
+            var fullCompleted=scheduled.TickOnce(scheduleNow.AddMinutes(61)).Single();
+            Check(fullCompleted.LastStatus=="verified-full-local-backup-created"&&fullCompleted.LastPoint!=null,
+                "due full local backup commits a verified archive");
+            var scheduledManifest=TestBackupPackage.Verify(Path.Combine(localProfile,"local-backups",localMap.Id.ToString("N"),fullCompleted.LastPoint!),localMap.Id);
+            Check(scheduledManifest.Files.Any(x=>Path.GetFileName(x.Path)=="Game.ini")&&
+                  scheduledManifest.Files.Any(x=>Path.GetFileName(x.Path)=="GameUserSettings.ini")&&
+                  scheduledManifest.Files.Any(x=>Path.GetFileName(x.Path)==Path.GetFileName(arkFile)),
+                "scheduled full archive contains world and both INI files");
+            using(var fullReopened=new DesktopScheduledStoppedBackupSupervisor(backupHost))
+                Check(fullReopened.Snapshot().Single().LastPoint==fullCompleted.LastPoint&&
+                      fullReopened.Snapshot().Single().FullLocal,"full archive receipt survives reopen");
+            var retention=await Call(scheduleBridge.HandleAsync,"backup.retentionPreview",new{mapId=localMap.Id,keepLatest=1});
+            IsOk(retention,"native retention preview includes both manual and scheduled full archives");
+            var eligible=retention.GetProperty("data").GetProperty("points").EnumerateArray().Single(x=>x.GetProperty("eligible").GetBoolean()).GetProperty("point").GetString()!;
+            var deniedRetention=await Call(scheduleBridge.HandleAsync,"backup.retentionQuarantine",new{mapId=localMap.Id,keepLatest=1,point=eligible,confirm=false});
+            Check(IsError(deniedRetention,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED"),"retention mutation needs confirmation");
+            IsOk(await Call(scheduleBridge.HandleAsync,"backup.retentionProtect",new{mapId=localMap.Id,keepLatest=1,point=eligible,protect=true,confirm=true}),"retention protects an actual full archive");
+            var protectedPreview=await Call(scheduleBridge.HandleAsync,"backup.retentionPreview",new{mapId=localMap.Id,keepLatest=1});
+            Check(!protectedPreview.GetProperty("data").GetProperty("points").EnumerateArray().Any(x=>x.GetProperty("eligible").GetBoolean()),"protected older archive is not eligible");
+            IsOk(await Call(scheduleBridge.HandleAsync,"backup.retentionProtect",new{mapId=localMap.Id,keepLatest=1,point=eligible,protect=false,confirm=true}),"explicit release of protection");
+            IsOk(await Call(scheduleBridge.HandleAsync,"backup.retentionQuarantine",new{mapId=localMap.Id,keepLatest=1,point=eligible,confirm=true}),"approved old verified point quarantined");
+            var quarantine=await Call(scheduleBridge.HandleAsync,"backup.retentionPreview",new{mapId=localMap.Id,keepLatest=1});
+            string transaction=quarantine.GetProperty("data").GetProperty("quarantine").EnumerateArray().Single(x=>x.GetProperty("status").GetString()=="verified-quarantine").GetProperty("point").GetString()!;
+            IsOk(await Call(scheduleBridge.HandleAsync,"backup.retentionReturn",new{mapId=localMap.Id,keepLatest=1,point=transaction,confirm=true}),"verified quarantine returns to catalog, not live map");
+            Check(File.ReadAllBytes(arkFile).SequenceEqual(worldBeforeBackup),"retention never modifies original world bytes");
             // Revoking an active schedule in a native stop-state callback
             // must abort the copy, not publish a late snapshot.
             int archiveCountBefore=UntamedWorldBackup.List(localMap,localProfile,50).Length;
@@ -7353,6 +7662,16 @@ try
             "{\"preserve\":\"user-value\"}");
         File.WriteAllText(Path.Combine(installedPlugin,"license.key"),
             "PRIVATE-LICENSE-UNCHANGED");
+        var inventory=LocalPluginInventory.Scan(zipMap).Single(p=>p.PluginName=="SampleZip");
+        Check(LocalPluginInventory.ConfigSyntax(zipMap,inventory)=="valid-json"&&
+              File.ReadAllText(Path.Combine(installedPlugin,"config.json"))=="{\"preserve\":\"user-value\"}",
+            "plugin diagnostics report syntax without altering config or exposing contents");
+        var broken=Path.Combine(pluginRoot,"BrokenJson");
+        Directory.CreateDirectory(broken);File.WriteAllText(Path.Combine(broken,"config.json"),"{ broken");
+        Check(LocalPluginInventory.ConfigSyntax(zipMap,new LocalPluginInfo("BrokenJson",Array.Empty<PluginBinaryInfo>(),false))=="invalid-json"&&
+              LocalPluginInventory.ConfigSyntax(zipMap,new LocalPluginInfo("BrokenJson",Array.Empty<PluginBinaryInfo>(),true))=="protected"&&
+              LocalPluginInventory.ConfigSyntax(zipMap,new LocalPluginInfo("missing",Array.Empty<PluginBinaryInfo>(),false))=="missing",
+            "plugin diagnostics distinguish syntax failure, protected data and missing config");
         File.Delete(zipPath);
         using(var stream=File.Create(zipPath))
         using(var zip=new System.IO.Compression.ZipArchive(stream,

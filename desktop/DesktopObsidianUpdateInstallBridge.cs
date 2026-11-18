@@ -152,7 +152,7 @@ public sealed class DesktopObsidianUpdateInstallBridge
                         tag=release.Tag,assetName=release.AssetName,
                         sha256=release.Sha256,
                         fileBytes=new FileInfo(staged).Length,
-                        verified=true,requiresFinalApproval=true,
+                        verified=true,publisherPinVerified=!string.IsNullOrWhiteSpace(pinned),requiresFinalApproval=true,
                         updaterPackaged=true,automaticInstallationStarted=false,
                         evidence="OBSIDIAN_INSTALLER_SHA256_STAGED_ONLY"
                     });
@@ -182,6 +182,21 @@ public sealed class DesktopObsidianUpdateInstallBridge
                         StringComparison.OrdinalIgnoreCase))
                         return Error(id,"UM-UPDATE-INSTALLER-CHANGED");
                 }
+                // Revalidate the CURRENT configured publisher before handoff,
+                // not just the optional pin observed during preparation.
+                string publisher=cluster?.Config.PublisherCertificateThumbprint??"";
+                if(!string.IsNullOrWhiteSpace(publisher))
+                    UpdateCenter.CheckAuthenticodePublisher(saved.Package,publisher);
+                if(cluster!=null)
+                {
+                    foreach(var map in cluster.Config.LocalMaps)
+                    {
+                        if(string.IsNullOrWhiteSpace(map.InstallationPath))continue;
+                        var op=cluster.Operations.Observe(map.InstallationPath);
+                        if(op?.Phase is UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
+                            return Error(id,"UM-UPDATE-LOCAL-OPERATION-PENDING");
+                    }
+                }
                 string stagedHelper=UpdateCenter.StageUpdater(saved.Helper);
                 string backup=Path.Combine(UpdateCenter.UpdateRoot,
                     "rollback-"+DateTime.UtcNow.ToString("yyyyMMddHHmmss")+
@@ -203,6 +218,11 @@ public sealed class DesktopObsidianUpdateInstallBridge
                     "--profile","default",
                     "--backup",backup
                 })start.ArgumentList.Add(argument);
+                if(!string.IsNullOrWhiteSpace(publisher))
+                {
+                    start.ArgumentList.Add("--publisher-pin");
+                    start.ArgumentList.Add(publisher);
+                }
                 using var process=Process.Start(start)??
                     throw new IOException("Verified external updater could not start");
                 return Ok(id,new{

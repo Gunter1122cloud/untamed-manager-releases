@@ -69,8 +69,57 @@ public sealed class ObsidianWindow : Form
     // Staging an installer is isolated from ASA maps and local configuration.
     // It can take minutes on a slow connection, so the WebView host must not
     // block Dashboard/RCON/status RPCs behind the global command gate.
+    // Recovery is invoked under the host gate. Freeze independent native
+    // scheduling/backup lanes only for the actual automatic launch dispatch.
+    private bool TryEnterRecoveryLane()
+    {
+        if(!_lifecycleBatch.CanManagerUpdate()||!_nativeSchedules.TryFreezeForManagerUpdate())return false;
+        if(_scheduledBackups.TryFreezeForManagerUpdate())return true;
+        _nativeSchedules.ReleaseManagerUpdateFreeze();return false;
+    }
+    private void ReleaseRecoveryLane()
+    {
+        _scheduledBackups.ReleaseManagerUpdateFreeze();
+        _nativeSchedules.ReleaseManagerUpdateFreeze();
+    }
     // Final update.install still takes the global gate before handing off
     // to the external updater and closing the Manager.
+    private async Task<string> InstallManagerWithFrozenSchedulesAsync(string raw)
+    {
+        // update.install is dispatched under the host command gate. Hold the
+        // independent scheduler lanes too; if busy, leave the running task alone.
+        if(!_recovery.CanManagerUpdate())
+            return NativeErrorResponse(raw,"UM-UPDATE-WATCHDOG-RECOVERY-IN-PROGRESS");
+        if(!_lifecycleBatch.CanManagerUpdate())
+            return NativeErrorResponse(raw,"UM-UPDATE-LIFECYCLE-BATCH-IN-PROGRESS");
+        if(!_nativeSchedules.TryFreezeForManagerUpdate())
+            return NativeErrorResponse(raw,"UM-UPDATE-SCHEDULE-IN-PROGRESS");
+        bool backupFrozen=false;
+        try
+        {
+            backupFrozen=_scheduledBackups.TryFreezeForManagerUpdate();
+            if(!backupFrozen)return NativeErrorResponse(raw,"UM-UPDATE-BACKUP-IN-PROGRESS");
+            string response=await _updateInstall.HandleAsync(raw);
+            using var result=JsonDocument.Parse(response);
+            _updateHandoff=result.RootElement.TryGetProperty("ok",out var ok)&&
+                ok.ValueKind==JsonValueKind.True&&
+                result.RootElement.TryGetProperty("data",out var data)&&
+                data.TryGetProperty("externalUpdaterStarted",out var started)&&
+                started.ValueKind==JsonValueKind.True;
+            // Successful handoff holds the gates until this Manager exits;
+            // the replacement Manager reads existing journals/ASA identity.
+            return response;
+        }
+        finally
+        {
+            if(!_updateHandoff)
+            {
+                if(backupFrozen)_scheduledBackups.ReleaseManagerUpdateFreeze();
+                _nativeSchedules.ReleaseManagerUpdateFreeze();
+            }
+        }
+    }
+
     internal static bool RequiresGlobalBridgeGate(string? method) =>
         method is not (
             // Exact read-only methods must stay responsive while an owner
@@ -79,7 +128,7 @@ public sealed class ObsidianWindow : Form
             "dashboard.snapshot" or "servers.runningLocal" or
             "servers.lifecycleJournal" or
             "servers.lifecycleRecoveryPreview" or
-            "operations.snapshot" or "operations.map" or
+            "operations.snapshot" or "operations.map" or "operations.lifecycleBatchCurrent" or "notifications.status" or
             "schedule.nativeStatus" or "schedule.nativeOverview" or
             "servers.gracefulStopStatus" or "servers.gracefulStopCurrent" or "servers.restartStatus" or
             "servers.restartCurrent" or "servers.freshStartStatus" or
@@ -212,6 +261,10 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopFreshAsaRestartBridge _freshRestart;
     private readonly DesktopAsaLifecycleJournalBridge _lifecycleJournal;
     private readonly DesktopOperationsCenterBridge _operations;
+    private readonly DesktopDiscordNotifications _notifications;
+    private readonly DesktopWatchdogRecovery _recovery;
+    private readonly DesktopBanManager _moderation;
+    private readonly DesktopLifecycleBatchBridge _lifecycleBatch;
     private readonly DesktopRecurringReadOnlySupervisor _readOnlySupervisor;
     private readonly DesktopAutomaticAsaDiscoverySupervisor _asaDiscovery;
     private readonly DesktopLanSettingsBridge _lan;
@@ -222,6 +275,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopScheduledAsaOperationsSupervisor _nativeSchedules;
     private readonly DesktopMapMaintenanceBridge _mapMaintenance;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
+    private bool _updateHandoff;
     private bool _reallyExit;
     private readonly bool _smokeTest;
     private readonly bool _suppressScheduledMutations;
@@ -285,19 +339,29 @@ public sealed class ObsidianWindow : Form
         _ownedKill = new DesktopOwnedAsaKillBridge(_bridge.LocalCluster);
         _freshRestart = new DesktopFreshAsaRestartBridge(_bridge.LocalCluster);
         _nativeSchedules = new DesktopScheduledAsaOperationsSupervisor(
-            _bridge.LocalCluster,_rcon,_freshRestart);
+            _bridge.LocalCluster,_rcon,_freshRestart,
+            historicalStop:_historicalStop,historicalRestart:_historicalRestart,historicalAdmin:_historicalAdminRcon);
         _mapMaintenance = new DesktopMapMaintenanceBridge(_bridge.LocalCluster);
         _lifecycleJournal = new DesktopAsaLifecycleJournalBridge(_bridge.LocalCluster);
         _asaDiscovery = new DesktopAutomaticAsaDiscoverySupervisor(_bridge.LocalCluster);
         _bridge.AttachAutomaticAsaDiscovery(_asaDiscovery);
         _readOnlySupervisor = new DesktopRecurringReadOnlySupervisor(_bridge.LocalCluster);
         _operations = new DesktopOperationsCenterBridge(_bridge.LocalCluster,_readOnlySupervisor);
+        _notifications = new DesktopDiscordNotifications(_bridge.LocalCluster);
+        _moderation = new DesktopBanManager(_bridge.LocalCluster,_rconAdmin.HandleAsync,_historicalAdminRcon.HandleAsync);
+        _lifecycleBatch = new DesktopLifecycleBatchBridge(_bridge.LocalCluster,
+            _freshStart.HandleAsync,_freshStop.HandleAsync,_freshRestart.HandleAsync,
+            _historicalStart.HandleAsync,_historicalStop.HandleAsync,_historicalRestart.HandleAsync,
+            _historicalReadOnlyRcon.HandleAsync);
         _lan = new DesktopLanSettingsBridge(_bridge.LocalCluster);
         _travel = new DesktopStoreTravelEvidenceBridge(_bridge.LocalCluster);
         _embeddedStore = new DesktopEmbeddedStoreBridge();
         _scheduledBackups = new DesktopScheduledStoppedBackupSupervisor(_bridge.LocalCluster);
         _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster,
             scheduledBackups:_scheduledBackups);
+        _recovery = new DesktopWatchdogRecovery(_bridge.LocalCluster,_bridgeGate,
+            TryEnterRecoveryLane,ReleaseRecoveryLane,()=>_updateHandoff,
+            _freshStart.HandleAsync,_historicalStart.HandleAsync,_historicalReadOnlyRcon.HandleAsync);
         Text = suppressScheduledMutations&&!smokeTest
             ? "Untamed Kingdom — Obsidian Command [MANUÁLIS TESZT]"
             : "Untamed Kingdom — Obsidian Command";
@@ -344,6 +408,8 @@ public sealed class ObsidianWindow : Form
                 {
                     _scheduledBackups.Start();
                     _nativeSchedules.Start();
+                    _notifications.Start();
+                    _recovery.Start();
                 }
                 _scheduledSteam.Start();
                 try { await _bridge.LocalCluster.BeginLanAsync(); }
@@ -367,6 +433,9 @@ public sealed class ObsidianWindow : Form
             _scheduledBackups.Dispose();
             _scheduledSteam.Dispose();
             _nativeSchedules.Dispose();
+            _lifecycleBatch.Dispose();
+            _recovery.Dispose();
+            _notifications.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
             _browser.Dispose();
@@ -524,6 +593,10 @@ public sealed class ObsidianWindow : Form
                 bool freshRestartRoute = false;
                 bool lifecycleJournalRoute = false;
                 bool operationsRoute = false;
+                bool notificationsRoute = false;
+                bool recoveryRoute = false;
+                bool moderationRoute = false;
+                bool lifecycleBatchRoute = false;
                 bool nativeScheduleRoute = false;
                 bool mapMaintenanceRoute = false;
                 bool lanRoute = false;
@@ -558,8 +631,13 @@ public sealed class ObsidianWindow : Form
                         lifecycleJournalRoute = name is "servers.lifecycleJournal" or
                             "servers.lifecycleRecoveryPreview" or
                             "servers.lifecycleRecoveryApply";
+                        moderationRoute = name is "moderation.history" or "moderation.preview" or "moderation.apply";
+                        recoveryRoute = name is "recovery.status" or "recovery.arm" or "recovery.disarm";
+                        notificationsRoute = name is "notifications.status" or "notifications.save" or "notifications.clear" or "notifications.test";
                         operationsRoute = name is "operations.snapshot" or "operations.map" or
-                            "operations.scheduleCreate" or "operations.scheduleDisable";
+                            "operations.scheduleCreate" or "operations.scheduleDisable" or "operations.watchdogStart";
+                        lifecycleBatchRoute = name is "operations.lifecycleBatchPreview" or
+                            "operations.lifecycleBatchApply" or "operations.lifecycleBatchCurrent" or "operations.lifecycleBatchReview";
                         nativeScheduleRoute = name is "schedule.nativeStatus" or
                             "schedule.nativeSet" or "schedule.nativeDisable" or
                             "schedule.nativeOverview" or "schedule.nativeReviewPreview" or
@@ -567,7 +645,7 @@ public sealed class ObsidianWindow : Form
                         mapMaintenanceRoute = name is "maps.maintenanceStatus" or "maps.maintenanceSet";
                         lanRoute = name is "lan.status" or "lan.preview" or "lan.apply" or "lan.physicalStoreProbe" or "lan.historicalSaveProbe";
                         stoppedSteamRoute = name is "steam.stoppedDiagnostics" or "steam.stoppedPreview" or "steam.stoppedApply" or
-                            "steam.stoppedStatus" or "steam.stoppedCurrent" or "steam.publishedBuild";
+                            "steam.stoppedStatus" or "steam.stoppedCurrent" or "steam.publishedBuild" or "steam.selectExecutable" or "steam.prepareExecutable";
                         stoppedSteamBatchRoute = name is "steam.batchPreview" or "steam.batchApply" or
                             "steam.batchStatus" or "steam.batchCurrent";
                         scheduledSteamRoute = name is "steam.scheduleStatus" or "steam.scheduleSet" or
@@ -576,6 +654,8 @@ public sealed class ObsidianWindow : Form
                         embeddedStoreRoute = name is "store.inspectCopy" or "store.inspectArchive" or "store.compareArchives";
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
                             "backup.create" or "backup.restorePreview" or "backup.restore" or
+                            "backup.fullLocalCreate" or "backup.fullLocalHistory" or "backup.fullLocalStage" or
+                "backup.retentionPreview" or "backup.retentionProtect" or "backup.retentionQuarantine" or "backup.retentionReturn" or
                             "backup.scheduleStatus" or "backup.scheduleCreate" or
                             "backup.scheduleDisable" or "backup.originalBatchPreview" or
                             "backup.originalBatchCreate" or "backup.originalBatchStatus" or
@@ -597,7 +677,8 @@ public sealed class ObsidianWindow : Form
                             "cluster.offlineApply" or "cluster.offlineStatus";
                         offlineRestoreLabRoute = name is "cluster.restoreLabPreview" or
                             "cluster.restoreLabApply" or "cluster.restoreLabStatus";
-                        multiHostBackupRoute = name is "cluster.multiHostHostStagePreview" or
+                        multiHostBackupRoute = name is "cluster.multiHostCoordinatedPreview" or "cluster.multiHostCoordinatedApply" or
+                            "cluster.multiHostHostStagePreview" or
                             "cluster.multiHostHostStageApply" or
                             "cluster.multiHostHostStageStatus" or
                             "cluster.multiHostBackupRecoveryPreview" or
@@ -676,12 +757,18 @@ public sealed class ObsidianWindow : Form
                 if (requireGlobalGate) await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = IsManualOnlyDeniedPluginMethod(methodName)
+                    string response = _updateHandoff&&requireGlobalGate
+                        ? NativeErrorResponse(incoming,"UM-UPDATE-MANAGER-HANDOFF")
+                        : IsManualOnlyDeniedPluginMethod(methodName)
                         ? NativeErrorResponse(incoming,"UM-PLUGIN-MANUAL-FOLDER-ONLY")
                         : apiCoreRoute ? await _apiCore.HandleAsync(incoming)
                         : lanRoute ? await _lan.HandleAsync(incoming)
                         : nativeScheduleRoute ? await _nativeSchedules.HandleAsync(incoming)
                         : mapMaintenanceRoute ? await _mapMaintenance.HandleAsync(incoming)
+                        : lifecycleBatchRoute ? await _lifecycleBatch.HandleAsync(incoming)
+                        : moderationRoute ? await _moderation.HandleAsync(incoming)
+                        : recoveryRoute ? await _recovery.HandleAsync(incoming)
+                        : notificationsRoute ? await _notifications.HandleAsync(incoming)
                         : operationsRoute ? await _operations.HandleAsync(incoming)
                         : freshRestartRoute ? await _freshRestart.HandleAsync(incoming)
                         : lifecycleJournalRoute ? await _lifecycleJournal.HandleAsync(incoming)
@@ -696,7 +783,7 @@ public sealed class ObsidianWindow : Form
                         : rconConfigRoute ? await _rconConfig.HandleAsync(incoming)
                         : rconAdminRoute ? await _rconAdmin.HandleAsync(incoming)
                         : worldBackupRoute ? await _worldBackup.HandleAsync(incoming)
-                        : updateInstallRoute ? await _updateInstall.HandleAsync(incoming)
+                        : updateInstallRoute ? (methodName=="updates.install"?await InstallManagerWithFrozenSchedulesAsync(incoming):await _updateInstall.HandleAsync(incoming))
                         : embeddedStoreRoute ? await _embeddedStore.HandleAsync(incoming)
                         : travelRoute ? await _travel.HandleAsync(incoming)
                         : rconRoute ? await _rcon.HandleAsync(incoming)

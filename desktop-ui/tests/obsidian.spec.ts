@@ -268,6 +268,9 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_API_CORE_INSTALLS__?:()=>number})
       .__UNTAMED_API_CORE_INSTALLS__=()=>apiCoreInstalls;
     let steamUpdateStarted = false;
+    let steamExecutableConfigured=true;
+    (window as typeof window & {__UNTAMED_STEAM_PATH_MISSING__?:()=>void})
+      .__UNTAMED_STEAM_PATH_MISSING__=()=>{steamExecutableConfigured=false;};
     let singleSteamHeld=false;
     let singleSteamStatusFailsOnce=false;
     let singleSteamApplies=0;
@@ -1532,13 +1535,13 @@ test.beforeEach(async ({ page }) => {
             entryBelongsToMap:originalRestartQueued,
             saveEvidencePhase:originalSaveUnreadable?"unreadable":
               originalRestartPendingSaveReceipt?"needsOperator":"none",
-            saveEvidencePending:originalSaveUnreadable||originalRestartPendingSaveReceipt,
+            saveEvidencePending:originalSaveUnreadable||originalRestartPendingSaveReceipt||(originalSaveRecoveryFixture&&!originalSaveReviewed),
             saveEvidenceUnreadable:originalSaveUnreadable,
             saveEvidenceErrorCode:originalSaveUnreadable?
               "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
-            blocked:originalSaveUnreadable||originalRestartPendingSaveReceipt||
+            blocked:originalSaveUnreadable||originalRestartPendingSaveReceipt||(originalSaveRecoveryFixture&&!originalSaveReviewed)||
               oldStopNeedsOperator||(originalRestartFail&&originalRestartQueued),
-            requiresOperator:originalSaveUnreadable||originalRestartPendingSaveReceipt||
+            requiresOperator:originalSaveUnreadable||originalRestartPendingSaveReceipt||(originalSaveRecoveryFixture&&!originalSaveReviewed)||
               oldStopNeedsOperator||(originalRestartFail&&originalRestartQueued),
             inMemoryRunning:false,jobId:null,
             oldPid:originalRestartQueued?42101:null,
@@ -2344,15 +2347,17 @@ test.beforeEach(async ({ page }) => {
                 j.minuteOfDay===reboot.minuteOfDay&&Boolean(j.daysMask&reboot.daysMask))
               .map(()=>x.name));
           return {mapId:m.mapId,runnerState:"fixture-no-asareal",jobs,history:[],restartConflicts,
-            protectedStore:Boolean(map.storeProtected),autoUpdateAvailable:false,
+            protectedStore:Boolean(map.storeProtected),historicalSchedulingSupported:Boolean(map.storeProtected&&map.rconConfigured),canConfigure:!map.storeProtected||!!map.rconConfigured,autoUpdateAvailable:false,
             remoteExecutionAllowed:false};
         }
         case "schedule.nativeSet": {
           const map=state.local.maps.find(x=>x.id===m.mapId);
-          if(!map||map.storeProtected||!m.confirm||
-            !["SaveWorld","Restart"].includes(m.kind??"")||
-            !["Interval","Daily"].includes(m.frequency??"")||
-            (m.kind==="Restart"&&m.frequency!=="Daily")||
+          if(!map||(map.storeProtected&&!map.rconConfigured)||!m.confirm||
+            !["SaveWorld","Restart","WildWipe"].includes(m.kind??"")||
+            !["Interval","Daily","Once"].includes(m.frequency??"")||
+            (m.kind==="Restart"&&m.frequency==="Interval")||
+            (m.frequency==="Once"&&!m.onceAtLocal&&![1,2].includes(m.intervalMinutes??0))||
+            (m.postRestartWipe&&(!map.storeProtected||m.kind!=="Restart"))||
             !Number.isInteger(m.minuteOfDay)||m.minuteOfDay!<0||m.minuteOfDay!>1439||
             !Number.isInteger(m.daysMask)||m.daysMask!<1||m.daysMask!>127)
             throw new Error("UM-ASA-SCHEDULE-NATIVE-DENIED");
@@ -2360,7 +2365,8 @@ test.beforeEach(async ({ page }) => {
           const jobs=nativeSchedules[id]??[];
           const next={mapId:id,kind:m.kind,frequency:m.frequency,
             intervalMinutes:m.intervalMinutes??120,minuteOfDay:m.minuteOfDay,
-            daysMask:m.daysMask,enabled:true,nextDueUtc:"2026-11-09T03:00:00Z",
+            daysMask:m.daysMask,postRestartWipe:!!m.postRestartWipe,wipeDelaySeconds:m.wipeDelaySeconds??0,enabled:true,nextDueUtc:"2026-11-09T03:00:00Z",
+            timeZoneId:m.timeZoneId??"Europe/Budapest",dayMinutes:m.dayMinutes??null,onceAtUtc:m.onceAtLocal?m.onceAtLocal+":00Z":null,
             lastClaimedUtc:null,lastStatus:"scheduled",lastEvidence:"",
             evidence:"DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY"};
           nativeSchedules[id]=[...jobs.filter(x=>x.kind!==m.kind),next];
@@ -3014,7 +3020,7 @@ test.beforeEach(async ({ page }) => {
             restartInterrupted?"unknownOutcome":"operatorReviewed":"closed",
           recoverySupported:storeLaunchRecoveryFixture&&
             (lifecycleInterrupted||storeRestartOnlyFixture&&restartInterrupted)&&m.mapId===two,
-          needsOperatorReview:lifecycleInterrupted||storeLaunchRecoveryFixture&&restartInterrupted,
+          needsOperatorReview:lifecycleInterrupted||storeLaunchRecoveryFixture&&restartInterrupted||m.mapId===two&&originalSaveRecoveryFixture&&!originalSaveReviewed,
           autoResumeAllowed:false,storeTouched:false,
           evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY"
         };
@@ -3253,13 +3259,14 @@ test.beforeEach(async ({ page }) => {
             processes:[{mapName:entry.name,confirmedStopped:!entry.running,
               running:entry.running,pid:entry.running?44117:null,
               loaderPid:null,reason:entry.running?"Native ASA PID active":"Verified stopped"}],
-            overlaps:[],steamCmdFound:true,steamCmdConfigured:true,
+            overlaps:[],steamCmdFound:steamExecutableConfigured,steamCmdConfigured:steamExecutableConfigured,
+            steamCmdError:steamExecutableConfigured?null:"UM-STEAMCMD-NOT-CONFIGURED",asaBinaryRegistered:true,
             availableBytes:53687091200,requiredBytes:10737418240,
             journalBlocked:steamInterrupted,
             historicalBlocked:Boolean((entry as any).storeProtected)&&!(entry as any).freshStoreEnrolled,
             safeInstallation:!entry.running&&
               (!(entry as any).storeProtected||(entry as any).freshStoreEnrolled),
-            canPreview:!entry.running&&!steamInterrupted&&
+            canPreview:steamExecutableConfigured&&!entry.running&&!steamInterrupted&&
               (!(entry as any).storeProtected||(entry as any).freshStoreEnrolled),
             noProcessAutoStop:true,remoteWrites:false,
             evidence:"REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"};
@@ -3330,7 +3337,13 @@ test.beforeEach(async ({ page }) => {
           throw new Error("UM-STEAM-SCHEDULE-MANUAL-ONLY");
         case "steam.scheduleDisable":
           throw new Error("UM-SCHEDULED-STEAM-MISSING");
-        case "steam.publishedBuild": return {
+        case "steam.prepareExecutable":
+        case "steam.selectExecutable": {
+          steamExecutableConfigured=true;
+          return {cancelled:false,configured:true,updateStarted:false,serverStopped:false};
+        }
+        case "steam.publishedBuild": if(!steamExecutableConfigured)throw new Error("UM-STEAMCMD-NOT-CONFIGURED");
+          return {
           mapId:m.mapId,mapName:"Astraeos",
           installedBuild:"123456",availableBuild:"123457",
           state:"UpdateAvailable",checkedUtc:"2026-11-10T09:00:00Z",
@@ -3412,7 +3425,10 @@ test.beforeEach(async ({ page }) => {
             runtimeLoadedVerified:false,filesChanged:false,
             serverOperation:false,rconSent:false,
             evidence:"LOCAL_ARKAPI_PLUGIN_FOLDER_OPENED_IN_EXPLORER"};
-        case "plugins.inventory": return {mapId:wrongPluginInventoryMap?two:m.mapId,mapName:"The Island",evidence:"READ_ONLY_LOCAL_FILE_INVENTORY",plugins:[{name:"ExamplePlugin",protectedData:false,binaries:[{name:"ExamplePlugin.dll",version:"1.0",bytes:1234}]}]};
+        case "plugins.inventory": {
+          const observed=new URLSearchParams(window.location.search).get("fixture")==="loadedPluginEvidence";
+          return {mapId:wrongPluginInventoryMap?two:m.mapId,mapName:"The Island",evidence:"READ_ONLY_LOCAL_FILE_INVENTORY",moduleObservation:observed?"observed-current-asa-process":"unverified",plugins:[{name:"ExamplePlugin",protectedData:false,binaries:[{name:"ExamplePlugin.dll",version:"1.0",bytes:1234,loadedModuleObserved:observed}]}]};
+        }
         case "backups.summary": return {evidence:"FILE_INTEGRITY_ONLY_NOT_ASA_SAVE_COMPLETE",maps:[{mapId:one,mapName:"The Island",validPackages:1,invalidPackages:0,verifiedBytes:1250000,latestVerifiedUtc:"2026-11-05T12:00:00Z"}]};
         case "steam.installations": return {evidence:"READ_ONLY_STEAM_INSTALLATION_PREFLIGHT",installations:[{id:0,maps:["The Island","Astraeos"],executablePresent:true,installedSteamBuild:"123456",updateBlocked:true,reason:"Read-only test fixture: upgrade blocked"}]};
         case "servers.suggestPorts": return {game:7797,query:27035,rcon:37035,evidence:"PROFILE_ONLY_NO_NETWORK_PROBE"};
@@ -3497,6 +3513,7 @@ test.beforeEach(async ({ page }) => {
                   e.message==="UM-ORIGINAL-ADMIN-LIFECYCLE-JOURNAL-REVIEW-REQUIRED"||
                   e.message==="UM-ORIGINAL-ADMIN-INSTALLATION-BUSY"||
                   e.message==="UM-HISTORICAL-RCON-SAVEWORLD-IN-PROGRESS"||
+                  e.message==="UM-STEAMCMD-NOT-CONFIGURED"||
                   e.message.startsWith("UM-RECOVERY-"))
                 ?e.message:"UM-METHOD-DENIED";
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));
@@ -3523,7 +3540,9 @@ test("native Operations Center displays local PID RAM uptime and saved schedules
   await expect(page.locator(".ops-compact-table tbody tr").first()).toContainText("12345");
   await expect(page.locator(".ops-compact-table tbody tr").first()).toContainText(/9\\s?234,5 MiB|9234,5 MiB/);
   await expect(page.locator(".ops-compact-table tbody tr").last()).toContainText("Nem mérhető");
-  await expect(page.locator(".ops-schedule-table")).toHaveCount(0);
+  await expect(page.locator(".ops-schedules .ops-schedule-table")).toHaveCount(0);
+  await expect(page.getByRole("region",{name:"Automatikus Watchdog Recovery"})).toBeVisible();
+  await expect(page.getByRole("region",{name:"Ban Manager"})).toBeVisible();
   await expect(page.locator(".ops-compact-table")).toContainText("Nincs beállítva");
   await expect(page.locator(".ops-center").getByText("Ragnarok")).toHaveCount(0);
   await page.locator(".ops-compact-table tbody tr").first().getByRole("button",{name:"Map megnyitása"}).click();
@@ -3604,7 +3623,7 @@ test("map-only scheduling never exposes another local map's tasks",async({page})
   await expect(page.getByRole("button",{name:"Ellenőrzés bekapcsolása"})).toBeDisabled();
 });
 
-test("real native per-map SaveWorld and Restart schedule controls require opt-in",async({page})=>{
+test("real native per-map SaveWorld and Restart schedule controls save in one deliberate click",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
@@ -3615,12 +3634,12 @@ test("real native per-map SaveWorld and Restart schedule controls require opt-in
   await expect(panel.getByText("Még nincs végrehajtási esemény ezen a mapon.")).toBeVisible();
   const save=panel.getByRole("region",{name:"SaveWorld ütemezése"});
   const restart=panel.getByRole("region",{name:"Újraindítás ütemezése"});
-  await expect(save.getByRole("button",{name:"Ütemezés mentése"})).toBeDisabled();
-  await save.getByRole("checkbox",{name:/Kifejezetten jóváhagyom/}).check();
+  await expect(save.getByRole("button",{name:"Ütemezés mentése"})).toBeEnabled();
+  await expect(save.getByRole("checkbox",{name:/Kifejezetten jóváhagyom/})).toHaveCount(0);
   await save.getByRole("button",{name:"Ütemezés mentése"}).click();
   await expect(save.getByText("Bekapcsolva")).toBeVisible();
-  await expect(restart.getByRole("button",{name:"Ütemezés mentése"})).toBeDisabled();
-  await restart.getByRole("checkbox",{name:/Kifejezetten jóváhagyom/}).check();
+  await expect(restart.getByRole("button",{name:"Ütemezés mentése"})).toBeEnabled();
+  await expect(restart.getByRole("checkbox",{name:/Kifejezetten jóváhagyom/})).toHaveCount(0);
   await restart.getByRole("button",{name:"Ütemezés mentése"}).click();
   await expect(restart.getByText("Bekapcsolva")).toBeVisible();
   await expect(panel.getByText(/Automatikus SteamCMD-frissítés nem engedélyezett/)).toBeVisible();
@@ -3632,6 +3651,39 @@ test("real native per-map SaveWorld and Restart schedule controls require opt-in
   await expect(page.locator(".ops-summary")).toContainText("Natív ASA feladat");
 });
 
+
+test("standalone wild wipe requires distinct opt-in and persists independently",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Ütemező"}).click();
+  const wipe=page.getByRole("region",{name:"Dinowipe ütemezése"});
+  const save=wipe.getByRole("button",{name:"Ütemezés mentése"});
+  await expect(save).toBeDisabled();
+  await wipe.getByRole("combobox",{name:"Dinowipe gyakoriság"}).selectOption("Once");
+  await wipe.getByRole("checkbox",{name:/Jóváhagyom a vad dinók/}).check();
+  await save.click();
+  await expect(wipe.getByText("Bekapcsolva")).toBeVisible();
+  await expect(page.getByRole("region",{name:"Újraindítás ütemezése"}).getByText("Kikapcsolva")).toBeVisible();
+});
+
+test("pinned Store-v1 one-time Restart saves exact post-ready wild wipe setting without additional approval",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {__UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void}).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"Ütemező"}).click();
+  const restart=page.getByRole("region",{name:"Újraindítás ütemezése"});
+  await restart.getByRole("combobox",{name:"Újraindítás gyakoriság"}).selectOption("Once");
+  await restart.getByRole("combobox",{name:"Egyszeri próba késleltetése"}).selectOption("1");
+  await restart.getByRole("checkbox",{name:/Újraindítás után vad dinók/}).check();
+  await restart.getByRole("spinbutton",{name:"Dinowipe késleltetése másodpercben"}).fill("60");
+  await restart.getByRole("button",{name:"Ütemezés mentése"}).click();
+  await expect(restart.getByText("Bekapcsolva")).toBeVisible();
+  await expect(restart.getByRole("combobox",{name:"Újraindítás gyakoriság"})).toHaveValue("Once");
+  await expect(restart.getByRole("checkbox",{name:/Újraindítás után vad dinók/})).toBeChecked();
+  await expect(restart.getByRole("spinbutton",{name:"Dinowipe késleltetése másodpercben"})).toHaveValue("60");
+});
 
 test("dashboard shows authenticated per-map ASA players and zero without inventing peer counts",async({page})=>{
   await page.setViewportSize({width:1600,height:900});
@@ -6625,6 +6677,12 @@ test("P0 running Store-v1 SaveWorld: owner-pinned unknown receipt can be reviewe
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Függőben / bizonytalan");
+  const headerStop=page.locator(".uk-lifecycle-btn.uk-lifecycle-stop");
+  const stop=page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"}).getByRole("button",{name:"SaveWorld + szabályos DoExit indítása"});
+  const restart=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"}).getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"});
+  await expect(headerStop).toBeDisabled();
+  await expect(stop).toBeDisabled();
+  await expect(restart).toBeDisabled();
   await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
     .toBeDisabled();
   await panel.getByRole("button",{
@@ -6641,6 +6699,10 @@ test("P0 running Store-v1 SaveWorld: owner-pinned unknown receipt can be reviewe
   // command. A new, separately clicked native preflight is now available.
   await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
     .toBeEnabled();
+  // All sibling panels re-read recovery; no navigation and no new command.
+  await expect(headerStop).toBeEnabled();
+  await expect(stop).toBeEnabled();
+  await expect(restart).toBeEnabled();
 });
 
 test("unreadable original Store SaveWorld is visible on Save and Restart without any RCON retry",async({page})=>{
@@ -7074,7 +7136,7 @@ test("stopped SteamCMD update displays exact local process and reserve evidence"
   await expect(diagnostics).toContainText("Astraeos");
   await expect(diagnostics).toContainText("Leállítás igazolva");
   await expect(diagnostics).toContainText("Szabad tárhely: 50 GiB");
-  await expect(diagnostics).toContainText("SteamCMD: Telepítve");
+  await expect(diagnostics).toContainText("SteamCMD: Helyi elérési út ellenőrizve");
   await expect(diagnostics).toContainText(
     "Közös telepítés tulajdonjoga: ellenőrzött, a helyi, leállított telepítés mapjai");
 });
@@ -7106,6 +7168,25 @@ test("cluster bulk SteamCMD queues only explicitly approved stopped local map be
     __UNTAMED_STEAM_BATCH_APPLIES__?:()=>number
   }).__UNTAMED_STEAM_BATCH_APPLIES__?.())).toBe(1);
   await expect(consent).toHaveCount(0);
+});
+
+test("missing SteamCMD path is diagnosed and configured without dispatching an ASA update",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {__UNTAMED_STEAM_PATH_MISSING__?:()=>void}).__UNTAMED_STEAM_PATH_MISSING__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await panel.getByRole("button",{name:"Elérhető ASA verzió ellenőrzése"}).click();
+  await expect(panel).toContainText("Nincs SteamCMD beállítva");
+  await panel.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  await expect(panel.getByRole("region",{name:"SteamCMD natív előfeltétel diagnosztika"})).toContainText("Nincs SteamCMD beállítva");
+  await expect(panel.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toHaveCount(0);
+  await panel.getByRole("button",{name:"SteamCMD előkészítése (Valve)"}).click();
+  await expect(panel).toContainText("SteamCMD elérési útja mentve");
+  await panel.getByRole("button",{name:"Elérhető ASA verzió ellenőrzése"}).click();
+  await expect(panel.getByRole("region",{name:"ASA Steam build összehasonlítása"})).toContainText("123457");
+  expect(await page.evaluate(()=>(window as typeof window & {__UNTAMED_SINGLE_STEAM_APPLIES__?:()=>number}).__UNTAMED_SINGLE_STEAM_APPLIES__?.())).toBe(0);
 });
 
 test("per-map Steam build check compares installed/public IDs without starting update or stopping ASA",async({page})=>{
@@ -7812,6 +7893,15 @@ test("each map Plugin Center opens only its owned local plugin folder with manua
   await expect(page.getByLabel("Pluginok forrásmapja")).toHaveText("Astraeos");
   await expect(page.getByRole("button",{name:"Pluginmappa megnyitása"})).toBeVisible();
 });
+test("plugin module observation distinguishes current ASA DLL evidence from file presence",async({page})=>{
+  await page.goto("/?fixture=loadedPluginEvidence");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
+  await expect(page.getByText("1/1 DLL megfigyelve az aktuális ASA-folyamatban")).toBeVisible();
+  await expect(page.getByText("Pluginmappa megtalálva · betöltés nem igazolt")).toHaveCount(0);
+});
+
 
 test("map detail keeps Plugin Center and ASA API controls bound to its own local map",async({page})=>{
   await page.goto("/");

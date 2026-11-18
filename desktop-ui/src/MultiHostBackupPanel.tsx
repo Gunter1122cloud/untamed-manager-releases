@@ -4,7 +4,7 @@ import {managerBridge,type MultiHostClusterBackupPreview,
   type MultiHostClusterRestorePreview,type MultiHostClusterBackupStatus,
   type MultiHostRestoreRecoveryListing,type MultiHostRestoreRecoveryPreview,
   type MultiHostCatalogPreview,type MultiHostCatalogCreated,
-  type MultiHostBackupRecoveryPreview,type MultiHostHostStagePreview} from "./bridge";
+  type MultiHostBackupRecoveryPreview,type MultiHostHostStagePreview,type MultiHostCoordinatedPreview} from "./bridge";
 
 export function MultiHostBackupPanel(){
   const [catalogPreview,setCatalogPreview]=useState<MultiHostCatalogPreview|null>(null);
@@ -14,6 +14,8 @@ export function MultiHostBackupPanel(){
   const [backupRecoveryApproved,setBackupRecoveryApproved]=useState(false);
   const [hostStagePreview,setHostStagePreview]=useState<MultiHostHostStagePreview|null>(null);
   const [hostStageApproved,setHostStageApproved]=useState(false);
+  const [coordinated,setCoordinated]=useState<MultiHostCoordinatedPreview|null>(null);
+  const [coordinatedApproved,setCoordinatedApproved]=useState(false);
   const [backupPreview,setBackupPreview]=useState<MultiHostClusterBackupPreview|null>(null);
   const [restorePreview,setRestorePreview]=useState<MultiHostClusterRestorePreview|null>(null);
   const [recoveryListing,setRecoveryListing]=useState<MultiHostRestoreRecoveryListing|null>(null);
@@ -62,6 +64,22 @@ export function MultiHostBackupPanel(){
     return ()=>{active=false;window.clearInterval(timer);};
   },[jobId,jobKind,status?.state,inspectJob]);
 
+  async function previewCoordinated(){
+    if(busy||(jobId&&status?.state!=="completed"&&status?.state!=="needsOperator"))return;
+    setBusy(true);setError("");setCoordinated(null);setCoordinatedApproved(false);
+    try{setCoordinated(await managerBridge.multiHostCoordinatedPreview());}
+    catch(e){setError("A teljes cluster offline előkészítése elutasítva: "+(e instanceof Error?e.message:"UM-COORDINATED-RESTORE"));}
+    finally{setBusy(false);}
+  }
+  async function applyCoordinated(){
+    if(busy||!coordinated||!coordinatedApproved||(jobId&&status?.state!=="completed"&&status?.state!=="needsOperator"))return;
+    const token=coordinated.token;setBusy(true);setCoordinated(null);setCoordinatedApproved(false);setError("");
+    try{const result=await managerBridge.multiHostCoordinatedApply(token);
+      if(!result.started||!result.jobId||result.productionRestoreAllowed||result.remoteHostWritten||result.originalStoreTouched)throw new Error("UM-COORDINATED-RECEIPT");
+      setJobId(result.jobId);setJobKind("hoststage");setStatus(null);setNotice("Az összes érintett host csomagja külön helyi offline könyvtárba készül. Éles cutover nincs.");}
+    catch(e){setError("A köteg indítása nem igazolt; ne ismételd meg. "+(e instanceof Error?e.message:""));}
+    finally{setBusy(false);}
+  }
   async function previewHostStage(){
     if(busy||(jobId&&status?.state!=="completed"&&status?.state!=="needsOperator"))return;
     setBusy(true);setError("");setNotice("");setHostStagePreview(null);
@@ -262,6 +280,7 @@ export function MultiHostBackupPanel(){
         onClick={()=>{void previewCatalog();}}><FolderOpen size={16}/> Teljes offline Store/transfer katalógus összeállítása</button>
       <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
         onClick={()=>{void previewBackup();}}><FolderOpen size={16}/> Offline mentés előnézete</button>
+      <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)} onClick={()=>{void previewCoordinated();}}>Összes clusterhost koordinált offline restore</button>
       <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
         onClick={()=>{void previewHostStage();}}><HardDriveDownload size={16}/>
         Helyi host teljes restore állomány előkészítése</button>
@@ -275,6 +294,13 @@ export function MultiHostBackupPanel(){
       <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
         onClick={()=>{void listRestoreRecovery();}}>TEMP restore tranzakciók keresése / rollback</button>
     </div>
+    {coordinated&&<div className="historical-preview" role="region" aria-label="Koordinált offline restore jóváhagyása">
+      <h4>Mentési batch: {coordinated.batchId} · {coordinated.maps} map · {coordinated.hosts.length} host</h4>
+      {coordinated.hosts.map(h=><p key={h.hostId}>{h.hostId} · {h.maps} map · {h.components} fájl · {MiB(h.bytes)}</p>)}
+      <p>Teljes helyi staging méret: {MiB(coordinated.bytes)}. A megosztott clusteradat minden érintett host tesztcsomagjában szerepel, nem indítható több éles Store-íróként.</p>
+      <label><input type="checkbox" checked={coordinatedApproved} disabled={busy} onChange={e=>setCoordinatedApproved(e.target.checked)}/>Jóváhagyom az összes felsorolt host offline csomagját.</label>
+      <button type="button" className="primary" disabled={busy||!coordinatedApproved||Boolean(jobId&&!finished)} onClick={()=>void applyCoordinated()}>Koordinált offline csomagok elkészítése</button>
+    </div>}
     {catalogPreview&&<div className="historical-preview" role="region" aria-label="Teljes offline Store/transfer katalógus jóváhagyása">
       <h4>Teljes másolat leltára · {catalogPreview.hosts} host, {catalogPreview.clusters} cluster</h4>
       <p>{catalogPreview.maps} map · {catalogPreview.components} fájl · {MiB(catalogPreview.bytes)}</p>

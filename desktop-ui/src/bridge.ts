@@ -52,11 +52,12 @@ export type MapMaintenanceStatus={
   storeProtected:boolean;requiresStopped:true;serverProcessModified:false;
   evidence:"PERSISTED_LOCAL_MANAGER_MAINTENANCE_ONLY";
 };
-export type NativeScheduleKind = "SaveWorld"|"Restart";
-export type NativeScheduleFrequency = "Interval"|"Daily";
+export type NativeScheduleKind = "SaveWorld"|"Restart"|"WildWipe";
+export type NativeScheduleFrequency = "Interval"|"Daily"|"Once";
 export type NativeAsaScheduleTask = {
   mapId:string;kind:NativeScheduleKind;frequency:NativeScheduleFrequency;
-  intervalMinutes:number;minuteOfDay:number;daysMask:number;
+  intervalMinutes:number;minuteOfDay:number;daysMask:number;postRestartWipe?:boolean;wipeDelaySeconds?:number;
+  timeZoneId?:string;dayMinutes?:number[]|null;onceAtUtc?:string|null;revision?:string;
   enabled:boolean;nextDueUtc:string;lastClaimedUtc:string|null;
   lastStatus:string;lastEvidence:string;
   evidence:"DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY";
@@ -76,7 +77,7 @@ export type NativeAsaScheduleStatus={
   history:NativeAsaExecutionEntry[];
   unknownRunIds:string[];blockedScope:"none"|"task"|"supervisor";
   supportedNextAction:string;
-  restartConflicts:string[];protectedStore:boolean;
+  restartConflicts:string[];protectedStore:boolean;canConfigure?:boolean;historicalSchedulingSupported?:boolean;
   autoUpdateAvailable:false;remoteExecutionAllowed:false;
 };
 export type NativeScheduleReviewPreview={
@@ -101,12 +102,21 @@ export type NativeAsaScheduleSaved={
   job:NativeAsaScheduleTask;restartConflicts:string[];
 };
 
+export type ModerationReceipt={id:string;createdUtc:string;action:string;eosId:string;reason:string;reviewAtUtc:string|null;targets:Array<{mapId:string;mapName:string;status:string}>};
+export type ModerationPreview={token:string;action:string;eosId:string;reason:string;reviewAtUtc:string|null;command:string;maps:Array<{mapId:string;mapName:string}>;remoteExecutionAllowed:false};
+export type WatchdogRecoveryMap={mapId:string;mapName:string;status:"armed"|"disarmed"|"claimed"|"awaitingReady"|"needsReview";evidence:string;lastAttemptUtc:string|null;claim:string|null;pid:number|null;loaderPid:number|null;launchMode:"asaApiLoader"|"directAsa";storeV1:boolean;stoppedSamples:number;managerRequired:true};
+export type DiscordNotificationStatus={configured:boolean;categories:string[];warningsOnly:boolean;lastStatus:string;lastAttemptUtc:string|null;cooldownUntilUtc:string};
+export type LifecycleBatchAction="start"|"stop"|"restart";
+export type LifecycleBatchPreview={token:string;action:LifecycleBatchAction;delaySeconds:number;maps:Array<{mapId:string;mapName:string}>;remoteExecutionAllowed:false};
+export type LifecycleBatchReceipt={jobId:string;action:LifecycleBatchAction;state:"running"|"completed"|"needsReview"|"reviewed";createdUtc:string;updatedUtc:string;
+  targets:Array<{mapId:string;mapName:string;state:string;evidence:string;nativeJobId?:string|null}>};
 export type OperationsMap = {
   mapId:string; mapName:string; running:boolean; confirmedStopped:boolean;
   status:string; pid:number|null; startedUtc:string|null; uptimeSeconds:number|null;
   memoryMiB:number|null; memoryVerified:boolean; maintenance:boolean;
   storeProtected:boolean; gamePort:number; queryPort:number; rconConfigured:boolean;
   rconPort:number|null; autoStartConfigured:boolean; lifecycleActionsVerified:false;
+  watchdogStatus?:string|null;watchdogObservedUtc?:string|null;
   evidence:string;
 };
 export type OperationsSchedule = {
@@ -122,6 +132,7 @@ export type OperationsSnapshot = {
   hostName:string; observedUtc:string; maps:OperationsMap[];
   schedules:OperationsSchedule[]; schedulingIsReadOnly:true;
   scheduleReceipts?:OperationsReceipt[];supervisorState?:string;
+  watchdogActive?:boolean;watchdogObservedUtc?:string|null;
   totalMaps:number;pageOffset:number;pageLimit:number;
   nextOffset:number|null;snapshotKey:string;
   remoteCommandsAllowed:false; evidence:string;
@@ -371,8 +382,11 @@ export type PluginInventory = {
   mapId: string;
   mapName: string;
   evidence: "READ_ONLY_LOCAL_FILE_INVENTORY";
+  moduleObservation?:"unverified"|"observed-current-asa-process";
+  moduleObservedUtc?:string|null;apiLogInitialized?:true|null;
   plugins: Array<{ name: string; protectedData: boolean;
-    binaries: Array<{ name: string; version: string; bytes: number }> }>;
+    configStatus?:"valid-json"|"invalid-json"|"missing"|"protected"|"unverified";
+    binaries: Array<{ name: string; version: string; bytes: number; sha256?:string;loadedModuleObserved?:boolean }> }>;
 };
 
 export type EmbeddedStoreArchiveMap = {
@@ -651,6 +665,7 @@ export type StoppedSteamDiagnostics = {
     pid:number|null;loaderPid:number|null;reason:string}>;
   overlaps:Array<{mapName:string;installRoot:string}>;
   steamCmdFound:boolean;steamCmdConfigured:boolean;
+  steamCmdError?:string|null;asaBinaryRegistered?:boolean;
   availableBytes:number;requiredBytes:number;
   journalBlocked:boolean;historicalBlocked:boolean;safeInstallation:boolean;
   canPreview:boolean;
@@ -681,6 +696,7 @@ export type StoppedSteamStatus = {
 };
 export type StoppedSteamBatchPreview = {
   token:string;requestedMaps:number;installations:number;
+  useSharedPayloadCache?:boolean;cacheMinimumStagingBytes?:number;
   details:Array<{mapId:string;mapName:string;installedBuild:string;
     sharedMapCount:number;availableBytes:number;requiredReserveBytes:number}>;
   requiresTypedApproval:true;serverStopRequested:false;
@@ -775,7 +791,7 @@ export type RconPlayers = {
 
 export type UpdatePrepared = {
   token:string;version:string;tag:string;assetName:string;
-  sha256:string;fileBytes:number;verified:true;
+  sha256:string;fileBytes:number;verified:true;publisherPinVerified?:boolean;
   requiresFinalApproval:true;updaterPackaged:true;
   automaticInstallationStarted:false;
   evidence:"OBSIDIAN_INSTALLER_SHA256_STAGED_ONLY";
@@ -805,7 +821,7 @@ export type ScheduledStoppedBackupState={
   mapId:string;mapName:string;enabled:boolean;
   intervalMinutes:number|null;nextDueUtc:string|null;
   lastAttemptUtc:string|null;lastStatus:string;lastPoint:string|null;
-  runnerState:string;storeProtected:boolean;
+  runnerState:string;storeProtected:boolean;canSchedule?:boolean;fullLocal?:boolean;
   automaticRestoreAllowed:false;automaticServerStopAllowed:false;
   evidence:"PERSISTED_OPT_IN_STOPPED_NONSTORE_WORLD_BACKUPS";
 };
@@ -1573,6 +1589,7 @@ export type MultiHostBackupRecoveryStarted = {
   productionRestoreAllowed:false;rconUsed:false;serverProcessTouched:false;
   evidence:"OPERATOR_APPROVED_EXISTING_MULTIHOST_ARCHIVE_REBUILD";
 };
+export type MultiHostCoordinatedPreview={token:string;batchId:string;maps:number;clusters:number;bytes:number;hosts:Array<{hostId:string;maps:number;components:number;bytes:number}>;productionRestoreAllowed:false;remoteHostWritten:false};
 export type MultiHostHostStagePreview = {
   token:string;hostId:string;batchId:string;maps:number;
   clusters:number;components:number;bytes:number;stageDirectoryName:string;
@@ -1708,7 +1725,11 @@ export type ConfiguredMods = {
 };
 
 type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
-  "operations.scheduleCreate" | "operations.scheduleDisable" |
+  "operations.scheduleCreate" | "operations.scheduleDisable" | "operations.watchdogStart" |
+  "notifications.status" | "notifications.save" | "notifications.clear" | "notifications.test" |
+  "recovery.status" | "recovery.arm" | "recovery.disarm" |
+  "moderation.history" | "moderation.preview" | "moderation.apply" |
+  "operations.lifecycleBatchPreview" | "operations.lifecycleBatchApply" | "operations.lifecycleBatchCurrent" | "operations.lifecycleBatchReview" |
   "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" |
   "schedule.nativeReviewPreview" | "schedule.nativeReviewApply" |
   "schedule.nativeResume" |
@@ -1720,6 +1741,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "mods.copyPreview" | "mods.copyApply" |
   "mods.profileExport" | "mods.profileImportPreview" | "mods.profileImportApply" |
   "cluster.offlinePreview" | "cluster.offlineApply" | "cluster.offlineStatus" |
+  "cluster.multiHostCoordinatedPreview" | "cluster.multiHostCoordinatedApply" |
   "cluster.multiHostHostStagePreview" | "cluster.multiHostHostStageApply" |
   "cluster.multiHostHostStageStatus" |
   "cluster.multiHostBackupRecoveryPreview" | "cluster.multiHostBackupRecoveryApply" |
@@ -1746,7 +1768,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.gracefulStopCurrent" | "servers.gracefulStopReview" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" |
   "servers.restartReviewPreview" | "servers.restartReviewApply" |
   "servers.freshReadiness" | "servers.lifecycleJournal" |
-  "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
+  "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.selectExecutable" | "steam.prepareExecutable" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "servers.apiModeStatus" |
   "servers.apiModePreview" | "servers.apiModeApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
@@ -1776,6 +1798,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
+  "backup.fullLocalCreate" | "backup.fullLocalHistory" | "backup.fullLocalStage" |
+  "backup.retentionPreview" | "backup.retentionProtect" | "backup.retentionQuarantine" | "backup.retentionReturn" |
   "backup.originalBatchPreview" | "backup.originalBatchCreate" | "backup.originalBatchStatus" | "backup.originalBatchJournalRepairPreview" | "backup.originalBatchJournalRepairApply" |
   "backup.restorePreview" | "backup.restore" |
   "backup.scheduleStatus" | "backup.scheduleCreate" | "backup.scheduleDisable" |
@@ -1785,6 +1809,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   peerAction?:"upsert"|"remove";
   mapId?: string; useApi?:boolean; term?: string; page?: number; credential?: string;
+  categories?:string[];warningsOnly?:boolean;eosId?:string;reviewHours?:number;reason?:string;
   offset?:number;limit?:number;snapshotKey?:string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode | ModCopyMode;
   position?: number; sourceMapId?:string;targets?:string[]; expectedPeerHostId?:string;
@@ -1793,11 +1818,12 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   pid?:number; startedUtc?:string;
   categoryId?: number; sort?: number; descending?: boolean;
   mapName?: string; installRoot?: string; steamExe?: string;
-  allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
+  allowSteamCmdDownload?: boolean; explicitRetry?: boolean;useSharedPayloadCache?:boolean;
    confirm?: boolean; ackUnknownOutcome?:boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; runId?:string; journalId?:string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
-  intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;
+  intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;postRestartWipe?:boolean;wipeDelaySeconds?:number;delaySeconds?:number;
+  timeZoneId?:string;dayMinutes?:number[];onceAtLocal?:string;
   gamePort?: number; queryPort?: number; customLevel?: string; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
@@ -1809,7 +1835,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   sourceMap?: string;destinationMap?: string; profileId?: string;
   hostId?:string;hostName?:string;mapIds?:string[];
   clusterId?:string;transferDirectory?:string;transferRoot?:string;
-  backupDirectory?:string };
+  backupDirectory?:string; fullLocal?:boolean; keepLatest?:number; protect?:boolean };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -1831,12 +1857,16 @@ const pending = new Map<string, {
 const webview = window.chrome?.webview;
 
 function timeoutFor(method: WireRequest["method"]): number {
+  if (method === "steam.prepareExecutable") return 6 * 60_000; // bounded Valve toolkit download
   if (method === "updates.prepare") return 10 * 60_000; // verified GitHub installer download
   if (method === "store.inspectArchive" || method === "store.compareArchives" ||
       method === "store.inspectCopy" || method === "historical.localParity" ||
       method === "historical.pairedEvidence" || method === "backup.create" ||
-      method === "backup.restore" ||
-      method === "backup.originalBatchCreate") return 60 * 60_000; // bounded large-file workflows
+      method === "backup.restore" || method === "cluster.multiHostCoordinatedPreview" ||
+      method === "backup.originalBatchCreate" || method === "backup.fullLocalCreate" ||
+      method === "backup.fullLocalHistory" || method === "backup.fullLocalStage" ||
+      method === "backup.retentionPreview" || method === "backup.retentionProtect" ||
+      method === "backup.retentionQuarantine" || method === "backup.retentionReturn") return 60 * 60_000; // bounded large-file workflows
   return 120_000;
 }
 
@@ -1901,6 +1931,22 @@ export const managerBridge = {
     request<LanPhysicalStoreProbe>("lan.physicalStoreProbe"),
   lanHistoricalSaveProbe: () =>
     request<LanHistoricalSaveProbe>("lan.historicalSaveProbe"),
+  moderationHistory:()=>request<{rows:ModerationReceipt[];gameBanStateVerified:false}>("moderation.history"),
+  moderationPreview:(mapIds:string[],action:string,eosId:string,reason:string,reviewHours:number)=>request<ModerationPreview>("moderation.preview",{mapIds,action,eosId,reason,reviewHours}),
+  moderationApply:(token:string,typedApproval:string)=>request<ModerationReceipt>("moderation.apply",{token,typedApproval,confirm:true}),
+  recoveryStatus:()=>request<{running:boolean;maps:WatchdogRecoveryMap[]}>("recovery.status"),
+  recoveryArm:(mapId:string)=>request<WatchdogRecoveryMap>("recovery.arm",{mapId,confirm:true}),
+  recoveryDisarm:(mapId:string)=>request<WatchdogRecoveryMap>("recovery.disarm",{mapId,confirm:true}),
+  notificationsStatus:()=>request<DiscordNotificationStatus>("notifications.status"),
+  notificationsSave:(credential:string,categories:string[],warningsOnly:boolean)=>request<DiscordNotificationStatus>("notifications.save",{credential,categories,warningsOnly,confirm:true}),
+  notificationsClear:()=>request<DiscordNotificationStatus>("notifications.clear",{confirm:true}),
+  notificationsTest:()=>request<DiscordNotificationStatus>("notifications.test",{confirm:true}),
+  operationsWatchdogStart:()=>request<{pid:number;requested:true;evidence:"LOCAL_WATCHDOG_PROCESS_REQUESTED"}>("operations.watchdogStart",{confirm:true}),
+  lifecycleBatchPreview:(mapIds:string[],action:LifecycleBatchAction,delaySeconds:number)=>
+    request<LifecycleBatchPreview>("operations.lifecycleBatchPreview",{mapIds,action,delaySeconds}),
+  lifecycleBatchApply:(token:string)=>request<LifecycleBatchReceipt>("operations.lifecycleBatchApply",{token,confirm:true}),
+  lifecycleBatchCurrent:()=>request<{receipt:LifecycleBatchReceipt|null;remoteExecutionAllowed:false}>("operations.lifecycleBatchCurrent"),
+  lifecycleBatchReview:(jobId:string)=>request<LifecycleBatchReceipt>("operations.lifecycleBatchReview",{jobId,confirm:true}),
   operationsSnapshot: () => request<OperationsSnapshot>("operations.snapshot"),
   operationsSnapshotAll: async ():Promise<OperationsSnapshot> => {
     // Gather every bounded native page. A registry change between RPCs
@@ -2015,6 +2061,8 @@ export const managerBridge = {
     request<StoppedSteamDiagnostics>("steam.stoppedDiagnostics",{mapId}),
   steamStoppedPreview: (mapId:string) =>
     request<StoppedSteamPreview>("steam.stoppedPreview",{mapId}),
+  steamPrepareExecutable: () => request<{cancelled:boolean;configured:boolean;updateStarted:false;serverStopped:false}>("steam.prepareExecutable"),
+  steamSelectExecutable: () => request<{cancelled:boolean;configured:boolean;updateStarted:false;serverStopped:false}>("steam.selectExecutable"),
   steamPublishedBuild: (mapId:string) =>
     request<SteamPublishedBuild>("steam.publishedBuild",{mapId}),
   steamStoppedApply: (token:string) =>
@@ -2023,8 +2071,8 @@ export const managerBridge = {
     request<StoppedSteamStatus>("steam.stoppedStatus",{jobId}),
   steamBatchCurrent: () =>
     request<StoppedSteamBatchCurrent>("steam.batchCurrent"),
-  steamBatchPreview: (mapIds:string[]) =>
-    request<StoppedSteamBatchPreview>("steam.batchPreview",{mapIds}),
+  steamBatchPreview: (mapIds:string[],useSharedPayloadCache=false) =>
+    request<StoppedSteamBatchPreview>("steam.batchPreview",{mapIds,useSharedPayloadCache}),
   steamBatchApply: (token:string,typedApproval:string) =>
     request<{jobId:string;started:true;serverStopRequested:false;
       remoteHostTouched:false;storeWriterTouched:false;
@@ -2106,9 +2154,10 @@ export const managerBridge = {
     request<NativeScheduleResumeReceipt>("schedule.nativeResume",{mapId,confirm:true}),
   nativeScheduleSet: (mapId:string,kind:NativeScheduleKind,
       frequency:NativeScheduleFrequency,intervalMinutes:number,
-      minuteOfDay:number,daysMask:number) =>
+      minuteOfDay:number,daysMask:number,postRestartWipe=false,wipeDelaySeconds=0,
+      timeZoneId="Europe/Budapest",dayMinutes?:number[],onceAtLocal?:string) =>
     request<NativeAsaScheduleSaved>("schedule.nativeSet",{
-      mapId,kind,frequency,intervalMinutes,minuteOfDay,daysMask,confirm:true
+      mapId,kind,frequency,intervalMinutes,minuteOfDay,daysMask,postRestartWipe,wipeDelaySeconds,timeZoneId,dayMinutes,onceAtLocal,confirm:true
     }),
   nativeScheduleDisable: (mapId:string,kind:NativeScheduleKind) =>
     request<NativeAsaScheduleTask>("schedule.nativeDisable",{
@@ -2116,10 +2165,16 @@ export const managerBridge = {
     }),
   backupScheduleStatus: (mapId:string) =>
     request<ScheduledStoppedBackupState>("backup.scheduleStatus",{mapId}),
-  backupScheduleCreate: (mapId:string,intervalMinutes:number) =>
-    request<ScheduledStoppedBackupState>("backup.scheduleCreate",{mapId,intervalMinutes,confirm:true}),
+  backupScheduleCreate: (mapId:string,intervalMinutes:number,fullLocal=false) =>
+    request<ScheduledStoppedBackupState>("backup.scheduleCreate",{mapId,intervalMinutes,confirm:true,fullLocal}),
   backupScheduleDisable: (mapId:string) =>
     request<ScheduledStoppedBackupState>("backup.scheduleDisable",{mapId,confirm:true}),
+  backupRetentionPreview:(mapId:string,keepLatest:number)=>request<{mapId:string;keepLatest:number;points:Array<{point:string;eligible:boolean;protected:boolean;verified:boolean;createdUtc:string;bytes:number;reason:string}>;quarantine:Array<{point:string;status:string}>;evidence:"VERIFIED_MANAGED_BACKUP_RETENTION_PREVIEW"}>("backup.retentionPreview",{mapId,keepLatest}),
+  backupRetentionAction:(mapId:string,keepLatest:number,kind:"Protect"|"Quarantine"|"Return",point:string,protect?:boolean)=>
+    request<{mapId:string;point:string;completed:true;evidence:"MANAGED_BACKUP_CATALOG_ONLY"}>(kind==="Protect"?"backup.retentionProtect":kind==="Quarantine"?"backup.retentionQuarantine":"backup.retentionReturn",{mapId,keepLatest,point,protect,confirm:true}),
+  backupFullLocalHistory:(mapId:string)=>request<{mapId:string;points:Array<{point:string;files:number;bytes:number;createdUtc:string}>;evidence:"VERIFIED_LOCAL_INSTALLATION_FILE_ARCHIVES"}>("backup.fullLocalHistory",{mapId}),
+  backupFullLocalCreate:(mapId:string)=>request<{mapId:string;point:string;files:number;bytes:number;createdUtc:string;sharedTransferIncluded:false;databaseConsistencyCertified:false;evidence:"VERIFIED_STOPPED_LOCAL_INSTALLATION_FILES"}>("backup.fullLocalCreate",{mapId,confirm:true}),
+  backupFullLocalStage:(mapId:string,point:string)=>request<{mapId:string;point:string;relativeFolder:string;files:number;bytes:number;productionRestoreAllowed:false;evidence:"VERIFIED_NEW_LOCAL_RESTORE_FOLDER_NO_LIVE_REPLACEMENT"}>("backup.fullLocalStage",{mapId,point,confirm:true}),
   backupHistory: (mapId:string) =>
     request<WorldBackupHistory>("backup.history",{mapId}),
   backupPreview: (mapId:string) =>
@@ -2174,6 +2229,8 @@ export const managerBridge = {
     request<OfflineAsaArchiveStarted>("cluster.offlineApply",{token,confirm:true}),
   offlineArchiveStatus: (jobId:string) =>
     request<OfflineAsaArchiveStatus>("cluster.offlineStatus",{jobId}),
+  multiHostCoordinatedPreview:()=>request<MultiHostCoordinatedPreview>("cluster.multiHostCoordinatedPreview"),
+  multiHostCoordinatedApply:(token:string)=>request<{jobId:string;started:true;productionRestoreAllowed:false;remoteHostWritten:false;originalStoreTouched:false}>("cluster.multiHostCoordinatedApply",{token,confirm:true,typedApproval:"CLUSTER RESTORE TEST"}),
   multiHostHostStagePreview: () =>
     request<MultiHostHostStagePreview>("cluster.multiHostHostStagePreview"),
   multiHostHostStageApply: (token:string,typedApproval:string) =>

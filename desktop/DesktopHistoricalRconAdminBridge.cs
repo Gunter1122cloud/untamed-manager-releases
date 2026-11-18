@@ -127,8 +127,23 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
         return proof;
     }
 
-    public async Task<string> HandleAsync(string raw)
+    public Task<string> HandleAsync(string raw)=>HandleCoreAsync(raw,null,null);
+    // Native scheduler only; the expected post-restart identity never comes from WebView.
+    internal Task<string> HandleScheduledWipeAsync(string raw,int pid,DateTimeOffset startedUtc)
     {
+        if(pid<=0||startedUtc==default)throw new InvalidDataException("UM-SCHEDULE-WIPE-IDENTITY");
+        return HandleCoreAsync(raw,pid,startedUtc);
+    }
+    private async Task<string> HandleCoreAsync(string raw,int? expectedPid,DateTimeOffset? expectedStartedUtc)
+    {
+        void DemandScheduledIdentity(LegacyStoreV1GracefulStop.Owned proof)
+        {
+            if(expectedPid.HasValue&&(proof.Process.Pid!=expectedPid.Value||
+               proof.Process.StartedUtc!=expectedStartedUtc||
+               LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(proof)!=null))
+                throw new InvalidOperationException("UM-SCHEDULE-WIPE-NEW-ASA-NOT-READY");
+        }
+
         string? id=null;
         try
         {
@@ -158,8 +173,10 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                        m.ValueKind!=JsonValueKind.String)
                         return Fail(id,"UM-ORIGINAL-ADMIN-INVALID-SELECTION");
                     string action=a.GetString()??"";
+                    if(expectedPid.HasValue&&action!="wildWipe")return Fail(id,"UM-SCHEDULE-WIPE-ACTION");
                     string command=Command(action,m.GetString()??"");
                     var proof=await Task.Run(()=>Require(mapId));
+                    DemandScheduledIdentity(proof);
                     // Capacity must fail closed without revoking approvals belonging to other maps.
                     // Failed previews leave the prior short-lived token intact;
                     // a valid same-map replacement reuses its existing slot.
@@ -186,6 +203,8 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                    !pendingByMap.Values.Any(p=>p.Token==token))
                     return Fail(id,"UM-ORIGINAL-ADMIN-APPROVAL");
                 var approved=pendingByMap.Values.Single(p=>p.Token==token);
+                if(expectedPid.HasValue&&(approved.Action!="wildWipe"||approved.Pid!=expectedPid.Value||approved.StartedUtc!=expectedStartedUtc))
+                    return Fail(id,"UM-SCHEDULE-WIPE-IDENTITY");
                 pendingByMap.Remove(approved.MapId); // No replay on wrong typed approval.
                 if(approved.Expires<DateTimeOffset.UtcNow||
                    !root.TryGetProperty("typedApproval",out var typed)||
@@ -193,6 +212,7 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                    typed.GetString()!=ApprovalWord(approved.Action))
                     return Fail(id,"UM-ORIGINAL-ADMIN-TYPED-APPROVAL");
                 var first=await Task.Run(()=>Require(approved.MapId));
+                DemandScheduledIdentity(first);
                 if(!Identical(first.Process,new ProcessIdentity{
                     Pid=approved.Pid,StartedUtc=approved.StartedUtc,
                     ExecutablePath=first.Process.ExecutablePath})||
@@ -218,6 +238,7 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                         .DemandNoPending();
                     DemandNoConcurrentSave(approved.MapId);
                     var now=inspect(approved.MapId);
+                    DemandScheduledIdentity(now);
                     if(!ReferenceEquals(now.Map,locked.Map)||
                        !Identical(now.Process,locked.Process)||
                        now.SourceSha!=locked.SourceSha||

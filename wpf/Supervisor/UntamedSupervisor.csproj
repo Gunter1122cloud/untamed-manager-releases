@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AssemblyName>UntamedSupervisor</AssemblyName></PropertyGroup>
-  <ItemGroup><Compile Include="../Core/*.cs" Link="Core/%(Filename)%(Extension)" />
+  <ItemGroup><Compile Include="../Core/*.cs" Exclude="../Core/MariaDb*.cs;../Core/OfflineSqlArchive.cs;../Core/OfflineClusterBackup.cs;../Core/ClusterRestoreCoordinator.cs;../Core/DemoWorkspace.cs;../Core/IsolatedFakeAsaSession.cs;../Core/IntegrationTestAccess.cs;../Core/SyntheticRestore.cs;../Core/SteamCmdTestRunner.cs;../Core/RecoverySimulation.cs;../Core/VaultFixtureAudit.cs" Link="Core/%(Filename)%(Extension)" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <EmbeddedResource Include="../../docs/development/WORK-LEDGER.json" LogicalName="UntamedManager.WorkLedger.json" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
     <PackageReference Include="System.Management" Version="10.0.0" />

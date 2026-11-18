@@ -1,3 +1,4 @@
+import {useMapEvidenceRefresh} from "./useMapEvidenceRefresh";
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,Play,Shield} from "lucide-react";
 import {managerBridge,type HistoricalActiveStartPreview,
@@ -15,8 +16,8 @@ const acceptedHistoricalStarts=new Set<string>();
 const uncertainHistoricalStarts=new Set<string>();
 const uncertainHistoricalModes=new Set<string>();
 
-export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
-  mapId:string;rconAttached:boolean;onStarted:()=>Promise<void>
+export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted,refreshRevision=0}:{
+  mapId:string;rconAttached:boolean;onStarted:()=>Promise<void>;refreshRevision?:number
 }){
   const [state,setState]=useState<HistoricalActiveStartStatus|null>(null);
   const startInFlight=useRef(false);
@@ -51,8 +52,8 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
     return ()=>{active=false;controlGeneration.current++;};
   },[mapId,rconAttached]);
   // Read-only refresh: never starts/stops the ASA or sends RCON bytes.
-  const refreshRuntimeEvidence=async()=>{
-    if(busy||startInFlight.current)return;
+  const refreshRuntimeEvidence=async(automatic=false)=>{
+    if(busy||startInFlight.current||modeInFlight.current)return;
     const requested=mapId,generation=actionGeneration.current;
     setBusy(true);
     try{
@@ -61,19 +62,23 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         throw new Error("UM-STORE-START-STATUS-OTHER-MAP");
       if(belongs(requested,generation)){
         setState(fresh);
-        if(fresh.confirmedStopped&&!fresh.running&&!fresh.loaderPid){
+        if(fresh.confirmedStopped&&!fresh.running&&!fresh.loaderPid&&
+           (!automatic||(!startUncertain&&!modeUncertain&&!!(state?.running||state?.loaderPid)))){
           acceptedHistoricalStarts.delete(requested);
           uncertainHistoricalStarts.delete(requested);
           uncertainHistoricalModes.delete(requested);
           setStartAccepted(false);setStartUncertain(false);
           setModeUncertain(false);
         }
+        if(!automatic)setError("");
       }
     }catch{
-      if(belongs(requested,generation))
-        setError("Az ASA API / Loader állapot csak olvasó vizsgálata nem sikerült; szervervezérlés nem történt.");
+      if(belongs(requested,generation)){
+        setState(null);
+        setError("Az ASA API / Loader állapot csak olvasó vizsgálata nem sikerült; szervervezérlés nem történt.");}
     }finally{if(belongs(requested,generation))setBusy(false);}
   };
+  useMapEvidenceRefresh(refreshRevision,busy||startInFlight.current||modeInFlight.current,()=>refreshRuntimeEvidence(true));
   const changeMode=async(useApi=state?.requestedMode!=="asaApiLoader")=>{
     if(!state?.confirmedStopped||busy||startInFlight.current||
        modeInFlight.current||startAccepted||startUncertain||modeUncertain)return;
@@ -271,7 +276,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
     aria-label="Történeti Store-v1 ASA indítás">
     <div className="panel-head">
       <h2><Play size={18}/> Eredeti Store-v1 szerver indítása</h2>
-      <span className="mod-tag amber"><LockKeyhole size={13}/> Meglévő ACTIVE session</span>
+      <span className="mod-tag amber"><LockKeyhole size={13}/> Megőrzött Store-v1</span>
     </div>
     <div className="panel-inner">
       <p className="muted small">Az eredeti Store-v1 mapot megőrzött adatformátummal

@@ -69,7 +69,7 @@ internal static class NativeWebViewDispatchContractTests
         string workflow=Read(".github/workflows/build-obsidian-desktop.yml");
         foreach(var watched in new[]{
             "desktop/**","desktop-ui/**","wpf/Core/**",
-            "wpf/Updater/**","wpf/Testing/**","wpf/Assets/**"})
+            "wpf/Updater/**","wpf/Supervisor/**","wpf/Testing/**","wpf/Assets/**"})
         {
             int occurrences=Regex.Matches(workflow,
                 Regex.Escape("\""+watched+"\"")).Count;
@@ -165,6 +165,14 @@ internal static class NativeWebViewDispatchContractTests
             .Cast<Match>().ToDictionary(
                 m=>m.Groups["flag"].Value,
                 m=>m.Groups["field"].Value,StringComparer.Ordinal);
+        // Update install has an additional native schedule-freeze wrapper.
+        // Audit both explicit targets rather than excluding this routing group.
+        Check(host.Contains("updateInstallRoute ? (methodName==\"updates.install\"?await InstallManagerWithFrozenSchedulesAsync(incoming):await _updateInstall.HandleAsync(incoming))",StringComparison.Ordinal)&&
+              host.Contains("string response=await _updateInstall.HandleAsync(raw);",StringComparison.Ordinal)&&
+              host.Contains("_nativeSchedules.TryFreezeForManagerUpdate()",StringComparison.Ordinal)&&
+              host.Contains("_scheduledBackups.TryFreezeForManagerUpdate()",StringComparison.Ordinal),
+            "update route preserves both native dispatch and scheduler freeze");
+        targets["updateInstallRoute"]="updateInstall";
         var groups=Regex.Matches(routeSource,
             @"(?<flag>\w+Route)\s*=\s*name\s+is(?<body>.*?);",
             RegexOptions.Singleline).Cast<Match>().ToArray();

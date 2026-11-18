@@ -49,16 +49,26 @@ public static class UpdateCenter
     {
         if(!Uri.TryCreate(release.AssetUrl,UriKind.Absolute,out var uri) || uri.Scheme!="https" ||
            uri.Host!="github.com")throw new InvalidDataException("Update must originate from GitHub HTTPS");
+        if(string.IsNullOrWhiteSpace(release.AssetName)||Path.GetFileName(release.AssetName)!=release.AssetName||
+           release.AssetName.IndexOfAny(Path.GetInvalidFileNameChars())>=0||release.AssetName is "." or "..")
+            throw new InvalidDataException("Invalid update asset name");
+        if(release.Sha256.Length!=64||!release.Sha256.All(Uri.IsHexDigit))
+            throw new InvalidDataException("Invalid release digest");
+        destinationDirectory=Path.GetFullPath(destinationDirectory);
+        for(var dir=new DirectoryInfo(destinationDirectory);dir!=null;dir=dir.Parent)
+            if(dir.Exists&&(dir.Attributes&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("Linked update staging directory refused");
         Directory.CreateDirectory(destinationDirectory);
         string final=Path.Combine(destinationDirectory,release.AssetName);
-        string temp=final+".download";
+        string temp=final+"."+Guid.NewGuid().ToString("N")+".part";
         try
         {
             using var response=await Client.GetAsync(uri,HttpCompletionOption.ResponseHeadersRead,cancellationToken);
             response.EnsureSuccessStatusCode();
             long? size=response.Content.Headers.ContentLength;
+            if(size is <=0 or >700_000_000)throw new InvalidDataException("Invalid installer content length");
             using var source=await response.Content.ReadAsStreamAsync(cancellationToken);
-            await using(var output=new FileStream(temp,FileMode.Create,FileAccess.Write,FileShare.None,65536,true))
+            await using(var output=new FileStream(temp,FileMode.CreateNew,FileAccess.Write,FileShare.None,65536,true))
             {
                 byte[] buffer=new byte[65536];
                 long received=0;
@@ -69,6 +79,8 @@ public static class UpdateCenter
                     received+=count;progress?.Report((received,size));
                     if(received>700_000_000)throw new InvalidDataException("Installer exceeds size limit");
                 }
+                if(received<=0||(size.HasValue&&received!=size.Value))throw new InvalidDataException("Incomplete installer download");
+                await output.FlushAsync(cancellationToken);output.Flush(true);
             }
             await using(var stream=new FileStream(temp,FileMode.Open,FileAccess.Read,FileShare.Read,65536,true))
             {
@@ -77,6 +89,9 @@ public static class UpdateCenter
                     Convert.FromHexString(actual),Convert.FromHexString(release.Sha256)))
                     throw new InvalidDataException("GitHub SHA-256 digest mismatch. Update cancelled.");
             }
+            cancellationToken.ThrowIfCancellationRequested();
+            if(File.Exists(final)&&(File.GetAttributes(final)&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("Linked installed staging file refused");
             File.Move(temp,final,true);return final;
         }
         finally {try{if(File.Exists(temp))File.Delete(temp);}catch{}}
@@ -84,17 +99,7 @@ public static class UpdateCenter
     public static void CheckAuthenticodePublisher(string path,string configuredThumbprint)
     {
         if(string.IsNullOrWhiteSpace(configuredThumbprint))return;
-        // A configured publisher is pinned; an unsigned or different signer is rejected.
-        using var certificate=new X509Certificate2(X509Certificate.CreateFromSignedFile(path));
-        string actual=certificate.Thumbprint.Replace(" ","",StringComparison.Ordinal).ToUpperInvariant();
-        string expected=configuredThumbprint.Replace(" ","",StringComparison.Ordinal).ToUpperInvariant();
-        if(!CryptographicOperations.FixedTimeEquals(
-            Encoding.ASCII.GetBytes(actual),Encoding.ASCII.GetBytes(expected)))
-            throw new InvalidDataException("Installer publisher certificate does not match the pinned identity");
-        using var chain=new X509Chain();
-        chain.ChainPolicy.RevocationMode=X509RevocationMode.Online;
-        if(!chain.Build(certificate))
-            throw new InvalidDataException("Installer signing certificate chain validation failed");
+        AuthenticodePublisher.Verify(path,configuredThumbprint);
     }
     public static string StageUpdater(string installedHelperPath)
     {

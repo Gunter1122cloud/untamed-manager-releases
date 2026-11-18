@@ -110,7 +110,7 @@ public static class MultiHostHostRestoreStaging
             StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("UM-HOSTRESTORE-HOST-WITHOUT-MAPS");
     }
-    private static MultiHostBackupComponent[] SelectHost(
+    internal static MultiHostBackupComponent[] SelectHost(
         MultiHostRestoreSandboxManifest manifest,string hostId)
     {
         var clusters=manifest.Maps.Where(m=>m.HostId.Equals(hostId,

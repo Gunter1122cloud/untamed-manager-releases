@@ -14,6 +14,7 @@ const pageSize=25;
  */
 export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
   const [selected,setSelected]=useState<string[]>([]);
+  const [useCache,setUseCache]=useState(false);
   const [query,setQuery]=useState("");
   const [page,setPage]=useState(0);
   const [preview,setPreview]=useState<StoppedSteamBatchPreview|null>(null);
@@ -112,7 +113,9 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
     if(unavailable||selected.length===0||blocked)return;
     setBusy(true);invalidate();
     try{
-      setPreview(await managerBridge.steamBatchPreview(selected));
+      const approved=await managerBridge.steamBatchPreview(selected,useCache);
+      if(Boolean(approved.useSharedPayloadCache)!==useCache)throw new Error("UM-STEAM-CACHE-PREVIEW-MISMATCH");
+      setPreview(approved);
     }catch(e){
       setError("A natív előellenőrzés elutasította a műveletet ("+
         (e instanceof Error?e.message:"UM-STEAM-BATCH-PREFLIGHT")+"). Egyik map sem módosult.");
@@ -157,6 +160,8 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
         Azonos ASA telepítés csak egyszer frissül,
         natív mentéssel és műveleti naplóval. Futó szervert sosem állít le;
         sikertelen vagy félbeszakadt műveletet nem ismétel automatikusan.</p>
+      <label><input type="checkbox" checked={useCache} disabled={unavailable||blocked} onChange={e=>{setUseCache(e.target.checked);invalidate();}}/> Közös helyi SteamCMD build-cache használata</label>
+      <p className="muted small">Első letöltés külön tiszta staging telepítésbe (cache missnél legalább 100 GiB szabad hely szükséges a Manager profilmeghajtóján). Az ellenőrzött publikus Windows buildből csak a fő ASA bináris és az alapcsomagok kerülnek át; minden célon SteamCMD validate fut. Teljes bináris rollback nincs igazolva.</p>
       <label>Helyi célmapok keresése
         <input aria-label="Soros SteamCMD célmap keresése" type="search"
           disabled={unavailable} value={query} placeholder="Mapnév vagy azonosító"
@@ -195,6 +200,7 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
       {preview&&<div className="historical-preview" role="region"
         aria-label="Soros SteamCMD jóváhagyása">
         <h3>{preview.requestedMaps} map, {preview.installations} külön ASA telepítés</h3>
+        <p>Megosztott build-cache: {preview.useSharedPayloadCache?"engedélyezve":"kikapcsolva"}</p>
         {preview.details.map(entry=><p className="muted small" key={entry.mapId}>
           {entry.mapName} · Steam build {entry.installedBuild} ·
           {entry.sharedMapCount} közös map

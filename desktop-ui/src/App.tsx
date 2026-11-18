@@ -1052,14 +1052,28 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
       <p className="muted small">Az adott map tényleges
         ShooterGame/Binaries/Win64/ArkApi/Plugins mappája nyílik meg.
         Működő szervernél sem indít, állít le, indít újra vagy küld RCON-parancsot.</p>
+      {info&&<p className="muted small" role="status">ASA API inicializálási napló:
+        {" "+(info.apiLogInitialized?"Aktuális folyamatnál igazolt pozitív jel":"Nem igazolt")}.
+        Modulmegfigyelés: {info.moduleObservedUtc?new Date(info.moduleObservedUtc).toLocaleString("hu-HU"):"nem ellenőrizhető"}.
+      </p>}
       {info?.plugins.map(plugin=><div className="plugin-row" key={plugin.name}>
         <span className="plugin-symbol"><Plug size={19}/></span>
         <div className="plugin-copy">
           <b>{plugin.name}</b>
           <small>{plugin.binaries.map(b=>b.name+
             (b.version?" · "+b.version:"")).join(", ")||"Nincs DLL-adat"}</small>
+          <small>config.json: {plugin.configStatus==="valid-json"?"Érvényes JSON-szintaxis":
+            plugin.configStatus==="invalid-json"?"Hibás JSON-szintaxis":
+            plugin.configStatus==="missing"?"Nem található":
+            plugin.configStatus==="protected"?"Védett, nem olvasott":"Nem ellenőrizhető"}</small>
+          {plugin.binaries.some(b=>b.sha256)&&<details><summary>DLL ellenőrzőösszegek</summary>
+            {plugin.binaries.filter(b=>b.sha256).map(b=><small key={b.name} title={b.sha256}>{b.name} · SHA-256: {b.sha256?.slice(0,16)}…</small>)}
+          </details>}
         </div>
-        <span className="mod-tag amber">Pluginmappa megtalálva · betöltés nem igazolt</span>
+        <span className={"mod-tag "+(info.moduleObservation==="observed-current-asa-process"&&plugin.binaries.some(b=>b.loadedModuleObserved)?"green":"amber")}>
+          {info.moduleObservation==="observed-current-asa-process"&&plugin.binaries.some(b=>b.loadedModuleObserved)
+            ?`${plugin.binaries.filter(b=>b.loadedModuleObserved).length}/${plugin.binaries.length} DLL megfigyelve az aktuális ASA-folyamatban`
+            :"Pluginmappa megtalálva · betöltés nem igazolt"}</span>
       </div>)}
       {info&&info.plugins.length===0&&<div className="empty">
         Nem található plugin a map helyi ASA API mappájában.
@@ -1072,7 +1086,7 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
         <AlertTriangle size={16}/>{error}
       </div>}
       <div className="warning-inline"><Shield size={17}/>
-        A plugin DLL-ek jelenléte nem bizonyítja az ASA API futásidejű betöltést.
+        A fájlleltár nem igazol betöltést. Az aktuális, azonosított ASA-folyamat moduljai külön megfigyelhetők; ez nem igazolja a hookok vagy a plugin játékbeli működését.
         A Manager nem másol, nem konfigurál és nem reloadol pluginokat.
       </div>
     </Panel>
@@ -1722,10 +1736,10 @@ function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
   </>;
 }
 type MapSection = "overview" | "monitor" | "scheduler" | "steam" | "mods" | "plugins" | "ini" | "backups" | "logs" | "rcon";
-function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluster}: {
+function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluster,refreshRevision}: {
   snapshot:DashboardSnapshot;mapId:string;onBack:()=>void;
   setSelected:(value:string)=>void;onConfigured:()=>Promise<void>;
-  onOpenCluster:()=>void
+  onOpenCluster:()=>void;refreshRevision:number
 }) {
   const [section,setSection]=useState<MapSection>("overview");
   const [originalRconAction,setOriginalRconAction]=useState<"broadcast"|"wildWipe">("broadcast");
@@ -1740,6 +1754,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
   const historical=!!map?.storeProtected&&!map?.freshStoreEnrolled;
   const fresh=!!map&&(!map.storeProtected||!!map.freshStoreEnrolled);
   const observedOnly=!!map?.observedReadOnlyImported;
+  const journalScope=mapId+":"+refreshRevision+":"+journalRevision;
   useEffect(()=>{
     setSection("overview");setInitialSetupSaved(false);
     setOriginalRconAction("broadcast");setOpenOriginalStoreEnrollment(false);
@@ -1750,7 +1765,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
     setJournalsVerifiedFor("");setJournalReadError(false);
     if(observedOnly){
       // Observation-only map never needs native lifecycle probes.
-      setJournalsVerifiedFor(mapId);
+      setJournalsVerifiedFor(journalScope);
       return ()=>{active=false;};
     }
     const originalStore=historical;
@@ -1759,17 +1774,20 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
       originalStore?Promise.resolve(null):managerBridge.freshAsaRestartCurrent(mapId)
     ]).then(([lifecycleState,restartState])=>{
       if(!active)return;
+      if(lifecycleState.mapId.toLowerCase()!==mapId.toLowerCase()){
+        setJournalReadError(true);return;
+      }
       setLifecycle(lifecycleState);
       setRestartJournal(restartState);
-      setJournalsVerifiedFor(mapId);
+      setJournalsVerifiedFor(journalScope);
     }).catch(()=>{
       if(active)setJournalReadError(true);
     });
     return ()=>{active=false;};
-  },[mapId,observedOnly,historical,journalRevision]);
+  },[mapId,observedOnly,historical,journalScope]);
   // An observed map may become actively managed without navigating away.
   // Re-probe durable journals on that transition, fail closed until they load.
-  const lifecycleBlocked=journalsVerifiedFor!==mapId||journalReadError||
+  const lifecycleBlocked=journalsVerifiedFor!==journalScope||journalReadError||
     Boolean(lifecycle?.needsOperatorReview||restartJournal?.needsOperatorReview);
   if(!map)return <div className="empty">A kiválasztott map már nem található a helyi Managerben.</div>;
   // WMI registration is a read-only observation, never process ownership.
@@ -1827,7 +1845,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
       <State running={map.running} status={map.status}/>
     </div>
     <LocalMapLifecycleBar key={mapId} mapId={mapId} mapName={map.name}
-      running={map.running} historical={historical} journalBlocked={lifecycleBlocked}
+      running={map.running} historical={historical} journalBlocked={lifecycleBlocked} refreshRevision={refreshRevision}
       onRefresh={onConfigured} onConfigure={()=>setSection(historical?"rcon":"overview")}/>
     {journalReadError&&<div className="warning-inline" role="alert">
       <Shield size={17}/> A helyi ASA-műveleti naplók nem olvashatók.
@@ -1879,10 +1897,10 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
             <button className="secondary" onClick={()=>setSection("monitor")}><Activity size={17}/> PID / RAM / állapot</button>
             <button className="secondary" onClick={()=>setSection("steam")}><RefreshCw size={17}/> Frissítés ellenőrzése</button>
           </div>
-          <div className="warning-inline"><Shield size={17}/> Frissen telepített helyi map indítása jóváhagyással elérhető. A történeti Store-v1 indítás külön eredeti ACTIVE/DONE ellenőrzéssel és kétlépcsős natív jóváhagyással használható. A karakterutazás, SaveComplete és közös Store-restore igazolása továbbra is külön követelmény.</div>
+          <div className="warning-inline"><Shield size={17}/> Frissen telepített helyi map indítása jóváhagyással elérhető. A megőrzött Store-v1 map helyi indítása egy kattintással, natív forrás-, folyamat- és konfiguráció-ellenőrzéssel történik. A karakterutazás, SaveComplete és közös Store-restore igazolása továbbra is külön követelmény.</div>
         </Panel>
       </div>
-      <MapMaintenancePanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>
+      <MapMaintenancePanel key={mapId+":MapMaintenancePanel"} mapId={mapId} onConfigured={onConfigured}/>
       {fresh&&map.gamePort>0&&<Panel title="Új map teljes indítási beállítása">
         <div role="region" aria-label="Új map beállításának lépései">
           <p className="muted small">
@@ -1932,10 +1950,10 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
           Vad dinók törlése (RCON)
         </button>
       </div>}
-      {historical&&<HistoricalActiveStartPanel mapId={mapId} rconAttached={!!map.rconConfigured} onStarted={onConfigured}/>}
-      {historical&&<HistoricalStoreSaveWorldPanel key={mapId} mapId={mapId} running={map.running} onSaved={onConfigured}/>}
-      {historical&&<HistoricalGracefulStopPanel mapId={mapId} running={map.running} onStopped={onConfigured}/>}
-      {historical&&<HistoricalStoreRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured}/>}
+      {historical&&<HistoricalActiveStartPanel key={mapId+":HistoricalActiveStartPanel"} mapId={mapId} rconAttached={!!map.rconConfigured} refreshRevision={refreshRevision} onStarted={onConfigured}/>}
+      {historical&&<HistoricalStoreSaveWorldPanel key={mapId+":HistoricalStoreSaveWorldPanel"} mapId={mapId} running={map.running} refreshRevision={refreshRevision} onSaved={onConfigured}/>}
+      {historical&&<HistoricalGracefulStopPanel key={mapId+":HistoricalGracefulStopPanel"} mapId={mapId} running={map.running} refreshRevision={refreshRevision} onStopped={onConfigured}/>}
+      {historical&&<HistoricalStoreRestartPanel key={mapId+":HistoricalStoreRestartPanel"} mapId={mapId} running={map.running} refreshRevision={refreshRevision} onRestarted={onConfigured}/>}
       {map.gamePort>0 && fresh && <div id="fresh-asa-start-control">
         <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured}
           onOpenRcon={()=>setSection("rcon")} journalBlocked={lifecycleBlocked}/>
@@ -1954,9 +1972,9 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
           await onConfigured();
         }} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && (!map.storeProtected||map.freshStoreEnrolled) &&
-        <FreshStoreEnrollmentPanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>}
+        <FreshStoreEnrollmentPanel key={mapId+":FreshStoreEnrollmentPanel"} mapId={mapId} onConfigured={onConfigured}/>}
       {map.freshStoreEnrolled &&
-        <FreshStoreLoaderModePanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>}
+        <FreshStoreLoaderModePanel key={mapId+":FreshStoreLoaderModePanel"} mapId={mapId} onConfigured={onConfigured}/>}
       {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={async()=>{
         await onConfigured();
         setInitialSetupSaved(true);
@@ -1988,10 +2006,10 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
     {section==="logs" && <LogsCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
     {section==="rcon" && (historical
       ?<>
-        <HistoricalRconAttach key={mapId} mapId={mapId} onConfigured={onConfigured}/>
+        <HistoricalRconAttach key={mapId+":HistoricalRconAttach"} mapId={mapId} onConfigured={onConfigured}/>
         {map.rconConfigured
-          ?<><HistoricalRconLivePanel key={mapId} mapId={mapId} running={map.running}/>
-            <HistoricalAdminRconPanel key={mapId} mapId={mapId}
+          ?<><HistoricalRconLivePanel key={mapId+":HistoricalRconLivePanel"} mapId={mapId} running={map.running}/>
+            <HistoricalAdminRconPanel key={mapId+":HistoricalAdminRconPanel"} mapId={mapId}
               initialAction={originalRconAction} running={map.running}/></>
           :<div className="warning-inline" role="status">
             <Shield size={17}/> A meglévő RCON-csatlakoztatás befejezéséig
@@ -2012,6 +2030,8 @@ export function App() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState("");
   const snapshotFlight = useRef<Promise<void> | null>(null);
+  // Confirmed operations and explicit refresh invalidate the open map’s read-only evidence.
+  const [refreshRevision,setRefreshRevision]=useState(0);
   const refresh = useCallback(async (background = false) => {
     // Manual profile changes must not be lost if a background LAN poll is
     // already in progress; wait for that poll and read the newly saved config.
@@ -2030,7 +2050,7 @@ export function App() {
       } catch (e) {
         setError(e instanceof Error ? e.message : "UM-READ-UNAVAILABLE");
       } finally {
-        if (!background) setLoading(false);
+        if (!background) {setLoading(false);setRefreshRevision(n=>n+1);}
       }
     })();
     snapshotFlight.current = task;
@@ -2085,7 +2105,7 @@ export function App() {
         {!snapshot && !error && <div className="loading"><RefreshCw className="spin"/> Valós helyi állapot betöltése...</div>}
         {snapshot && <>
           {page === "dashboard" && <Dashboard snapshot={snapshot} onPage={setPage} onSelect={selectMap} onInstall={openSteamInstall}/>}
-          {page === "map" && <MapDetails snapshot={snapshot} mapId={selected} setSelected={setSelected} onBack={()=>setPage("servers")} onConfigured={refresh} onOpenCluster={()=>setPage("cluster")}/>}
+          {page === "map" && <MapDetails snapshot={snapshot} mapId={selected} setSelected={setSelected} onBack={()=>setPage("servers")} onConfigured={refresh} onOpenCluster={()=>setPage("cluster")} refreshRevision={refreshRevision}/>}
           {page === "servers" && <Servers snapshot={snapshot} search={search} setSearch={setSearch} onSelect={selectMap} onImported={refresh}/>} 
           {page === "cluster" && <Cluster snapshot={snapshot}/>}
           {page === "mods" && <Mods snapshot={snapshot} selected={selected} setSelected={setSelected}/>}

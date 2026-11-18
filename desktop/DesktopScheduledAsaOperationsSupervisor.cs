@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -11,7 +12,7 @@ using UntamedManager.Core;
 
 namespace UntamedDesktop;
 
-// Only locally owned, explicitly opted-in NEW ASA installations. The native
+// Only locally owned, explicitly opted-in ASA installations, including pinned Store-v1. The native
 // runner calls the existing PID-bound RCON and Restart bridges, never a second
 // implementation of SaveWorld / DoExit / Start. The journal claims a slot
 // BEFORE any RCON bytes; crashes, missed slots and failed jobs never replay.
@@ -19,7 +20,8 @@ public sealed record ScheduledAsaOperation(
     Guid MapId,string Kind,string Frequency,int IntervalMinutes,
     int MinuteOfDay,int DaysMask,string Fingerprint,bool Enabled,
     DateTimeOffset NextDueUtc,DateTimeOffset? LastClaimedUtc,
-    string LastStatus,string LastEvidence);
+    string LastStatus,string LastEvidence,bool PostRestartWipe=false,int WipeDelaySeconds=0,
+    string TimeZoneId="Europe/Budapest",int[]? DayMinutes=null,DateTimeOffset? OnceAtUtc=null,Guid Revision=default);
 
 // Bounded, persisted execution evidence. A slot is recorded BEFORE dispatch;
 // after a crash an unfinished claim remains visible and is never auto-replayed.
@@ -68,11 +70,28 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private readonly ClusterService cluster;
     private readonly DesktopRconReadOnlyBridge rcon;
+    private readonly DesktopRconAdminBridge freshWipeAdmin;
     private readonly DesktopFreshAsaRestartBridge restart;
+    private readonly DesktopHistoricalGracefulStopBridge? historicalStop;
+    private readonly DesktopHistoricalRestartBridge? historicalRestart;
+    private readonly DesktopHistoricalRconAdminBridge? historicalAdmin;
     private readonly Func<Guid,string,CancellationToken,Task<string>> runner;
     private readonly Func<LocalMap,bool> safeMap;
     private readonly string folder,path,mutexName;
     private readonly SemaphoreSlim tickGate=new(1,1);
+    private int updateFrozen;
+    // Host calls only under the native updater dispatch gate. No active
+    // scheduled copy or lifecycle may be interrupted to update the Manager.
+    internal bool TryFreezeForManagerUpdate()
+    {
+        if(!tickGate.Wait(0))return false;
+        Volatile.Write(ref updateFrozen,1);
+        return true;
+    }
+    internal void ReleaseManagerUpdateFreeze()
+    {
+        if(Interlocked.Exchange(ref updateFrozen,0)==1)tickGate.Release();
+    }
     private readonly CancellationTokenSource cancel=new();
     private Task? loop;
     private int started,disposed;
@@ -83,12 +102,19 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         DesktopRconReadOnlyBridge rcon,DesktopFreshAsaRestartBridge restart,
         Func<Guid,string,CancellationToken,Task<string>>? isolatedRunner=null,
         Func<LocalMap,bool>? isolatedPreflight=null,
-        TimeSpan? isolatedMinimumReviewAge=null)
+        TimeSpan? isolatedMinimumReviewAge=null,
+        DesktopHistoricalGracefulStopBridge? historicalStop=null,
+        DesktopHistoricalRestartBridge? historicalRestart=null,
+        DesktopHistoricalRconAdminBridge? historicalAdmin=null)
     {
         minimumReviewAge=isolatedMinimumReviewAge??TimeSpan.FromMinutes(5);
         this.cluster=cluster??throw new ArgumentNullException(nameof(cluster));
         this.rcon=rcon??throw new ArgumentNullException(nameof(rcon));
+        freshWipeAdmin=new DesktopRconAdminBridge(cluster);
         this.restart=restart??throw new ArgumentNullException(nameof(restart));
+        this.historicalStop=historicalStop;
+        this.historicalRestart=historicalRestart;
+        this.historicalAdmin=historicalAdmin;
         var root=cluster.Store.Root;
         if(string.IsNullOrWhiteSpace(root)||!Path.IsPathFullyQualified(root)||
            root.StartsWith(@"\\",StringComparison.Ordinal))
@@ -113,6 +139,24 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             AsaRconConfigurationEvidence.Matches(map));
     }
 
+    private bool HistoricalEligible(LocalMap map)
+    {
+        // Existing manual bridge revalidates source, PID, RCON, lease and
+        // journals on every dispatch. No peer travel test as a local gate.
+        if(historicalStop==null||historicalRestart==null||historicalAdmin==null||
+           !map.HistoricalStoreProtected||map.ObservedReadOnlyImported||map.Maintenance||
+           !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
+           KovaCompatibleWorldBackup.InstallationRecoveryRequired(map)||
+           !AsaReadyProbe.IsRegisteredServerBinary(map)||
+           map.RconHost!="127.0.0.1"||map.RconPort is <1024 or >65535||
+           string.IsNullOrWhiteSpace(map.RconPasswordProtected))return false;
+        try{return LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,map);}
+        catch(Exception){return false;}
+    }
+    private bool Eligible(LocalMap map)=>map.HistoricalStoreProtected?
+        HistoricalEligible(map):
+        !KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)&&
+        string.IsNullOrWhiteSpace(map.StoreTestRoot)&&safeMap(map);
     private void CheckLinks()
     {
         for(DirectoryInfo? node=new(folder);node!=null;node=node.Parent)
@@ -143,15 +187,20 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             throw new InvalidDataException("UM-ASA-SCHEDULE-JOURNAL-INVALID");
         if(state.Jobs==null||state.Jobs.Count>10000||
            state.Jobs.Any(j=>j==null||j.MapId==Guid.Empty||
-                (j.Kind!="SaveWorld"&&j.Kind!="Restart")||
-                (j.Frequency!="Interval"&&j.Frequency!="Daily")||
+                (j.Kind!="SaveWorld"&&j.Kind!="Restart"&&j.Kind!="WildWipe")||
+                (j.Frequency!="Interval"&&j.Frequency!="Daily"&&j.Frequency!="Once")||
+                (j.PostRestartWipe&&j.Kind!="Restart")||
+                j.WipeDelaySeconds is <0 or >600||(!j.PostRestartWipe&&j.WipeDelaySeconds!=0)||
+                (j.Frequency=="Once"&&j.OnceAtUtc==null&&j.IntervalMinutes is <1 or >2)||
+                (j.OnceAtUtc!=null&&j.Frequency!="Once")||
+                !ValidCalendar(j.TimeZoneId,j.DayMinutes,j.Frequency)||
                 j.DaysMask is <1 or >127 || j.MinuteOfDay is <0 or >1439 ||
                 j.Fingerprint.Length!=64 || j.LastStatus.Length>90)||
            state.Jobs.GroupBy(j=>(j.MapId,j.Kind)).Any(group=>group.Count()>1))
             throw new InvalidDataException("UM-ASA-SCHEDULE-JOURNAL-INVALID");
         if(state.History==null||state.History.Count>MaxHistory||
            state.History.Any(e=>e==null||e.RunId==Guid.Empty||e.MapId==Guid.Empty||
-               (e.Kind!="SaveWorld"&&e.Kind!="Restart")||
+               (e.Kind!="SaveWorld"&&e.Kind!="Restart"&&e.Kind!="WildWipe")||
                string.IsNullOrWhiteSpace(e.Status)||e.Status.Length>90||
                e.Evidence==null||e.Evidence.Length>240)||
            state.History.GroupBy(e=>e.RunId).Any(g=>g.Count()>1))
@@ -194,17 +243,39 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             map.StartWithAsaApi,map.GamePort,map.QueryPort,map.RconPort,
             map.RconHost,map.RconPasswordProtected,map.Maintenance,
             map.HistoricalStoreProtected);
+        if(map.HistoricalStoreProtected)material+=string.Join("\n","",map.HistoricalArchiveSha256,map.HistoricalMapKey,
+            map.HistoricalRuntimeClusterId,map.HistoricalRuntimeTransferDirectory,map.ApiLoaderPath);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material)));
     }
-    private static TimeZoneInfo Zone()
+    private static TimeZoneInfo Zone(string id)
     {
-        try{return TimeZoneInfo.FindSystemTimeZoneById("Europe/Budapest");}
-        catch(TimeZoneNotFoundException)
+        if(string.IsNullOrWhiteSpace(id)||id.Length>100||id.Any(char.IsControl))
+            throw new InvalidDataException("UM-ASA-SCHEDULE-TIMEZONE");
+        try{return TimeZoneInfo.FindSystemTimeZoneById(id);}
+        catch(TimeZoneNotFoundException) when(id=="Europe/Budapest")
         {return TimeZoneInfo.FindSystemTimeZoneById("Central European Standard Time");}
     }
-    private static DateTimeOffset Next(ScheduledAsaOperation item,DateTimeOffset now)
+    private static bool ValidCalendar(string zone,int[]? minutes,string frequency)
+    {
+        if(minutes!=null&&(frequency!="Daily"||minutes.Length!=7||minutes.Any(x=>x is <0 or >1439)))
+            return false;
+        try{_=Zone(zone);return true;}catch{return false;}
+    }
+    // Explicit DST policy: spring gap advances to the first valid local
+    // minute; autumn overlap uses the later UTC instant exactly once.
+    private static DateTimeOffset WallToUtc(DateTime wall,TimeZoneInfo zone)
+    {
+        wall=DateTime.SpecifyKind(wall,DateTimeKind.Unspecified);
+        while(zone.IsInvalidTime(wall))wall=wall.AddMinutes(1);
+        var shift=zone.IsAmbiguousTime(wall)?zone.GetAmbiguousTimeOffsets(wall).Min():zone.GetUtcOffset(wall);
+        return new DateTimeOffset(wall,shift).ToUniversalTime();
+    }
+    private static int DayMinute(ScheduledAsaOperation item,int index)=>item.DayMinutes?[index]??item.MinuteOfDay;
+    internal static DateTimeOffset Next(ScheduledAsaOperation item,DateTimeOffset now)
     {
         now=now.ToUniversalTime();
+        if(item.Frequency=="Once")return item.NextDueUtc==default?
+            item.OnceAtUtc??now.AddMinutes(item.IntervalMinutes):DateTimeOffset.MaxValue;
         if(item.Frequency=="Interval")
         {
             if(item.IntervalMinutes is <15 or >10080)
@@ -219,18 +290,13 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             }
             return cursor;
         }
-        var zone=Zone();
+        var zone=Zone(item.TimeZoneId);
         var local=TimeZoneInfo.ConvertTime(now,zone).Date;
         for(int offset=0;offset<9;offset++)
         {
             var day=local.AddDays(offset);
             if((item.DaysMask&(1<<(int)day.DayOfWeek))==0)continue;
-            var wall=DateTime.SpecifyKind(day.AddMinutes(item.MinuteOfDay),
-                DateTimeKind.Unspecified);
-            while(zone.IsInvalidTime(wall))wall=wall.AddMinutes(1);
-            var shift=zone.IsAmbiguousTime(wall)?
-                zone.GetAmbiguousTimeOffsets(wall).Min():zone.GetUtcOffset(wall);
-            var candidate=new DateTimeOffset(wall,shift).ToUniversalTime();
+            var candidate=WallToUtc(day.AddMinutes(DayMinute(item,(int)day.DayOfWeek)),zone);
             if(candidate>now)return candidate;
         }
         throw new InvalidDataException("UM-ASA-SCHEDULE-NEXT-UNAVAILABLE");
@@ -247,26 +313,43 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     }
 
     public ScheduledAsaOperation Configure(Guid mapId,string kind,string frequency,
-        int intervalMinutes,int minuteOfDay,int daysMask)
+        int intervalMinutes,int minuteOfDay,int daysMask,bool postRestartWipe=false,int wipeDelaySeconds=0,
+        string timeZoneId="Europe/Budapest",int[]? dayMinutes=null,string? onceAtLocal=null)
     {
-        if(mapId==Guid.Empty || kind is not ("SaveWorld" or "Restart") ||
-           frequency is not ("Interval" or "Daily") ||
-           (kind=="Restart"&&frequency!="Daily") ||
+        if(mapId==Guid.Empty || kind is not ("SaveWorld" or "Restart" or "WildWipe") ||
+           frequency is not ("Interval" or "Daily" or "Once") ||
+           (kind=="Restart"&&frequency=="Interval") ||
+           (frequency=="Once"&&onceAtLocal==null&&intervalMinutes is <1 or >2) ||
+           (onceAtLocal!=null&&frequency!="Once")||!ValidCalendar(timeZoneId,dayMinutes,frequency)||
+           (postRestartWipe&&kind!="Restart") ||
+           wipeDelaySeconds is <0 or >600||(!postRestartWipe&&wipeDelaySeconds!=0)||
            minuteOfDay is <0 or >1439 || daysMask is <1 or >127 ||
            (frequency=="Interval"&&intervalMinutes is <15 or >10080))
             throw new InvalidDataException("UM-ASA-SCHEDULE-FIELDS");
+        DateTimeOffset? onceAtUtc=null;
+        if(onceAtLocal!=null)
+        {
+            if(!DateTime.TryParseExact(onceAtLocal,"yyyy-MM-dd'T'HH:mm",CultureInfo.InvariantCulture,
+                DateTimeStyles.None,out var wall))
+                throw new InvalidDataException("UM-ASA-SCHEDULE-ONCE-DATE");
+            onceAtUtc=WallToUtc(wall,Zone(timeZoneId));
+            var now=DateTimeOffset.UtcNow;
+            if(onceAtUtc<=now||onceAtUtc>now.AddYears(1))
+                throw new InvalidDataException("UM-ASA-SCHEDULE-ONCE-RANGE");
+        }
         var map=Owned(mapId);
-        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
-           !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
-           !safeMap(map))
+        if(!Eligible(map)||(postRestartWipe&&!HistoricalEligible(map)))
             throw new UnauthorizedAccessException("UM-ASA-SCHEDULE-PREFLIGHT-DENIED");
         return Locked(()=>{
             var state=Read();
             var fingerprint=Fingerprint(map);
             var sample=new ScheduledAsaOperation(map.Id,kind,frequency,intervalMinutes,
-                minuteOfDay,daysMask,fingerprint,true,default,null,"scheduled","");
+                minuteOfDay,daysMask,fingerprint,true,default,null,"scheduled","",postRestartWipe,wipeDelaySeconds,
+                timeZoneId,dayMinutes?.ToArray(),onceAtUtc,Guid.NewGuid());
             var task=sample with {NextDueUtc=Next(sample,DateTimeOffset.UtcNow)};
             int ix=state.Jobs.FindIndex(j=>j.MapId==map.Id&&j.Kind==kind);
+            if(state.History.Any(x=>x.MapId==map.Id&&x.Kind==kind&&UnknownSlot(x.Status)))
+                throw new InvalidOperationException("UM-ASA-SCHEDULE-REVIEW-OLD-SLOT");
             if(ix<0)state.Jobs.Add(task);else state.Jobs[ix]=task;
             Write(state);
             return task;
@@ -274,14 +357,15 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     }
     public ScheduledAsaOperation Disable(Guid mapId,string kind)
     {
-        if(kind is not ("SaveWorld" or "Restart"))
+        if(kind is not ("SaveWorld" or "Restart" or "WildWipe"))
             throw new InvalidDataException("UM-ASA-SCHEDULE-KIND");
         Owned(mapId);
         return Locked(()=>{
             var state=Read();
             int ix=state.Jobs.FindIndex(j=>j.MapId==mapId&&j.Kind==kind);
             if(ix<0)throw new InvalidDataException("UM-ASA-SCHEDULE-NOT-FOUND");
-            var changed=state.Jobs[ix] with {Enabled=false,LastStatus="disabled"};
+            var item=state.Jobs[ix];
+            var changed=item with {Enabled=false,LastStatus=item.LastStatus=="claimed-no-auto-retry"?item.LastStatus:"disabled"};
             state.Jobs[ix]=changed;Write(state);return changed;
         });
     }
@@ -290,10 +374,11 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         Owned(mapId);
         return Locked(()=>{
             var jobs=Read().Jobs;
-            var self=jobs.FirstOrDefault(x=>x.MapId==mapId&&x.Kind=="Restart"&&x.Enabled);
+            var self=jobs.FirstOrDefault(x=>x.MapId==mapId&&x.Kind=="Restart"&&x.Frequency=="Daily"&&x.Enabled);
             if(self==null)return Array.Empty<string>();
-            return jobs.Where(x=>x.MapId!=mapId&&x.Kind=="Restart"&&x.Enabled&&
-                    x.MinuteOfDay==self.MinuteOfDay&&(x.DaysMask&self.DaysMask)!=0)
+            return jobs.Where(x=>x.MapId!=mapId&&x.Kind=="Restart"&&x.Frequency=="Daily"&&x.Enabled&&
+                    (x.NextDueUtc==self.NextDueUtc || (x.TimeZoneId==self.TimeZoneId&&
+                    Enumerable.Range(0,7).Any(d=>(x.DaysMask&self.DaysMask&(1<<d))!=0&&DayMinute(x,d)==DayMinute(self,d)))))
                 .Select(x=>cluster.Config.LocalMaps.FirstOrDefault(m=>m.Id==x.MapId)?.Name)
                 .Where(x=>!string.IsNullOrWhiteSpace(x)).Select(x=>x!)
                 .Distinct().ToArray();
@@ -303,7 +388,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     private static object Data(ScheduledAsaOperation job)=>new {
         mapId=job.MapId,kind=job.Kind,frequency=job.Frequency,
         intervalMinutes=job.IntervalMinutes,minuteOfDay=job.MinuteOfDay,
-        daysMask=job.DaysMask,enabled=job.Enabled,nextDueUtc=job.NextDueUtc,
+        daysMask=job.DaysMask,enabled=job.Enabled,nextDueUtc=job.NextDueUtc,postRestartWipe=job.PostRestartWipe,wipeDelaySeconds=job.WipeDelaySeconds,
+        timeZoneId=job.TimeZoneId,dayMinutes=job.DayMinutes,onceAtUtc=job.OnceAtUtc,revision=job.Revision,
         lastClaimedUtc=job.LastClaimedUtc,lastStatus=job.LastStatus,
         lastEvidence=job.LastEvidence,
         evidence="DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY"
@@ -377,6 +463,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                             "schedule.nativeResume":"NEW_EXPLICIT_CONFIGURATION",
                     restartConflicts=RestartConflicts(mapId),
                     protectedStore=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(Owned(mapId)),
+                    historicalSchedulingSupported=HistoricalEligible(Owned(mapId)),
+                    canConfigure=Eligible(Owned(mapId)),
                     autoUpdateAvailable=false,
                     remoteExecutionAllowed=false
                 }));
@@ -543,7 +631,24 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                !args.TryGetProperty("daysMask",out var rawDays)||
                !rawDays.TryGetInt32(out var days))
                 return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-FIELDS"));
-            var result=Configure(mapId,kind,rawFreq.GetString()!,interval,minute,days);
+            bool wipe=false;
+            if(args.TryGetProperty("postRestartWipe",out var wipeField))
+            {
+                if(wipeField.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-FIELDS"));
+                wipe=wipeField.GetBoolean();
+            }
+            int delay=0;
+            if(args.TryGetProperty("wipeDelaySeconds",out var delayField)&&
+                (delayField.ValueKind!=JsonValueKind.Number||!delayField.TryGetInt32(out delay)))
+                return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-FIELDS"));
+            string zone=args.TryGetProperty("timeZoneId",out var zoneField)?
+                zoneField.GetString()??throw new InvalidDataException("UM-ASA-SCHEDULE-TIMEZONE"):"Europe/Budapest";
+            int[]? perDay=args.TryGetProperty("dayMinutes",out var daily)&&daily.ValueKind!=JsonValueKind.Null?
+                daily.EnumerateArray().Select(x=>x.GetInt32()).ToArray():null;
+            string? once=args.TryGetProperty("onceAtLocal",out var onceField)&&onceField.ValueKind!=JsonValueKind.Null?
+                onceField.GetString()??throw new InvalidDataException("UM-ASA-SCHEDULE-ONCE-DATE"):null;
+            var result=Configure(mapId,kind,rawFreq.GetString()!,interval,minute,days,wipe,delay,zone,perDay,once);
             return Task.FromResult(Ok(id,new {
                 job=Data(result),restartConflicts=RestartConflicts(mapId)
             }));
@@ -556,7 +661,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         using var doc=JsonDocument.Parse(raw);
         var result=doc.RootElement;
         if(!result.GetProperty("ok").GetBoolean())
-            throw new InvalidOperationException("UM-ASA-SCHEDULE-ENGINE-REJECTED");
+            throw new InvalidOperationException(result.TryGetProperty("error",out var error)&&error.ValueKind==JsonValueKind.String?
+                NativeLifecycleFailureCode.From(new InvalidOperationException(error.GetString())):"UM-ASA-SCHEDULE-ENGINE-REJECTED");
         return result.GetProperty("data").Clone();
     }
     private static string Message(string method,object fields)
@@ -570,8 +676,172 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     }
     // Only native code invokes these existing bridges. No raw commands,
     // passwords, server paths or peer writes enter this scheduler's RPC.
+    private async Task<string> RunHistoricalAsync(ScheduledAsaOperation job,CancellationToken ct)
+    {
+        var map=Owned(job.MapId);
+        if(!HistoricalEligible(map)||Fingerprint(map)!=job.Fingerprint)
+            throw new InvalidOperationException("UM-ASA-SCHEDULE-HISTORICAL-CHANGED");
+        if(job.Kind=="WildWipe")
+        {
+            var proof=LegacyStoreV1GracefulStop.Preview(cluster,job.MapId);
+            if(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(proof)!=null)
+                throw new InvalidOperationException("UM-SCHEDULE-WIPE-NOT-READY");
+            var pid=proof.Process.Pid;
+            var started=proof.Process.StartedUtc;
+            return await DispatchStandaloneWipeAsync(job.MapId,job.Fingerprint,
+                raw=>historicalAdmin!.HandleScheduledWipeAsync(raw,pid,started),
+                "historical","STORE-V1 DINÓTÖRLÉS",ct);
+        }
+        bool save=job.Kind=="SaveWorld";
+        Func<string,Task<string>> handle=save?historicalStop!.HandleAsync:historicalRestart!.HandleAsync;
+        string prefix=save?"historical.saveWorld":"historical.restart";
+        var pre=Decode(await handle(Message(prefix+"Preview",new{mapId=job.MapId})));
+        if(pre.GetProperty("mapId").GetGuid()!=job.MapId||
+           !pre.GetProperty("usesSaveWorld").GetBoolean()||
+           pre.GetProperty("usesDoExit").GetBoolean()==save)
+            throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-PREVIEW");
+        int oldPid=pre.GetProperty("pid").GetInt32();
+        ct.ThrowIfCancellationRequested();
+        var begun=Decode(await handle(Message(prefix+"Apply",new{token=pre.GetProperty("token").GetGuid()})));
+        if(!begun.GetProperty("started").GetBoolean()||
+           begun.GetProperty("automaticRetry").GetBoolean()||
+           begun.GetProperty("forceKill").GetBoolean()||
+           begun.GetProperty("storeTouched").GetBoolean())
+            throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-APPLY");
+        Guid id=begun.GetProperty("jobId").GetGuid();
+        var limit=DateTimeOffset.UtcNow.AddMinutes(16);
+        while(DateTimeOffset.UtcNow<limit)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2),ct);
+            var result=Decode(await handle(Message(prefix+"Status",new{jobId=id})));
+            if(result.GetProperty("jobId").GetGuid()!=id||result.GetProperty("mapId").GetGuid()!=job.MapId)
+                throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-JOB-MISMATCH");
+            string? state=result.GetProperty("state").GetString();
+            if(state is "needsOperator" or "notDispatched" or "reviewed")
+                throw new InvalidOperationException("UM-SCHEDULE-HISTORICAL-NEEDS-REVIEW");
+            if(state!="completed")continue;
+            bool log=result.GetProperty("preExitSaveLogAndWorldObserved").GetBoolean();
+            bool meta=result.GetProperty("preExitWorldMetadataObserved").GetBoolean();
+            if(log==meta)throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-SAVE-EVIDENCE");
+            string evidence=log?"LOCAL_SAVE_LOG_WORLD":"LOCAL_WORLD_METADATA_LOG_UNVERIFIED";
+            if(save)
+            {
+                if(result.GetProperty("kind").GetString()!="SaveWorldOnly"||
+                   result.GetProperty("confirmedStopped").GetBoolean())
+                    throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-SAVE-RECEIPT");
+                return evidence;
+            }
+            int pid=result.GetProperty("newPid").GetInt32();
+            if(result.GetProperty("mapId").GetGuid()!=job.MapId||
+               !result.GetProperty("oldProcessStopped").GetBoolean()||
+               result.GetProperty("oldPid").GetInt32()!=oldPid||pid<=0||pid==oldPid)
+                throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-RESTART-RECEIPT");
+            if(!job.PostRestartWipe)return evidence+"_RESTART_NEW_PID";
+            DateTimeOffset started=result.GetProperty("newStartedUtc").GetDateTimeOffset();
+            // Bind the wipe to the exact new PID/start time. Wait on freshly
+            // observed own listener and current-run join advertising, never
+            // infer readiness from a delay or the old process.
+            var readyLimit=DateTimeOffset.UtcNow.AddMinutes(10);
+            bool ready=false;
+            while(DateTimeOffset.UtcNow<readyLimit)
+            {
+                ct.ThrowIfCancellationRequested();
+                if(!HistoricalEligible(Owned(job.MapId))||
+                   Fingerprint(Owned(job.MapId))!=job.Fingerprint)
+                    throw new InvalidOperationException("UM-SCHEDULE-WIPE-CONFIG-CHANGED");
+                LegacyStoreV1GracefulStop.Owned? proof=null;
+                try{proof=LegacyStoreV1GracefulStop.Preview(cluster,job.MapId);}
+                catch(Exception){/* startup/listener not ready; no dispatch */}
+                if(proof!=null)
+                {
+                    if(proof.Process.Pid!=pid||proof.Process.StartedUtc!=started)
+                        throw new InvalidOperationException("UM-SCHEDULE-WIPE-PID-CHANGED");
+                    if(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(proof)==null)
+                    {ready=true;break;}
+                }
+                await Task.Delay(TimeSpan.FromSeconds(2),ct);
+            }
+            if(!ready)throw new InvalidOperationException("UM-SCHEDULE-WIPE-NOT-READY");
+            // A disabled or edited job may finish its in-progress Restart,
+            // but it must not send a newly pending wipe.
+            bool WipeStillEnabled()=>Locked(()=>Read().Jobs.Any(x=>x.MapId==job.MapId&&
+                x.Kind==job.Kind&&x.Enabled&&x.PostRestartWipe&&x.WipeDelaySeconds==job.WipeDelaySeconds&&
+                x.Revision==job.Revision&&x.Fingerprint==job.Fingerprint&&x.LastStatus=="claimed-no-auto-retry"));
+            if(!WipeStillEnabled())return evidence+"_RESTART_WIPE_DISABLED";
+            if(job.WipeDelaySeconds>0)
+            {
+                var delayEnd=DateTimeOffset.UtcNow.AddSeconds(job.WipeDelaySeconds);
+                while(DateTimeOffset.UtcNow<delayEnd)
+                {
+                    if(!WipeStillEnabled())return evidence+"_RESTART_WIPE_DISABLED";
+                    ct.ThrowIfCancellationRequested();
+                    await Task.Delay(TimeSpan.FromSeconds(1),ct);
+                }
+            }
+            if(!WipeStillEnabled())return evidence+"_RESTART_WIPE_DISABLED";
+            ct.ThrowIfCancellationRequested();
+            var wipe=Decode(await historicalAdmin!.HandleScheduledWipeAsync(
+                Message("historical.adminPreview",new{mapId=job.MapId,action="wildWipe",message=""}),pid,started));
+            if(wipe.GetProperty("mapId").GetGuid()!=job.MapId||
+               wipe.GetProperty("command").GetString()!="DestroyWildDinos")
+                throw new InvalidDataException("UM-SCHEDULE-WIPE-PREVIEW");
+            ct.ThrowIfCancellationRequested();
+            if(!WipeStillEnabled())return evidence+"_RESTART_WIPE_DISABLED";
+            var sent=Decode(await historicalAdmin.HandleScheduledWipeAsync(
+                Message("historical.adminSend",new{token=wipe.GetProperty("token").GetGuid(),
+                    confirm=true,typedApproval="STORE-V1 DINÓTÖRLÉS"}),pid,started));
+            if(sent.GetProperty("mapId").GetGuid()!=job.MapId||
+               sent.GetProperty("command").GetString()!="DestroyWildDinos"||
+               !sent.GetProperty("commandSent").GetBoolean()||
+               !sent.GetProperty("oneShot").GetBoolean())
+                throw new InvalidDataException("UM-SCHEDULE-WIPE-RECEIPT");
+            return evidence+"_RESTART_READY_WIPE_SENT_EFFECT_UNVERIFIED";
+        }
+        throw new InvalidOperationException("UM-SCHEDULE-HISTORICAL-TIMEOUT");
+    }
+    private async Task<string> DispatchStandaloneWipeAsync(Guid mapId,string fingerprint,
+        Func<string,Task<string>> handle,string prefix,string approval,CancellationToken ct)
+    {
+        // Only a durable enabled/claimed standalone WildWipe can dispatch.
+        // Recheck configuration, cancellation and the claimed slot before
+        // sending. Native admin preview/apply binds exact current PID/epoch,
+        // acquires the installation operation lease and does NOT retry.
+        bool StillApproved()=>Locked(()=>Read().Jobs.Any(x=>x.MapId==mapId&&
+            x.Kind=="WildWipe"&&x.Enabled&&x.Fingerprint==fingerprint&&
+            x.LastStatus=="claimed-no-auto-retry"))&&
+            Eligible(Owned(mapId))&&Fingerprint(Owned(mapId))==fingerprint;
+        ct.ThrowIfCancellationRequested();
+        if(!StillApproved())return "WILD_WIPE_DISABLED_BEFORE_DISPATCH";
+        var preview=Decode(await handle(Message(prefix+".adminPreview",
+            new{mapId,action="wildWipe",message=""})));
+        if(preview.GetProperty("mapId").GetGuid()!=mapId||
+           preview.GetProperty("command").GetString()!="DestroyWildDinos")
+            throw new InvalidDataException("UM-SCHEDULE-WIPE-PREVIEW");
+        ct.ThrowIfCancellationRequested();
+        if(!StillApproved())return "WILD_WIPE_DISABLED_BEFORE_DISPATCH";
+        var result=Decode(await handle(Message(prefix+".adminSend",
+            new{token=preview.GetProperty("token").GetGuid(),confirm=true,typedApproval=approval})));
+        if(result.GetProperty("mapId").GetGuid()!=mapId||
+           result.GetProperty("command").GetString()!="DestroyWildDinos"||
+           !result.GetProperty("commandSent").GetBoolean()||
+           !result.GetProperty("oneShot").GetBoolean())
+            throw new InvalidDataException("UM-SCHEDULE-WIPE-RECEIPT");
+        return "WILD_WIPE_SINGLE_SEND_GAME_EFFECT_UNVERIFIED";
+    }
     private async Task<string> RunNativeAsync(Guid mapId,string kind,CancellationToken ct)
     {
+        if(kind=="WildWipe")
+        {
+            var map=Owned(mapId);
+            var state=cluster.Check(map);
+            if(!state.Running||state.ConfirmedStopped||state.Identity is not {Pid:>0} child||
+               !RconPortOwnership.IsOwnedListener(map.RconPort,child.Pid)||
+               !AsaRuntimeLogEvidence.Inspect(map,child,state.LoaderIdentity).JoinAdvertised)
+                throw new InvalidOperationException("UM-SCHEDULE-WIPE-NOT-READY");
+            return await DispatchStandaloneWipeAsync(mapId,Fingerprint(map),
+                raw=>freshWipeAdmin.HandleScheduledWipeAsync(raw,child.Pid,child.StartedUtc),
+                "rcon","DINÓTÖRLÉS",ct);
+        }
         if(kind=="SaveWorld")
         {
             var map=Owned(mapId);
@@ -668,7 +938,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     if(ix<0)return false;
                     var actual=state.Jobs[ix];
                     if(!actual.Enabled||actual.NextDueUtc!=observed.NextDueUtc||
-                       actual.Fingerprint!=observed.Fingerprint)return false;
+                       actual.Revision!=observed.Revision||actual.Fingerprint!=observed.Fingerprint||actual.PostRestartWipe!=observed.PostRestartWipe||actual.WipeDelaySeconds!=observed.WipeDelaySeconds)return false;
                     // Unknown earlier dispatch blocks ONLY this task. Do not
                     // accidentally execute its next slot because the
                     // schedule cursor was advanced before a crash.
@@ -676,7 +946,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                        x.Kind==actual.Kind&&UnknownSlot(x.Status)))
                     {
                         state.Jobs[ix]=actual with {
-                            NextDueUtc=Next(actual,now),
+                            NextDueUtc=Next(actual,now),Enabled=actual.Frequency!="Once",
                             LastStatus="blocked-prior-unknown-slot",
                             LastEvidence="REVIEW_OLD_CLAIM_NO_REPLAY"
                         };
@@ -686,10 +956,25 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                             "PRIOR_SLOT_NEEDS_OPERATOR"));
                         Write(state);return false;
                     }
+                    // If a restart with a post-ready wipe is due in this
+                    // same tick, do not issue a second standalone wipe. Keep
+                    // the skipped occurrence durable even if the restart fails.
+                    if(actual.Kind=="WildWipe"&&due.Any(x=>x.MapId==actual.MapId&&
+                        x.Kind=="Restart"&&x.PostRestartWipe))
+                    {
+                        state.Jobs[ix]=actual with {NextDueUtc=Next(actual,now),
+                            Enabled=actual.Frequency!="Once",LastClaimedUtc=now,
+                            LastStatus="skipped-overlapping-restart-wipe",
+                            LastEvidence="POST_RESTART_WIPE_TAKES_PRECEDENCE"};
+                        AddHistory(state,new ScheduledAsaExecution(claimId,actual.MapId,
+                            actual.Kind,observed.NextDueUtc,now,now,
+                            "skipped-overlapping-restart-wipe","POST_RESTART_WIPE_TAKES_PRECEDENCE"));
+                        Write(state);return false;
+                    }
                     var next=Next(actual,now);
                     var claimStatus=missed?"missed-no-catchup":"claimed-no-auto-retry";
                     state.Jobs[ix]=actual with {
-                        NextDueUtc=next,LastClaimedUtc=now,
+                        NextDueUtc=next,LastClaimedUtc=now,Enabled=!(missed&&actual.Frequency=="Once"),
                         LastStatus=claimStatus,LastEvidence=""
                     };
                     AddHistory(state,new ScheduledAsaExecution(claimId,actual.MapId,
@@ -706,13 +991,12 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     var map=Owned(observed.MapId);
                     bool stillApproved=Locked(()=>Read().Jobs.Any(x=>
                         x.MapId==observed.MapId&&x.Kind==observed.Kind&&
-                        x.Enabled&&x.Fingerprint==observed.Fingerprint&&
+                        x.Enabled&&x.Revision==observed.Revision&&x.Fingerprint==observed.Fingerprint&&x.PostRestartWipe==observed.PostRestartWipe&&x.WipeDelaySeconds==observed.WipeDelaySeconds&&
                         x.LastClaimedUtc==now&&x.LastStatus=="claimed-no-auto-retry"));
-                    if(stillApproved&&!KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)&&
-                       string.IsNullOrWhiteSpace(map.StoreTestRoot)&&
-                       safeMap(map)&&Fingerprint(map)==observed.Fingerprint)
+                    if(stillApproved&&Eligible(map)&&Fingerprint(map)==observed.Fingerprint)
                     {
-                        evidence=await runner(map.Id,observed.Kind,token);
+                        evidence=map.HistoricalStoreProtected?
+                            await RunHistoricalAsync(observed,token):await runner(map.Id,observed.Kind,token);
                         status="executed-no-fsync-or-client-certification";
                     }
                     else status="config-or-store-blocked";
@@ -722,7 +1006,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     status="interrupted-needs-operator";
                     throw;
                 }
-                catch(Exception) {status="failed-needs-operator-no-retry";}
+                catch(Exception ex) {status="failed-needs-operator-no-retry";evidence=NativeLifecycleFailureCode.From(ex);}
                 finally
                 {
                     try
@@ -735,7 +1019,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                                state.Jobs[ix].LastStatus=="claimed-no-auto-retry")
                             {
                                 state.Jobs[ix]=state.Jobs[ix] with {
-                                    LastStatus=status,LastEvidence=evidence
+                                    LastStatus=status,LastEvidence=evidence,
+                                    Enabled=state.Jobs[ix].Enabled&&state.Jobs[ix].Frequency!="Once"
                                 };
                                 int historyIndex=state.History.FindIndex(x=>x.RunId==claimId);
                                 if(historyIndex>=0 &&
@@ -748,6 +1033,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                             }
                             return true;
                         });
+                        DesktopDiscordNotifications.Record(cluster,observed.MapId,"schedule",status!="executed-no-fsync-or-client-certification");
                     }
                     catch
                     {
@@ -779,7 +1065,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 var item=state.Jobs[i];
                 if(!item.Enabled||item.NextDueUtc>now)continue;
                 state.Jobs[i]=item with {
-                    NextDueUtc=Next(item,now),
+                    NextDueUtc=Next(item,now),Enabled=item.Frequency!="Once",
                     LastStatus="manager-start-skipped-no-replay",
                     LastEvidence=""
                 };

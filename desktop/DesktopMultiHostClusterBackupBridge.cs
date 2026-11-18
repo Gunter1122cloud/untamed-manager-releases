@@ -20,6 +20,8 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
     private sealed record HostStageApproval(Guid Token,MultiHostHostRestoreStaging.Plan Plan,
         long Revision,DateTimeOffset ExpiresUtc);
     private HostStageApproval? hostStageApproval;
+    private sealed record CoordinatedApproval(Guid Token,MultiHostCoordinatedRestore.Plan Plan,long Revision,DateTimeOffset ExpiresUtc);
+    private CoordinatedApproval? coordinatedApproval;
     private sealed record CatalogApproval(Guid Token,string Root,
         string Fingerprint,long RegistryRevision,DateTimeOffset ExpiresUtc);
     private CatalogApproval? catalogApproval;
@@ -223,7 +225,8 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                 return Fail(null, "UM-MULTIHOST-BACKUP-REQUEST");
             id = parsedId.ToString("D");
             string? method = methodRaw.GetString();
-            if (method is not ("cluster.multiHostHostStagePreview" or
+            if (method is not ("cluster.multiHostCoordinatedPreview" or "cluster.multiHostCoordinatedApply" or
+                "cluster.multiHostHostStagePreview" or
                 "cluster.multiHostHostStageApply" or "cluster.multiHostHostStageStatus" or
                 "cluster.multiHostBackupRecoveryPreview" or
                 "cluster.multiHostBackupRecoveryApply" or
@@ -240,6 +243,20 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
             await gate.WaitAsync();
             try
             {
+                if(method=="cluster.multiHostCoordinatedPreview")
+                {
+                    coordinatedApproval=null;
+                    if(current!=null){lock(current)if(current.State is "queued" or "running")return Fail(id,"UM-MULTIHOST-BACKUP-BUSY");}
+                    var sandbox=pickFolder("Ellenőrzött teljes cluster TEMP sandbox");
+                    if(string.IsNullOrWhiteSpace(sandbox))return Fail(id,"UM-COORDINATED-RESTORE-CANCELLED");
+                    var parent=pickFolder("Külön helyi célmappa az összes host offline restore csomagjához");
+                    if(string.IsNullOrWhiteSpace(parent))return Fail(id,"UM-COORDINATED-RESTORE-CANCELLED");
+                    var registry=cluster.Registry.Snapshot();
+                    var plan=await Task.Run(()=>MultiHostCoordinatedRestore.Inspect(LocalPath(sandbox),LocalPath(parent),OwnershipSnapshot(registry),ProtectedRoots(cluster)));
+                    coordinatedApproval=new(Guid.NewGuid(),plan,registry.Revision,DateTimeOffset.UtcNow.AddMinutes(5));
+                    return Ok(id,new{token=coordinatedApproval.Token,batchId=plan.BatchId,maps=plan.Maps,clusters=plan.Clusters,bytes=plan.Bytes,
+                        hosts=plan.Hosts.Select(h=>new{hostId=h.HostId,maps=h.Maps,components=h.Components,bytes=h.Bytes}),productionRestoreAllowed=false,remoteHostWritten=false});
+                }
                 if (method == "cluster.multiHostHostStagePreview")
                 {
                     hostStageApproval=null;
@@ -578,6 +595,29 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                     !request.TryGetProperty("confirm", out var confirm) || confirm.ValueKind != JsonValueKind.True)
                     return Fail(id, "UM-MULTIHOST-BACKUP-APPROVAL-REQUIRED");
 
+                if(method=="cluster.multiHostCoordinatedApply")
+                {
+                    if(!request.TryGetProperty("typedApproval",out var phrase)||phrase.GetString()!="CLUSTER RESTORE TEST")return Fail(id,"UM-COORDINATED-RESTORE-APPROVAL");
+                    var approval=coordinatedApproval;coordinatedApproval=null;
+                    if(approval==null||approval.Token!=tokenValue||approval.ExpiresUtc<DateTimeOffset.UtcNow)return Fail(id,"UM-COORDINATED-RESTORE-APPROVAL-EXPIRED");
+                    var registry=cluster.Registry.Snapshot();
+                    if(registry.Revision!=approval.Revision)return Fail(id,"UM-COORDINATED-RESTORE-REGISTRY-CHANGED");
+                    var owner=OwnershipSnapshot(registry);var blocked=ProtectedRoots(cluster);var plan=approval.Plan;
+                    var job=new Job{Kind="hoststage",Hosts=plan.Hosts.Length,Maps=plan.Maps,Clusters=plan.Clusters,Components=plan.Hosts.Sum(h=>h.Components),Bytes=plan.Bytes};
+                    current=job;currentCancellation?.Dispose();currentCancellation=new CancellationTokenSource();var cancel=currentCancellation.Token;
+                    _=Task.Run(()=>{
+                        try{
+                            Set(job,"running","PREPARING_COORDINATED_OFFLINE_HOSTS");
+                            var result=MultiHostCoordinatedRestore.Stage(plan,owner,blocked,true,cancel,stage=>{
+                                if(cluster.Registry.Snapshot().Revision!=approval.Revision)throw new InvalidOperationException("UM-COORDINATED-RESTORE-REGISTRY-CHANGED");
+                                Set(job,"running",stage);
+                            });
+                            if(result.State!="offline-ready"||result.ProductionRestoreAllowed||cluster.Registry.Snapshot().Revision!=approval.Revision)throw new InvalidDataException("UM-COORDINATED-RESTORE-RECEIPT");
+                            Set(job,"completed","ALL_HOST_PACKAGES_SHA256_VERIFIED_OFFLINE_ONLY",null,"coordinated-restore-"+plan.BatchId.ToString("N")+".json");
+                        }catch{Set(job,"needsOperator","COORDINATED_RESTORE_INCOMPLETE_RETAINED_NO_REPLAY");}
+                    });
+                    return Ok(id,new{jobId=job.Id,started=true,productionRestoreAllowed=false,remoteHostWritten=false,originalStoreTouched=false});
+                }
                 if(hostStageApply)
                 {
                     if(!request.TryGetProperty("typedApproval",out var typed)||

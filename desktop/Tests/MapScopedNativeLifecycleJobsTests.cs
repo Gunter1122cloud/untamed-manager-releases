@@ -206,6 +206,28 @@ internal static class MapScopedNativeLifecycleJobsTests
             dispatched.Contains(maps[0].Id)&&
             dispatched.Contains(maps[1].Id),
             "both ASA processes receive only their own one approved action");
+        // Both synthetic workers must have durably completed before the next
+        // scenario reuses these installation identities. Observing the first
+        // job (or seeing the second callback enter) does not establish that
+        // the sibling's journal has been committed by its worker.
+        JsonElement siblingCompleted=default;
+        var siblingDeadline=DateTimeOffset.UtcNow.AddSeconds(10);
+        do
+        {
+            siblingCompleted=Data(await Call(bridge.HandleAsync,
+                "servers.gracefulStopStatus",new{jobId=jobIds[1]}),
+                "second job remains readable until durable completion");
+            if(siblingCompleted.GetProperty("state").GetString() is
+                "completed" or "needsOperator")break;
+            await Task.Delay(25);
+        }while(DateTimeOffset.UtcNow<siblingDeadline);
+        Check(siblingCompleted.GetProperty("state").GetString()=="completed"&&
+              siblingCompleted.GetProperty("confirmedStopped").GetBoolean(),
+            "second synthetic Stop reaches verified terminal state before fixture reuse");
+        var siblingJournal=new AsaManualStopJournal(maps[1].InstallationPath);
+        Check(siblingJournal.Observe() is {Phase:AsaStopPhase.Completed} record&&
+              record.MapId==maps[1].Id,
+            "sibling Stop journal is durably completed before fixture reuse");
         // An in-memory terminal NeedsOperator is still an unresolved native
         // Stop outcome. Neither WebView navigation nor a new approval may
         // bypass it. The failing worker below is isolated and never uses TCP.

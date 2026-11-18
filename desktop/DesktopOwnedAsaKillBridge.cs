@@ -154,6 +154,7 @@ public sealed class DesktopOwnedAsaKillBridge
                    !current.ExecutablePath.Equals(pinned.Executable,
                        StringComparison.OrdinalIgnoreCase))
                     return Fail(id,"UM-KILL-PID-OR-OWNER-CHANGED");
+                RecoveryStopIntent.Mark(map,current);
                 lease.MarkMutationStarted();
                 if(!terminate(current))
                     return Fail(id,"UM-KILL-EXIT-UNVERIFIED");
