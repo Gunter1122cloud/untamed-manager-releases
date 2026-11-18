@@ -55,6 +55,13 @@ internal static class NativeWebViewDispatchContractTests
 
     public static void Run()
     {
+        // Pure Windows task state contract: never register/start/stop a real task in CI.
+        Check(Enumerable.Range(0,6).Where(DesktopDiscordBotRuntime.CanStart).SequenceEqual(new[]{3})&&
+              Enumerable.Range(0,6).Where(DesktopDiscordBotRuntime.CanStop).SequenceEqual(new[]{2,4}),
+              "local bot runtime enables actions only for known eligible task states");
+        Check(DesktopDiscordBotRuntime.StateLabel(4).Contains("nincs igazolva",StringComparison.Ordinal)&&
+              DesktopDiscordBotRuntime.StateLabel(0)=="Ismeretlen",
+              "running task is not a verified Discord connection");
         string root=RepoRoot();
         string Read(string relative)=>File.ReadAllText(
             Path.Combine(root,relative.Replace('/',Path.DirectorySeparatorChar)));

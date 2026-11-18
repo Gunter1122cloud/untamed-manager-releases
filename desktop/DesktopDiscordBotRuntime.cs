@@ -46,7 +46,7 @@ internal static class DesktopDiscordBotRuntime
     internal static bool CanStart(int state)=>state==3;
     internal static bool CanStop(int state)=>state==2||state==4;
 
-    internal static void Show(IWin32Window owner,bool mutationsAllowed)
+    internal static void Show(IWin32Window owner,Func<bool> mutationsAllowed)
     {
         using var dialog=new Form{
             Text="Obsidian · Discord bot",StartPosition=FormStartPosition.CenterParent,
@@ -74,19 +74,20 @@ internal static class DesktopDiscordBotRuntime
             {
                 var result=WithTask<(int State,int LastResult)>(t=>((int)t.State,(int)t.LastTaskResult));
                 status.Text=StateLabel(result.State)+" · Windows eredmény: 0x"+unchecked((uint)result.LastResult).ToString("X8");
-                start.Enabled=mutationsAllowed&&CanStart(result.State);
-                stop.Enabled=mutationsAllowed&&CanStop(result.State);
+                start.Enabled=mutationsAllowed()&&CanStart(result.State);
+                stop.Enabled=mutationsAllowed()&&CanStop(result.State);
             }
             catch{status.Text="A helyi botfeladat nincs beállítva, vagy nem ellenőrizhető.";}
         }
         void Change(bool run)
         {
-            if(!mutationsAllowed)return;
+            if(!mutationsAllowed())return;
             if(MessageBox.Show(dialog,run?"Elindítod a meglévő Discord botot?":
                 "Leállítod a helyi Discord botfeladatot? A futó botművelet megszakadhat.",
                 "Discord bot",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
             try
             {
+                if(!mutationsAllowed())return;
                 bool accepted=WithTask<bool>(t=>{
                     int state=(int)t.State;
                     if(run)

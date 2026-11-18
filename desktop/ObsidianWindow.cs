@@ -410,7 +410,7 @@ public sealed class ObsidianWindow : Form
         if(!smokeTest)
             menu.Items.Add("Discord bot",null,(_,_)=>{
                 RestoreWindow();
-                DesktopDiscordBotRuntime.Show(this,!_suppressScheduledMutations&&!_updateHandoff);
+                DesktopDiscordBotRuntime.Show(this,()=>!_suppressScheduledMutations&&!_updateHandoff);
             });
         menu.Items.Add("Kilépés a Managerből", null, (_, _) =>
         {

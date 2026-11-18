@@ -26,14 +26,14 @@ function Resolve-LocalFile([string]$Path, [string]$ExpectedName, [string]$Expect
         if ($dir.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked directories are not supported.' }
         $dir = $dir.Parent
     }
-    if ((New-Object IO.DriveInfo($item.PSDrive.Root)).DriveType -ne [IO.DriveType]::Fixed) {
+    if (([IO.DriveInfo]::new([IO.Path]::GetPathRoot($item.FullName))).DriveType -ne [IO.DriveType]::Fixed) {
         throw 'Use a fixed local drive.'
     }
     return $item.FullName
 }
 $exe = Resolve-LocalFile $Pythonw 'pythonw.exe' ''
 $entry = Resolve-LocalFile $EntryScript '' '.py'
-$working = Split-Path -LiteralPath $entry -Parent
+$working = [IO.Path]::GetDirectoryName($entry)
 $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 $action = New-ScheduledTaskAction -Execute $exe -Argument ('"' + $entry + '"') -WorkingDirectory $working
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited

@@ -32,6 +32,11 @@
     <!-- Prevent obsolete vulnerable SQLitePCLRaw 2.1.11 transitively selected by the provider. -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
   </ItemGroup>
+  <!-- Explicit, source-only handoff for the user's existing bot.
+       No Python runtime, real config, credentials or bot state is packaged. -->
+  <ItemGroup>
+    <Content Include="../scripts/Configure-DiscordControl.ps1;../scripts/Register-DiscordBotRuntime.ps1;../scripts/obsidian-discord-config.example.json;../scripts/obsidian-discord-requirements.txt;../scripts/obsidian_discord_client.py;../scripts/obsidian_discord_cog.py;../docs/development/OBSIDIAN-DISCORD-CONTROL-API.md" Link="DiscordIntegration/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
   <ItemGroup Condition="Exists('../desktop-ui/dist/index.html')">
     <Content Include="../desktop-ui/dist/**/*" Link="ui/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

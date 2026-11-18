@@ -92,3 +92,14 @@ Copy `scripts/obsidian_discord_client.py` and `scripts/obsidian_discord_cog.py` 
 ### Two-step setup and job feedback
 
 Set `provision_only: true` and `provision_channels: true` for the first launch; host credentials may remain placeholders while private channels are created. Read their saved IDs, then provision each Manager with status and control channel IDs plus the bot user ID. Fill actual host secrets locally, set `provision_only: false` and `provision_channels: false`, restart the existing bot. The background service can read existing operation receipts but cannot preview or dispatch. It polls recorded operation IDs and posts terminal native job state to private audit/backup/update channels. Native receipt-only operations (including Start) remain explicitly unverified for game readiness. Status interval is approximately 30 seconds after the previous bounded poll completes.
+
+
+## Optional existing-bot runtime control inside Manager
+
+The published Setup and Portable include a `DiscordIntegration` directory with the Python extension/client, requirements, example config, both provisioning scripts and this guide. They contain no real credentials. Codex integrates the extension into the **existing bot**; do not create another bot or change its token. Install Python dependencies in its existing virtual environment. Ensure the bot uses file logging (pythonw provides no console). Stop the old manually launched bot, then run the following once as the Windows account that owns it, on **one** host only:
+
+```powershell
+.\Register-DiscordBotRuntime.ps1 -Pythonw 'C:\path\to\venv\Scripts\pythonw.exe' -EntryScript 'C:\path\to\existing\bot.py' -StartAtLogon
+```
+
+Use the real paths chosen by Codex; omit StartAtLogon if manual start is preferred. Registration never starts the bot and refuses replacement of an existing task. In Obsidian's notification-area (tray) menu select **Discord bot** to see Windows task state and start/stop it without a console. The task uses the same interactive Windows user, not a Windows service; it does not run after logoff and logon autostart requires the option. Windows Task Scheduler prevents concurrent instances of this task and can retry a failed exit up to three times, one minute apart. It does not detect a hung or disconnected bot. A separately launched copy is not detected: disable other startup mechanisms first. The task survives Manager close/update; do not assume an API request interrupted by a Manager update succeeded. The API requires the Manager running. Actual Discord connectivity, bot application logs and task registration/control on the target Windows host remain local acceptance checks. Never place bot tokens in command line, task description, logs or GitHub. The control window only operates the fixed provisioned local task; no generic task/shell commands over Discord. Manual-test mode disables the task mutations. No task is registered in CI or by the installer.
