@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useState} from "react";
+import {useEffect,useMemo,useRef,useState} from "react";
 import {
   Activity, AlertTriangle, ArrowRight, Boxes, CheckCircle2, Cpu, Plus,
   HardDrive, Map as MapIcon, Monitor, Search, Server, Shield, Users, WifiOff, Grid2X2, List
@@ -38,9 +38,9 @@ export function parseAsaPlayerCount(raw:string):number|null {
   return lines.length;
 }
 
-function ServerRow({map,host,local,onSelect,playerCount}:{
+function ServerRow({map,host,local,onSelect,playerCount,rconFailures=0}:{
   map:PublicMap;host:string;local:boolean;onSelect:(id:string)=>void;
-  playerCount:number|null;
+  playerCount:number|null;rconFailures?:number;
 }){
   return <div className="premium-server-row" role="row"
     tabIndex={local?0:-1}
@@ -61,6 +61,7 @@ function ServerRow({map,host,local,onSelect,playerCount}:{
     <span className="premium-server-players" role="cell"
       title={playerCount===null?"Nincs hitelesített, aktuális RCON játékoslista":"Hitelesített helyi RCON ListPlayers"}>
       {playerCount===null?"—":playerCount}
+      {rconFailures>=3&&<small title="Korlátozott újracsatlakozási próbák; ASA-crash nem igazolt.">RCON ellenőrzendő</small>}
     </span>
     <span className="premium-server-port" role="cell">
       {map.gamePort?map.gamePort:"—"}
@@ -128,6 +129,8 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
   const local=snapshot.local.maps;
   const peer=useMemo(()=>remotes.flatMap(remote=>remote.maps),[remotes]);
   const [playerCounts,setPlayerCounts]=useState<Record<string,number|null>>({});
+  const [rconRetries,setRconRetries]=useState<Record<string,number>>({});
+  const reconnect=useRef(new Map<string,{failures:number;after:number;count:number|null}>());
   const eligiblePlayers=local.filter(map=>map.running&&!map.observedReadOnlyImported&&
     map.rconConfigured&&!map.maintenance)
     .map(map=>map.id+":"+(map.storeProtected?"historical":"local"))
@@ -140,24 +143,37 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
       const colon=item.lastIndexOf(":");
       return {id:item.slice(0,colon),historical:item.slice(colon+1)==="historical"};
     }):[];
-    setPlayerCounts({});
+    setPlayerCounts({});setRconRetries({});
+    reconnect.current.clear();
     const refresh=async()=>{
       if(closed||busy||!maps.length)return;
       busy=true;
       try {
         const counts=await Promise.all(maps.map(async map=>{
+          const previous=reconnect.current.get(map.id);
+          if(previous&&Date.now()<previous.after)return [map.id,previous.count] as const;
+          let count:number|null=null;
           try{
             const answer=map.historical
               ?await managerBridge.historicalRconPlayers(map.id)
               :await managerBridge.rconListPlayers(map.id);
-            return [map.id,parseAsaPlayerCount(answer.response)] as const;
-          }catch{return [map.id,null] as const;}
+            count=answer.mapId.toLowerCase()===map.id.toLowerCase()?parseAsaPlayerCount(answer.response):null;
+          }catch{/* Connection or identity failure is unknown, not a server crash. */}
+          if(!closed){
+            const failures=count===null?Math.min(5,(previous?.failures??0)+1):0;
+            // Fresh native connection on each probe. At most one in flight;
+            // repeated failures back off to <=5 minutes, with small jitter.
+            const delay=failures?Math.min(300000,15000*2**failures+Math.floor(Math.random()*3000)):45000;
+            reconnect.current.set(map.id,{failures,after:Date.now()+delay,count});
+          }
+          return [map.id,count] as const;
         }));
-        if(!closed)setPlayerCounts(Object.fromEntries(counts));
+        if(!closed){setPlayerCounts(Object.fromEntries(counts));
+          setRconRetries(Object.fromEntries([...reconnect.current].map(([id,v])=>[id,v.failures])));}
       }finally{busy=false;}
     };
     void refresh();
-    const poll=window.setInterval(()=>{void refresh();},45000);
+    const poll=window.setInterval(()=>{void refresh();},15000);
     return ()=>{closed=true;window.clearInterval(poll);};
   },[eligiblePlayers]);
   const maps=useMemo(()=>{
@@ -247,7 +263,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
           </div>
           {maps.map(({map,host,isLocal})=><ServerRow key={host+map.id}
             map={map} host={host} local={isLocal} onSelect={onSelect}
-            playerCount={isLocal?(playerCounts[map.id]??null):null}/>)}
+            playerCount={isLocal?(playerCounts[map.id]??null):null} rconFailures={isLocal?(rconRetries[map.id]??0):0}/>)}
           {maps.length===0 && <div className="premium-dashboard-empty">
             <Boxes size={30}/><b>{query?"Nincs találat":"A helyi Manager még nem tartalmaz mapot"}</b>
             <p>{query?"Próbálj másik keresést.":"A már telepített ASA-mapokat az eredeti konfigurációjuk megőrzésével veheted fel. Az alábbiak elérhető mapválasztékok, nem futó vagy regisztrált szerverek."}</p>

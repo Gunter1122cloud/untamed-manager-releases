@@ -1313,6 +1313,13 @@ try
                   history.Any(x=>x.MapId==m2.Id&&x.Kind=="Restart"&&!x.Enabled),
                 "native schedule journal retains both independent map identities");
             var once=supervisor.Configure(m2.Id,"Restart","Once",1,240,127);
+            int beforeFreeze=sent;
+            Check(supervisor.TryFreezeForManagerUpdate(),"idle native scheduler can be frozen for Manager handoff");
+            try{
+                await supervisor.TickOnceAsync(once.NextDueUtc);
+                Check(sent==beforeFreeze&&supervisor.Snapshot().Single(x=>x.MapId==m2.Id&&x.Kind=="Restart").Enabled,
+                    "frozen scheduler neither dispatches nor claims the due restart");
+            }finally{supervisor.ReleaseManagerUpdateFreeze();}
             await supervisor.TickOnceAsync(once.NextDueUtc);
             Check(!supervisor.Snapshot().Single(x=>x.MapId==m2.Id&&x.Kind=="Restart").Enabled,
                 "one-minute test Restart disables itself after its single durable execution");
@@ -6741,6 +6748,11 @@ try
                 "running ASA cannot be silently stopped or auto-backed-up");
             stopped=true;
             scheduleConfigured=scheduled.Configure(localMap.Id,60,scheduleNow);
+            Check(scheduled.TryFreezeForManagerUpdate(),"idle backup scheduler can be frozen for Manager handoff");
+            try{
+                var frozen=scheduled.TickOnce(scheduleNow.AddMinutes(61)).Single();
+                Check(frozen.LastPoint==null&&frozen.LastAttemptUtc==null,"frozen backup scheduler makes no new archive and claims no slot");
+            }finally{scheduled.ReleaseManagerUpdateFreeze();}
             var completed=scheduled.TickOnce(scheduleNow.AddMinutes(61)).Single();
             Check(completed.LastStatus=="verified-backup-created" &&
                   completed.LastPoint!=null &&

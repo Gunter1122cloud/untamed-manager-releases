@@ -76,6 +76,19 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     private readonly Func<LocalMap,bool> safeMap;
     private readonly string folder,path,mutexName;
     private readonly SemaphoreSlim tickGate=new(1,1);
+    private int updateFrozen;
+    // Host calls only under the native updater dispatch gate. No active
+    // scheduled copy or lifecycle may be interrupted to update the Manager.
+    internal bool TryFreezeForManagerUpdate()
+    {
+        if(!tickGate.Wait(0))return false;
+        Volatile.Write(ref updateFrozen,1);
+        return true;
+    }
+    internal void ReleaseManagerUpdateFreeze()
+    {
+        if(Interlocked.Exchange(ref updateFrozen,0)==1)tickGate.Release();
+    }
     private readonly CancellationTokenSource cancel=new();
     private Task? loop;
     private int started,disposed;

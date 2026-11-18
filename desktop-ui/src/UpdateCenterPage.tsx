@@ -90,9 +90,12 @@ export function UpdateCenterPage(){
     try{
       const response=await managerBridge.updateInstall(prepared.token);
       if(response.externalUpdaterStarted)setHandedOff(true);
-    }catch{
+    }catch(e){
       setPrepared(null);setApproved(false);
-      setError("A külső frissítő átadása nem sikerült. A Manager nem módosult.");
+      const code=e instanceof Error?e.message:"";
+      setError(["UM-UPDATE-SCHEDULE-IN-PROGRESS","UM-UPDATE-BACKUP-IN-PROGRESS","UM-UPDATE-LOCAL-OPERATION-PENDING"].includes(code)
+        ?"A Manager frissítése nem indult: folyamatban lévő vagy rendezetlen helyi művelet. Ellenőrizd az állapotot, majd kezdeményezd újra. ASA-leállítás nem történt."
+        :"A külső frissítő átadása nem sikerült. A Manager nem módosult.");
     }finally{setInstalling(false);}
   };
   return <div className="uk-updates-page">
@@ -158,6 +161,7 @@ export function UpdateCenterPage(){
             {prepared&&<div className="uk-updates-ready">
               <div><CheckCircle2 size={18}/> Telepítő SHA-256 ellenőrizve</div>
               <span>{prepared.tag} · {(prepared.fileBytes/1048576).toFixed(1)} MiB</span>
+              <small>{prepared.publisherPinVerified?"Konfigurált kiadói tanúsítvány ellenőrizve.":"GitHub SHA-256 egyezés; független kiadói aláírás nem igazolt."}</small>
               <code>{prepared.sha256}</code>
               <label><input type="checkbox" checked={approved}
                 onChange={e=>setApproved(e.target.checked)}/>

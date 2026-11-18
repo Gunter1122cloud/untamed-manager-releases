@@ -152,7 +152,7 @@ public sealed class DesktopObsidianUpdateInstallBridge
                         tag=release.Tag,assetName=release.AssetName,
                         sha256=release.Sha256,
                         fileBytes=new FileInfo(staged).Length,
-                        verified=true,requiresFinalApproval=true,
+                        verified=true,publisherPinVerified=!string.IsNullOrWhiteSpace(pinned),requiresFinalApproval=true,
                         updaterPackaged=true,automaticInstallationStarted=false,
                         evidence="OBSIDIAN_INSTALLER_SHA256_STAGED_ONLY"
                     });

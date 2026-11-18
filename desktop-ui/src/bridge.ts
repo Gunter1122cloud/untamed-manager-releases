@@ -777,7 +777,7 @@ export type RconPlayers = {
 
 export type UpdatePrepared = {
   token:string;version:string;tag:string;assetName:string;
-  sha256:string;fileBytes:number;verified:true;
+  sha256:string;fileBytes:number;verified:true;publisherPinVerified?:boolean;
   requiresFinalApproval:true;updaterPackaged:true;
   automaticInstallationStarted:false;
   evidence:"OBSIDIAN_INSTALLER_SHA256_STAGED_ONLY";

@@ -71,6 +71,38 @@ public sealed class ObsidianWindow : Form
     // block Dashboard/RCON/status RPCs behind the global command gate.
     // Final update.install still takes the global gate before handing off
     // to the external updater and closing the Manager.
+    private async Task<string> InstallManagerWithFrozenSchedulesAsync(string raw)
+    {
+        // update.install is dispatched under the host command gate. Hold the
+        // independent scheduler lanes too; if busy, leave the running task alone.
+        if(!_nativeSchedules.TryFreezeForManagerUpdate())
+            return NativeErrorResponse(raw,"UM-UPDATE-SCHEDULE-IN-PROGRESS");
+        bool backupFrozen=false;
+        try
+        {
+            backupFrozen=_scheduledBackups.TryFreezeForManagerUpdate();
+            if(!backupFrozen)return NativeErrorResponse(raw,"UM-UPDATE-BACKUP-IN-PROGRESS");
+            string response=await _updateInstall.HandleAsync(raw);
+            using var result=JsonDocument.Parse(response);
+            _updateHandoff=result.RootElement.TryGetProperty("ok",out var ok)&&
+                ok.ValueKind==JsonValueKind.True&&
+                result.RootElement.TryGetProperty("data",out var data)&&
+                data.TryGetProperty("externalUpdaterStarted",out var started)&&
+                started.ValueKind==JsonValueKind.True;
+            // Successful handoff holds the gates until this Manager exits;
+            // the replacement Manager reads existing journals/ASA identity.
+            return response;
+        }
+        finally
+        {
+            if(!_updateHandoff)
+            {
+                if(backupFrozen)_scheduledBackups.ReleaseManagerUpdateFreeze();
+                _nativeSchedules.ReleaseManagerUpdateFreeze();
+            }
+        }
+    }
+
     internal static bool RequiresGlobalBridgeGate(string? method) =>
         method is not (
             // Exact read-only methods must stay responsive while an owner
@@ -222,6 +254,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopScheduledAsaOperationsSupervisor _nativeSchedules;
     private readonly DesktopMapMaintenanceBridge _mapMaintenance;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
+    private bool _updateHandoff;
     private bool _reallyExit;
     private readonly bool _smokeTest;
     private readonly bool _suppressScheduledMutations;
@@ -677,7 +710,9 @@ public sealed class ObsidianWindow : Form
                 if (requireGlobalGate) await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = IsManualOnlyDeniedPluginMethod(methodName)
+                    string response = _updateHandoff&&requireGlobalGate
+                        ? NativeErrorResponse(incoming,"UM-UPDATE-MANAGER-HANDOFF")
+                        : IsManualOnlyDeniedPluginMethod(methodName)
                         ? NativeErrorResponse(incoming,"UM-PLUGIN-MANUAL-FOLDER-ONLY")
                         : apiCoreRoute ? await _apiCore.HandleAsync(incoming)
                         : lanRoute ? await _lan.HandleAsync(incoming)
@@ -697,7 +732,7 @@ public sealed class ObsidianWindow : Form
                         : rconConfigRoute ? await _rconConfig.HandleAsync(incoming)
                         : rconAdminRoute ? await _rconAdmin.HandleAsync(incoming)
                         : worldBackupRoute ? await _worldBackup.HandleAsync(incoming)
-                        : updateInstallRoute ? await _updateInstall.HandleAsync(incoming)
+                        : updateInstallRoute ? (methodName=="updates.install"?await InstallManagerWithFrozenSchedulesAsync(incoming):await _updateInstall.HandleAsync(incoming))
                         : embeddedStoreRoute ? await _embeddedStore.HandleAsync(incoming)
                         : travelRoute ? await _travel.HandleAsync(incoming)
                         : rconRoute ? await _rcon.HandleAsync(incoming)
