@@ -751,10 +751,12 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         // live installation mutation journal is needed. A
                         // crash releases the process-scoped semaphore, and
                         // retry reuses the immutable pin or committed GUID.
-                        using var registrationGate=new Semaphore(1,1,
-                            "Global\\Untamed-SupplementalImport-"+UntamedOperationCoordinator.ResourceKey(before.Map.InstallationPath));
-                        if(!registrationGate.WaitOne(0))
-                            throw new IOException("UM-STORE-EXTRA-REGISTRATION-BUSY");
+                        using var registrationGate=new Mutex(false,
+                            @"Global\Untamed-SupplementalImport-"+UntamedOperationCoordinator.ResourceKey(before.Map.InstallationPath));
+                        bool acquired;
+                        try{acquired=registrationGate.WaitOne(0);}
+                        catch(AbandonedMutexException){acquired=true;}
+                        if(!acquired)throw new IOException("UM-STORE-EXTRA-REGISTRATION-BUSY");
                         try
                         {
                         var current=PrepareSupplemental(approval.MapId,approval.StoppedUseApi);
@@ -782,7 +784,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                             originalStoreTouched=false,scheduleChanged=false,
                             requiresLocalAcceptance=!unchanged};
                         }
-                        finally{registrationGate.Release();}
+                        finally{registrationGate.ReleaseMutex();}
                     });
                     return Ok(id,result);
                 }

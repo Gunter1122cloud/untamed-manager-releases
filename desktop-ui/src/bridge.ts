@@ -1847,12 +1847,11 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   sourceMap?: string;destinationMap?: string; profileId?: string;
   hostId?:string;hostName?:string;mapIds?:string[];
   clusterId?:string;transferDirectory?:string;transferRoot?:string;
-  backupDirectory?:string; fullLocal?:boolean; keepLatest?:number; protect?:boolean };
+  backupDirectory?:string; fullLocal?:boolean; keepLatest?:number; protect?:boolean; stoppedUseApi?:boolean };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
   addEventListener: (name: "message", handler: (event: MessageEvent<WireResponse>) => void) => void;
-  stoppedUseApi?: boolean;
 };
 declare global {
   interface Window {
