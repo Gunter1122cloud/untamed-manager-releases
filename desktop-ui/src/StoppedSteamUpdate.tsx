@@ -3,6 +3,11 @@ import {AlertTriangle,CheckCircle2,HardDrive,RefreshCw,Shield} from "lucide-reac
 import {managerBridge,type PublicMap,type StoppedSteamPreview,type StoppedSteamStatus,type DurableSteamQueue,type StoppedSteamDiagnostics,type SteamPublishedBuild} from "./bridge";
 import {ScheduledStoppedSteamSettings} from "./ScheduledStoppedSteamSettings";
 
+const steamReason=(code?:string|null)=>code==="UM-STEAMCMD-NOT-CONFIGURED"?"Nincs SteamCMD beállítva. Válaszd ki a steamcmd.exe fájlt.":
+  code==="UM-STEAMCMD-NOT-FOUND"?"A beállított steamcmd.exe nem található.":
+  code==="UM-STEAMCMD-INVALID"?"Érvénytelen vagy nem olvasható helyi SteamCMD-programútvonal.":
+  code==="UM-STEAM-ASA-BINARY-INVALID"?"A kiválasztott map ASA szerverbinárisa nem igazolható.":null;
+
 export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapId?:string}) {
   const [selected,setSelected]=useState("");
   const [preview,setPreview]=useState<StoppedSteamPreview|null>(null);
@@ -14,6 +19,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
   const [approved,setApproved]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
+  const [steamNotice,setSteamNotice]=useState("");
   const [reconnecting,setReconnecting]=useState(true);
   const [reconnectFailed,setReconnectFailed]=useState(false);
   const [reconnectNonce,setReconnectNonce]=useState(0);
@@ -140,6 +146,21 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
 
   const blocked=busy||!!jobId||otherMapUpdating||reconnecting||reconnectFailed||
     Boolean(journal?.needsOperatorReview);
+  const selectSteam=async()=>{
+    if(!mapId||blocked)return;
+    const requested=mapId,epoch=mapEpoch.current;
+    setBusy(true);setError("");setSteamNotice("");
+    try{
+      const result=await managerBridge.steamSelectExecutable();
+      if(!belongs(requested,epoch))return;
+      if(result.updateStarted!==false||result.serverStopped!==false||(!result.cancelled&&!result.configured))
+        throw new Error("UM-STEAMCMD-SETTINGS-RECEIPT-INVALID");
+      if(result.cancelled)return;
+      setPreview(null);setApproved(false);setDiagnostics(null);setPublished(null);
+      setSteamNotice("SteamCMD elérési útja mentve a helyi Manager profiljába. ASA-frissítés nem indult. Ellenőrizd újra a verziót és a frissítési előfeltételeket.");
+    }catch(e){if(belongs(requested,epoch))setError(steamReason(e instanceof Error?e.message:"")??"A SteamCMD beállítása nem igazolható.");}
+    finally{if(belongs(requested,epoch))setBusy(false);}
+  };
   const checkPublished=async()=>{
     if(!mapId||blocked)return;
     const requested=mapId,epoch=mapEpoch.current;
@@ -154,9 +175,9 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
       setPublished(proof);
     }catch(e){
       if(belongs(requested,epoch))
-        setError("A Steam ASA buildje nem ellenőrizhető ("+
-          (e instanceof Error?e.message:"UM-STEAM-PUBLISHED-UNAVAILABLE")+
-          "). Nem indítottunk frissítést.");
+        setError((steamReason(e instanceof Error?e.message:"")??("A Steam ASA buildje nem ellenőrizhető ("+
+          (e instanceof Error?e.message:"UM-STEAM-PUBLISHED-UNAVAILABLE")+")."))+
+          " Nem indítottunk frissítést.");
     }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const check=async()=>{
@@ -171,7 +192,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
         throw new Error("UM-STEAM-DIAGNOSTICS-OTHER-MAP");
       setDiagnostics(report);
       if(!report.canPreview){
-        setError("A frissítési előfeltételek nem teljesülnek. A diagnosztika jelzi a blokkoló mapot, SteamCMD-t, tárhelyet vagy naplót.");
+        setError(steamReason(report.steamCmdError)??(report.asaBinaryRegistered===false?steamReason("UM-STEAM-ASA-BINARY-INVALID")!:"A frissítési előfeltételek nem teljesülnek. A diagnosztika jelzi a blokkoló mapot, SteamCMD-t, tárhelyet vagy naplót."));
         return;
       }
       const proof=await managerBridge.steamStoppedPreview(requested);
@@ -214,6 +235,8 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
     <header className="premium-panel-heading">
       <h2><HardDrive size={19}/> Valódi SteamCMD-frissítés – leállított mapok</h2>
     </header>
+    <button type="button" className="secondary" disabled={!mapId||blocked} onClick={()=>{void selectSteam();}}>SteamCMD program kiválasztása</button>
+    {steamNotice&&<p role="status" className="success-inline">{steamNotice}</p>}
     {reconnecting&&<p role="status" className="muted small">Korábbi kézi SteamCMD-feladat ellenőrzése…</p>}
     {otherMapUpdating&&<p role="status" className="warning-inline">
       Másik helyi map SteamCMD-frissítése folyamatban van. A saját map frissítése a másik feladat befejezéséig nem indítható.</p>}
@@ -260,7 +283,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
       <p>Telepítés: {diagnostics.installRoot}</p>
       <p>Szabad tárhely: {Math.floor(diagnostics.availableBytes/1073741824)} GiB;
         szükséges tartalék: {Math.ceil(diagnostics.requiredBytes/1073741824)} GiB.</p>
-      <p>SteamCMD: {diagnostics.steamCmdFound?"Telepítve":"Hiányzik vagy az elérési út érvénytelen"}.
+      <p>SteamCMD: {diagnostics.steamCmdFound?"Helyi elérési út ellenőrizve":steamReason(diagnostics.steamCmdError)??(!diagnostics.steamCmdConfigured?"Nincs konfigurálva":"Hiányzik vagy az elérési út érvénytelen")}.
         Napló: {diagnostics.journalBlocked?"kézi ellenőrzés szükséges":"nem blokkol"}.
         Store-v1/karbantartás: {diagnostics.historicalBlocked?"védett":"nem blokkol"}.
         Közös telepítés tulajdonjoga: {diagnostics.safeInstallation?

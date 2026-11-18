@@ -32,6 +32,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     private readonly Func<LocalMap,SteamUpdatePreview> planner;
     private readonly Func<LocalMap,IProgress<SteamMaintenanceStage>,Task<SteamStoppedMapUpdater.Receipt>> runner;
     private readonly Func<LocalMap,CancellationToken,Task<AsaSteamBuildCheck>> publishedBuild;
+    private readonly Func<string?> pickSteamCmd;
     // Each local map has its own approval; SteamCMD execution stays serialized.
     private readonly System.Collections.Generic.Dictionary<Guid,Preview> pendingByMap=new();
     private readonly System.Collections.Generic.Dictionary<Guid,Job> jobsById=new();
@@ -42,9 +43,11 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     public DesktopStoppedSteamUpdateBridge(ClusterService owner,
         Func<LocalMap,SteamUpdatePreview>? plan=null,
         Func<LocalMap,IProgress<SteamMaintenanceStage>,Task<SteamStoppedMapUpdater.Receipt>>? execute=null,
-        Func<LocalMap,CancellationToken,Task<AsaSteamBuildCheck>>? inspectPublished=null)
+        Func<LocalMap,CancellationToken,Task<AsaSteamBuildCheck>>? inspectPublished=null,
+        Func<string?>? selectSteamCmd=null)
     {
         cluster=owner??throw new ArgumentNullException(nameof(owner));
+        pickSteamCmd=selectSteamCmd??PickSteamCmd;
         planner=plan??(map=>SteamUpdateDryRun.Plan(
             cluster.Config.SteamCmdExecutable,map.InstallationPath,
             cluster.Config.LocalMaps.ToArray(),
@@ -62,6 +65,22 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         publishedBuild=inspectPublished??((map,token)=>
             AsaSteamBuildCatalog.CheckAsync(cluster.Config.SteamCmdExecutable,
                 map.InstallationPath,"public",TimeSpan.FromSeconds(90),token));
+    }
+    private static string? PickSteamCmd()
+    {
+        using var dialog=new System.Windows.Forms.OpenFileDialog{
+            Title="SteamCMD kiválasztása (csak Manager-beállítás)",
+            Filter="SteamCMD (steamcmd.exe)|steamcmd.exe",
+            CheckFileExists=true,Multiselect=false,RestoreDirectory=true};
+        return dialog.ShowDialog()==System.Windows.Forms.DialogResult.OK?dialog.FileName:null;
+    }
+    private static string? SteamCmdError(string path)
+    {
+        if(string.IsNullOrWhiteSpace(path))return "UM-STEAMCMD-NOT-CONFIGURED";
+        try {SteamCmdPreflight.Inspect(path);return null;}
+        catch(FileNotFoundException){return "UM-STEAMCMD-NOT-FOUND";}
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException)
+        {return "UM-STEAMCMD-INVALID";}
     }
     private ProcessCheck ObserveForSteam(LocalMap map,bool underOwnOperation=false)=>
         map.HistoricalStoreProtected?
@@ -144,11 +163,30 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
             string? method=field.GetString();
             if(method is not ("steam.stoppedDiagnostics" or "steam.stoppedPreview" or
                 "steam.stoppedApply" or "steam.stoppedStatus" or "steam.stoppedCurrent" or
-                "steam.publishedBuild"))
+                "steam.publishedBuild" or "steam.selectExecutable"))
                 return Fail(id,"UM-METHOD-DENIED");
             await mutex.WaitAsync();
             try
             {
+                if(method=="steam.selectExecutable")
+                {
+                    if(job!=null)
+                    {
+                        lock(sync)if(job.State is "queued" or "running")
+                            return Fail(id,"UM-STEAM-UPDATE-IN-PROGRESS");
+                    }
+                    if(HasBlockedJournal())return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
+                    // The renderer supplies no execute path; the operator selects an existing local file.
+                    string? selected=pickSteamCmd();
+                    if(selected==null)return Ok(id,new{cancelled=true,configured=false,updateStarted=false,serverStopped=false});
+                    string? problem=SteamCmdError(selected);
+                    if(problem!=null)return Fail(id,problem);
+                    if(HasBlockedJournal())return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
+                    string full=Path.GetFullPath(selected);
+                    cluster.UpdateSettings(config=>config.SteamCmdExecutable=full);
+                    pendingByMap.Clear(); // previously issued tokens bind the old executable
+                    return Ok(id,new{cancelled=false,configured=true,updateStarted=false,serverStopped=false});
+                }
                 if(method=="steam.stoppedDiagnostics")
                 {
                     if(!GuidField(data,"mapId",out var diagnosedId))
@@ -183,8 +221,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                             StringComparison.OrdinalIgnoreCase)))
                         .Select(m=>new{mapName=m.Name,installRoot=m.InstallationPath}).ToArray();
                     string steamExe=cluster.Config.SteamCmdExecutable;
-                    bool steamFound=!string.IsNullOrWhiteSpace(steamExe)&&
-                        File.Exists(steamExe);
+                    string? steamCmdError=SteamCmdError(steamExe);
+                    bool steamFound=steamCmdError==null;
                     long free=new DriveInfo(Path.GetPathRoot(root)!).AvailableFreeSpace;
                     bool stopped=processes.All(p=>p.confirmedStopped&&!p.running&&
                         p.pid==null&&p.loaderPid==null);
@@ -203,13 +241,14 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     bool safeInstallation=Stopped(owned);
                     return Ok(id,new{
                         mapId=owned.Id,mapName=owned.Name,installRoot=root,
-                        processes,overlaps,
+                        processes,overlaps,steamCmdError,
+                        asaBinaryRegistered=AsaReadyProbe.IsRegisteredServerBinary(owned),
                         steamCmdFound=steamFound,steamCmdConfigured=
                             !string.IsNullOrWhiteSpace(steamExe),
                         availableBytes=free,requiredBytes=Reserve,
                         journalBlocked,historicalBlocked=historical,
                         safeInstallation,
-                        canPreview=stopped&&!historical&&safeInstallation&&
+                        canPreview=AsaReadyProbe.IsRegisteredServerBinary(owned)&&stopped&&!historical&&safeInstallation&&
                             !journalBlocked&&steamFound&&free>=Reserve&&
                             overlaps.Length==0,
                         noProcessAutoStop=true,remoteWrites=false,
@@ -231,9 +270,10 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     }
                     if(HasBlockedJournal())
                         return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
-                    if(!AsaReadyProbe.IsRegisteredServerBinary(candidate) ||
-                       string.IsNullOrWhiteSpace(cluster.Config.SteamCmdExecutable))
-                        return Fail(id,"UM-STEAM-PUBLISHED-PREFLIGHT");
+                    if(!AsaReadyProbe.IsRegisteredServerBinary(candidate))
+                        return Fail(id,"UM-STEAM-ASA-BINARY-INVALID");
+                    string? steamProblem=SteamCmdError(cluster.Config.SteamCmdExecutable);
+                    if(steamProblem!=null)return Fail(id,steamProblem);
                     using var deadline=new CancellationTokenSource(
                         TimeSpan.FromSeconds(95));
                     var report=await publishedBuild(candidate,deadline.Token);
@@ -322,6 +362,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     if(!Stopped(owned))return Fail(id,"UM-STEAM-STOPPED-ONLY");
                     if(HasBlockedJournal())
                         return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
+                    string? steamProblem=SteamCmdError(cluster.Config.SteamCmdExecutable);
+                    if(steamProblem!=null)return Fail(id,steamProblem);
                     var steam=SteamCmdPreflight.Inspect(cluster.Config.SteamCmdExecutable);
                     var plan=planner(owned);
                     if(!plan.DryRunAllowed||string.IsNullOrWhiteSpace(plan.InstalledBuild)||
