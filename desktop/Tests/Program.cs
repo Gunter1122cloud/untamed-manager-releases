@@ -480,6 +480,31 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         DesktopDiscordControlApi.ParsePlayerCount("1. Survivor, "+new string('a',32))==1&&
         DesktopDiscordControlApi.ParsePlayerCount("Authentication failed")==null,"Discord player count does not infer zero from errors");
 }
+// Read-only discovery reports unregistered maps without exposing launch secrets
+// or constructing a control target. A known Loader's child is not duplicated.
+{
+    var instant=DateTimeOffset.UtcNow;
+    var candidate=Guid.NewGuid().ToString("D");
+    var observations=new[]{
+        new LocalRunningAsaDiscovery.Observation(601,0,instant,"asaServer","Event_WP","unregistered",null,null,false),
+        new LocalRunningAsaDiscovery.Observation(602,0,instant,"asaServer","Island_WP","profileCandidate",candidate,"Island",false),
+        new LocalRunningAsaDiscovery.Observation(603,0,instant,"apiLoader","Ragnarok_WP","profileCandidate",candidate,"Rag",false),
+        new LocalRunningAsaDiscovery.Observation(604,603,instant,"asaServer","Ragnarok_WP","unverified",null,null,true),
+        new LocalRunningAsaDiscovery.Observation(605,0,instant,"asaServer","Future_WP","unregistered",null,null,false),
+        new LocalRunningAsaDiscovery.Observation(606,0,instant,"asaServer","Island_WP","profileCandidate",candidate,"Island",false),
+        new LocalRunningAsaDiscovery.Observation(607,0,instant,"apiLoader","Next_WP","unregistered",null,null,false)
+    };
+    var state=new DesktopAutomaticAsaDiscoverySupervisor.State(instant,"ok",observations,true);
+    var verified=new HashSet<(int Pid,DateTimeOffset StartedUtc)>{(602,instant),(604,instant)};
+    var discovered=DesktopDiscordControlApi.DiscoveredOnly(state,verified);
+    Check(discovered.Select(x=>x.MapKey).SequenceEqual(new[]{"Event_WP","Future_WP","Island_WP","Next_WP"})&&
+        discovered.Last().ProcessKind=="apiLoader"&&
+        DesktopDiscordControlApi.DiscoveredOnly(state,new HashSet<(int,DateTimeOffset)>{(602,instant.AddSeconds(-1))})
+            .Any(x=>x.Pid==602)&&
+        discovered.All(x=>!x.Controllable&&!x.StoreWriteAuthorized)&&
+        DesktopDiscordControlApi.DiscoveredOnly(state with{Fresh=false}).Length==0,
+        "Discord discovery publishes new unregistered ASA maps only as read-only observations");
+}
 // Test the exact API authorization/dispatch boundary using an isolated profile.
 // No actual server, network listener, RCON or SteamCMD is invoked.
 {
@@ -739,6 +764,68 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
           !Match(originalCommand.Replace("-mods=123456,789012",
               "-mods=789012,123456",StringComparison.Ordinal)),
         "historical observer denies reconversion, repeated Store flag, unknown switches, changed ports, cluster ID or mod order");
+    bool ObserveMods(string command)=>LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
+        command,observedExe,historicCommandMap,observeLiveMods:true);
+    string changedMods=originalCommand.Replace("-mods=123456,789012",
+        "-mods=789012,123456,999999",StringComparison.Ordinal);
+    Check(ObserveMods(changedMods)&&!Match(changedMods)&&
+        ObserveMods(originalCommand.Replace("-mods=123456,789012","-mods=123456"))&&
+        ObserveMods(originalCommand.Replace(" -mods=123456,789012 -passivemods=123456","")),
+        "live original process accepts valid added, removed, reordered and empty mod lists without changing strict launch profile");
+    Check(!ObserveMods(changedMods+" -mods=999999")&&
+        !ObserveMods(changedMods.Replace("-mods=789012,123456,999999","-mods=123456,123456"))&&
+        !ObserveMods(changedMods.Replace("-passivemods=123456","-passivemods=888888"))&&
+        !ObserveMods(changedMods.Replace("-mods=789012,123456,999999","-mods=123456,invalid"))&&
+        !ObserveMods(changedMods+" -converttostore")&&
+        !ObserveMods(changedMods.Replace("-Port=7797","-Port=7798"))&&
+        !ObserveMods(changedMods.Replace("-clusterid=KovaCluster","-clusterid=Other")),
+        "live mod tolerance never permits duplicate flags, malformed mods, invalid passive subset, Store conversion, wrong ports or cluster");
+    Check(historicCommandMap.HistoricalEnabledMods.SequenceEqual(new[]{"123456","789012"})&&
+        historicCommandMap.HistoricalPassiveMods.SequenceEqual(new[]{"123456"}),
+        "live mod observation never overwrites the next-start profile");
+    var capturedMods=LegacyStoreV1ProcessObserver.ReadVerifiedModOrder(changedMods,observedExe,historicCommandMap);
+    Check(capturedMods.Enabled.SequenceEqual(new[]{"789012","123456","999999"})&&
+        capturedMods.Passive.SequenceEqual(new[]{"123456"})&&
+        LegacyStoreV1ProcessObserver.SelectRestartMods(historicCommandMap,capturedMods).Same(capturedMods),
+        "restart adopts verified running mod order when no next-start draft is pending");
+    historicCommandMap.ModChangesPending=true;
+    var pendingMods=LegacyStoreV1ProcessObserver.SelectRestartMods(historicCommandMap,capturedMods);
+    Check(pendingMods.Enabled.SequenceEqual(new[]{"123456","789012"})&&
+        pendingMods.Passive.SequenceEqual(new[]{"123456"})&&!pendingMods.Same(capturedMods),
+        "explicit pending next-start mod draft wins over observed running list");
+    historicCommandMap.ModChangesPending=false;
+    Check(LegacyStoreV1ProcessObserver.SelectRestartMods(historicCommandMap,capturedMods).Same(capturedMods),
+        "after a submitted draft is cleared, a later external mod change may become the next restart baseline");
+    int persisted=0,marked=0;
+    historicCommandMap.ModChangesPending=true;
+    Check(!HistoricalLiveModSync.WriteVerifiedBaseline(historicCommandMap,capturedMods,
+        ()=>persisted++,()=>marked++)&&persisted==0&&marked==0,
+        "automatic live mod synchronization never overwrites a pending draft");
+    historicCommandMap.ModChangesPending=false;
+    bool failedSave=false;
+    try{HistoricalLiveModSync.WriteVerifiedBaseline(historicCommandMap,capturedMods,
+        ()=>throw new IOException("synthetic save failure"),()=>marked++);}
+    catch(IOException){failedSave=true;}
+    Check(failedSave&&historicCommandMap.HistoricalEnabledMods.SequenceEqual(new[]{"123456","789012"}),
+        "failed local mod synchronization restores the original in-memory profile");
+    Check(HistoricalLiveModSync.WriteVerifiedBaseline(historicCommandMap,capturedMods,()=>persisted++,()=>marked++)&&
+        historicCommandMap.HistoricalEnabledMods.SequenceEqual(capturedMods.Enabled)&&persisted==1&&
+        !HistoricalLiveModSync.WriteVerifiedBaseline(historicCommandMap,capturedMods,()=>persisted++,()=>marked++)&&persisted==1,
+        "live mod synchronization preserves exact order and performs no redundant writes");
+    historicCommandMap.HistoricalEnabledMods=new(){"123456","789012"};
+    string driftLoader=Path.Combine(Path.GetDirectoryName(observedExe)!,"AsaApiLoader.exe");
+    string driftLoaderCommand=changedMods.Replace(observedExe,driftLoader,StringComparison.Ordinal);
+    var driftParentStart=DateTimeOffset.UtcNow.AddMinutes(-2);
+    Check(LegacyStoreV1ProcessObserver.MatchesOriginalApiLoaderChild(
+        driftLoaderCommand,observedExe,50102,50101,driftParentStart.AddSeconds(1),
+        driftLoaderCommand,driftLoader,50101,driftParentStart,historicCommandMap,observeLiveMods:true)&&
+        !LegacyStoreV1ProcessObserver.MatchesOriginalApiLoaderChild(
+        driftLoaderCommand,observedExe,50102,50101,driftParentStart.AddSeconds(1),
+        driftLoaderCommand,driftLoader,50101,driftParentStart,historicCommandMap)&&
+        !LegacyStoreV1ProcessObserver.MatchesOriginalApiLoaderChild(
+        driftLoaderCommand,observedExe,50102,50103,driftParentStart.AddSeconds(1),
+        driftLoaderCommand,driftLoader,50101,driftParentStart,historicCommandMap,observeLiveMods:true),
+        "live changed mod list still requires exact Loader alias, parent PID and creation-time proof");
     Check(!LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
         originalCommand,Path.Combine(root,"different","ArkAscendedServer.exe"),
         historicCommandMap) &&

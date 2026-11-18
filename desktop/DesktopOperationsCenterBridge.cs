@@ -270,9 +270,16 @@ public sealed class DesktopOperationsCenterBridge
             }
             catch(Exception) { /* OS access denied or PID vanished: unknown */ }
         }
+        ModSet? nextMods=null;
+        try{nextMods=ModStateController.Read(map);}catch{/* invalid profile is unknown */}
         return new {
             mapId=map.Id.ToString("D"), mapName=map.Name,
             running,confirmedStopped=state.ConfirmedStopped && !state.Running,
+            liveModOrder=running?state.LiveModOrder:null,
+            livePassiveModOrder=running?state.LivePassiveModOrder:null,
+            nextModOrder=nextMods?.EnabledOrder,
+            nextPassiveModOrder=nextMods?.Passive,
+            modChangesPending=map.ModChangesPending,
             status=state.Status, pid, startedUtc=started, uptimeSeconds,
             memoryMiB, memoryVerified, maintenance=map.Maintenance,
             storeProtected,gamePort=map.GamePort,
