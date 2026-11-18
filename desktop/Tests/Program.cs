@@ -7310,7 +7310,7 @@ try
         ticket=preview.GetProperty("data").GetProperty("token").GetString()!;
         var blocked=await Call(worldBridge.HandleAsync,"backup.create",
             new{token=ticket,confirm=true});
-        Check(IsError(blocked,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+        Check(IsError(blocked,"UM-BACKUP-ZERO-BYTE-CRITICAL-SAVE"),
             "zero-byte local arkprofile prevents corrupt backup publication");
         File.Delete(Path.Combine(localWorld,"broken.arkprofile"));
         localMap.Arguments="-usestore";
@@ -7366,7 +7366,7 @@ try
             "source tampering cannot modify verified archive bytes");
         var forged=await Call(worldBridge.HandleAsync,"backup.restorePreview",
             new{mapId=localMap.Id,point=Guid.NewGuid().ToString("D")});
-        Check(IsError(forged,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+        Check(IsError(forged,"UM-BACKUP-POINT-NOT-FOUND"),
             "unknown archive ID is rejected without writing world or Store");
 
         // A failure immediately before the directory swap must not alter

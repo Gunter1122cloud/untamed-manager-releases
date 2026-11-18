@@ -236,6 +236,8 @@ public static class UntamedWorldBackup
 
     private static Manifest Read(string folder,Guid owner,string map,string install)
     {
+        if(!Directory.Exists(folder))
+            throw new InvalidDataException("UM-BACKUP-POINT-NOT-FOUND");
         string file=Path.Combine(folder,"manifest.json"),data=Path.Combine(folder,"files");
         RequireCommitted(folder);
         if(!File.Exists(file))

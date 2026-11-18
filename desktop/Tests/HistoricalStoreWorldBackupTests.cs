@@ -119,6 +119,9 @@ internal static class HistoricalStoreWorldBackupTests
         {blockedSharedRoot=true;}
         Check(blockedSharedRoot&&!Directory.Exists(Path.Combine(manager,"world-restore-staging")),
             "restore staging refuses output overlapping protected cluster metadata root");
+        var missing=await Call(bridge,"backup.worldStage",new{mapId=map.Id,point=Guid.NewGuid().ToString("D"),confirm=true});
+        Check(!missing.GetProperty("ok").GetBoolean()&&missing.GetProperty("error").GetString()=="UM-BACKUP-POINT-NOT-FOUND",
+            "unknown archive ID gives precise diagnostic without staging");
         var stage=await Call(bridge,"backup.worldStage",new{mapId=map.Id,point,confirm=true});
         Check(stage.GetProperty("ok").GetBoolean(),"archive-only restore stage succeeds without stopping a map");
         var data=stage.GetProperty("data");

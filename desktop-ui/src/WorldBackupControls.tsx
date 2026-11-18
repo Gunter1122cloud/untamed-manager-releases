@@ -13,6 +13,15 @@ function backupResourceError(error:unknown,fallback:string):string {
   switch(code){
     case "UM-BACKUP-MAP-NOT-LOCAL":
       return "A kiválasztott map nem helyi, kezelhető Manager-profil.";
+    case "UM-BACKUP-POINT-NOT-FOUND":
+      return "A kiválasztott mentési pont nem található. Frissítsd a mentési listát.";
+    case "UM-BACKUP-NOT-ENOUGH-SPACE":
+      return "Nincs elegendő szabad tárhely a biztonsági mentéshez.";
+    case "UM-BACKUP-ZERO-BYTE-CRITICAL-SAVE":
+      return "Kritikus mentési fájl üres. A Store-v1 régi üres profilfájljai továbbra is megőrizhetők.";
+    case "UM-BACKUP-VALID-WORLD-MISSING":
+    case "UM-BACKUP-WORLD-FOLDER-MISSING":
+      return "A map érvényes világmentése nem található a regisztrált mentési útvonalon.";
     case "UM-BACKUP-INVALID-MAP":
     case "UM-BACKUP-INVALID-POINT":
       return "Érvénytelen map vagy mentési pont. Frissítsd a listát.";

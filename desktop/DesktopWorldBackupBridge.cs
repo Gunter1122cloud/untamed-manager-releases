@@ -868,7 +868,10 @@ public sealed class DesktopWorldBackupBridge
                  "UM-BACKUP-DIGEST-MISMATCH" or "UM-BACKUP-PATHS-OVERLAP" or
                  "UM-BACKUP-INVALID-POINT" or "UM-BACKUP-MAP-NOT-LOCAL" or
                  "UM-BACKUP-SHARED-ROOT-UNVERIFIED" or
-                 "UM-BACKUP-MANIFEST-OWNER-MISMATCH" or "UM-BACKUP-INCOMPLETE"))
+                 "UM-BACKUP-MANIFEST-OWNER-MISMATCH" or "UM-BACKUP-INCOMPLETE" or
+                 "UM-BACKUP-POINT-NOT-FOUND" or "UM-BACKUP-NOT-ENOUGH-SPACE" or
+                 "UM-BACKUP-ZERO-BYTE-CRITICAL-SAVE" or "UM-BACKUP-VALID-WORLD-MISSING" or
+                 "UM-BACKUP-WORLD-FOLDER-MISSING"))
                 return Fail(id,e.Message);
             return Fail(id,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED");
         }
