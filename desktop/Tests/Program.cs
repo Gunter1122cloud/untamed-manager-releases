@@ -454,6 +454,25 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     catch(InvalidDataException){denied=true;}
     Check(denied&&fetches==1,"corrupt cache entry is rejected without implicit redownload");
 }
+// Discord Control authorization and parsing tests (no network).
+{
+    string token=new string('a',64);
+    string guild="123456789012345678",channel="223456789012345678",role="323456789012345678",actor="423456789012345678";
+    var cfg=new DesktopDiscordControlApi.Settings("192.168.1.10",19443,"192.168.1.20",new string('A',40),
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token))),guild,new[]{channel},new[]{role});
+    var now=DateTimeOffset.UtcNow;
+    JsonElement Envelope(string key,string where,string[] roles,DateTimeOffset sent)=>JsonSerializer.SerializeToElement(new{credential=key,guildId=guild,channelId=where,userId=actor,roleIds=roles,sentUtc=sent});
+    Check(DesktopDiscordControlApi.ValidSettings(cfg)&&DesktopDiscordControlApi.Authorize(cfg,Envelope(token,channel,new[]{role},now),now),"Discord control requires configured bot credential and role");
+    Check(!DesktopDiscordControlApi.Authorize(cfg,Envelope(token,channel,Array.Empty<string>(),now),now)&&
+        !DesktopDiscordControlApi.Authorize(cfg,Envelope(token,guild,new[]{role},now),now)&&
+        !DesktopDiscordControlApi.Authorize(cfg,Envelope(new string('b',64),channel,new[]{role},now),now)&&
+        !DesktopDiscordControlApi.Authorize(cfg,Envelope(token,channel,new[]{role},now.AddMinutes(-2)),now),"Discord control denies missing role, wrong channel/credential and stale request");
+    Check(!DesktopDiscordControlApi.ValidSettings(cfg with{BindIp="0.0.0.0"})&&
+        !DesktopDiscordControlApi.ValidSettings(cfg with{BindIp="8.8.8.8"}),"Discord control cannot bind wildcard or public IP");
+    Check(DesktopDiscordControlApi.ParsePlayerCount("No Players Connected")==0&&
+        DesktopDiscordControlApi.ParsePlayerCount("1. Survivor, "+new string('a',32))==1&&
+        DesktopDiscordControlApi.ParsePlayerCount("Authentication failed")==null,"Discord player count does not infer zero from errors");
+}
 NativeWebViewDispatchContractTests.Run();
 LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();
