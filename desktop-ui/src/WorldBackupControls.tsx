@@ -107,6 +107,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   const [busy,setBusy]=useState(false);
   const [scheduled,setScheduled]=useState<ScheduledStoppedBackupState|null>(null);
   const [scheduleMinutes,setScheduleMinutes]=useState(120);
+  const [scheduleFullLocal,setScheduleFullLocal]=useState(false);
   const [scheduleConfirm,setScheduleConfirm]=useState(false);
   const [scheduleBusy,setScheduleBusy]=useState(false);
   const [scheduleNotice,setScheduleNotice]=useState("");
@@ -142,9 +143,9 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   },[chosen]);
   useEffect(()=>{
     let active=true;
-    setScheduled(null);setScheduleConfirm(false);setScheduleNotice("");
+    setScheduled(null);setScheduleConfirm(false);setScheduleNotice("");setScheduleFullLocal(false);
     void managerBridge.backupScheduleStatus(chosen).then(result=>{
-      if(active)setScheduled(result);
+      if(active){setScheduled(result);setScheduleFullLocal(result.fullLocal===true);}
     }).catch(()=>{
       if(active)setScheduleNotice("Az automatikus mentések állapota nem olvasható.");
     });
@@ -156,7 +157,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     setScheduleBusy(true);setScheduleNotice("");
     try{
       const result=enable
-        ?await managerBridge.backupScheduleCreate(requestedMap,scheduleMinutes)
+        ?await managerBridge.backupScheduleCreate(requestedMap,scheduleMinutes,scheduleFullLocal)
         :await managerBridge.backupScheduleDisable(requestedMap);
       if(selectedRef.current!==requestedMap)return;
       setScheduled(result);setScheduleConfirm(false);
@@ -488,15 +489,19 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
           <b>Automatikus mentés – csak leállított helyi mapról</b>
           <p>Az engedélyezett időpontban a Manager ellenőrzi, hogy az ASA map igazoltan leállt-e.
             Futó vagy bizonytalan állapotú mapot kihagy; nem küld SaveWorld/RCON parancsot, nem állítja le,
-            nem indítja újra és nem állítja vissza a szervert. Átvett Store-v1 mapnál a helyi, jóváhagyott forrásazonosság is szükséges. Ez világmentés, nem teljes clustermentés.
+            nem indítja újra és nem állítja vissza a szervert. Átvett Store-v1 mapnál a helyi, jóváhagyott forrásazonosság is szükséges. Választható világmentés vagy teljes helyi fájlmentés (világ, INI, meglévő API/pluginfájlok); egyik sem teljes clustermentés.
             A mentések külön SHA-256 archívumba kerülnek, automatikus törlés nélkül.</p>
           {scheduled&&<p role="status">
             Állapot: <b>{scheduled.enabled?"Bekapcsolva":"Kikapcsolva"}</b>
-            {" · "}{scheduled.lastStatus}
+            {" · "}{scheduled.fullLocal?"Teljes helyi fájlmentés":"Világmentés"}{" · "}{scheduled.lastStatus}
             {scheduled.nextDueUtc?" · Következő: "+new Date(scheduled.nextDueUtc).toLocaleString("hu-HU"):""}
             {scheduled.lastPoint?" · Utolsó pont: "+scheduled.lastPoint.slice(0,8)+"…":""}
             {" · Motor: "}{scheduled.runnerState}
           </p>}
+          <label><input type="checkbox" aria-label="Teljes helyi mentés ütemezése"
+            checked={scheduleFullLocal} disabled={scheduleBusy||!scheduled}
+            onChange={e=>{setScheduleFullLocal(e.target.checked);setScheduleConfirm(false);}}/>
+            Teljes helyi fájlmentés (világ, INI, meglévő API/pluginfájlok)</label>
           <label>Ismétlés percben (60–10080)
             <input aria-label="Automatikus mentés időköze percben" type="number"
               min={60} max={10080} step={30} value={scheduleMinutes}

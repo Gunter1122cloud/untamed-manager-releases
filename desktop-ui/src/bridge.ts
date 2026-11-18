@@ -807,7 +807,7 @@ export type ScheduledStoppedBackupState={
   mapId:string;mapName:string;enabled:boolean;
   intervalMinutes:number|null;nextDueUtc:string|null;
   lastAttemptUtc:string|null;lastStatus:string;lastPoint:string|null;
-  runnerState:string;storeProtected:boolean;canSchedule?:boolean;
+  runnerState:string;storeProtected:boolean;canSchedule?:boolean;fullLocal?:boolean;
   automaticRestoreAllowed:false;automaticServerStopAllowed:false;
   evidence:"PERSISTED_OPT_IN_STOPPED_NONSTORE_WORLD_BACKUPS";
 };
@@ -2123,8 +2123,8 @@ export const managerBridge = {
     }),
   backupScheduleStatus: (mapId:string) =>
     request<ScheduledStoppedBackupState>("backup.scheduleStatus",{mapId}),
-  backupScheduleCreate: (mapId:string,intervalMinutes:number) =>
-    request<ScheduledStoppedBackupState>("backup.scheduleCreate",{mapId,intervalMinutes,confirm:true}),
+  backupScheduleCreate: (mapId:string,intervalMinutes:number,fullLocal=false) =>
+    request<ScheduledStoppedBackupState>("backup.scheduleCreate",{mapId,intervalMinutes,confirm:true,fullLocal}),
   backupScheduleDisable: (mapId:string) =>
     request<ScheduledStoppedBackupState>("backup.scheduleDisable",{mapId,confirm:true}),
   backupFullLocalHistory:(mapId:string)=>request<{mapId:string;points:Array<{point:string;files:number;bytes:number;createdUtc:string}>;evidence:"VERIFIED_LOCAL_INSTALLATION_FILE_ARCHIVES"}>("backup.fullLocalHistory",{mapId}),

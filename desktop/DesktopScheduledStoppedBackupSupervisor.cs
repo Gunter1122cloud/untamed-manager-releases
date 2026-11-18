@@ -12,14 +12,14 @@ using UntamedManager.Core;
 namespace UntamedDesktop;
 
 /// <summary>
-/// Explicitly opted-in, local stopped-world snapshots ONLY. This independent
+/// Explicitly opted-in, local stopped-world or full local file snapshots ONLY. This independent
 /// journal is not the read-only inspector scheduler. A due slot is durably
 /// claimed before any I/O, so an uncertain/crashed copy is never replayed.
 /// No server stop/start, RCON, Store-v1 writer, retention or restore action.
 /// </summary>
 public sealed record ScheduledStoppedBackup(Guid MapId,int IntervalMinutes,
     string MapFingerprint,bool Enabled,DateTimeOffset NextDueUtc,
-    DateTimeOffset? LastAttemptUtc,string LastStatus,string? LastPoint);
+    DateTimeOffset? LastAttemptUtc,string LastStatus,string? LastPoint,bool FullLocal=false);
 
 public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
 {
@@ -142,7 +142,9 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                s.MapFingerprint==null||s.MapFingerprint.Length!=64||
                !s.MapFingerprint.All(Uri.IsHexDigit)||
                s.LastStatus==null||s.LastStatus.Length>96||
-               (s.LastPoint!=null&&!Guid.TryParse(s.LastPoint,out _)))||
+               (s.LastPoint!=null&&!(s.FullLocal?
+                   System.Text.RegularExpressions.Regex.IsMatch(s.LastPoint,@"\A[0-9]{14}-[0-9a-f]{32}\z"):
+                   Guid.TryParse(s.LastPoint,out _))))||
            state.Schedules.Select(s=>s.MapId).Distinct().Count()!=state.Schedules.Count)
             throw new InvalidDataException("UM-SCHEDULED-BACKUP-JOURNAL-INVALID");
         return state;
@@ -185,7 +187,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
         Locked(()=>Read().Schedules.ToArray());
 
     public ScheduledStoppedBackup Configure(Guid mapId,int intervalMinutes,
-        DateTimeOffset? now=null)
+        DateTimeOffset? now=null,bool fullLocal=false)
     {
         if(Volatile.Read(ref disposed)!=0)throw new ObjectDisposedException(GetType().Name);
         if(intervalMinutes is <60 or >10080)
@@ -200,7 +202,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
         return Locked(()=>{
             var data=Read();
             var entry=new ScheduledStoppedBackup(map.Id,intervalMinutes,
-                fingerprint,true,next,null,"scheduled",null);
+                fingerprint,true,next,null,"scheduled",null,fullLocal);
             int index=data.Schedules.FindIndex(s=>s.MapId==mapId);
             if(index>=0)data.Schedules[index]=entry;
             else
@@ -226,6 +228,27 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
         });
     }
 
+    private string FullCollection(LocalMap map)=>Path.Combine(cluster.Store.Root,"local-backups",map.Id.ToString("N"));
+    private static bool Overlap(string a,string b)
+    {
+        a=Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar);
+        b=Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar);
+        return a.Equals(b,StringComparison.OrdinalIgnoreCase)||
+            a.StartsWith(b+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)||
+            b.StartsWith(a+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase);
+    }
+    private void DemandFullPaths(LocalMap map)
+    {
+        string collection=FullCollection(map);
+        _=UntamedOperationCoordinator.ResourceKey(collection);
+        if(cluster.Config.LocalMaps.Any(x=>Overlap(collection,x.InstallationPath)||
+            x.Id!=map.Id&&Overlap(map.InstallationPath,x.InstallationPath)))
+            throw new InvalidOperationException("UM-BACKUP-FULL-PATH-OVERLAP");
+        string ini=Path.Combine(map.InstallationPath,"ShooterGame","Saved","Config","WindowsServer");
+        if(!File.Exists(Path.Combine(ini,"Game.ini"))||!File.Exists(Path.Combine(ini,"GameUserSettings.ini")))
+            throw new InvalidDataException("UM-BACKUP-FULL-INI-MISSING");
+    }
+
     // Intended to run from a worker, never the WinForms UI thread.
     // Returns the post-attempt state for deterministic isolated Windows tests.
     public ScheduledStoppedBackup[] TickOnce(DateTimeOffset now)
@@ -248,7 +271,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                     if(index<0)return false;
                     var current=data.Schedules[index];
                     if(!current.Enabled||current.NextDueUtc!=observed.NextDueUtc||
-                       current.MapFingerprint!=observed.MapFingerprint)return false;
+                       current.MapFingerprint!=observed.MapFingerprint||current.FullLocal!=observed.FullLocal)return false;
                     data.Schedules[index]=current with {
                         NextDueUtc=now.AddMinutes(current.IntervalMinutes),
                         LastAttemptUtc=now,
@@ -287,12 +310,13 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                                     "UM-SCHEDULED-BACKUP-STATE-CHANGED");
                             bool authorized=Locked(()=>Read().Schedules.Any(x=>
                                 x.MapId==observed.MapId&&x.Enabled&&
-                                x.MapFingerprint==observed.MapFingerprint&&
+                                x.MapFingerprint==observed.MapFingerprint&&x.FullLocal==observed.FullLocal&&
                                 x.LastAttemptUtc==now&&
                                 x.LastStatus=="claimed-no-auto-retry"));
                             if(!authorized)
                                 throw new UnauthorizedAccessException(
                                     "UM-SCHEDULED-BACKUP-CLAIM-REVOKED");
+                            if(observed.FullLocal)DemandFullPaths(current);
                             return inspect(current);
                         }
                         var state=SafeInspection();
@@ -303,10 +327,32 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                         {
                             // Core re-checks stop state before and after copy.
                             // It only writes a new verified local archive.
-                            var saved=UntamedWorldBackup.Create(map,cluster.Store.Root,
-                                SafeInspection,operationCoordinator:cluster.Operations);
-                            point=saved.Id;
-                            result="verified-backup-created";
+                            if(observed.FullLocal)
+                            {
+                                string package=DateTime.UtcNow.ToString("yyyyMMddHHmmss",System.Globalization.CultureInfo.InvariantCulture)+"-"+Guid.NewGuid().ToString("N");
+                                string installation=Path.GetFullPath(map.InstallationPath);
+                                string ini=Path.Combine(installation,"ShooterGame","Saved","Config","WindowsServer");
+                                if(!File.Exists(Path.Combine(ini,"Game.ini"))||!File.Exists(Path.Combine(ini,"GameUserSettings.ini")))
+                                    throw new InvalidDataException("UM-BACKUP-FULL-INI-MISSING");
+                                string bin=Path.Combine(installation,"ShooterGame","Binaries","Win64");
+                                bool api=Directory.Exists(Path.Combine(bin,"ArkApi"))||
+                                    Directory.Exists(Path.Combine(bin,"UntamedDisabledPlugins"))||
+                                    File.Exists(Path.Combine(bin,"AsaApiLoader.exe"))||File.Exists(Path.Combine(bin,"Version.dll"))||
+                                    File.Exists(Path.Combine(installation,"Version.dll"));
+                                var scope=LocalBackupScope.WorldAndProfiles|LocalBackupScope.Ini;
+                                if(api)scope|=LocalBackupScope.Plugins;
+                                LocalBackupWorkflow.Create(map,state,Path.Combine(FullCollection(map),package),scope,
+                                    checkCurrent:SafeInspection,limits:BackupResourcePolicy.ForManagerProfile(cluster.Store.Root));
+                                point=package;
+                                result="verified-full-local-backup-created";
+                            }
+                            else
+                            {
+                                var saved=UntamedWorldBackup.Create(map,cluster.Store.Root,
+                                    SafeInspection,operationCoordinator:cluster.Operations);
+                                point=saved.Id;
+                                result="verified-backup-created";
+                            }
                         }
                     }
                 }

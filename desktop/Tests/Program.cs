@@ -6808,6 +6808,20 @@ try
                   missed.LastPoint==null &&
                   missed.NextDueUtc>scheduleNow.AddHours(4),
                 "missed backup windows are consumed durably without replay");
+            // Full archives use the same local catalog as manual full backup.
+            var fullScheduled=scheduled.Configure(localMap.Id,60,scheduleNow,fullLocal:true);
+            Check(fullScheduled.FullLocal,"full scope must be explicitly selected");
+            var fullCompleted=scheduled.TickOnce(scheduleNow.AddMinutes(61)).Single();
+            Check(fullCompleted.LastStatus=="verified-full-local-backup-created"&&fullCompleted.LastPoint!=null,
+                "due full local backup commits a verified archive");
+            var scheduledManifest=TestBackupPackage.Verify(Path.Combine(localProfile,"local-backups",localMap.Id.ToString("N"),fullCompleted.LastPoint!),localMap.Id);
+            Check(scheduledManifest.Files.Any(x=>Path.GetFileName(x.Path)=="Game.ini")&&
+                  scheduledManifest.Files.Any(x=>Path.GetFileName(x.Path)=="GameUserSettings.ini")&&
+                  scheduledManifest.Files.Any(x=>Path.GetFileName(x.Path)==Path.GetFileName(arkFile)),
+                "scheduled full archive contains world and both INI files");
+            using(var fullReopened=new DesktopScheduledStoppedBackupSupervisor(backupHost))
+                Check(fullReopened.Snapshot().Single().LastPoint==fullCompleted.LastPoint&&
+                      fullReopened.Snapshot().Single().FullLocal,"full archive receipt survives reopen");
             // Revoking an active schedule in a native stop-state callback
             // must abort the copy, not publish a late snapshot.
             int archiveCountBefore=UntamedWorldBackup.List(localMap,localProfile,50).Length;
