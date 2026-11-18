@@ -95,7 +95,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             if(Field(a,"guildId",25)!=s.GuildId||!s.ChannelIds.Contains(Field(a,"channelId",25))||
                 !Snowflake.IsMatch(Field(a,"userId",25)))return false;
             if(s.ServiceUserId!=null&&Field(a,"userId",25)==s.ServiceUserId)
-                return Field(a,"kind",32) is "status" or "players"&&
+                return (Field(a,"kind",32) is "status" or "players" or "job")&&
                     Math.Abs((now-a.GetProperty("sentUtc").GetDateTimeOffset()).TotalSeconds)<=60;
             var roles=a.GetProperty("roleIds");
             if(roles.ValueKind!=JsonValueKind.Array||roles.GetArrayLength()>100||

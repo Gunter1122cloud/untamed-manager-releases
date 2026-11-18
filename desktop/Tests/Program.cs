@@ -536,7 +536,7 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     var now=DateTimeOffset.UtcNow;
     JsonElement Request(string kind)=>JsonSerializer.SerializeToElement(new{credential=secret,guildId=guild,channelId=channel,
         userId=bot,roleIds=new[]{role},sentUtc=now,kind});
-    Check(DesktopDiscordControlApi.Authorize(cfg,Request("status"),now)&&DesktopDiscordControlApi.Authorize(cfg,Request("players"),now)&&
+    Check(DesktopDiscordControlApi.Authorize(cfg,Request("status"),now)&&DesktopDiscordControlApi.Authorize(cfg,Request("players"),now)&&DesktopDiscordControlApi.Authorize(cfg,Request("job"),now)&&
         !DesktopDiscordControlApi.Authorize(cfg,Request("preview"),now)&&!DesktopDiscordControlApi.Authorize(cfg,Request("apply"),now),
         "Discord service principal is strictly read-only even with an admin role assertion");
 }

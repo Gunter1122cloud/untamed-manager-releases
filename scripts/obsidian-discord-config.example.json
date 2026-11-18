@@ -19,5 +19,6 @@
       "certificate_sha256": "REPLACE_LOCALLY",
       "credential": "REPLACE_LOCALLY"
     }
-  }
+  },
+  "provision_only": true
 }

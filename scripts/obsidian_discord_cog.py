@@ -69,8 +69,9 @@ class ObsidianControl(commands.Cog):
         if not self.roles or self.guild_id in self.roles:
             raise ValueError("Explicit owner/admin roles required; never @everyone")
         self.state_file = Path(config["state_file"])
-        self.hosts = {k: Host(**v) for k, v in config["hosts"].items()}
-        if not 1 <= len(self.hosts) <= 25:
+        self.provision_only = bool(config.get("provision_only", False))
+        self.hosts = {} if self.provision_only else {k: Host(**v) for k, v in config["hosts"].items()}
+        if not self.provision_only and not 1 <= len(self.hosts) <= 25:
             raise ValueError("Configure 1–25 exact private host endpoints")
         if any(not 1 <= len(k) <= 50 for k in self.hosts):
             raise ValueError("Host labels must be 1–50 characters")
@@ -92,7 +93,8 @@ class ObsidianControl(commands.Cog):
         atomic_json(self.state_file, self.state)
 
     async def cog_load(self):
-        self.bot.add_view(self.panel)
+        if not self.provision_only:
+            self.bot.add_view(self.panel)
         self.task = asyncio.create_task(self.worker())
 
     def cog_unload(self):
@@ -290,6 +292,8 @@ class ObsidianControl(commands.Cog):
         except Exception:
             # Fail closed, no sensitive exception or credentials in logs.
             return
+        if self.provision_only:
+            return
         try:
             await self.replace_message("control",content="Obsidian Command · Tulajdonos és Admin egyenlő joggal. Válassz műveletet, hostot, mapot; minden írás külön megerősítést igényel.",view=self.panel)
         except Exception:
@@ -305,11 +309,33 @@ class ObsidianControl(commands.Cog):
             await asyncio.sleep(30)
 
     async def poll_jobs(self):
-        # Poll recorded operations only; never retransmit apply. Jobs may
-        # belong to actors whose role was removed; do not impersonate them
-        # for background requests. Manual Job button performs live auth.
-        # Read-only service identity is intentionally not allowed job calls.
-        return
+        # Service principal may query existing receipts, never dispatch.
+        who=await self.service()
+        pending=[(i,e) for i,e in self.state["operations"].items()
+            if e.get("state") in ("native-receipt","claimed-no-replay","uncertain-no-replay","running")
+            and e.get("host") in self.hosts]
+        for operation,entry in pending[:8]:
+            try:
+                result=await self.call(entry["host"],who,"job",operationId=operation,timeout=15)
+                job=result.get("job")
+                if job:
+                    phase=job.get("state","unknown")
+                    terminal=phase in ("completed","needsOperator","needsReview","reviewed","notDispatched","operatorReviewed")
+                    new="completed-native" if phase=="completed" else "needs-review" if terminal else "running"
+                else:
+                    phase=result.get("state","unknown")
+                    new="receipt-only" if phase=="native-receipt" else "needs-review"
+                if new!=entry["state"]:
+                    async with self.guard:
+                        self.state["operations"][operation]["state"]=new
+                        self.persist()
+                    if new!="running":
+                        await self.say("audit",f'{entry["host"]} · {entry["action"]} · {operation} · {new} / {phase}')
+                        if entry["action"] in ("backup","restore","update"):
+                            await self.say("updates" if entry["action"]=="update" else "backup",
+                                f'{entry["host"]} · {entry["action"]} · {operation} · {new} / {phase}')
+            except Exception:
+                continue
 
     async def begin(self, interaction, action):
         await interaction.response.defer(ephemeral=True,thinking=True)
