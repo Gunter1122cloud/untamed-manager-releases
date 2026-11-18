@@ -45,6 +45,9 @@ public static class LegacyStoreV1LocalReader
         // Checked current member count, independent of the five selected
         // historical writer GUIDs; never grants Store writer ownership.
         public int CurrentLocalMemberCount {get;init;}
+        // Supplemental metadata is evidence only, not part of Maps or
+        // the immutable original Store ownership contract.
+        public MapEvidence[] AdditionalMaps {get;init;}=Array.Empty<MapEvidence>();
     }
     private static string Tag(string input)=>Convert.ToHexString(SHA256.HashData(
         Encoding.UTF8.GetBytes(input.Trim().ToLowerInvariant())));
@@ -123,6 +126,7 @@ public static class LegacyStoreV1LocalReader
         var ids=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var mapNames=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var evidence=new List<MapEvidence>();
+        var additional=new List<MapEvidence>();
         foreach(var member in memberArray)
         {
             string id=Text(member,"id"),name=Text(member,"map"),install=Text(member,"root");
@@ -145,8 +149,9 @@ public static class LegacyStoreV1LocalReader
             // still checked so malformed extra metadata cannot be ignored.
             if(!marked&&!sameRoot)
                 throw new InvalidDataException("UM-LOCAL-STORE-EXTRA-MAP-BINDING");
-            if(marked)evidence.Add(new(name,active,sameSession,sameRoot,marked,backup)
-            {MapId=memberId,OriginalRoot=install});
+            var entry=new MapEvidence(name,active,sameSession,sameRoot,marked,backup)
+                {MapId=memberId,OriginalRoot=install};
+            if(marked)evidence.Add(entry);else additional.Add(entry);
         }
         if(!selection.All(ids.Contains)||
            records.EnumerateObject().Any(x=>!ids.Contains(x.Name))||
@@ -173,6 +178,7 @@ public static class LegacyStoreV1LocalReader
             "ORIGINAL_LOCAL_STORE_V1_FOUR_FILES_READ_ONLY_NO_PEER_CERTIFICATION")
         {
             CurrentLocalMemberCount=memberArray.Length,
+            AdditionalMaps=additional.ToArray(),
             SessionTag=Tag(session.ToString("D")),
             SharedPathTag=Tag(Text(cluster,"path").Replace('/','\\').TrimEnd('\\')),
             DeviceTag=Tag(Text(device,"id")),

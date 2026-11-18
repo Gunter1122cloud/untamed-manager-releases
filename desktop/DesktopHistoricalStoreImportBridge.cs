@@ -699,9 +699,42 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 if(method=="historical.originalList")
                 {
                     var local=LegacyStoreV1OriginalImport.Inspect(PreferredSource());
+                    var supplemental=local.AdditionalMaps;
+                    // A pinned five-map source stays immutable. A later local
+                    // legacy roster may be inspected for supplemental maps only
+                    // if every original GUID/level/root is still identical.
+                    string additionalSource="pinned-or-current";
+                    if(Directory.Exists(localLegacyDataDirectory))
+                    {
+                        try
+                        {
+                            var current=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
+                            bool sameOwners=current.Maps.Length==local.Maps.Length&&
+                                local.Maps.All(m=>current.Maps.Any(x=>x.MapId==m.MapId&&
+                                    x.MapKey==m.MapKey&&string.Equals(x.OriginalInstallationRoot,
+                                        m.OriginalInstallationRoot,StringComparison.OrdinalIgnoreCase)));
+                            if(sameOwners)
+                            {supplemental=current.AdditionalMaps;additionalSource="current-local-roster";}
+                            else additionalSource="current-roster-original-owners-conflict";
+                        }
+                        catch(IOException){additionalSource="current-local-roster-unavailable";}
+                        catch(InvalidDataException){additionalSource="current-local-roster-unverified";}
+                        catch(UnauthorizedAccessException){additionalSource="current-local-roster-unavailable";}
+                    }
                     return Ok(id,new{
                         sourceVerified=true,
                         originalFourFilesUnchanged=true,
+                        additionalSource,
+                        additionalMaps=supplemental.Select(m=>new{
+                            mapId=m.MapId,mapKey=m.MapKey,
+                            active=m.Active,sessionMatches=m.SessionMatches,
+                            backupIdentityPresent=m.BackupIdentityPresent,
+                            gamePort=m.GamePort,queryPort=m.QueryPort,
+                            enabledMods=m.EnabledMods?.Length,passiveMods=m.PassiveMods?.Length,
+                            launchState=m.LaunchState,
+                            selectedHistoricalOwner=false,storeWriterAuthorized=false,
+                            registered=cluster.Config.LocalMaps.Any(x=>x.Id==m.MapId)
+                        }).ToArray(),
                         maps=local.Maps.Select(m=>new{
                             mapId=m.MapId,mapKey=m.MapKey,name=MapName(m.MapKey),
                             folderName=Path.GetFileName(

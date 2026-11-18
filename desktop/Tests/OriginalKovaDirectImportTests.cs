@@ -182,6 +182,13 @@ internal static class OriginalKovaDirectImportTests
                     !expandedImport.Maps.Any(x=>x.MapKey=="Chillhub_WP")&&
                     expandedImport.FourFilesSha256!=discovered.FourFilesSha256,
                     "six local entries preserve exactly five original selected Store owners without adding Chillhub");
+                var supplemental=expandedImport.AdditionalMaps.Single();
+                Check(supplemental.MapId.ToString("D")==extraId&&
+                    supplemental.MapKey=="Chillhub_WP"&&supplemental.Active&&
+                    !supplemental.SessionMatches&&supplemental.GamePort==7897&&
+                    supplemental.QueryPort==27197&&supplemental.EnabledMods!.Length==2&&
+                    supplemental.LaunchState=="source-launch-matched",
+                    "additional Event source GUID and launch facts are visible without granting historical session ownership");
                 await using(var expandedManager=new ClusterService(
                     "six-member-event-registry-test",
                     Path.Combine(baseRoot,"six-member-event-registry-profile")))
@@ -199,6 +206,12 @@ internal static class OriginalKovaDirectImportTests
                         });
                     using var expandedBridge=new DesktopHistoricalStoreImportBridge(
                         expandedManager,localLegacyDataDirectory:local);
+                    var supplementalList=await Call(expandedBridge,"historical.originalList");
+                    var extra=supplementalList.GetProperty("data").GetProperty("additionalMaps")[0];
+                    Check(extra.GetProperty("mapId").GetString()==extraId&&
+                        !extra.GetProperty("selectedHistoricalOwner").GetBoolean()&&
+                        !extra.GetProperty("storeWriterAuthorized").GetBoolean(),
+                        "native supplemental source roster distinguishes Event from original five");
                     var clusterPreview=await Call(expandedBridge,
                         "historical.originalClusterPreview");
                     Check(clusterPreview.GetProperty("ok").GetBoolean()&&
