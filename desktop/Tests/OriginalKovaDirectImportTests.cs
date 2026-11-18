@@ -310,11 +310,11 @@ internal static class OriginalKovaDirectImportTests
                         oldProfiles==JsonSerializer.Serialize(recovered.Config.LocalMaps.Take(5).ToList())&&
                         oldSchedules==JsonSerializer.Serialize(recovered.Config.RecurringSchedules),
                         "retry after orphan pin atomically publishes one Event GUID and membership without changing original profiles/pin/schedules");
-                    bool duplicate=false;
+                    bool supplementalDuplicate=false;
                     try{recovered.RegisterSupplementalHistoricalMap(map,VaultProtocol.ClusterId,originalCluster.path,
                         recovered.Registry.Snapshot().Revision);}
-                    catch(InvalidDataException){duplicate=true;}
-                    Check(duplicate&&recovered.Config.LocalMaps.Count==6,"duplicate supplemental apply cannot add a second profile");
+                    catch(InvalidDataException){supplementalDuplicate=true;}
+                    Check(supplementalDuplicate&&recovered.Config.LocalMaps.Count==6,"duplicate supplemental apply cannot add a second profile");
                 }
                 await using(var reopened=new ClusterService("supplemental-pin-test",supplementalProfile))
                 {
