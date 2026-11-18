@@ -408,7 +408,8 @@ public static class UntamedWorldBackup
     // A running world is never opened or replaced; only archive bytes are
     // read. This does not restore a shared Store/transfer transaction.
     internal static StagedWorld StageVerifiedWorld(LocalMap map,string profile,string point,
-        IEnumerable<string> installationRoots)
+        IEnumerable<string> installationRoots,
+        IEnumerable<string>? sharedRoots=null)
     {
         if(map.ObservedReadOnlyImported)throw new UnauthorizedAccessException("UM-BACKUP-MAP-NOT-LOCAL");
         if(!Guid.TryParseExact(point,"D",out var id)||id==Guid.Empty)
@@ -422,6 +423,20 @@ public static class UntamedWorldBackup
         foreach(var candidate in installationRoots)
         {
             string root=Guard(candidate);
+            if(parent.Equals(root,StringComparison.OrdinalIgnoreCase)||
+               Contained(root,parent)||Contained(parent,root))
+                throw new InvalidDataException("UM-BACKUP-PATHS-OVERLAP");
+        }
+        // The Manager profile must not itself be located inside a shared
+        // cluster/transfer directory. This is a lexical check, deliberately
+        // not a network probe: an unavailable peer must not block archive
+        // staging on an unrelated fixed local disk.
+        foreach(var candidate in sharedRoots??Array.Empty<string>())
+        {
+            if(string.IsNullOrWhiteSpace(candidate))continue;
+            if(!Path.IsPathFullyQualified(candidate))
+                throw new InvalidDataException("UM-BACKUP-SHARED-ROOT-UNVERIFIED");
+            string root=Path.TrimEndingDirectorySeparator(Path.GetFullPath(candidate));
             if(parent.Equals(root,StringComparison.OrdinalIgnoreCase)||
                Contained(root,parent)||Contained(parent,root))
                 throw new InvalidDataException("UM-BACKUP-PATHS-OVERLAP");

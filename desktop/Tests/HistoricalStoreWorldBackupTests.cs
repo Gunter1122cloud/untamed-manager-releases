@@ -109,6 +109,16 @@ internal static class HistoricalStoreWorldBackupTests
         var foreign=await Call(bridge,"backup.worldStage",new{mapId=Guid.NewGuid(),point,confirm=true});
         Check(!foreign.GetProperty("ok").GetBoolean()&&foreign.GetProperty("error").GetString()=="UM-BACKUP-MAP-NOT-LOCAL",
             "isolated world stage rejects foreign GUID");
+        var blockedSharedRoot=false;
+        try
+        {
+            _=UntamedWorldBackup.StageVerifiedWorld(map,cluster.Store.Root,point,
+                new[]{install},new[]{manager});
+        }
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-PATHS-OVERLAP")
+        {blockedSharedRoot=true;}
+        Check(blockedSharedRoot&&!Directory.Exists(Path.Combine(manager,"world-restore-staging")),
+            "restore staging refuses output overlapping protected cluster metadata root");
         var stage=await Call(bridge,"backup.worldStage",new{mapId=map.Id,point,confirm=true});
         Check(stage.GetProperty("ok").GetBoolean(),"archive-only restore stage succeeds without stopping a map");
         var data=stage.GetProperty("data");

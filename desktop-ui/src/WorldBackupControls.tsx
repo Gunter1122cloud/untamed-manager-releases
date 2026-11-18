@@ -17,7 +17,9 @@ function backupResourceError(error:unknown,fallback:string):string {
     case "UM-BACKUP-INVALID-POINT":
       return "Érvénytelen map vagy mentési pont. Frissítsd a listát.";
     case "UM-BACKUP-PATHS-OVERLAP":
-      return "A visszaállítási cél átfed egy szerver telepítési könyvtárával.";
+      return "A visszaállítási cél átfed egy védett szerver-, cluster- vagy mentési könyvtárral.";
+    case "UM-BACKUP-SHARED-ROOT-UNVERIFIED":
+      return "A közös clusterútvonal nincs egyértelműen megadva. A visszaállítási cél nem ellenőrizhető.";
     case "UM-BACKUP-CONFIRMED-STOP-REQUIRED":
       return "A map fut, vagy leállított állapota nem igazolt. Az Obsidian nem állítja le automatikusan.";
     case "UM-BACKUP-STORE-V1-RESTORE-LOCKED":

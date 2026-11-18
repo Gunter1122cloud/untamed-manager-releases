@@ -187,18 +187,18 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
                 {
                     if(!GuidField(j,"mapId",out var mapId))
                         return Fail(id,"UM-ADOPT-MAP-ID");
-                    var (map,server,args,loader)=Candidate(mapId,observe());
+                    var (map,server,args,previewLoader)=Candidate(mapId,observe());
                     if(pending.Count>12)pending.Clear();
                     var token=Guid.NewGuid();
                     pending[token]=new(token,mapId,server.Pid,
                         server.StartedUtc!.Value,Hash(server.CommandLine!),
-                        DateTimeOffset.UtcNow.AddMinutes(3),loader?.Pid,loader?.StartedUtc,
-                        loader==null?null:Hash(loader.CommandLine!));
+                        DateTimeOffset.UtcNow.AddMinutes(3),previewLoader?.Pid,previewLoader?.StartedUtc,
+                        previewLoader==null?null:Hash(previewLoader.CommandLine!));
                     return Ok(id,new{
                         token,mapId=map.Id,mapName=map.Name,
                         mapKey=map.ObservedMapKey,pid=server.Pid,
                         gamePort=map.GamePort,queryPort=map.QueryPort,
-                        useApi=loader!=null,loaderPid=loader?.Pid,
+                        useApi=previewLoader!=null,loaderPid=previewLoader?.Pid,
                         noProcessMutation=true,storeWriterAuthorized=false,
                         requiresExternalControllerStopped=true,
                         requiresRconSetup=true,

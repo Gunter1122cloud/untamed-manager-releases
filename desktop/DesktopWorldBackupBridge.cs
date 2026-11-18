@@ -685,8 +685,13 @@ public sealed class DesktopWorldBackupBridge
                     var map=Owned(mapId);
                     var roots=cluster.Config.LocalMaps.Select(x=>x.InstallationPath)
                         .Where(x=>!string.IsNullOrWhiteSpace(x)).ToArray();
+                    var sharedRoots=cluster.Config.ClusterRegistry.Clusters
+                        .SelectMany(x=>new[]{x.TransferDirectory,x.BackupDirectory})
+                        .Concat(cluster.Config.LocalMaps.SelectMany(x=>new[]{
+                            x.HistoricalRuntimeTransferDirectory,x.FreshStoreTransferDirectory,x.StoreTestRoot}))
+                        .Where(x=>!string.IsNullOrWhiteSpace(x)).ToArray();
                     var receipt=await Task.Run(()=>UntamedWorldBackup.StageVerifiedWorld(
-                        map,cluster.Store.Root,pointId.ToString("D"),roots));
+                        map,cluster.Store.Root,pointId.ToString("D"),roots,sharedRoots));
                     return Ok(id,new{mapId,point=pointId,relativeFolder=receipt.RelativeFolder,
                         files=receipt.Files,bytes=receipt.Bytes,productionRestoreAllowed=false,
                         storeWriterTouched=false,evidence="VERIFIED_ISOLATED_WORLD_BACKUP_RESTORE"});
@@ -862,6 +867,7 @@ public sealed class DesktopWorldBackupBridge
                  "UM-BACKUP-INSUFFICIENT-RESTORE-CAPACITY" or
                  "UM-BACKUP-DIGEST-MISMATCH" or "UM-BACKUP-PATHS-OVERLAP" or
                  "UM-BACKUP-INVALID-POINT" or "UM-BACKUP-MAP-NOT-LOCAL" or
+                 "UM-BACKUP-SHARED-ROOT-UNVERIFIED" or
                  "UM-BACKUP-MANIFEST-OWNER-MISMATCH" or "UM-BACKUP-INCOMPLETE"))
                 return Fail(id,e.Message);
             return Fail(id,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED");
