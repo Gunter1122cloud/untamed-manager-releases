@@ -225,6 +225,58 @@ var incompleteFiveCapture=await Call(
 Check(IsError(incompleteFiveCapture,"UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS"),
     "travel capture reports the exact five-local-map prerequisite without reading ASA files");
 await SteamPublicBuildParsingTests.RunAsync(root);
+// Native rolling lifecycle journal, using a disposable profile and injected
+// process observations and execution. Neither fixture nor tests launch ASA.
+{
+    string batchRoot=Path.Combine(root,"lifecycle-batch-fixture");
+    await using var batchCluster=new ClusterService("batch-fixture",batchRoot);
+    var one=new LocalMap{Name="Batch A",InstallationPath=Path.Combine(batchRoot,"a")};
+    var two=new LocalMap{Name="Batch B",InstallationPath=Path.Combine(batchRoot,"b")};
+    batchCluster.Config.LocalMaps.Add(one);batchCluster.Config.LocalMaps.Add(two);
+    int calls=0;
+    Task<string> Never(string raw)=>throw new InvalidOperationException("Unexpected real bridge");
+    using var batch=new DesktopLifecycleBatchBridge(batchCluster,Never,Never,Never,Never,Never,Never,Never,
+        _=>new ProcessCheck(false,"synthetic stopped",null,true),
+        (map,action,historical,ct)=>{
+            Interlocked.Increment(ref calls);
+            if(map==one.Id)throw new InvalidOperationException("UM-BATCH-SYNTHETIC-UNCERTAIN");
+            return Task.FromResult<(int,Guid?)>((0,null));
+        });
+    var denied=await Call(batch.HandleAsync,"operations.lifecycleBatchPreview",
+        new{mapIds=new[]{Guid.NewGuid()},action="start",delaySeconds=0});
+    Check(!denied.GetProperty("ok").GetBoolean()&&calls==0,"batch denies remote target before any dispatch");
+    var plan=await Call(batch.HandleAsync,"operations.lifecycleBatchPreview",
+        new{mapIds=new[]{one.Id,two.Id},action="start",delaySeconds=0});
+    IsOk(plan,"batch previews named local stopped maps");
+    var token=plan.GetProperty("data").GetProperty("token").GetGuid();
+    var noConsent=await Call(batch.HandleAsync,"operations.lifecycleBatchApply",new{token,confirm=false});
+    Check(!noConsent.GetProperty("ok").GetBoolean()&&calls==0,"batch requires explicit apply consent");
+    var applied=await Call(batch.HandleAsync,"operations.lifecycleBatchApply",new{token,confirm=true});
+    IsOk(applied,"batch claims a durable journal before dispatch");
+    var jobId=applied.GetProperty("data").GetProperty("jobId").GetGuid();
+    JsonElement current=default;
+    for(int n=0;n<100;n++)
+    {
+        current=(await Call(batch.HandleAsync,"operations.lifecycleBatchCurrent")).GetProperty("data").GetProperty("receipt");
+        if(current.GetProperty("state").GetString()=="needsReview")break;
+        await Task.Delay(20);
+    }
+    Check(calls==1&&current.GetProperty("state").GetString()=="needsReview"&&
+          current.GetProperty("targets")[1].GetProperty("state").GetString()=="skipped",
+        "rolling batch stops after uncertain first dispatch and skips the next map");
+    var replay=await Call(batch.HandleAsync,"operations.lifecycleBatchApply",new{token,confirm=true});
+    Check(!replay.GetProperty("ok").GetBoolean()&&calls==1,"batch approval cannot be replayed");
+    Check(!batch.CanManagerUpdate(),"unreviewed batch blocks manager update");
+    JsonElement review=default;
+    for(int n=0;n<100;n++)
+    {
+        review=await Call(batch.HandleAsync,"operations.lifecycleBatchReview",new{jobId,confirm=true});
+        if(review.GetProperty("ok").GetBoolean())break;
+        await Task.Delay(20);
+    }
+    IsOk(review,"batch journal can be explicitly reviewed without redispatch");
+    Check(calls==1&&batch.CanManagerUpdate(),"review releases batch update block without replay");
+}
 NativeWebViewDispatchContractTests.Run();
 LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();

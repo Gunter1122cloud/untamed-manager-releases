@@ -101,6 +101,10 @@ export type NativeAsaScheduleSaved={
   job:NativeAsaScheduleTask;restartConflicts:string[];
 };
 
+export type LifecycleBatchAction="start"|"stop"|"restart";
+export type LifecycleBatchPreview={token:string;action:LifecycleBatchAction;delaySeconds:number;maps:Array<{mapId:string;mapName:string}>;remoteExecutionAllowed:false};
+export type LifecycleBatchReceipt={jobId:string;action:LifecycleBatchAction;state:"running"|"completed"|"needsReview"|"reviewed";createdUtc:string;updatedUtc:string;
+  targets:Array<{mapId:string;mapName:string;state:string;evidence:string;nativeJobId?:string|null}>};
 export type OperationsMap = {
   mapId:string; mapName:string; running:boolean; confirmedStopped:boolean;
   status:string; pid:number|null; startedUtc:string|null; uptimeSeconds:number|null;
@@ -1715,6 +1719,7 @@ export type ConfiguredMods = {
 
 type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
   "operations.scheduleCreate" | "operations.scheduleDisable" | "operations.watchdogStart" |
+  "operations.lifecycleBatchPreview" | "operations.lifecycleBatchApply" | "operations.lifecycleBatchCurrent" | "operations.lifecycleBatchReview" |
   "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" |
   "schedule.nativeReviewPreview" | "schedule.nativeReviewApply" |
   "schedule.nativeResume" |
@@ -1805,7 +1810,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
    confirm?: boolean; ackUnknownOutcome?:boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; runId?:string; journalId?:string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
-  intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;postRestartWipe?:boolean;wipeDelaySeconds?:number;
+  intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;postRestartWipe?:boolean;wipeDelaySeconds?:number;delaySeconds?:number;
   gamePort?: number; queryPort?: number; customLevel?: string; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
@@ -1914,6 +1919,11 @@ export const managerBridge = {
   lanHistoricalSaveProbe: () =>
     request<LanHistoricalSaveProbe>("lan.historicalSaveProbe"),
   operationsWatchdogStart:()=>request<{pid:number;requested:true;evidence:"LOCAL_WATCHDOG_PROCESS_REQUESTED"}>("operations.watchdogStart",{confirm:true}),
+  lifecycleBatchPreview:(mapIds:string[],action:LifecycleBatchAction,delaySeconds:number)=>
+    request<LifecycleBatchPreview>("operations.lifecycleBatchPreview",{mapIds,action,delaySeconds}),
+  lifecycleBatchApply:(token:string)=>request<LifecycleBatchReceipt>("operations.lifecycleBatchApply",{token,confirm:true}),
+  lifecycleBatchCurrent:()=>request<{receipt:LifecycleBatchReceipt|null;remoteExecutionAllowed:false}>("operations.lifecycleBatchCurrent"),
+  lifecycleBatchReview:(jobId:string)=>request<LifecycleBatchReceipt>("operations.lifecycleBatchReview",{jobId,confirm:true}),
   operationsSnapshot: () => request<OperationsSnapshot>("operations.snapshot"),
   operationsSnapshotAll: async ():Promise<OperationsSnapshot> => {
     // Gather every bounded native page. A registry change between RPCs

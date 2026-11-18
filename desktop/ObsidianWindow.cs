@@ -75,6 +75,8 @@ public sealed class ObsidianWindow : Form
     {
         // update.install is dispatched under the host command gate. Hold the
         // independent scheduler lanes too; if busy, leave the running task alone.
+        if(!_lifecycleBatch.CanManagerUpdate())
+            return NativeErrorResponse(raw,"UM-UPDATE-LIFECYCLE-BATCH-IN-PROGRESS");
         if(!_nativeSchedules.TryFreezeForManagerUpdate())
             return NativeErrorResponse(raw,"UM-UPDATE-SCHEDULE-IN-PROGRESS");
         bool backupFrozen=false;
@@ -111,7 +113,7 @@ public sealed class ObsidianWindow : Form
             "dashboard.snapshot" or "servers.runningLocal" or
             "servers.lifecycleJournal" or
             "servers.lifecycleRecoveryPreview" or
-            "operations.snapshot" or "operations.map" or
+            "operations.snapshot" or "operations.map" or "operations.lifecycleBatchCurrent" or
             "schedule.nativeStatus" or "schedule.nativeOverview" or
             "servers.gracefulStopStatus" or "servers.gracefulStopCurrent" or "servers.restartStatus" or
             "servers.restartCurrent" or "servers.freshStartStatus" or
@@ -244,6 +246,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopFreshAsaRestartBridge _freshRestart;
     private readonly DesktopAsaLifecycleJournalBridge _lifecycleJournal;
     private readonly DesktopOperationsCenterBridge _operations;
+    private readonly DesktopLifecycleBatchBridge _lifecycleBatch;
     private readonly DesktopRecurringReadOnlySupervisor _readOnlySupervisor;
     private readonly DesktopAutomaticAsaDiscoverySupervisor _asaDiscovery;
     private readonly DesktopLanSettingsBridge _lan;
@@ -326,6 +329,10 @@ public sealed class ObsidianWindow : Form
         _bridge.AttachAutomaticAsaDiscovery(_asaDiscovery);
         _readOnlySupervisor = new DesktopRecurringReadOnlySupervisor(_bridge.LocalCluster);
         _operations = new DesktopOperationsCenterBridge(_bridge.LocalCluster,_readOnlySupervisor);
+        _lifecycleBatch = new DesktopLifecycleBatchBridge(_bridge.LocalCluster,
+            _freshStart.HandleAsync,_freshStop.HandleAsync,_freshRestart.HandleAsync,
+            _historicalStart.HandleAsync,_historicalStop.HandleAsync,_historicalRestart.HandleAsync,
+            _historicalReadOnlyRcon.HandleAsync);
         _lan = new DesktopLanSettingsBridge(_bridge.LocalCluster);
         _travel = new DesktopStoreTravelEvidenceBridge(_bridge.LocalCluster);
         _embeddedStore = new DesktopEmbeddedStoreBridge();
@@ -401,6 +408,7 @@ public sealed class ObsidianWindow : Form
             _scheduledBackups.Dispose();
             _scheduledSteam.Dispose();
             _nativeSchedules.Dispose();
+            _lifecycleBatch.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
             _browser.Dispose();
@@ -558,6 +566,7 @@ public sealed class ObsidianWindow : Form
                 bool freshRestartRoute = false;
                 bool lifecycleJournalRoute = false;
                 bool operationsRoute = false;
+                bool lifecycleBatchRoute = false;
                 bool nativeScheduleRoute = false;
                 bool mapMaintenanceRoute = false;
                 bool lanRoute = false;
@@ -594,6 +603,8 @@ public sealed class ObsidianWindow : Form
                             "servers.lifecycleRecoveryApply";
                         operationsRoute = name is "operations.snapshot" or "operations.map" or
                             "operations.scheduleCreate" or "operations.scheduleDisable" or "operations.watchdogStart";
+                        lifecycleBatchRoute = name is "operations.lifecycleBatchPreview" or
+                            "operations.lifecycleBatchApply" or "operations.lifecycleBatchCurrent" or "operations.lifecycleBatchReview";
                         nativeScheduleRoute = name is "schedule.nativeStatus" or
                             "schedule.nativeSet" or "schedule.nativeDisable" or
                             "schedule.nativeOverview" or "schedule.nativeReviewPreview" or
@@ -720,6 +731,7 @@ public sealed class ObsidianWindow : Form
                         : lanRoute ? await _lan.HandleAsync(incoming)
                         : nativeScheduleRoute ? await _nativeSchedules.HandleAsync(incoming)
                         : mapMaintenanceRoute ? await _mapMaintenance.HandleAsync(incoming)
+                        : lifecycleBatchRoute ? await _lifecycleBatch.HandleAsync(incoming)
                         : operationsRoute ? await _operations.HandleAsync(incoming)
                         : freshRestartRoute ? await _freshRestart.HandleAsync(incoming)
                         : lifecycleJournalRoute ? await _lifecycleJournal.HandleAsync(incoming)
