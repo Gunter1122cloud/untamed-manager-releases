@@ -831,6 +831,42 @@ public sealed partial class ClusterService
             };
     }
 
+    // One existing ConfigStore CAS publishes the supplemental profile and
+    // assignment together. No generic registry API may grant this rights.
+    internal void RegisterSupplementalHistoricalMap(LocalMap map,string clusterId,
+        string transferRoot,long expectedRevision)
+    {
+        if(!map.HistoricalSupplementalSource||!map.HistoricalStoreProtected||
+           map.Id==Guid.Empty||map.AutoStart||map.MonitorRcon||
+           !LegacyStoreV1PinnedSource.HasApprovedLocalSource(Store.Root,map))
+            throw new UnauthorizedAccessException("UM-STORE-EXTRA-PIN-REQUIRED");
+        lock(_registryGate)
+        {
+            if(Config.ClusterRegistry.Revision!=expectedRevision)
+                throw new InvalidOperationException("UM-STORE-EXTRA-REGISTRY-CHANGED");
+            if(Config.LocalMaps.Any(m=>m.Id==map.Id||
+                m.Name.Equals(map.Name,StringComparison.OrdinalIgnoreCase))||
+               Config.HostRegistry.Maps.Any(m=>m.MapId==map.Id)||
+               Config.ClusterRegistry.MapAssignments.Any(a=>a.MapId==map.Id))
+                throw new InvalidDataException("UM-STORE-EXTRA-GUID-OR-NAME-CONFLICT");
+            var registered=Config.ClusterRegistry.Clusters.SingleOrDefault(c=>
+                c.ClusterId.Equals(clusterId,StringComparison.OrdinalIgnoreCase));
+            if(registered==null||!string.Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(registered.TransferDirectory)),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(transferRoot)),StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("UM-STORE-EXTRA-CLUSTER-MISMATCH");
+            var staged=ClusterRegistrySchema.Clone(Config);
+            staged.LocalMaps.Add(map);
+            staged.ClusterRegistry.MapAssignments.Add(new(){MapId=map.Id,ClusterId=registered.ClusterId});
+            staged.ClusterRegistry.Revision=checked(expectedRevision+1);
+            Store.Save(staged);
+            // Preserve all existing in-memory map identities and schedules.
+            Config.LocalMaps.Add(map);
+            Config.HostRegistry=ClusterRegistrySchema.Clone(staged.HostRegistry);
+            Config.ClusterRegistry=ClusterRegistrySchema.Clone(staged.ClusterRegistry);
+        }
+    }
+
     internal T UpdateClusterRegistry<T>(long? expectedRevision, Func<ManagerConfig, T> update)
     {
         ArgumentNullException.ThrowIfNull(update);

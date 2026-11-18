@@ -29,6 +29,43 @@ public static class LegacyStoreV1PinnedSource
     private static string DirectoryFor(string managerProfileRoot) =>
         Path.Combine(VaultReadSnapshot.LocalPath(managerProfileRoot,true),Folder);
 
+    private static string SupplementalRoot(string managerProfileRoot,Guid id)
+    {
+        if(id==Guid.Empty)throw new InvalidDataException("UM-STORE-EXTRA-GUID");
+        return VaultReadSnapshot.LocalPath(Path.Combine(
+            VaultReadSnapshot.LocalPath(managerProfileRoot,true),
+            "supplemental-store-v1",id.ToString("N")),true);
+    }
+
+    internal static LegacyStoreV1AdditionalMapEvidence RequireSupplemental(
+        LegacyStoreV1OriginalLocalSelection source,Guid id)
+    {
+        if(source.Maps.Any(m=>m.MapId==id))
+            throw new InvalidDataException("UM-STORE-EXTRA-ORIGINAL-GUID");
+        var row=source.AdditionalMaps.SingleOrDefault(m=>m.MapId==id)
+            ??throw new InvalidDataException("UM-STORE-EXTRA-SOURCE-MISSING");
+        if(!row.Active)throw new InvalidDataException("UM-STORE-EXTRA-NOT-ACTIVE");
+        if(!row.SessionMatches)throw new InvalidDataException("UM-STORE-EXTRA-SESSION-MISMATCH");
+        if(!row.BackupIdentityPresent)
+            throw new InvalidDataException("UM-STORE-EXTRA-BACKUP-IDENTITY-MISSING");
+        if(row.LaunchState!="source-launch-matched"||row.GamePort==null||
+           row.QueryPort==null||row.EnabledMods==null||row.PassiveMods==null)
+            throw new InvalidDataException("UM-STORE-EXTRA-LAUNCH-UNVERIFIED");
+        return row;
+    }
+
+    internal static void CaptureSupplemental(string source,string managerProfileRoot,
+        Guid mapId,string fourSha,string launchSha)
+    {
+        var proof=LegacyStoreV1OriginalImport.Inspect(source);
+        _=RequireSupplemental(proof,mapId);
+        if(proof.FourFilesSha256!=fourSha||proof.LaunchProfileSha256!=launchSha)
+            throw new IOException("UM-STORE-EXTRA-SOURCE-CHANGED");
+        // Orphaned immutable pin after a crash has no profile or registry
+        // authority. Exact retry reuses it; differing bytes never overwrite.
+        Capture(source,SupplementalRoot(managerProfileRoot,mapId),fourSha,launchSha);
+    }
+
     private static Pin VerifyPinned(string directory)
     {
         string safe=VaultReadSnapshot.LocalPath(directory,true);
@@ -78,6 +115,13 @@ public static class LegacyStoreV1PinnedSource
     public static string Resolve(string managerProfileRoot,string originalKovaProfile,
         LocalMap map)
     {
+        if(map.HistoricalSupplementalSource)
+        {
+            string supplemental=DirectoryFor(SupplementalRoot(managerProfileRoot,map.Id));
+            _=VerifyPinned(supplemental);
+            RequireImmutableIdentity(map,LegacyStoreV1OriginalImport.Inspect(supplemental));
+            return supplemental;
+        }
         string pinned=PreferredProfile(managerProfileRoot,originalKovaProfile);
         if(string.Equals(pinned,originalKovaProfile,StringComparison.OrdinalIgnoreCase))
             return originalKovaProfile;
@@ -99,6 +143,11 @@ public static class LegacyStoreV1PinnedSource
     public static bool HasApprovedLocalSource(string managerProfileRoot,LocalMap map)
     {
         ArgumentNullException.ThrowIfNull(map);
+        if(map.HistoricalSupplementalSource)
+        {
+            _=Resolve(managerProfileRoot,"",map);
+            return true;
+        }
         string pinned=DirectoryFor(managerProfileRoot);
         if(!Directory.Exists(pinned))
         {
@@ -135,6 +184,16 @@ public static class LegacyStoreV1PinnedSource
                source.FourFilesSha256,StringComparison.Ordinal)&&
             !source.SelectedHistoricalSubsetOfExpandedRoster))
             throw new InvalidDataException("UM-STORE-PIN-OWNER-CHANGED");
+        if(map.HistoricalSupplementalSource)
+        {
+            var row=RequireSupplemental(source,map.Id);
+            if(map.HistoricalArchiveSha256!=source.FourFilesSha256||
+               map.HistoricalMapKey!=row.MapKey||
+               !string.Equals(Path.GetFullPath(map.InstallationPath),
+                   Path.GetFullPath(row.OriginalInstallationRoot),StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("UM-STORE-EXTRA-PIN-OWNER-MISMATCH");
+            return;
+        }
         var original=source.Maps.SingleOrDefault(x=>x.MapId==map.Id);
         if(original==null||
            !string.Equals(map.HistoricalMapKey,original.MapKey,StringComparison.Ordinal)||
