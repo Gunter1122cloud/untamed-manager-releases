@@ -48,12 +48,19 @@ public sealed class AsaManualStopJournal
     {
         ValidateFolder();
         if(!File.Exists(path))return null;
-        var file=new FileInfo(path);
-        if(file.Length is <=0 or >8192||
-           (file.Attributes&FileAttributes.ReparsePoint)!=0)
+        if((File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0)
             throw new InvalidDataException("UM-ASA-STOP-JOURNAL-INVALID");
-        var record=JsonSerializer.Deserialize<AsaManualStopRecord>(
-            File.ReadAllBytes(path),Json);
+        // Read a single immutable snapshot. Allow the writer to replace the
+        // directory entry while status polling still holds the old handle.
+        // Never permit in-place writes through this reader.
+        using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,
+            FileShare.Read|FileShare.Delete);
+        long length=stream.Length;
+        if(length is <=0 or >8192)
+            throw new InvalidDataException("UM-ASA-STOP-JOURNAL-INVALID");
+        byte[] bytes=new byte[(int)length];
+        stream.ReadExactly(bytes);
+        var record=JsonSerializer.Deserialize<AsaManualStopRecord>(bytes,Json);
         if(record==null||record.Schema!=1||record.Id==Guid.Empty||
            record.MapId==Guid.Empty||record.Resource!=key||
            record.OldPid<=0||record.OldStartedUtc==default||
@@ -77,7 +84,22 @@ public sealed class AsaManualStopJournal
                 JsonSerializer.Serialize(stream,record,Json);
                 stream.Flush(true);
             }
-            File.Move(temp,path,true);
+            // Windows may temporarily deny replacement while a legacy status
+            // reader, antivirus or indexer holds the destination open.
+            // Retry ONLY publication of the already flushed journal bytes,
+            // under the same per-installation exclusive gate. No RCON, no
+            // second operation claim and no successful receipt before commit.
+            for(int attempt=0;;attempt++)
+            {
+                try{File.Move(temp,path,true);break;}
+                catch(Exception ex) when(attempt<20&&
+                    (ex is IOException or UnauthorizedAccessException)&&
+                    ((ex.HResult&0xffff) is 5 or 32 or 33))
+                {
+                    Thread.Sleep(50);
+                    ValidateFolder();
+                }
+            }
         }
         finally{if(File.Exists(temp))File.Delete(temp);}
     }

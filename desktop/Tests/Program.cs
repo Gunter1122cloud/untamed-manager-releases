@@ -454,6 +454,101 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     catch(InvalidDataException){denied=true;}
     Check(denied&&fetches==1,"corrupt cache entry is rejected without implicit redownload");
 }
+// Discord Control authorization and parsing tests (no network).
+{
+    string token=new string('a',64);
+    string guild="123456789012345678",channel="223456789012345678",role="323456789012345678",actor="423456789012345678";
+    var cfg=new DesktopDiscordControlApi.Settings("192.168.1.10",19443,"192.168.1.20",new string('A',40),
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token))),guild,new[]{channel,"723456789012345678"},new[]{role},"823456789012345678",channel,"723456789012345678");
+    var now=DateTimeOffset.UtcNow;
+    JsonElement Envelope(string key,string where,string[] roles,DateTimeOffset sent,string kind="preview")=>JsonSerializer.SerializeToElement(new{credential=key,guildId=guild,channelId=where,userId=actor,roleIds=roles,sentUtc=sent,kind});
+    Check(DesktopDiscordControlApi.ValidSettings(cfg)&&DesktopDiscordControlApi.Authorize(cfg,Envelope(token,channel,new[]{role},now),now),"Discord control requires configured bot credential and role");
+    Check(!DesktopDiscordControlApi.Authorize(cfg,Envelope(token,channel,Array.Empty<string>(),now),now)&&
+        !DesktopDiscordControlApi.Authorize(cfg,Envelope(token,guild,new[]{role},now),now)&&
+        !DesktopDiscordControlApi.Authorize(cfg,Envelope(new string('b',64),channel,new[]{role},now),now)&&
+        !DesktopDiscordControlApi.Authorize(cfg,Envelope(token,channel,new[]{role},now.AddMinutes(-2)),now),"Discord control denies missing role, wrong channel/credential and stale request");
+    Check(!DesktopDiscordControlApi.ValidSettings(cfg with{RoleIds=new[]{guild}})&&
+        !DesktopDiscordControlApi.Authorize(cfg with{RoleIds=new[]{guild}},Envelope(token,channel,new[]{guild},now),now)&&
+        !DesktopDiscordControlApi.ValidSettings(cfg with{ControlChannelId=null})&&
+        !DesktopDiscordControlApi.ValidSettings(cfg with{StatusChannelId=channel})&&
+        !DesktopDiscordControlApi.Authorize(cfg,Envelope(token,"723456789012345678",new[]{role},now),now)&&
+        !DesktopDiscordControlApi.Authorize(cfg,Envelope(token,channel,new[]{role},now,"unknown"),now),
+        "Discord fails closed for everyone role, old or overlapping channel settings, wrong action channel and unknown kind");
+    Check(!DesktopDiscordControlApi.ValidSettings(cfg with{BindIp="0.0.0.0"})&&
+        !DesktopDiscordControlApi.ValidSettings(cfg with{BindIp="8.8.8.8"}),"Discord control cannot bind wildcard or public IP");
+    Check(DesktopDiscordControlApi.ParsePlayerCount("No Players Connected")==0&&
+        DesktopDiscordControlApi.ParsePlayerCount("1. Survivor, "+new string('a',32))==1&&
+        DesktopDiscordControlApi.ParsePlayerCount("Authentication failed")==null,"Discord player count does not infer zero from errors");
+}
+// Test the exact API authorization/dispatch boundary using an isolated profile.
+// No actual server, network listener, RCON or SteamCMD is invoked.
+{
+    string apiRoot=Path.Combine(root,"discord-control-fixture");
+    await using var apiCluster=new ClusterService("discord-control-fixture",apiRoot);
+    var m=new LocalMap{Name="Control fixture",InstallationPath=Path.Combine(apiRoot,"map")};
+    apiCluster.Config.LocalMaps.Add(m);
+    string key=new string('a',64),guild="123456789012345678",channel="223456789012345678",
+        admin="323456789012345678",owner="523456789012345678",alice="423456789012345678",bob="623456789012345678";
+    var cfg=new DesktopDiscordControlApi.Settings("127.0.0.1",19443,"127.0.0.1",new string('A',40),
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key))),
+        guild,new[]{channel,"723456789012345678"},new[]{admin,owner},"823456789012345678",channel,"723456789012345678");
+    int sends=0;Guid nativeToken=Guid.NewGuid();
+    Task<string> Fake(string route,string raw)
+    {
+        using var doc=JsonDocument.Parse(raw);var a=doc.RootElement;
+        if(route=="servers.freshStartPreview")
+            return Task.FromResult(JsonSerializer.Serialize(new{ok=true,data=new{mapId=m.Id,token=nativeToken,launchMode="directAsa"}}));
+        if(route=="servers.freshStartApply"&&a.GetProperty("token").GetGuid()==nativeToken)
+        {
+            sends++;
+            return Task.FromResult(JsonSerializer.Serialize(new{ok=true,data=new{mapId=m.Id,startRequested=true,pid=12345,launchMode="directAsa"}}));
+        }
+        throw new InvalidOperationException("Unexpected native call");
+    }
+    using var gate=new SemaphoreSlim(1,1);
+    using var api=new DesktopDiscordControlApi(apiCluster,gate,()=>false,()=>true,()=>{},Fake);
+    async Task<JsonElement> Request(string kind,Guid request,string actor,string role,object fields)
+    {
+        var data=new Dictionary<string,object?>{["kind"]=kind,["requestId"]=request,["credential"]=key,
+            ["guildId"]=guild,["channelId"]=channel,["userId"]=actor,["roleIds"]=new[]{role},["sentUtc"]=DateTimeOffset.UtcNow};
+        foreach(var f in JsonSerializer.SerializeToElement(fields).EnumerateObject())data[f.Name]=f.Value.Clone();
+        using var response=JsonDocument.Parse(await api.Handle(JsonSerializer.SerializeToElement(data),cfg));
+        return response.RootElement.Clone();
+    }
+    var bad=await Request("preview",Guid.NewGuid(),alice,"999999999999999999",new{action="start",mapIds=new[]{m.Id}});
+    Check(!bad.GetProperty("ok").GetBoolean()&&sends==0,"Discord direct dispatch still requires approved role");
+    var foreign=await Request("preview",Guid.NewGuid(),alice,admin,new{action="start",mapIds=new[]{Guid.NewGuid()}});
+    Check(!foreign.GetProperty("ok").GetBoolean()&&sends==0,"Discord rejects foreign map");
+    var pre=await Request("preview",Guid.NewGuid(),alice,admin,new{action="start",mapIds=new[]{m.Id}});
+    Check(pre.GetProperty("ok").GetBoolean(),"Discord local Start preview");
+    Guid approve=pre.GetProperty("data").GetProperty("token").GetGuid(),operation=Guid.NewGuid();
+    var other=await Request("apply",Guid.NewGuid(),bob,owner,new{token=approve,confirm=true});
+    Check(!other.GetProperty("ok").GetBoolean()&&sends==0,"Discord confirmation bound to initiating actor even for equally privileged owner");
+    var applied=await Request("apply",operation,alice,admin,new{token=approve,confirm=true});
+    Check(applied.GetProperty("ok").GetBoolean()&&sends==1,"Discord sends exact approved local native Start once");
+    var replay=await Request("apply",operation,alice,admin,new{token=approve,confirm=true});
+    Check(!replay.GetProperty("ok").GetBoolean()&&sends==1,"Discord consumes confirmation");
+    pre=await Request("preview",Guid.NewGuid(),alice,owner,new{action="start",mapIds=new[]{m.Id}});
+    approve=pre.GetProperty("data").GetProperty("token").GetGuid();
+    var duplicate=await Request("apply",operation,alice,owner,new{token=approve,confirm=true});
+    Check(!duplicate.GetProperty("ok").GetBoolean()&&sends==1,"Discord durable request ID prevents replay even with new owner-role preview");
+}
+// The actual bot service identity is read-only, even if it claims admin roles.
+{
+    string secret=new string('a',64),guild="123456789012345678",channel="223456789012345678",
+        role="323456789012345678",bot="423456789012345678";
+    var cfg=new DesktopDiscordControlApi.Settings("127.0.0.1",19443,"127.0.0.1",new string('A',40),
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(secret))),
+        guild,new[]{channel,"723456789012345678"},new[]{role},bot,"723456789012345678",channel);
+    var now=DateTimeOffset.UtcNow;
+    JsonElement Request(string kind,string? where=null)=>JsonSerializer.SerializeToElement(new{credential=secret,guildId=guild,channelId=where??channel,
+        userId=bot,roleIds=new[]{role},sentUtc=now,kind});
+    Check(DesktopDiscordControlApi.Authorize(cfg,Request("status"),now)&&DesktopDiscordControlApi.Authorize(cfg,Request("players"),now)&&DesktopDiscordControlApi.Authorize(cfg,Request("job"),now)&&
+        !DesktopDiscordControlApi.Authorize(cfg,Request("preview"),now)&&!DesktopDiscordControlApi.Authorize(cfg,Request("apply"),now)&&
+        !DesktopDiscordControlApi.Authorize(cfg,Request("apply","723456789012345678"),now)&&
+        !DesktopDiscordControlApi.Authorize(cfg,Request("status","723456789012345678"),now),
+        "Discord service principal is strictly read-only even with an admin role assertion");
+}
 NativeWebViewDispatchContractTests.Run();
 LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();

@@ -1,0 +1,24 @@
+{
+  "guild_id": "YOUR_GUILD_ID",
+  "role_ids": [
+    "OWNER_ROLE_ID",
+    "ADMIN_ROLE_ID"
+  ],
+  "state_file": "local-secrets/obsidian-state.json",
+  "provision_channels": false,
+  "hosts": {
+    "UK-HOME-01": {
+      "address": "192.168.1.62",
+      "port": 19443,
+      "certificate_sha256": "REPLACE_LOCALLY",
+      "credential": "REPLACE_LOCALLY"
+    },
+    "UK-HOME-02": {
+      "address": "192.168.1.200",
+      "port": 19443,
+      "certificate_sha256": "REPLACE_LOCALLY",
+      "credential": "REPLACE_LOCALLY"
+    }
+  },
+  "provision_only": true
+}

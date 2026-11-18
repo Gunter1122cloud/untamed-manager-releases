@@ -71,6 +71,27 @@ public sealed class ObsidianWindow : Form
     // block Dashboard/RCON/status RPCs behind the global command gate.
     // Recovery is invoked under the host gate. Freeze independent native
     // scheduling/backup lanes only for the actual automatic launch dispatch.
+    // Only the typed Discord adapter can invoke this closed route table.
+    private Task<string> DispatchDiscordNative(string method,string raw)=>method switch
+    {
+        "operations.snapshot" or "operations.map"=>_operations.HandleAsync(raw),
+        "operations.lifecycleBatchPreview" or "operations.lifecycleBatchApply" or "operations.lifecycleBatchCurrent"=>_lifecycleBatch.HandleAsync(raw),
+        "historical.activeStartPreview" or "historical.activeStartApply" or "historical.loaderModePreview" or "historical.loaderModeApply"=>_historicalStart.HandleAsync(raw),
+        "servers.apiModePreview" or "servers.apiModeApply"=>_localAsaApiMode.HandleAsync(raw),
+        "servers.freshStartPreview" or "servers.freshStartApply"=>_freshStart.HandleAsync(raw),
+        "servers.gracefulStopPreview" or "servers.gracefulStopApply" or "servers.gracefulStopStatus"=>_freshStop.HandleAsync(raw),
+        "historical.gracefulStopPreview" or "historical.gracefulStopApply" or "historical.gracefulStopStatus" or
+        "historical.saveWorldPreview" or "historical.saveWorldApply" or "historical.saveWorldStatus"=>_historicalStop.HandleAsync(raw),
+        "historical.restartPreview" or "historical.restartApply" or "historical.restartStatus"=>_historicalRestart.HandleAsync(raw),
+        "servers.restartPreview" or "servers.restartApply" or "servers.restartStatus"=>_freshRestart.HandleAsync(raw),
+        "historical.rconPlayers"=>_historicalReadOnlyRcon.HandleAsync(raw),
+        "rcon.listPlayers" or "rcon.status" or "rcon.saveWorld"=>_rcon.HandleAsync(raw),
+        "rcon.adminPreview" or "rcon.adminSend"=>_rconAdmin.HandleAsync(raw),
+        "historical.adminPreview" or "historical.adminSend"=>_historicalAdminRcon.HandleAsync(raw),
+        "backup.preview" or "backup.create" or "backup.restorePreview" or "backup.restore" or "backup.history"=>_worldBackup.HandleAsync(raw),
+        "steam.stoppedPreview" or "steam.stoppedApply" or "steam.stoppedStatus"=>_steamUpdate.HandleAsync(raw),
+        _=>Task.FromResult(NativeErrorResponse(raw,"UM-DC-ROUTE-DENIED"))
+    };
     private bool TryEnterRecoveryLane()
     {
         if(!_lifecycleBatch.CanManagerUpdate()||!_nativeSchedules.TryFreezeForManagerUpdate())return false;
@@ -262,6 +283,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopAsaLifecycleJournalBridge _lifecycleJournal;
     private readonly DesktopOperationsCenterBridge _operations;
     private readonly DesktopDiscordNotifications _notifications;
+    private readonly DesktopDiscordControlApi _discordControl;
     private readonly DesktopWatchdogRecovery _recovery;
     private readonly DesktopBanManager _moderation;
     private readonly DesktopLifecycleBatchBridge _lifecycleBatch;
@@ -362,6 +384,8 @@ public sealed class ObsidianWindow : Form
         _recovery = new DesktopWatchdogRecovery(_bridge.LocalCluster,_bridgeGate,
             TryEnterRecoveryLane,ReleaseRecoveryLane,()=>_updateHandoff,
             _freshStart.HandleAsync,_historicalStart.HandleAsync,_historicalReadOnlyRcon.HandleAsync);
+        _discordControl = new DesktopDiscordControlApi(_bridge.LocalCluster,_bridgeGate,()=>_updateHandoff,
+            TryEnterRecoveryLane,ReleaseRecoveryLane,DispatchDiscordNative);
         Text = suppressScheduledMutations&&!smokeTest
             ? "Untamed Kingdom — Obsidian Command [MANUÁLIS TESZT]"
             : "Untamed Kingdom — Obsidian Command";
@@ -383,6 +407,11 @@ public sealed class ObsidianWindow : Form
         _tray.Visible = true;
         var menu = new ContextMenuStrip();
         menu.Items.Add("Megnyitás", null, (_, _) => RestoreWindow());
+        if(!smokeTest)
+            menu.Items.Add("Discord bot",null,(_,_)=>{
+                RestoreWindow();
+                DesktopDiscordBotRuntime.Show(this,()=>!_suppressScheduledMutations&&!_updateHandoff);
+            });
         menu.Items.Add("Kilépés a Managerből", null, (_, _) =>
         {
             _reallyExit = true;
@@ -410,6 +439,7 @@ public sealed class ObsidianWindow : Form
                     _nativeSchedules.Start();
                     _notifications.Start();
                     _recovery.Start();
+                    _discordControl.Start();
                 }
                 _scheduledSteam.Start();
                 try { await _bridge.LocalCluster.BeginLanAsync(); }
@@ -428,6 +458,7 @@ public sealed class ObsidianWindow : Form
         };
         FormClosed += (_, _) =>
         {
+            _discordControl.Dispose();
             _asaDiscovery.Dispose();
             _readOnlySupervisor.Dispose();
             _scheduledBackups.Dispose();

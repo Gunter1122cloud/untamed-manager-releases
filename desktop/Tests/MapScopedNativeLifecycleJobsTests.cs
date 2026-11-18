@@ -223,7 +223,9 @@ internal static class MapScopedNativeLifecycleJobsTests
         }while(DateTimeOffset.UtcNow<siblingDeadline);
         Check(siblingCompleted.GetProperty("state").GetString()=="completed"&&
               siblingCompleted.GetProperty("confirmedStopped").GetBoolean(),
-            "second synthetic Stop reaches verified terminal state before fixture reuse");
+            "second synthetic Stop reaches verified terminal state before fixture reuse: "+
+                siblingCompleted.GetProperty("state").GetString()+" / "+
+                siblingCompleted.GetProperty("step").GetString());
         var siblingJournal=new AsaManualStopJournal(maps[1].InstallationPath);
         Check(siblingJournal.Observe() is {Phase:AsaStopPhase.Completed} record&&
               record.MapId==maps[1].Id,
@@ -280,10 +282,44 @@ internal static class MapScopedNativeLifecycleJobsTests
                 "servers.gracefulStopPreview",new{mapId=maps[1].Id}),
                 "a different local ASA map remains independently eligible");
         }
+        await VerifyStopJournalReaderContention(root);
         await VerifyDurableStopCrashRecovery(root);
         await VerifyOriginalStoreSaveWorldIsolated(root);
         await VerifyFreshRestartJobs(root);
         await VerifyFreshAdminCapacity(root);
+    }
+
+    private static async Task VerifyStopJournalReaderContention(string baseRoot)
+    {
+        // A deliberately held legacy reader without FILE_SHARE_DELETE used
+        // to make atomic publication fail on Windows. This uses only local
+        // test files, not a process, live ASA data or a command dispatcher.
+        string root=Path.Combine(baseRoot,"stop-journal-reader-contention");
+        string install=Path.Combine(root,"installation");
+        string journals=Path.Combine(root,"journals");
+        Directory.CreateDirectory(install);
+        var journal=new AsaManualStopJournal(install,journals);
+        Guid map=Guid.NewGuid();
+        var pending=journal.Begin(map,44979,DateTimeOffset.UtcNow);
+        string path=Path.Combine(journals,
+            UntamedOperationCoordinator.ResourceKey(install)+".json");
+        using var reader=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
+        var entered=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writer=Task.Run(()=>{
+            entered.TrySetResult(true);
+            return journal.Finish(pending.Id,AsaStopPhase.Completed);
+        });
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            // Keep the old reader open over multiple publication attempts.
+            await Task.Delay(200);
+        }
+        finally{reader.Dispose();}
+        var completed=await writer.WaitAsync(TimeSpan.FromSeconds(5));
+        Check(completed.Id==pending.Id&&completed.MapId==map&&
+              completed.Phase==AsaStopPhase.Completed&&journal.Observe()==completed,
+            "transient Windows reader contention commits the original Stop journal without replay");
     }
 
     private static async Task VerifyDurableStopCrashRecovery(string baseRoot)
