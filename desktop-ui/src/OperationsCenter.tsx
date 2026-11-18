@@ -7,6 +7,7 @@ import {LocalMapLifecycleBar} from "./LocalMapLifecycleBar";
 import {LifecycleBatchPanel} from "./LifecycleBatchPanel";
 import {DiscordNotificationsPanel} from "./DiscordNotificationsPanel";
 import {WatchdogRecoveryPanel} from "./WatchdogRecoveryPanel";
+import {BanManagerPanel} from "./BanManagerPanel";
 
 function elapsed(seconds:number|null){
   if(seconds===null || seconds<0)return "Nem ellenőrizhető";
@@ -187,6 +188,7 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
       </div>}
       {!selectedMapId&&<LifecycleBatchPanel maps={snapshot.maps} visible={visible} onRefresh={reload}/>}
       {!selectedMapId&&<WatchdogRecoveryPanel/>}
+      {!selectedMapId&&<BanManagerPanel maps={snapshot.maps}/> }
       {!selectedMapId&&<DiscordNotificationsPanel/>}
       {(!selectedMapId||!showScheduler)&&(visible.length===0?<div className="empty">A szűrőnek megfelelő helyi map nem található.</div>:
         selectedMapId?<div className="ops-grid">

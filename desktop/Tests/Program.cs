@@ -378,6 +378,42 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     Check(launches==1&&result.GetProperty("data").GetProperty("maps")[0].GetProperty("status").GetString()=="disarmed",
         "durable intentional stop suppresses automatic recovery");
 }
+// Local moderation command and durable receipt tests, no real RCON.
+{
+    string banRoot=Path.Combine(root,"moderation-fixture");
+    await using var banCluster=new ClusterService("moderation-fixture",banRoot);
+    var first=new LocalMap{Name="Ban first",InstallationPath=Path.Combine(banRoot,"a")};
+    var second=new LocalMap{Name="Ban second",InstallationPath=Path.Combine(banRoot,"b"),HistoricalStoreProtected=true};
+    banCluster.Config.LocalMaps.AddRange(new[]{first,second});
+    int sends=0;var permits=new Dictionary<Guid,(Guid Map,string Command)>();
+    Task<string> FakeAdmin(string raw)
+    {
+        using var doc=JsonDocument.Parse(raw);var a=doc.RootElement;
+        string? method=a.GetProperty("method").GetString();string id=a.GetProperty("id").GetString()!;
+        if(method!.EndsWith("Preview"))
+        {
+            Guid token=Guid.NewGuid();Guid map=a.GetProperty("mapId").GetGuid();
+            string command=a.GetProperty("message").GetString()!;permits[token]=(map,command);
+            return Task.FromResult(JsonSerializer.Serialize(new{id,ok=true,data=new{token,mapId=map,command}}));
+        }
+        var pair=permits[a.GetProperty("token").GetGuid()];sends++;
+        return Task.FromResult(JsonSerializer.Serialize(new{id,ok=true,data=new{mapId=pair.Map,command=pair.Command,commandSent=true,oneShot=true}}));
+    }
+    var mod=new DesktopBanManager(banCluster,FakeAdmin,FakeAdmin);
+    string eos=new string('a',32);
+    var denied=await Call(mod.HandleAsync,"moderation.preview",new{mapIds=new[]{first.Id},action="ban",eosId=eos+";DoExit",reason="test",reviewHours=0});
+    Check(!denied.GetProperty("ok").GetBoolean()&&sends==0,"moderation rejects injected EOS commands");
+    var pre=await Call(mod.HandleAsync,"moderation.preview",new{mapIds=new[]{first.Id,second.Id},action="ban",eosId=eos,reason="test",reviewHours=24});
+    IsOk(pre,"moderation previews exact local native targets");
+    var token=pre.GetProperty("data").GetProperty("token").GetGuid();
+    IsOk(await Call(mod.HandleAsync,"moderation.apply",new{token,confirm=true,typedApproval="MODERÁCIÓ"}),"moderation dispatches fresh and Store-v1 targets through native admin");
+    Check(sends==2,"moderation sends one command per selected installation");
+    var replay=await Call(mod.HandleAsync,"moderation.apply",new{token,confirm=true,typedApproval="MODERÁCIÓ"});
+    Check(!replay.GetProperty("ok").GetBoolean()&&sends==2,"moderation token cannot replay");
+    var history=await Call(mod.HandleAsync,"moderation.history");
+    Check(history.GetProperty("data").GetProperty("rows")[0].GetProperty("targets")[0].GetProperty("status").GetString()=="sent-effect-unverified",
+        "moderation durable journal distinguishes send from verified game effect");
+}
 NativeWebViewDispatchContractTests.Run();
 LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();

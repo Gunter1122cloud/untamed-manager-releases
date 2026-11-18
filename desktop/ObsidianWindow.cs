@@ -263,6 +263,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopOperationsCenterBridge _operations;
     private readonly DesktopDiscordNotifications _notifications;
     private readonly DesktopWatchdogRecovery _recovery;
+    private readonly DesktopBanManager _moderation;
     private readonly DesktopLifecycleBatchBridge _lifecycleBatch;
     private readonly DesktopRecurringReadOnlySupervisor _readOnlySupervisor;
     private readonly DesktopAutomaticAsaDiscoverySupervisor _asaDiscovery;
@@ -347,6 +348,7 @@ public sealed class ObsidianWindow : Form
         _readOnlySupervisor = new DesktopRecurringReadOnlySupervisor(_bridge.LocalCluster);
         _operations = new DesktopOperationsCenterBridge(_bridge.LocalCluster,_readOnlySupervisor);
         _notifications = new DesktopDiscordNotifications(_bridge.LocalCluster);
+        _moderation = new DesktopBanManager(_bridge.LocalCluster,_rconAdmin.HandleAsync,_historicalAdminRcon.HandleAsync);
         _lifecycleBatch = new DesktopLifecycleBatchBridge(_bridge.LocalCluster,
             _freshStart.HandleAsync,_freshStop.HandleAsync,_freshRestart.HandleAsync,
             _historicalStart.HandleAsync,_historicalStop.HandleAsync,_historicalRestart.HandleAsync,
@@ -593,6 +595,7 @@ public sealed class ObsidianWindow : Form
                 bool operationsRoute = false;
                 bool notificationsRoute = false;
                 bool recoveryRoute = false;
+                bool moderationRoute = false;
                 bool lifecycleBatchRoute = false;
                 bool nativeScheduleRoute = false;
                 bool mapMaintenanceRoute = false;
@@ -628,6 +631,7 @@ public sealed class ObsidianWindow : Form
                         lifecycleJournalRoute = name is "servers.lifecycleJournal" or
                             "servers.lifecycleRecoveryPreview" or
                             "servers.lifecycleRecoveryApply";
+                        moderationRoute = name is "moderation.history" or "moderation.preview" or "moderation.apply";
                         recoveryRoute = name is "recovery.status" or "recovery.arm" or "recovery.disarm";
                         notificationsRoute = name is "notifications.status" or "notifications.save" or "notifications.clear" or "notifications.test";
                         operationsRoute = name is "operations.snapshot" or "operations.map" or
@@ -761,6 +765,7 @@ public sealed class ObsidianWindow : Form
                         : nativeScheduleRoute ? await _nativeSchedules.HandleAsync(incoming)
                         : mapMaintenanceRoute ? await _mapMaintenance.HandleAsync(incoming)
                         : lifecycleBatchRoute ? await _lifecycleBatch.HandleAsync(incoming)
+                        : moderationRoute ? await _moderation.HandleAsync(incoming)
                         : recoveryRoute ? await _recovery.HandleAsync(incoming)
                         : notificationsRoute ? await _notifications.HandleAsync(incoming)
                         : operationsRoute ? await _operations.HandleAsync(incoming)

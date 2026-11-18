@@ -409,6 +409,12 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         Write(claimed);Drop(map.Id);
                         try
                         {
+                            using var boundary=RecoveryNativeStartBoundary.Pin(id=>{
+                                if(id!=map.Id||closing||handoff()||RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc))
+                                    throw new InvalidOperationException("UM-WATCHDOG-FINAL-INTENT");
+                                DemandProfile(map,row,false);
+                                if(!Stopped(observe(map)))throw new InvalidOperationException("UM-WATCHDOG-FINAL-STATE");
+                            });
                             var child=await launch(map);
                             if(child.Pid<=0||child.Started==default)
                                 throw new InvalidDataException("UM-WATCHDOG-LAUNCH-IDENTITY");

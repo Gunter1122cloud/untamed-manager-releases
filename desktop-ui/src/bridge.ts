@@ -102,6 +102,8 @@ export type NativeAsaScheduleSaved={
   job:NativeAsaScheduleTask;restartConflicts:string[];
 };
 
+export type ModerationReceipt={id:string;createdUtc:string;action:string;eosId:string;reason:string;reviewAtUtc:string|null;targets:Array<{mapId:string;mapName:string;status:string}>};
+export type ModerationPreview={token:string;action:string;eosId:string;reason:string;reviewAtUtc:string|null;command:string;maps:Array<{mapId:string;mapName:string}>;remoteExecutionAllowed:false};
 export type WatchdogRecoveryMap={mapId:string;mapName:string;status:"armed"|"disarmed"|"claimed"|"awaitingReady"|"needsReview";evidence:string;lastAttemptUtc:string|null;claim:string|null;pid:number|null;loaderPid:number|null;launchMode:"asaApiLoader"|"directAsa";storeV1:boolean;stoppedSamples:number;managerRequired:true};
 export type DiscordNotificationStatus={configured:boolean;categories:string[];warningsOnly:boolean;lastStatus:string;lastAttemptUtc:string|null;cooldownUntilUtc:string};
 export type LifecycleBatchAction="start"|"stop"|"restart";
@@ -1724,6 +1726,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "operations.scheduleCreate" | "operations.scheduleDisable" | "operations.watchdogStart" |
   "notifications.status" | "notifications.save" | "notifications.clear" | "notifications.test" |
   "recovery.status" | "recovery.arm" | "recovery.disarm" |
+  "moderation.history" | "moderation.preview" | "moderation.apply" |
   "operations.lifecycleBatchPreview" | "operations.lifecycleBatchApply" | "operations.lifecycleBatchCurrent" | "operations.lifecycleBatchReview" |
   "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" |
   "schedule.nativeReviewPreview" | "schedule.nativeReviewApply" |
@@ -1803,7 +1806,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   peerAction?:"upsert"|"remove";
   mapId?: string; useApi?:boolean; term?: string; page?: number; credential?: string;
-  categories?:string[];warningsOnly?:boolean;
+  categories?:string[];warningsOnly?:boolean;eosId?:string;reviewHours?:number;
   offset?:number;limit?:number;snapshotKey?:string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode | ModCopyMode;
   position?: number; sourceMapId?:string;targets?:string[]; expectedPeerHostId?:string;
@@ -1925,6 +1928,9 @@ export const managerBridge = {
     request<LanPhysicalStoreProbe>("lan.physicalStoreProbe"),
   lanHistoricalSaveProbe: () =>
     request<LanHistoricalSaveProbe>("lan.historicalSaveProbe"),
+  moderationHistory:()=>request<{rows:ModerationReceipt[];gameBanStateVerified:false}>("moderation.history"),
+  moderationPreview:(mapIds:string[],action:string,eosId:string,reason:string,reviewHours:number)=>request<ModerationPreview>("moderation.preview",{mapIds,action,eosId,reason,reviewHours}),
+  moderationApply:(token:string,typedApproval:string)=>request<ModerationReceipt>("moderation.apply",{token,typedApproval,confirm:true}),
   recoveryStatus:()=>request<{running:boolean;maps:WatchdogRecoveryMap[]}>("recovery.status"),
   recoveryArm:(mapId:string)=>request<WatchdogRecoveryMap>("recovery.arm",{mapId,confirm:true}),
   recoveryDisarm:(mapId:string)=>request<WatchdogRecoveryMap>("recovery.disarm",{mapId,confirm:true}),
