@@ -5,7 +5,8 @@ param(
  [Parameter(Mandatory=$true)][ValidateRange(1024,65535)][int]$Port,
  [Parameter(Mandatory=$true)][string]$GuildId,
  [Parameter(Mandatory=$true)][string[]]$ChannelIds,
- [Parameter(Mandatory=$true)][string[]]$RoleIds
+ [Parameter(Mandatory=$true)][string[]]$RoleIds,
+ [Parameter(Mandatory=$true)][string]$ServiceUserId
 )
 $ErrorActionPreference = 'Stop'
 function IsPrivate([string]$ip) {
@@ -14,7 +15,7 @@ function IsPrivate([string]$ip) {
  return $b.Length -eq 4 -and ($b[0] -eq 10 -or ($b[0] -eq 192 -and $b[1] -eq 168) -or ($b[0] -eq 172 -and $b[1] -ge 16 -and $b[1] -le 31) -or $b[0] -eq 127)
 }
 if (!(IsPrivate $BindIp) -or !(IsPrivate $BotIp)) { throw 'Private IPv4 only' }
-foreach ($id in @($GuildId)+$ChannelIds+$RoleIds) { if ($id -notmatch '^[0-9]{15,25}$') {throw 'Invalid Discord ID'} }
+foreach ($id in @($GuildId,$ServiceUserId)+$ChannelIds+$RoleIds) { if ($id -notmatch '^[0-9]{15,25}$') {throw 'Invalid Discord ID'} }
 if ($ChannelIds.Count -lt 1 -or $ChannelIds.Count -gt 20 -or $RoleIds.Count -lt 1 -or $RoleIds.Count -gt 20) {throw 'Invalid role/channel count'}
 $profile = Get-Item -LiteralPath $ProfileRoot
 if (!$profile.PSIsContainer) {throw 'Existing Manager profile required'}
@@ -34,7 +35,7 @@ try {
  $token = [BitConverter]::ToString($bytes).Replace('-','').ToLowerInvariant()
  $hash = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($token))).Replace('-','')
  $pin = [BitConverter]::ToString($sha.ComputeHash($cert.RawData)).Replace('-','')
- $settings = @{bindIp=$BindIp;port=$Port;botIp=$BotIp;certificateThumbprint=$cert.Thumbprint;tokenSha256=$hash;guildId=$GuildId;channelIds=@($ChannelIds);roleIds=@($RoleIds)}
+ $settings = @{bindIp=$BindIp;port=$Port;botIp=$BotIp;certificateThumbprint=$cert.Thumbprint;tokenSha256=$hash;guildId=$GuildId;channelIds=@($ChannelIds);roleIds=@($RoleIds);serviceUserId=$ServiceUserId}
  $json = $settings | ConvertTo-Json -Depth 4
  $tmp = $file+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
  [IO.File]::WriteAllText($tmp,$json,(New-Object Text.UTF8Encoding($false)))

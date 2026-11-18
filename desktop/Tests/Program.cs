@@ -526,6 +526,20 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     var duplicate=await Request("apply",operation,alice,owner,new{token=approve,confirm=true});
     Check(!duplicate.GetProperty("ok").GetBoolean()&&sends==1,"Discord durable request ID prevents replay even with new owner-role preview");
 }
+// The actual bot service identity is read-only, even if it claims admin roles.
+{
+    string secret=new string('a',64),guild="123456789012345678",channel="223456789012345678",
+        role="323456789012345678",bot="423456789012345678";
+    var cfg=new DesktopDiscordControlApi.Settings("127.0.0.1",19443,"127.0.0.1",new string('A',40),
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(secret))),
+        guild,new[]{channel},new[]{role},bot);
+    var now=DateTimeOffset.UtcNow;
+    JsonElement Request(string kind)=>JsonSerializer.SerializeToElement(new{credential=secret,guildId=guild,channelId=channel,
+        userId=bot,roleIds=new[]{role},sentUtc=now,kind});
+    Check(DesktopDiscordControlApi.Authorize(cfg,Request("status"),now)&&DesktopDiscordControlApi.Authorize(cfg,Request("players"),now)&&
+        !DesktopDiscordControlApi.Authorize(cfg,Request("preview"),now)&&!DesktopDiscordControlApi.Authorize(cfg,Request("apply"),now),
+        "Discord service principal is strictly read-only even with an admin role assertion");
+}
 NativeWebViewDispatchContractTests.Run();
 LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();

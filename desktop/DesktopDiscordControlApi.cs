@@ -24,7 +24,7 @@ namespace UntamedDesktop;
 internal sealed class DesktopDiscordControlApi : IDisposable
 {
     internal sealed record Settings(string BindIp,int Port,string BotIp,string CertificateThumbprint,
-        string TokenSha256,string GuildId,string[] ChannelIds,string[] RoleIds);
+        string TokenSha256,string GuildId,string[] ChannelIds,string[] RoleIds,string? ServiceUserId=null);
     private sealed record Approval(Guid Token,string Actor,string Channel,string Action,Guid[] Maps,
         bool? UseApi,string Message,string Point,int Delay,string[] Profiles,DateTimeOffset Expires,
         string ApplyRoute,Guid? NativeToken);
@@ -70,7 +70,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             IPAddress.TryParse(s.BotIp,out var bot)&&PrivateIp(bot)&&
             s.Port is >=1024 and <=65535&&s.CertificateThumbprint is {Length:40}&&s.CertificateThumbprint.All(Uri.IsHexDigit)&&
             s.TokenSha256 is {Length:64}&&s.TokenSha256.All(Uri.IsHexDigit)&&
-            Snowflake.IsMatch(s.GuildId??"")&&s.ChannelIds is {Length:>=1 and <=20}&&s.RoleIds is {Length:>=1 and <=20}&&
+            Snowflake.IsMatch(s.GuildId??"")&&(s.ServiceUserId==null||Snowflake.IsMatch(s.ServiceUserId))&&s.ChannelIds is {Length:>=1 and <=20}&&s.RoleIds is {Length:>=1 and <=20}&&
             s.ChannelIds.All(x=>Snowflake.IsMatch(x??""))&&s.RoleIds.All(x=>Snowflake.IsMatch(x??""));
     }
     private static void SafePath(string path)
@@ -94,6 +94,9 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             if(!CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(credential)),Convert.FromHexString(s.TokenSha256)))return false;
             if(Field(a,"guildId",25)!=s.GuildId||!s.ChannelIds.Contains(Field(a,"channelId",25))||
                 !Snowflake.IsMatch(Field(a,"userId",25)))return false;
+            if(s.ServiceUserId!=null&&Field(a,"userId",25)==s.ServiceUserId)
+                return Field(a,"kind",32) is "status" or "players"&&
+                    Math.Abs((now-a.GetProperty("sentUtc").GetDateTimeOffset()).TotalSeconds)<=60;
             var roles=a.GetProperty("roleIds");
             if(roles.ValueKind!=JsonValueKind.Array||roles.GetArrayLength()>100||
                 !roles.EnumerateArray().Any(x=>x.ValueKind==JsonValueKind.String&&s.RoleIds.Contains(x.GetString())))return false;
