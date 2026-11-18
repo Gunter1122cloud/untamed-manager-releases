@@ -768,6 +768,17 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
               <Archive size={16}/> Összes hiányzó helyi map átvétele egy lépésben
             </button>
           </div>}
+        {!!directList?.additionalMaps?.length&&<div className="historical-preview" aria-label="További forrásmapok">
+          <b>További helyi forrásmapok ({directList.additionalMaps.length})</b>
+          <p className="muted small">Külön forrásleltár, nem az öt eredeti Store-tulajdonos. Nem ad indítási vagy Store-írási jogot.</p>
+          {directList.additionalMaps.map(m=><p key={m.mapId}>
+            {m.mapKey} · {m.registered?"regisztrált":"nincs regisztrálva"} ·
+            Game {m.gamePort??"ismeretlen"} / Query {m.queryPort??"ismeretlen"} ·
+            {m.enabledMods??"?"} aktív mod · {m.active?"aktív forrásrekord":"nem aktív forrásrekord"} ·
+            {m.sessionMatches?"azonos session a forrásban":"eltérő vagy hiányzó session"} ·
+            {m.launchState==="source-launch-matched"?"egyező launch-forrás":"launch-forrás nem igazolt"}
+          </p>)}
+        </div>}
         {directList&&directList.maps.length===5&&<div className="settings-actions">
             <button type="button" className="secondary" disabled={directBusy||registering}
               onClick={()=>{void previewLiveFive();}}>

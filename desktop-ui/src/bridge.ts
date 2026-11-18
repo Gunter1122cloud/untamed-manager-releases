@@ -181,6 +181,7 @@ export type RunningLocalAsaProcess = {
   profileMapId:string|null;profileMapName:string|null;
   loaderParentObserved:boolean;
   launchFacts:LocalAsaLaunchFacts|null;
+  loaderLaunchFacts?:LocalAsaLaunchFacts|null;
   observedReadOnlyImported?:boolean;
   controllable:false;storeWriteAuthorized:false;
 };
@@ -223,13 +224,13 @@ export type RunningAsaAdoptPreview = {
   token:string;mapId:string;mapName:string;mapKey:string;pid:number;
   gamePort:number;queryPort:number;noProcessMutation:true;
   storeWriterAuthorized:false;requiresExternalControllerStopped:true;
-  requiresRconSetup:true;
+  requiresRconSetup:true;useApi?:boolean;loaderPid?:number|null;
   evidence:"EXACT_NONSTORE_RUNNING_ADOPTION_PREVIEW_NO_WRITE";
 };
 export type RunningAsaAdoptReceipt = {
   mapId:string;mapName:string;pid:number;lifecycleAuthorized:true;
   storeWriterAuthorized:false;rconRequiresSeparateConfiguration:true;
-  processStarted:false;processStopped:false;
+  processStarted:false;processStopped:false;useApi?:boolean;loaderPid?:number|null;
   evidence:"NATIVE_WMI_EXACT_PROCESS_ADOPTED_LOCAL_MANAGER_PROFILE";
 };
 
@@ -1358,6 +1359,11 @@ export type OriginalKovaLocalMapList = {
   maps:Array<{mapId:string;mapKey:string;name:string;
     folderName:string;gamePort:number;queryPort:number;
     enabledMods:number;passiveMods:number;registered:boolean}>;
+  additionalSource?:string;
+  additionalMaps?:Array<{mapId:string;mapKey:string;active:boolean;
+    sessionMatches:boolean;backupIdentityPresent:boolean;gamePort:number|null;queryPort:number|null;
+    enabledMods:number|null;passiveMods:number|null;launchState:string;
+    selectedHistoricalOwner:false;storeWriterAuthorized:false;registered:boolean}>;
   evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY";
 };
 export type OriginalKovaBatchPreview = {
@@ -1798,7 +1804,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
-  "backup.fullLocalCreate" | "backup.fullLocalHistory" | "backup.fullLocalStage" |
+  "backup.fullLocalCreate" | "backup.fullLocalHistory" | "backup.fullLocalStage" | "backup.worldStage" |
   "backup.retentionPreview" | "backup.retentionProtect" | "backup.retentionQuarantine" | "backup.retentionReturn" |
   "backup.originalBatchPreview" | "backup.originalBatchCreate" | "backup.originalBatchStatus" | "backup.originalBatchJournalRepairPreview" | "backup.originalBatchJournalRepairApply" |
   "backup.restorePreview" | "backup.restore" |
@@ -1864,7 +1870,7 @@ function timeoutFor(method: WireRequest["method"]): number {
       method === "historical.pairedEvidence" || method === "backup.create" ||
       method === "backup.restore" || method === "cluster.multiHostCoordinatedPreview" ||
       method === "backup.originalBatchCreate" || method === "backup.fullLocalCreate" ||
-      method === "backup.fullLocalHistory" || method === "backup.fullLocalStage" ||
+      method === "backup.fullLocalHistory" || method === "backup.fullLocalStage" || method === "backup.worldStage" ||
       method === "backup.retentionPreview" || method === "backup.retentionProtect" ||
       method === "backup.retentionQuarantine" || method === "backup.retentionReturn") return 60 * 60_000; // bounded large-file workflows
   return 120_000;
@@ -2175,6 +2181,7 @@ export const managerBridge = {
   backupFullLocalHistory:(mapId:string)=>request<{mapId:string;points:Array<{point:string;files:number;bytes:number;createdUtc:string}>;evidence:"VERIFIED_LOCAL_INSTALLATION_FILE_ARCHIVES"}>("backup.fullLocalHistory",{mapId}),
   backupFullLocalCreate:(mapId:string)=>request<{mapId:string;point:string;files:number;bytes:number;createdUtc:string;sharedTransferIncluded:false;databaseConsistencyCertified:false;evidence:"VERIFIED_STOPPED_LOCAL_INSTALLATION_FILES"}>("backup.fullLocalCreate",{mapId,confirm:true}),
   backupFullLocalStage:(mapId:string,point:string)=>request<{mapId:string;point:string;relativeFolder:string;files:number;bytes:number;productionRestoreAllowed:false;evidence:"VERIFIED_NEW_LOCAL_RESTORE_FOLDER_NO_LIVE_REPLACEMENT"}>("backup.fullLocalStage",{mapId,point,confirm:true}),
+  backupWorldStage:(mapId:string,point:string)=>request<{mapId:string;point:string;relativeFolder:string;files:number;bytes:number;productionRestoreAllowed:false;storeWriterTouched:false;evidence:"VERIFIED_ISOLATED_WORLD_BACKUP_RESTORE"}>("backup.worldStage",{mapId,point,confirm:true}),
   backupHistory: (mapId:string) =>
     request<WorldBackupHistory>("backup.history",{mapId}),
   backupPreview: (mapId:string) =>

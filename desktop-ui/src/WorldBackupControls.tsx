@@ -11,6 +11,37 @@ import {managerBridge,type PublicMap,type WorldBackupCreated,
 function backupResourceError(error:unknown,fallback:string):string {
   const code=error instanceof Error?error.message:"";
   switch(code){
+    case "UM-BACKUP-MAP-NOT-LOCAL":
+      return "A kiválasztott map nem helyi, kezelhető Manager-profil.";
+    case "UM-BACKUP-POINT-NOT-FOUND":
+      return "A kiválasztott mentési pont nem található. Frissítsd a mentési listát.";
+    case "UM-BACKUP-NOT-ENOUGH-SPACE":
+      return "Nincs elegendő szabad tárhely a biztonsági mentéshez.";
+    case "UM-BACKUP-ZERO-BYTE-CRITICAL-SAVE":
+      return "Kritikus mentési fájl üres. A Store-v1 régi üres profilfájljai továbbra is megőrizhetők.";
+    case "UM-BACKUP-VALID-WORLD-MISSING":
+    case "UM-BACKUP-WORLD-FOLDER-MISSING":
+      return "A map érvényes világmentése nem található a regisztrált mentési útvonalon.";
+    case "UM-BACKUP-INVALID-MAP":
+    case "UM-BACKUP-INVALID-POINT":
+      return "Érvénytelen map vagy mentési pont. Frissítsd a listát.";
+    case "UM-BACKUP-PATHS-OVERLAP":
+      return "A visszaállítási cél átfed egy védett szerver-, cluster- vagy mentési könyvtárral.";
+    case "UM-BACKUP-SHARED-ROOT-UNVERIFIED":
+      return "A közös clusterútvonal nincs egyértelműen megadva. A visszaállítási cél nem ellenőrizhető.";
+    case "UM-BACKUP-CONFIRMED-STOP-REQUIRED":
+      return "A map fut, vagy leállított állapota nem igazolt. Az Obsidian nem állítja le automatikusan.";
+    case "UM-BACKUP-STORE-V1-RESTORE-LOCKED":
+    case "UM-BACKUP-STORE-CHARACTER-RESTORE-REQUIRES-TWO-HOST-TRANSACTION":
+      return "Store-v1: az egyoldalú éles restore nem megengedett. Készíthetsz ellenőrzött visszaállítási másolatot külön mappába.";
+    case "UM-BACKUP-INSUFFICIENT-RESTORE-CAPACITY":
+      return "Nincs elegendő szabad tárhely a visszaállítási másolathoz.";
+    case "UM-BACKUP-DIGEST-MISMATCH":
+    case "UM-BACKUP-MANIFEST-OWNER-MISMATCH":
+    case "UM-BACKUP-INCOMPLETE":
+      return "A mentési csomag integritása vagy mapazonossága nem igazolt.";
+    case "UM-BACKUP-RESTORE-RECOVERY-REQUIRED":
+      return "Egy korábbi visszaállítás helyreállítási naplója ellenőrzést igényel.";
     case "UM-BACKUP-RESOURCE-FILE-LIMIT":
       return "A mentés fájlszáma túllépi a beállított maponkénti korlátot. "+
         "Ellenőrizd az Obsidian backup-resource-limits-v1.json beállítását.";
@@ -304,10 +335,24 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
       if(selectedRef.current===requestedMap && ticket.mapId===requestedMap){
         setPending(ticket);setRestoreTarget(point);
       }
-    }catch{
+    }catch(e){
       if(selectedRef.current===requestedMap)
-        setError("Visszaállítás zárolva: a mapnak leállítva kell lennie, a mentésnek ellenőrzöttnek. A Store-v1 karakterútvonal nem írható felül.");
+        setError(backupResourceError(e,"A visszaállítás előellenőrzése sikertelen."));
     }finally{if(selectedRef.current===requestedMap)setBusy(false);}
+  };
+  const stageWorld=async(p:WorldBackupPoint)=>{
+    if(busy||!current||current.observedReadOnlyImported)return;
+    const requestedMap=current.id;
+    setBusy(true);setError("");
+    try{
+      const result=await managerBridge.backupWorldStage(requestedMap,p.id);
+      if(result.mapId.toLowerCase()!==requestedMap.toLowerCase()||
+         result.point.toLowerCase()!==p.id.toLowerCase()||result.productionRestoreAllowed!==false||
+         result.storeWriterTouched!==false||result.evidence!=="VERIFIED_ISOLATED_WORLD_BACKUP_RESTORE")
+        throw new Error("UM-BACKUP-STAGE-RECEIPT");
+      if(selectedRef.current===requestedMap)setError("Ellenőrzött visszaállítási másolat elkészült: "+result.files+" fájl. Manager profil: "+result.relativeFolder+". Éles világ nem módosult.");
+    }catch(e){if(selectedRef.current===requestedMap)setError(backupResourceError(e,"Az elkülönített visszaállítás nem sikerült."));}
+    finally{if(selectedRef.current===requestedMap)setBusy(false);}
   };
   const restore=async()=>{
     if(!pending||pending.action!=="RESTORE"||!current||
@@ -628,6 +673,9 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
           <button type="button" className="secondary" disabled={busy||current?.running||current?.storeProtected||history?.recoveryRequired}
             title={current?.storeProtected?"Store-v1 map: egyoldalú visszaállítás tiltva":"Védett visszaállítás"}
             onClick={()=>{void restorePreview(p);}}><RotateCcw size={14}/> Visszaállítás</button>
+          <button type="button" className="secondary" disabled={busy||current?.observedReadOnlyImported}
+            title="Csak a mentésből másol külön helyi mappába, az éles maphoz nem nyúl"
+            onClick={()=>{void stageWorld(p);}}><Archive size={14}/> Másolat külön mappába</button>
         </div>):
           <div className="uk-world-backup-empty">Még nincs ellenőrzött mentési pont ezen a mapon.</div>}
       </div>

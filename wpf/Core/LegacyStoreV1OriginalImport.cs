@@ -17,6 +17,10 @@ namespace UntamedManager.Core;
 public sealed record LegacyStoreV1OriginalMap(Guid MapId,string MapKey,
     string OriginalInstallationRoot,int GamePort,int QueryPort,
     string[] EnabledMods,string[] PassiveMods);
+public sealed record LegacyStoreV1AdditionalMapEvidence(Guid MapId,string MapKey,
+    string OriginalInstallationRoot,bool Active,bool SessionMatches,bool BackupIdentityPresent,
+    int? GamePort,int? QueryPort,string[]? EnabledMods,string[]? PassiveMods,
+    string LaunchState);
 public sealed record LegacyStoreV1OriginalLocalSelection(string FourFilesSha256,
     string LaunchProfileSha256,LegacyStoreV1OriginalMap[] Maps)
 {
@@ -24,6 +28,8 @@ public sealed record LegacyStoreV1OriginalLocalSelection(string FourFilesSha256,
     // current local map roster. The full new source hash remains pinned.
     public bool SelectedHistoricalSubsetOfExpandedRoster {get;init;}
     public int CurrentLocalMemberCount {get;init;}
+    public LegacyStoreV1AdditionalMapEvidence[] AdditionalMaps {get;init;}=
+        Array.Empty<LegacyStoreV1AdditionalMapEvidence>();
 }
 
 public static class LegacyStoreV1OriginalImport
@@ -166,6 +172,47 @@ public static class LegacyStoreV1OriginalImport
                 throw new InvalidDataException("UM-STORE-DIRECT-PASSIVE-NOT-ENABLED");
             selected.Add(new(id,name,installation,game,query,enabled,passive));
         }
+        // Additional maps need an independent onboarding path. Expose
+        // original GUID, phase/session comparison and validated launch data
+        // without placing them in the five-map authority collection.
+        var additional=new List<LegacyStoreV1AdditionalMapEvidence>();
+        foreach(var row in original.AdditionalMaps)
+        {
+            int? game=null,query=null;
+            string[]? enabled=null,passive=null;
+            string state="launch-missing";
+            if(byId.TryGetValue(row.MapId,out var source))
+            {
+                try
+                {
+                    var launch=Need(source,"launch");
+                    if(!Path.IsPathFullyQualified(row.OriginalRoot)||
+                       row.OriginalRoot.StartsWith(@"\\",StringComparison.Ordinal)||
+                       row.OriginalRoot.Any(char.IsControl)||
+                       !string.Equals(Text(source,"root"),row.OriginalRoot,StringComparison.Ordinal)||
+                       Text(launch,"map")!=row.MapKey)
+                        throw new InvalidDataException("UM-STORE-EXTRA-LAUNCH-ROOT");
+                    game=Port(launch,"gamePort");query=Port(launch,"queryPort");
+                    enabled=Mods(launch,"mods");passive=Mods(launch,"passiveMods");
+                    if(game==query||ports.Contains(game.Value)||ports.Contains(query.Value)||
+                       passive.Except(enabled,StringComparer.Ordinal).Any())
+                        throw new InvalidDataException("UM-STORE-EXTRA-LAUNCH-CONFLICT");
+                    state="source-launch-matched";
+                }
+                catch(InvalidDataException)
+                {game=null;query=null;enabled=null;passive=null;state="launch-conflicting";}
+            }
+            additional.Add(new(row.MapId,row.MapKey,row.OriginalRoot,row.Active,
+                row.SessionMatches,row.BackupIdentityPresent,game,query,enabled,passive,state));
+        }
+        var collisions=additional.Where(x=>x.GamePort.HasValue&&x.QueryPort.HasValue)
+            .SelectMany(x=>new[]{x.GamePort!.Value,x.QueryPort!.Value})
+            .GroupBy(x=>x).Where(g=>g.Count()>1).Select(g=>g.Key).ToHashSet();
+        var reviewed=additional.Select(x=>
+            (x.GamePort.HasValue&&collisions.Contains(x.GamePort.Value)||
+             x.QueryPort.HasValue&&collisions.Contains(x.QueryPort.Value))?
+            x with{GamePort=null,QueryPort=null,EnabledMods=null,PassiveMods=null,
+                LaunchState="launch-conflicting"}:x).ToArray();
         var after=LegacyStoreV1LocalReader.Inspect(root);
         if(!after.LocalSnapshotReady||
            !string.Equals(after.OriginalFourFilesTag,tag,StringComparison.Ordinal))
@@ -173,7 +220,8 @@ public static class LegacyStoreV1OriginalImport
         return new(tag,Convert.ToHexString(SHA256.HashData(launchBytes)),
             selected.ToArray()){
                 SelectedHistoricalSubsetOfExpandedRoster=members.GetArrayLength()>5,
-                CurrentLocalMemberCount=members.GetArrayLength()
+                CurrentLocalMemberCount=members.GetArrayLength(),
+                AdditionalMaps=reviewed
             };
     }
 }

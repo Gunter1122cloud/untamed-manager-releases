@@ -504,6 +504,25 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         discovered.All(x=>!x.Controllable&&!x.StoreWriteAuthorized)&&
         DesktopDiscordControlApi.DiscoveredOnly(state with{Fresh=false}).Length==0,
         "Discord discovery publishes new unregistered ASA maps only as read-only observations");
+    var launchFacts=new LocalAsaLaunchFacts.Facts(7809,27046,new[]{"123","456"},Array.Empty<string>(),
+        "parsed","notDeclared",true,true,true,false,true);
+    var eventState=state with{Processes=new[]{
+        new LocalRunningAsaDiscovery.Observation(701,0,instant,"apiLoader","Event_WP","unregistered",null,null,false,LaunchFacts:launchFacts),
+        new LocalRunningAsaDiscovery.Observation(702,701,instant,"asaServer","Event_WP","unverified",null,null,true)
+    }};
+    var eventRow=DesktopDiscordControlApi.DiscoveredOnly(eventState).Single();
+    Check(eventRow.GamePort==7809&&eventRow.ActiveModIds!.SequenceEqual(new[]{"123","456"})&&
+        eventRow.StoreFlagPresent==true&&eventRow.RegistrationState=="store-or-cluster-ownership-required"&&
+        !eventRow.Controllable&&!eventRow.StoreWriteAuthorized,
+        "Event Loader supplies sanitized onboarding evidence only; never a control target");
+    var contradiction=eventState with{Processes=new[]{
+        eventState.Processes[0],
+        eventState.Processes[1] with{LaunchFacts=launchFacts with{GamePort=7808}}
+    }};
+    var deniedEvent=DesktopDiscordControlApi.DiscoveredOnly(contradiction).Single();
+    Check(deniedEvent.GamePort==null&&deniedEvent.ActiveModIds==null&&
+        deniedEvent.RegistrationState=="loader-child-arguments-conflict"&&!deniedEvent.Controllable,
+        "conflicting Event parent/child metadata is never published as an exact launch list");
 }
 // Test the exact API authorization/dispatch boundary using an isolated profile.
 // No actual server, network listener, RCON or SteamCMD is invoked.
@@ -551,6 +570,12 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     Check(!other.GetProperty("ok").GetBoolean()&&sends==0,"Discord confirmation bound to initiating actor even for equally privileged owner");
     var applied=await Request("apply",operation,alice,admin,new{token=approve,confirm=true});
     Check(applied.GetProperty("ok").GetBoolean()&&sends==1,"Discord sends exact approved local native Start once");
+    var audit=applied.GetProperty("data");
+    Check(audit.GetProperty("actorId").GetString()==alice&&
+        audit.GetProperty("mapNames")[0].GetString()==m.Name&&
+        audit.GetProperty("mapIds")[0].GetGuid()==m.Id&&
+        !audit.GetProperty("gameEffectVerified").GetBoolean(),
+        "Discord receipt exposes approved actor and captured target names without claiming game effect");
     var replay=await Request("apply",operation,alice,admin,new{token=approve,confirm=true});
     Check(!replay.GetProperty("ok").GetBoolean()&&sends==1,"Discord consumes confirmation");
     pre=await Request("preview",Guid.NewGuid(),alice,owner,new{action="start",mapIds=new[]{m.Id}});
@@ -6990,12 +7015,12 @@ try
             "world backup history starts empty");
         var impossible=await Call(worldBridge.HandleAsync,"backup.preview",
             new{mapId=Guid.NewGuid()});
-        Check(IsError(impossible,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+        Check(IsError(impossible,"UM-BACKUP-MAP-NOT-LOCAL"),
             "foreign map does not receive backup capability");
         stopped=false;
         var busy=await Call(worldBridge.HandleAsync,"backup.preview",
             new{mapId=localMap.Id});
-        Check(IsError(busy,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+        Check(IsError(busy,"UM-BACKUP-CONFIRMED-STOP-REQUIRED"),
             "running map cannot be snapshotted as stopped world");
         stopped=true;
         var preview=await Call(worldBridge.HandleAsync,"backup.preview",
@@ -7007,7 +7032,7 @@ try
         stopped=false;
         var invalidReplacement=await Call(worldBridge.HandleAsync,
             "backup.preview",new{mapId=localMap.Id});
-        Check(IsError(invalidReplacement,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+        Check(IsError(invalidReplacement,"UM-BACKUP-CONFIRMED-STOP-REQUIRED"),
             "running-state backup replacement preview is rejected");
         stopped=true;
         var noConfirm=await Call(worldBridge.HandleAsync,"backup.create",
@@ -7285,7 +7310,7 @@ try
         ticket=preview.GetProperty("data").GetProperty("token").GetString()!;
         var blocked=await Call(worldBridge.HandleAsync,"backup.create",
             new{token=ticket,confirm=true});
-        Check(IsError(blocked,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+        Check(IsError(blocked,"UM-BACKUP-ZERO-BYTE-CRITICAL-SAVE"),
             "zero-byte local arkprofile prevents corrupt backup publication");
         File.Delete(Path.Combine(localWorld,"broken.arkprofile"));
         localMap.Arguments="-usestore";
@@ -7341,7 +7366,7 @@ try
             "source tampering cannot modify verified archive bytes");
         var forged=await Call(worldBridge.HandleAsync,"backup.restorePreview",
             new{mapId=localMap.Id,point=Guid.NewGuid().ToString("D")});
-        Check(IsError(forged,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+        Check(IsError(forged,"UM-BACKUP-POINT-NOT-FOUND"),
             "unknown archive ID is rejected without writing world or Store");
 
         // A failure immediately before the directory swap must not alter

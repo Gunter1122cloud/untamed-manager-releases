@@ -53,6 +53,22 @@ internal static class LocalRunningAsaDiscoveryTests
               inferred.MatchState=="unverified"&&inferred.ProfileMapId==null&&
               !inferred.Controllable&&!inferred.StoreWriteAuthorized,
             "child without map argument displays verified loader hint but has no ownership");
+        var (inferredFacts,inferredSource)=LocalRunningAsaDiscovery.DisplayFacts(inferred);
+        Check(inferredSource=="loader"&&inferredFacts?.GamePort==7777&&
+              inferredFacts.StoreFlagPresent&&!inferred.Controllable,
+            "bare child reports parent launch evidence without granting ownership");
+        var completeParent=sample[0] with{CommandLine=sample[0].CommandLine+" -QueryPort=27015 -mods=100001,100002"};
+        var incompleteChild=sample[1] with{CommandLine="\""+server+"\" TheIsland_WP?listen"};
+        var incomplete=LocalRunningAsaDiscovery.Classify(new[]{completeParent,incompleteChild},new[]{original}).Last();
+        var (combined,combinedSource)=LocalRunningAsaDiscovery.DisplayFacts(incomplete);
+        Check(combinedSource=="loader-and-process"&&combined?.QueryPort==27015&&
+              combined.ActiveModIds.SequenceEqual(new[]{"100001","100002"})&&combined.StoreFlagPresent,
+            "map-only child does not erase observed Loader port, ordered mod list and Store flag");
+        var contraryChild=incompleteChild with{CommandLine=incompleteChild.CommandLine+" -Port=8888"};
+        var contrary=LocalRunningAsaDiscovery.Classify(new[]{completeParent,contraryChild},new[]{original}).Last();
+        var (conflict,conflictSource)=LocalRunningAsaDiscovery.DisplayFacts(contrary);
+        Check(conflict==null&&conflictSource=="conflicting",
+            "contradictory child and Loader port evidence stays unknown");
         var unrelatedChild=childWithoutMap with{ParentPid=12345};
         var denied=LocalRunningAsaDiscovery.Classify(
             new[]{sample[0],unrelatedChild},new[]{original}).Last();

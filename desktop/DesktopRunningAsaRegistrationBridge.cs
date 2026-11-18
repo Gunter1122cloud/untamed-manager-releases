@@ -42,6 +42,14 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
     private static string Hash(string value)=>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 
+    private static string WitnessHash(LocalRunningAsaDiscovery.Sample child,
+        IReadOnlyList<LocalRunningAsaDiscovery.Sample> snapshot)
+    {
+        var parent=DesktopRunningAsaAdoptionBridge.ExactLoaderParent(child,snapshot);
+        return Hash(JsonSerializer.Serialize(new{child.CommandLine,
+            loaderPid=parent?.Pid,loaderStarted=parent?.StartedUtc,
+            loaderCommand=parent?.CommandLine}));
+    }
     private static bool GuidField(JsonElement json,string field,out Guid value)
     {
         value=Guid.Empty;
@@ -84,14 +92,18 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
            state.MapKey=="unknown"||
            all.Count(x=>x.Pid==server.Pid)!=1)
             throw new InvalidDataException("UM-LIVE-ALREADY-REGISTERED-OR-AMBIGUOUS");
-        var facts=LocalAsaLaunchFacts.Parse(server.CommandLine,server.ExecutablePath);
+        var loader=DesktopRunningAsaAdoptionBridge.ExactLoaderParent(server,all);
+        if(state.LoaderParentObserved!=(loader!=null))
+            throw new InvalidDataException("UM-ADOPT-LOADER-IDENTITY");
+        var source=loader??server;
+        var facts=LocalAsaLaunchFacts.Parse(source.CommandLine,source.ExecutablePath);
         if(!facts.ArgumentsValidated)
             throw new InvalidDataException("UM-LIVE-ARGUMENTS-UNVERIFIED");
         // This path cannot bypass original Kova Store identity/session proofs.
         // A duplicate -usestore can make a cardinality-based telemetry flag
         // false. Reject ANY sensitive switch spelling before profile writes.
         var sanitizedArgs=LocalRunningAsaDiscovery.CommandArguments(
-            server.CommandLine,server.ExecutablePath);
+            source.CommandLine,source.ExecutablePath);
         if(!AsaObservedLaunchArguments.TryRead(sanitizedArgs,
                 out var observedKey,out var flags) ||
            !observedKey.Equals(state.MapKey,StringComparison.OrdinalIgnoreCase))
@@ -234,7 +246,7 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
                             return Denied(id,"UM-LIVE-BATCH-COLLISION");
                         eligible.Add(new Pinned(Guid.NewGuid(),sample.Pid,
                             sample.StartedUtc!.Value,exe,
-                            Hash(sample.CommandLine!),key,root,name,game,query,
+                            WitnessHash(sample,observed),key,root,name,game,query,
                             DateTimeOffset.UtcNow.AddMinutes(3)));
                         if(eligible.Count>25)
                             return Denied(id,"UM-LIVE-BATCH-MAP-LIMIT");
@@ -276,7 +288,7 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
                             cluster.Config.LocalMaps);
                         if(root!=candidate.Root||exe!=candidate.Executable||
                            key!=candidate.MapKey||
-                           Hash(running.CommandLine!)!=candidate.CommandHash||
+                           WitnessHash(running,observed)!=candidate.CommandHash||
                            facts.GamePort!=candidate.GamePort||
                            facts.QueryPort!=candidate.QueryPort)
                             return Denied(id,"UM-LIVE-BATCH-PROCESS-CHANGED");
@@ -340,7 +352,7 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
                         .Select(x=>x.Key).ToArray())previews.Remove(earlier);
                     var token=Guid.NewGuid();
                     previews[token]=new(token,pid,started,exe,
-                        Hash(selected.CommandLine!),key,root,name,game,query,
+                        WitnessHash(selected,all),key,root,name,game,query,
                         DateTimeOffset.UtcNow.AddMinutes(5));
                     return Ok(id,new{
                         token,pid,startedUtc=started,mapKey=key,mapName=name,
@@ -365,7 +377,7 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
                 var (root2,exe2,key2,_facts)=Inspect(active,current,cluster.Config.LocalMaps);
                 if(root2!=pinned.Root||exe2!=pinned.Executable||
                    key2!=pinned.MapKey||
-                   Hash(active.CommandLine!)!=pinned.CommandHash)
+                   WitnessHash(active,current)!=pinned.CommandHash)
                     return Denied(id,"UM-LIVE-PROCESS-CHANGED");
                 Unique(pinned.Name,exe2,key2,root2,pinned.GamePort,pinned.QueryPort);
                 var map=new LocalMap{

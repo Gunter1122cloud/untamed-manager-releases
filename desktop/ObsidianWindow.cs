@@ -691,7 +691,7 @@ public sealed class ObsidianWindow : Form
                         travelRoute = name is "travel.capture" or "travel.compare" or "travel.compareRoundTrip";
                         embeddedStoreRoute = name is "store.inspectCopy" or "store.inspectArchive" or "store.compareArchives";
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
-                            "backup.create" or "backup.restorePreview" or "backup.restore" or
+                            "backup.create" or "backup.restorePreview" or "backup.restore" or "backup.worldStage" or
                             "backup.fullLocalCreate" or "backup.fullLocalHistory" or "backup.fullLocalStage" or
                 "backup.retentionPreview" or "backup.retentionProtect" or "backup.retentionQuarantine" or "backup.retentionReturn" or
                             "backup.scheduleStatus" or "backup.scheduleCreate" or

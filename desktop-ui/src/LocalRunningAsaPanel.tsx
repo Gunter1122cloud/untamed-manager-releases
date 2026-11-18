@@ -8,8 +8,8 @@ import { managerBridge, type RunningLocalAsaSnapshot, type RunningLocalAsaProces
 /** Two-stage registration changes ONLY the local Manager profile, never ASA. */
 function LiveImportControls({process,afterImport}:{process:RunningLocalAsaProcess;afterImport:()=>void}) {
   const [name,setName]=useState(process.mapKey.replace(/_WP$/i,"").replace(/_/g," "));
-  const [game,setGame]=useState(String(process.launchFacts?.gamePort??""));
-  const [query,setQuery]=useState(String(process.launchFacts?.queryPort??""));
+  const [game,setGame]=useState(String(process.launchFacts?.gamePort??process.loaderLaunchFacts?.gamePort??""));
+  const [query,setQuery]=useState(String(process.launchFacts?.queryPort??process.loaderLaunchFacts?.queryPort??""));
   const [preview,setPreview]=useState<RunningAsaImportPreview|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
@@ -106,7 +106,7 @@ function LiveAdoptControls({process,afterAdopt}:{
         onClick={()=>{void prepare();}}>Vezérlés átvételének ellenőrzése</button>:
         <div aria-label="Natív vezérlésátvétel előnézet">
           <p>{preview.mapName} · {preview.mapKey} · PID {preview.pid} ·
-            Game {preview.gamePort} / Query {preview.queryPort}</p>
+            Game {preview.gamePort} / Query {preview.queryPort} · {preview.useApi?"ASA API Loader PID "+preview.loaderPid:"közvetlen ASA"}</p>
           <label className="muted small">
             <input type="checkbox" checked={approved} disabled={busy}
               onChange={e=>setApproved(e.target.checked)}/>
@@ -295,17 +295,31 @@ export function LocalRunningAsaPanel({onRegistered}:{
               Konverziós kapcsoló észlelve – csak megfigyelés, újraindítás és átvétel tiltva.</p>}
           </>}
           {p.loaderParentObserved && <p>ASA API Loader szülőfolyamat észlelve (csak megfigyelés).</p>}
+          {p.loaderParentObserved && p.loaderLaunchFacts?.argumentsValidated && <>
+            <p><b>Loader indítási adatok</b> · Game {p.loaderLaunchFacts.gamePort??"ismeretlen"} · Query {p.loaderLaunchFacts.queryPort??"ismeretlen"}</p>
+            <p>Loader aktív modok: {p.loaderLaunchFacts.activeModsState==="parsed"?p.loaderLaunchFacts.activeModIds.join(", "):"nem igazolt"} ·
+              passzív: {p.loaderLaunchFacts.passiveModsState==="parsed"?p.loaderLaunchFacts.passiveModIds.join(", "):"nem igazolt"}</p>
+            <p>Store: {p.loaderLaunchFacts.storeFlagPresent?"észlelve":"nem igazolt"} · Cluster: {p.loaderLaunchFacts.clusterSwitchPresent?"észlelve":"nem igazolt"} ·
+              Transfer: {p.loaderLaunchFacts.transferOverridePresent?"észlelve":"nem igazolt"}</p>
+            {(p.loaderLaunchFacts.storeFlagPresent||p.loaderLaunchFacts.clusterSwitchPresent||
+              p.loaderLaunchFacts.transferOverridePresent||p.loaderLaunchFacts.conversionFlagPresent)&&
+              <p className="muted small">A Loader védett indítási kapcsolókat tartalmaz. Teljes tulajdonosi/cluster-ellenőrzés szükséges; az észlelés nem regisztráció vagy vezérlési jog.</p>}
+          </>}
           {p.processKind==="asaServer" && p.matchState==="profileCandidate" &&
-            p.observedReadOnlyImported && p.profileMapId && !p.loaderParentObserved &&
+            p.observedReadOnlyImported && p.profileMapId &&
             !p.launchFacts?.storeFlagPresent && !p.launchFacts?.clusterSwitchPresent &&
             !p.launchFacts?.transferOverridePresent && !p.launchFacts?.conversionFlagPresent &&
+            !p.loaderLaunchFacts?.storeFlagPresent && !p.loaderLaunchFacts?.clusterSwitchPresent &&
+            !p.loaderLaunchFacts?.transferOverridePresent && !p.loaderLaunchFacts?.conversionFlagPresent &&
             <LiveAdoptControls process={p} afterAdopt={()=>{
               void inspect();void onRegistered?.();
             }}/>}
           {p.processKind==="asaServer" && p.matchState==="unregistered" &&
-            p.launchFacts?.argumentsValidated && !p.launchFacts.storeFlagPresent &&
-            !p.launchFacts.clusterSwitchPresent && !p.launchFacts.transferOverridePresent &&
-            !p.launchFacts.conversionFlagPresent && p.startedUtc &&
+            (p.launchFacts?.argumentsValidated||p.loaderLaunchFacts?.argumentsValidated) &&
+            !p.launchFacts?.storeFlagPresent && !p.launchFacts?.clusterSwitchPresent &&
+            !p.launchFacts?.transferOverridePresent && !p.launchFacts?.conversionFlagPresent && p.startedUtc &&
+            !p.loaderLaunchFacts?.storeFlagPresent && !p.loaderLaunchFacts?.clusterSwitchPresent &&
+            !p.loaderLaunchFacts?.transferOverridePresent && !p.loaderLaunchFacts?.conversionFlagPresent &&
             <LiveImportControls process={p} afterImport={()=>{
               void inspect();void onRegistered?.();
             }}/>}

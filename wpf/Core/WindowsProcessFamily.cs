@@ -24,6 +24,7 @@ public sealed partial class WindowsProcessInspector
             return Inspect(map,registered);
         }
         var observed=new List<ObservedProcess>();
+        var deferredChildren=new List<ObservedProcess>();
         bool uncertain=false;
         string loader=Path.GetFullPath(map.ApiLoaderPath),server=Path.GetFullPath(map.ExecutablePath);
         try
@@ -48,10 +49,32 @@ public sealed partial class WindowsProcessInspector
                 {
                     if(MatchesOtherRegisteredMap(map,path,command,registered))
                         continue;
+                    // Correlate bare or inherited argv[0] children only
+                    // against the exact parent in this same WMI snapshot.
+                    if(isServer&&AsaObservedLaunchArguments.MatchesNonStoreLoaderChild(
+                        command,server,loader,map.ApiLoaderArguments))
+                    {
+                        using var deferred=Process.GetProcessById(Convert.ToInt32(row["ProcessId"]));
+                        deferredChildren.Add(new(deferred.Id,Convert.ToInt32(row["ParentProcessId"]),
+                            new DateTimeOffset(deferred.StartTime.ToUniversalTime()),path,map.Arguments));
+                        continue;
+                    }
                     uncertain=true;continue;
                 }
                 using var process=Process.GetProcessById(Convert.ToInt32(row["ProcessId"]));
                 observed.Add(new(process.Id,Convert.ToInt32(row["ParentProcessId"]),new DateTimeOffset(process.StartTime.ToUniversalTime()),path,loaderArgs?map.ApiLoaderArguments:map.Arguments));
+            }
+            foreach(var deferredChild in deferredChildren)
+            {
+                var parents=observed.Where(p=>p.Pid==deferredChild.ParentPid&&p.Pid!=deferredChild.Pid&&
+                    p.StartedUtc<=deferredChild.StartedUtc&&p.ExecutablePath.Equals(loader,StringComparison.OrdinalIgnoreCase)&&
+                    p.Arguments==map.ApiLoaderArguments).ToArray();
+                bool persisted=parents.Length==0&&
+                    ProcessFamily.IsPersistedSurvivor(deferredChild,map.LastProcess,map.LastLoader,
+                        server,map.Arguments,loader,map.ApiLoaderArguments);
+                if(map.Arguments!=map.ApiLoaderArguments||(parents.Length!=1&&!persisted))
+                {uncertain=true;continue;}
+                observed.Add(deferredChild);
             }
             if(uncertain)return new(false,"Incomplete loader/server observation",null);
             var loaders=observed.Where(x=>x.ExecutablePath.Equals(loader,StringComparison.OrdinalIgnoreCase)&&x.Arguments==map.ApiLoaderArguments).ToArray();
