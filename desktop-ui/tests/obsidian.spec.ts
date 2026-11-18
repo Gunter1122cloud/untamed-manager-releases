@@ -268,6 +268,9 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_API_CORE_INSTALLS__?:()=>number})
       .__UNTAMED_API_CORE_INSTALLS__=()=>apiCoreInstalls;
     let steamUpdateStarted = false;
+    let steamExecutableConfigured=true;
+    (window as typeof window & {__UNTAMED_STEAM_PATH_MISSING__?:()=>void})
+      .__UNTAMED_STEAM_PATH_MISSING__=()=>{steamExecutableConfigured=false;};
     let singleSteamHeld=false;
     let singleSteamStatusFailsOnce=false;
     let singleSteamApplies=0;
@@ -1532,13 +1535,13 @@ test.beforeEach(async ({ page }) => {
             entryBelongsToMap:originalRestartQueued,
             saveEvidencePhase:originalSaveUnreadable?"unreadable":
               originalRestartPendingSaveReceipt?"needsOperator":"none",
-            saveEvidencePending:originalSaveUnreadable||originalRestartPendingSaveReceipt,
+            saveEvidencePending:originalSaveUnreadable||originalRestartPendingSaveReceipt||(originalSaveRecoveryFixture&&!originalSaveReviewed),
             saveEvidenceUnreadable:originalSaveUnreadable,
             saveEvidenceErrorCode:originalSaveUnreadable?
               "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
-            blocked:originalSaveUnreadable||originalRestartPendingSaveReceipt||
+            blocked:originalSaveUnreadable||originalRestartPendingSaveReceipt||(originalSaveRecoveryFixture&&!originalSaveReviewed)||
               oldStopNeedsOperator||(originalRestartFail&&originalRestartQueued),
-            requiresOperator:originalSaveUnreadable||originalRestartPendingSaveReceipt||
+            requiresOperator:originalSaveUnreadable||originalRestartPendingSaveReceipt||(originalSaveRecoveryFixture&&!originalSaveReviewed)||
               oldStopNeedsOperator||(originalRestartFail&&originalRestartQueued),
             inMemoryRunning:false,jobId:null,
             oldPid:originalRestartQueued?42101:null,
@@ -3014,7 +3017,7 @@ test.beforeEach(async ({ page }) => {
             restartInterrupted?"unknownOutcome":"operatorReviewed":"closed",
           recoverySupported:storeLaunchRecoveryFixture&&
             (lifecycleInterrupted||storeRestartOnlyFixture&&restartInterrupted)&&m.mapId===two,
-          needsOperatorReview:lifecycleInterrupted||storeLaunchRecoveryFixture&&restartInterrupted,
+          needsOperatorReview:lifecycleInterrupted||storeLaunchRecoveryFixture&&restartInterrupted||m.mapId===two&&originalSaveRecoveryFixture&&!originalSaveReviewed,
           autoResumeAllowed:false,storeTouched:false,
           evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY"
         };
@@ -3253,13 +3256,14 @@ test.beforeEach(async ({ page }) => {
             processes:[{mapName:entry.name,confirmedStopped:!entry.running,
               running:entry.running,pid:entry.running?44117:null,
               loaderPid:null,reason:entry.running?"Native ASA PID active":"Verified stopped"}],
-            overlaps:[],steamCmdFound:true,steamCmdConfigured:true,
+            overlaps:[],steamCmdFound:steamExecutableConfigured,steamCmdConfigured:steamExecutableConfigured,
+            steamCmdError:steamExecutableConfigured?null:"UM-STEAMCMD-NOT-CONFIGURED",asaBinaryRegistered:true,
             availableBytes:53687091200,requiredBytes:10737418240,
             journalBlocked:steamInterrupted,
             historicalBlocked:Boolean((entry as any).storeProtected)&&!(entry as any).freshStoreEnrolled,
             safeInstallation:!entry.running&&
               (!(entry as any).storeProtected||(entry as any).freshStoreEnrolled),
-            canPreview:!entry.running&&!steamInterrupted&&
+            canPreview:steamExecutableConfigured&&!entry.running&&!steamInterrupted&&
               (!(entry as any).storeProtected||(entry as any).freshStoreEnrolled),
             noProcessAutoStop:true,remoteWrites:false,
             evidence:"REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"};
@@ -3330,7 +3334,12 @@ test.beforeEach(async ({ page }) => {
           throw new Error("UM-STEAM-SCHEDULE-MANUAL-ONLY");
         case "steam.scheduleDisable":
           throw new Error("UM-SCHEDULED-STEAM-MISSING");
-        case "steam.publishedBuild": return {
+        case "steam.selectExecutable": {
+          steamExecutableConfigured=true;
+          return {cancelled:false,configured:true,updateStarted:false,serverStopped:false};
+        }
+        case "steam.publishedBuild": if(!steamExecutableConfigured)throw new Error("UM-STEAMCMD-NOT-CONFIGURED");
+          return {
           mapId:m.mapId,mapName:"Astraeos",
           installedBuild:"123456",availableBuild:"123457",
           state:"UpdateAvailable",checkedUtc:"2026-11-10T09:00:00Z",
@@ -6625,6 +6634,12 @@ test("P0 running Store-v1 SaveWorld: owner-pinned unknown receipt can be reviewe
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Függőben / bizonytalan");
+  const headerStop=page.locator(".uk-lifecycle-btn.uk-lifecycle-stop");
+  const stop=page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"}).getByRole("button",{name:"SaveWorld + szabályos DoExit indítása"});
+  const restart=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"}).getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"});
+  await expect(headerStop).toBeDisabled();
+  await expect(stop).toBeDisabled();
+  await expect(restart).toBeDisabled();
   await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
     .toBeDisabled();
   await panel.getByRole("button",{
@@ -6641,6 +6656,10 @@ test("P0 running Store-v1 SaveWorld: owner-pinned unknown receipt can be reviewe
   // command. A new, separately clicked native preflight is now available.
   await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
     .toBeEnabled();
+  // All sibling panels re-read recovery; no navigation and no new command.
+  await expect(headerStop).toBeEnabled();
+  await expect(stop).toBeEnabled();
+  await expect(restart).toBeEnabled();
 });
 
 test("unreadable original Store SaveWorld is visible on Save and Restart without any RCON retry",async({page})=>{
@@ -7074,7 +7093,7 @@ test("stopped SteamCMD update displays exact local process and reserve evidence"
   await expect(diagnostics).toContainText("Astraeos");
   await expect(diagnostics).toContainText("Leállítás igazolva");
   await expect(diagnostics).toContainText("Szabad tárhely: 50 GiB");
-  await expect(diagnostics).toContainText("SteamCMD: Telepítve");
+  await expect(diagnostics).toContainText("SteamCMD: Helyi elérési út ellenőrizve");
   await expect(diagnostics).toContainText(
     "Közös telepítés tulajdonjoga: ellenőrzött, a helyi, leállított telepítés mapjai");
 });
@@ -7106,6 +7125,25 @@ test("cluster bulk SteamCMD queues only explicitly approved stopped local map be
     __UNTAMED_STEAM_BATCH_APPLIES__?:()=>number
   }).__UNTAMED_STEAM_BATCH_APPLIES__?.())).toBe(1);
   await expect(consent).toHaveCount(0);
+});
+
+test("missing SteamCMD path is diagnosed and configured without dispatching an ASA update",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {__UNTAMED_STEAM_PATH_MISSING__?:()=>void}).__UNTAMED_STEAM_PATH_MISSING__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await panel.getByRole("button",{name:"Elérhető ASA verzió ellenőrzése"}).click();
+  await expect(panel).toContainText("Nincs SteamCMD beállítva");
+  await panel.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  await expect(panel.getByRole("region",{name:"SteamCMD natív előfeltétel diagnosztika"})).toContainText("Nincs SteamCMD beállítva");
+  await expect(panel.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toHaveCount(0);
+  await panel.getByRole("button",{name:"SteamCMD program kiválasztása"}).click();
+  await expect(panel).toContainText("SteamCMD elérési útja mentve");
+  await panel.getByRole("button",{name:"Elérhető ASA verzió ellenőrzése"}).click();
+  await expect(panel.getByRole("region",{name:"ASA Steam build összehasonlítása"})).toContainText("123457");
+  expect(await page.evaluate(()=>(window as typeof window & {__UNTAMED_SINGLE_STEAM_APPLIES__?:()=>number}).__UNTAMED_SINGLE_STEAM_APPLIES__?.())).toBe(0);
 });
 
 test("per-map Steam build check compares installed/public IDs without starting update or stopping ASA",async({page})=>{
