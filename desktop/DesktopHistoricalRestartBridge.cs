@@ -28,6 +28,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         public Guid Id=Guid.NewGuid();
         public Guid MapId;
         public int OldPid,NewPid;
+        public DateTimeOffset? NewStartedUtc;
         public bool UseApi;
         public string State="queued",Step="preflight";
         public bool OldProcessStopped,PreExitSaveObserved,PreExitWorldMetadataObserved;
@@ -120,7 +121,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
 
     private void Update(Job job,string state,string step,
         bool? oldStopped=null,bool? saved=null,int newPid=0,
-        bool? worldMetadata=null)
+        bool? worldMetadata=null,DateTimeOffset? newStartedUtc=null)
     {
         lock(sync)
         {
@@ -132,7 +133,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             if(oldStopped.HasValue)job.OldProcessStopped=oldStopped.Value;
             if(saved.HasValue)job.PreExitSaveObserved=saved.Value;
             if(worldMetadata.HasValue)job.PreExitWorldMetadataObserved=worldMetadata.Value;
-            if(newPid>0)job.NewPid=newPid;
+            if(newPid>0){job.NewPid=newPid;job.NewStartedUtc=newStartedUtc;}
         }
     }
     private object Snapshot(Job job)
@@ -141,7 +142,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             jobId=job.Id,mapId=job.MapId,state=job.State,step=job.Step,
             launchMode=job.UseApi?"asaApiLoader":"directAsa",
             changedUtc=job.ChangedUtc,
-            oldPid=job.OldPid,newPid=job.NewPid,
+            oldPid=job.OldPid,newPid=job.NewPid,newStartedUtc=job.NewStartedUtc,
             oldProcessStopped=job.OldProcessStopped,
             preExitSaveLogAndWorldObserved=job.PreExitSaveObserved,
             preExitWorldMetadataObserved=job.PreExitWorldMetadataObserved,
@@ -366,6 +367,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             throw new InvalidDataException(
                                 "UM-ORIGINAL-RESTART-NEW-PID-INVALID");
                         int verifiedNewServerPid=started.Pid;
+                        var verifiedNewStartedUtc=started.StartedUtc;
                         if(original.StartWithAsaApi)
                         {
                             Update(job,"running",
@@ -391,6 +393,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                                         cluster.RecordOriginalStoreApiPair(
                                             original.Id,observed);
                                     verifiedNewServerPid=apiChild.Pid;
+                                    verifiedNewStartedUtc=apiChild.StartedUtc;
                                     verified=true;
                                     break;
                                 }
@@ -405,7 +408,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         Update(job,"completed",original.StartWithAsaApi?
                             "Új ASA API gyermek PID és RCON tulajdonlás igazolt; játékbeli készenlét még nem":
                             "Új eredeti ASA PID létrejött; játékbeli készenlét nem igazolt",
-                            newPid:verifiedNewServerPid);
+                            newPid:verifiedNewServerPid,newStartedUtc:verifiedNewStartedUtc);
                     }
                     catch(Exception ex)
                     {

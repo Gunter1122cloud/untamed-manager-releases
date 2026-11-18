@@ -285,7 +285,8 @@ public sealed class ObsidianWindow : Form
         _ownedKill = new DesktopOwnedAsaKillBridge(_bridge.LocalCluster);
         _freshRestart = new DesktopFreshAsaRestartBridge(_bridge.LocalCluster);
         _nativeSchedules = new DesktopScheduledAsaOperationsSupervisor(
-            _bridge.LocalCluster,_rcon,_freshRestart);
+            _bridge.LocalCluster,_rcon,_freshRestart,
+            historicalStop:_historicalStop,historicalRestart:_historicalRestart,historicalAdmin:_historicalAdminRcon);
         _mapMaintenance = new DesktopMapMaintenanceBridge(_bridge.LocalCluster);
         _lifecycleJournal = new DesktopAsaLifecycleJournalBridge(_bridge.LocalCluster);
         _asaDiscovery = new DesktopAutomaticAsaDiscoverySupervisor(_bridge.LocalCluster);
