@@ -849,6 +849,31 @@ public sealed partial class ClusterService
                Config.HostRegistry.Maps.Any(m=>m.MapId==map.Id)||
                Config.ClusterRegistry.MapAssignments.Any(a=>a.MapId==map.Id))
                 throw new InvalidDataException("UM-STORE-EXTRA-GUID-OR-NAME-CONFLICT");
+            // Recheck the exact candidate against the latest local profiles
+            // under the same gate as the profile/assignment publication.
+            // The bridge preview is not sufficient if another map was edited
+            // or added after the preview.
+            string NormalizeRoot(string path)=>Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            bool Overlaps(string other)
+            {
+                string candidate=NormalizeRoot(map.InstallationPath);
+                string existing=NormalizeRoot(other);
+                return candidate.Equals(existing,StringComparison.OrdinalIgnoreCase)||
+                    candidate.StartsWith(existing+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)||
+                    existing.StartsWith(candidate+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase);
+            }
+            if(string.IsNullOrWhiteSpace(map.InstallationPath)||
+               Config.LocalMaps.Any(m=>!string.IsNullOrWhiteSpace(m.InstallationPath)&&Overlaps(m.InstallationPath))||
+               Overlaps(Store.Root))
+                throw new InvalidDataException("UM-STORE-EXTRA-ROOT-CONFLICT");
+            if(LocalMapPortPolicy.Conflicts(map,Config.LocalMaps).Count>0)
+                throw new InvalidDataException("UM-STORE-EXTRA-PORT-CONFLICT");
+            string pinned=LegacyStoreV1PinnedSource.Resolve(Store.Root,"",map);
+            var approvedCluster=LegacyStoreV1PinnedSource.ReadOriginalCluster(pinned);
+            if(!approvedCluster.RuntimeClusterId.Equals(clusterId,StringComparison.OrdinalIgnoreCase)||
+               !NormalizeRoot(approvedCluster.TransferRoot).Equals(
+                   NormalizeRoot(transferRoot),StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("UM-STORE-EXTRA-CLUSTER-MISMATCH");
             var registered=Config.ClusterRegistry.Clusters.SingleOrDefault(c=>
                 c.ClusterId.Equals(clusterId,StringComparison.OrdinalIgnoreCase));
             if(registered==null||!string.Equals(
