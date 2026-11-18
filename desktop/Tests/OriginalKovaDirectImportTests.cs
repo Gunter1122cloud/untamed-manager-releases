@@ -121,7 +121,7 @@ internal static class OriginalKovaDirectImportTests
             string extraId=Guid.NewGuid().ToString("D");
             string extraRoot=Path.Combine(baseRoot,"synthetic-eventmap");
             var currentMembers=members.Concat(new[]{
-                new{id=extraId,map="Chillhub_WP",root=extraRoot}
+                new{id=extraId,map="Asa_N_Chill_Hub",root=extraRoot}
             }).ToArray();
             var currentCluster=new{
                 id=VaultProtocol.ClusterId,mode="shared",
@@ -130,7 +130,7 @@ internal static class OriginalKovaDirectImportTests
             var currentStore=states.ToDictionary(x=>x.Key,x=>x.Value);
             currentStore.Add(extraId,new{
                 phase="active",sharedSession=Guid.NewGuid().ToString("D"),
-                root=extraRoot,map="Chillhub_WP",
+                root=extraRoot,map="Asa_N_Chill_Hub",
                 backupId=Guid.NewGuid().ToString("D")
             });
             string expandedCluster=JsonSerializer.Serialize(currentCluster);
@@ -138,7 +138,7 @@ internal static class OriginalKovaDirectImportTests
             var eventLaunch=new{
                 id=extraId,root=extraRoot,
                 launch=new{
-                    map="Chillhub_WP",gamePort=7897,queryPort=27197,
+                    map="Asa_N_Chill_Hub",gamePort=7897,queryPort=27197,
                     mods=new[]{"123456789","987654321"},
                     passiveMods=new[]{"123456789"}
                 }
@@ -179,12 +179,12 @@ internal static class OriginalKovaDirectImportTests
                     expandedImport.Maps.Length==5&&
                     expandedImport.Maps.Select(x=>x.MapId.ToString("D"))
                         .SequenceEqual(ids)&&
-                    !expandedImport.Maps.Any(x=>x.MapKey=="Chillhub_WP")&&
+                    !expandedImport.Maps.Any(x=>x.MapKey=="Asa_N_Chill_Hub")&&
                     expandedImport.FourFilesSha256!=discovered.FourFilesSha256,
                     "six local entries preserve exactly five original selected Store owners without adding Chillhub");
                 var supplemental=expandedImport.AdditionalMaps.Single();
                 Check(supplemental.MapId.ToString("D")==extraId&&
-                    supplemental.MapKey=="Chillhub_WP"&&supplemental.Active&&
+                    supplemental.MapKey=="Asa_N_Chill_Hub"&&supplemental.Active&&
                     !supplemental.SessionMatches&&supplemental.GamePort==7897&&
                     supplemental.QueryPort==27197&&supplemental.EnabledMods!.Length==2&&
                     supplemental.LaunchState=="source-launch-matched",
@@ -223,6 +223,11 @@ internal static class OriginalKovaDirectImportTests
                         !extra.GetProperty("selectedHistoricalOwner").GetBoolean()&&
                         !extra.GetProperty("storeWriterAuthorized").GetBoolean(),
                         "native supplemental source roster distinguishes Event from original five");
+                    var mismatch=await Call(expandedBridge,"historical.supplementalPreview",
+                        new{mapId=extraId,stoppedUseApi=true});
+                    Check(!mismatch.GetProperty("ok").GetBoolean()&&
+                        mismatch.GetProperty("error").GetString()=="UM-STORE-EXTRA-SESSION-MISMATCH",
+                        "real native supplemental preview reports mismatched session without network or process mutation");
                     var clusterPreview=await Call(expandedBridge,
                         "historical.originalClusterPreview");
                     Check(clusterPreview.GetProperty("ok").GetBoolean()&&
@@ -253,6 +258,73 @@ internal static class OriginalKovaDirectImportTests
                     stillOriginal.HistoricalArchiveSha256==
                         discovered.FourFilesSha256,
                     "explicit six-map source pin preserves immutable original five-map hash without granting event ownership");
+                // A separate Manager pin is published before the single
+                // profile+registry CAS. Simulate interruption after pin,
+                // reopen the same Manager profile, reuse the original GUID.
+                string supplementalProfile=Path.Combine(baseRoot,"supplemental-atomic-manager");
+                await using(var firstManager=new ClusterService("supplemental-pin-test",supplementalProfile))
+                {
+                    foreach(var originalRow in expandedImport.Maps)
+                        firstManager.AddMap(new LocalMap{Id=originalRow.MapId,Name=originalRow.MapKey,
+                            InstallationPath=originalRow.OriginalInstallationRoot,
+                            HistoricalStoreProtected=true,HistoricalArchiveSha256=expandedImport.FourFilesSha256,
+                            HistoricalMapKey=originalRow.MapKey,GamePort=originalRow.GamePort,QueryPort=originalRow.QueryPort});
+                    LegacyStoreV1PinnedSource.Capture(local,firstManager.Store.Root,
+                        expandedImport.FourFilesSha256,expandedImport.LaunchProfileSha256);
+                    var registry=firstManager.Registry.Snapshot();
+                    firstManager.Registry.ImportHistoricalOriginalLocalMembership(VaultProtocol.ClusterId,
+                        originalCluster.path,expandedImport.FourFilesSha256,
+                        expandedImport.Maps.Select(x=>(x.MapId,x.MapKey)).ToArray(),registry.Revision);
+                    var eligibleStore=currentStore.ToDictionary(x=>x.Key,x=>x.Value);
+                    eligibleStore[extraId]=currentStore[extraId] with{sharedSession=session};
+                    File.WriteAllText(sfile,JsonSerializer.Serialize(new{schema=1,maps=eligibleStore}));
+                    var eligible=LegacyStoreV1OriginalImport.Inspect(local);
+                    LegacyStoreV1PinnedSource.CaptureSupplemental(local,firstManager.Store.Root,
+                        Guid.Parse(extraId),eligible.FourFilesSha256,eligible.LaunchProfileSha256);
+                    Check(firstManager.Config.LocalMaps.Count==5&&
+                        !firstManager.Registry.Snapshot().ClusterRegistry.MapAssignments.Any(x=>x.MapId==Guid.Parse(extraId)),
+                        "published supplemental pin by itself has no profile or registry authority");
+                }
+                await using(var recovered=new ClusterService("supplemental-pin-test",supplementalProfile))
+                {
+                    var eligible=LegacyStoreV1OriginalImport.Inspect(local);
+                    string originalPin=LegacyStoreV1PinnedSource.PreferredProfile(recovered.Store.Root,local);
+                    string originalSha=LegacyStoreV1OriginalImport.Inspect(originalPin).FourFilesSha256;
+                    string oldProfiles=JsonSerializer.Serialize(recovered.Config.LocalMaps);
+                    string oldSchedules=JsonSerializer.Serialize(recovered.Config.RecurringSchedules);
+                    LegacyStoreV1PinnedSource.CaptureSupplemental(local,recovered.Store.Root,
+                        Guid.Parse(extraId),eligible.FourFilesSha256,eligible.LaunchProfileSha256);
+                    var row=LegacyStoreV1PinnedSource.RequireSupplemental(eligible,Guid.Parse(extraId));
+                    var map=new LocalMap{Id=row.MapId,Name=row.MapKey,InstallationPath=row.OriginalInstallationRoot,
+                        HistoricalStoreProtected=true,HistoricalSupplementalSource=true,
+                        HistoricalSupplementalImportedUtc=DateTimeOffset.UtcNow,
+                        HistoricalArchiveSha256=eligible.FourFilesSha256,HistoricalMapKey=row.MapKey,
+                        GamePort=row.GamePort!.Value,QueryPort=row.QueryPort!.Value,
+                        HistoricalEnabledMods=row.EnabledMods!.ToList(),HistoricalPassiveMods=row.PassiveMods!.ToList()};
+                    var registry=recovered.Registry.Snapshot();
+                    recovered.RegisterSupplementalHistoricalMap(map,VaultProtocol.ClusterId,originalCluster.path,registry.Revision);
+                    Check(recovered.Config.LocalMaps.Count==6&&
+                        recovered.Registry.Snapshot().ClusterRegistry.MapAssignments.Any(x=>x.MapId==map.Id)&&
+                        LegacyStoreV1PinnedSource.HasApprovedLocalSource(recovered.Store.Root,map)&&
+                        LegacyStoreV1OriginalImport.Inspect(originalPin).FourFilesSha256==originalSha&&
+                        oldProfiles==JsonSerializer.Serialize(recovered.Config.LocalMaps.Take(5).ToList())&&
+                        oldSchedules==JsonSerializer.Serialize(recovered.Config.RecurringSchedules),
+                        "retry after orphan pin atomically publishes one Event GUID and membership without changing original profiles/pin/schedules");
+                    bool duplicate=false;
+                    try{recovered.RegisterSupplementalHistoricalMap(map,VaultProtocol.ClusterId,originalCluster.path,
+                        recovered.Registry.Snapshot().Revision);}
+                    catch(InvalidDataException){duplicate=true;}
+                    Check(duplicate&&recovered.Config.LocalMaps.Count==6,"duplicate supplemental apply cannot add a second profile");
+                }
+                await using(var reopened=new ClusterService("supplemental-pin-test",supplementalProfile))
+                {
+                    var map=reopened.Config.LocalMaps.Single(x=>x.Id==Guid.Parse(extraId));
+                    Check(map.HistoricalSupplementalImportedUtc.HasValue&&
+                        LegacyStoreV1PinnedSource.HasApprovedLocalSource(reopened.Store.Root,map)&&
+                        reopened.Registry.Snapshot().ClusterRegistry.MapAssignments.Any(x=>x.MapId==map.Id),
+                        "restart retains audited Event registration and exact original GUID");
+                }
+                SetExpanded();
                 // Even if an expanded current cluster is represented in a
                 // fresh matching lock, only its explicitly selected five
                 // original GUIDs may enter the historical adapter.

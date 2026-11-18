@@ -1852,6 +1852,7 @@ type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: st
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
   addEventListener: (name: "message", handler: (event: MessageEvent<WireResponse>) => void) => void;
+  stoppedUseApi?: boolean;
 };
 declare global {
   interface Window {

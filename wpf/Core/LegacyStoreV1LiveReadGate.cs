@@ -173,7 +173,14 @@ public static class LegacyStoreV1LiveReadGate
     /// local profile and its configured UNC root. No other remote URI or
     /// path can be supplied by WebView2. Never used by periodic dashboard.
     /// </summary>
-    public static Proof InspectOriginalActive(LocalMap map,string originalLocalProfile)
+    public static Proof InspectOriginalActive(LocalMap map,string originalLocalProfile)=>
+        InspectOriginalActive(map,originalLocalProfile,null);
+
+    // Supplemental enrollment still verifies all original selected owners.
+    // Only for this separate workflow may a completed peer describe the
+    // immutable five-map lock rather than the later expanded local roster.
+    internal static Proof InspectOriginalActive(LocalMap map,string originalLocalProfile,
+        Guid? supplementalMapId)
     {
         if(map==null||!map.HistoricalStoreProtected||map.Id==Guid.Empty||
            string.IsNullOrWhiteSpace(map.HistoricalMapKey))
@@ -191,6 +198,12 @@ public static class LegacyStoreV1LiveReadGate
         var report=LegacyStoreV1LocalReader.Inspect(originalLocalProfile);
         if(!report.LocalSnapshotReady||report.Maps.Length!=5)
             throw new InvalidDataException("UM-STORE-LIVE-LOCAL-NOT-ACTIVE");
+        if(supplementalMapId is Guid extra)
+        {
+            var row=report.AdditionalMaps.SingleOrDefault(x=>x.MapId==extra);
+            if(row==null||!row.Active||!row.SessionMatches||!row.BackupIdentityPresent||!row.RootMatches)
+                throw new InvalidDataException("UM-STORE-EXTRA-SHARED-SESSION-UNVERIFIED");
+        }
         var files=new Dictionary<string,byte[]>{
             ["cluster.json"]=clusterRaw,["device.json"]=deviceRaw,
             ["lock.json"]=lockRaw,["store.json"]=storeRaw};
@@ -262,7 +275,18 @@ public static class LegacyStoreV1LiveReadGate
                 LegacyStoreV1PeerTopology.RequireOriginalLocalSelection(
                     Need(localLock,"selected"),
                     validatedPeer.SelectedIds);
-                LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
+                if(supplementalMapId.HasValue&&report.CurrentLocalMemberCount>5&&
+                   LegacyStoreV1LocalReader.MatchesPinnedHistoricalSubset(cluster,Need(localLock,"config"),
+                       Need(localLock,"selected").EnumerateArray().Select(x=>x.GetString()??"").ToArray())&&
+                   StoreV1Fingerprint.Compute(Need(peer,"config"))==
+                       StoreV1Fingerprint.Compute(Need(localLock,"config")))
+                {
+                    // Both hashes were checked above. The peer remains
+                    // EXACTLY the durable original lock's five owners.
+                    LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
+                        Need(localLock,"config"),Need(peer,"config"));
+                }
+                else LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
                     cluster,Need(peer,"config"));
             }
             foreach(string name in validatedPeer.MapNames)
@@ -273,6 +297,10 @@ public static class LegacyStoreV1LiveReadGate
         // No two peers may claim the same GUID under different map names.
         // The shared LOCAL peer's identity must include the imported map.
         LegacyStoreV1PeerTopology.Validate(deviceId,topology);
+        if(supplementalMapId is Guid candidateId&&topology
+            .Where(p=>!p.DeviceId.Equals(deviceId,StringComparison.OrdinalIgnoreCase))
+            .Any(p=>p.MemberIds.Any(x=>Guid.TryParse(x,out var gid)&&gid==candidateId)))
+            throw new InvalidDataException("UM-STORE-EXTRA-FOREIGN-PEER-GUID");
         if(!topology.Where(x=>x.DeviceId.Equals(deviceId,StringComparison.OrdinalIgnoreCase))
             .SelectMany(x=>x.SelectedIds).Any(x=>
                 Guid.TryParse(x,out var candidate)&&candidate==map.Id))

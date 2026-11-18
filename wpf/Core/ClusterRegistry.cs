@@ -864,6 +864,7 @@ public sealed partial class ClusterService
             Config.LocalMaps.Add(map);
             Config.HostRegistry=ClusterRegistrySchema.Clone(staged.HostRegistry);
             Config.ClusterRegistry=ClusterRegistrySchema.Clone(staged.ClusterRegistry);
+            lock(_telemetryGate)_telemetryCache=null;
         }
     }
 

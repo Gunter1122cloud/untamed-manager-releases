@@ -747,7 +747,16 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         var before=PrepareSupplemental(approval.MapId,approval.StoppedUseApi);
                         if(before.Fingerprint!=approval.Fingerprint)
                             throw new InvalidDataException("UM-STORE-EXTRA-SOURCE-OR-PROCESS-CHANGED");
-                        using var lease=cluster.Operations.Acquire(before.Map.InstallationPath,UntamedOperationKind.Configuration);
+                        // This operation writes only the Manager profile; no
+                        // live installation mutation journal is needed. A
+                        // crash releases the process-scoped semaphore, and
+                        // retry reuses the immutable pin or committed GUID.
+                        using var registrationGate=new Semaphore(1,1,
+                            "Global\\Untamed-SupplementalImport-"+UntamedOperationCoordinator.ResourceKey(before.Map.InstallationPath));
+                        if(!registrationGate.WaitOne(0))
+                            throw new IOException("UM-STORE-EXTRA-REGISTRATION-BUSY");
+                        try
+                        {
                         var current=PrepareSupplemental(approval.MapId,approval.StoppedUseApi);
                         if(current.Fingerprint!=approval.Fingerprint)
                             throw new InvalidDataException("UM-STORE-EXTRA-SOURCE-OR-PROCESS-CHANGED");
@@ -764,7 +773,6 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         // or half-profile after an interrupted write.
                         cluster.RegisterSupplementalHistoricalMap(final.Map,final.ClusterId,
                             final.TransferRoot,final.RegistryRevision);
-                        lease.Complete();
                         bool unchanged=false;
                         try{unchanged=SupplementalInventoryHash(LocalRunningAsaDiscovery.ReadSamples())==final.InventoryHash;}
                         catch(Exception){/* registration remains committed, report unknown */ }
@@ -773,6 +781,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                             processInventoryUnchanged=unchanged,processCommandIssued=false,
                             originalStoreTouched=false,scheduleChanged=false,
                             requiresLocalAcceptance=!unchanged};
+                        }
+                        finally{registrationGate.Release();}
                     });
                     return Ok(id,result);
                 }
@@ -1485,7 +1495,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             m.Id==x.MapId&&m.HistoricalStoreProtected&&!m.HistoricalSupplementalSource))
             ??throw new InvalidDataException("UM-STORE-EXTRA-ORIGINAL-ANCHOR-MISSING");
         var anchorMap=cluster.Config.LocalMaps.Single(m=>m.Id==anchor.MapId);
-        var shared=LegacyStoreV1LiveReadGate.InspectOriginalActive(anchorMap,sourcePath);
+        var shared=LegacyStoreV1LiveReadGate.InspectOriginalActive(anchorMap,sourcePath,supplementalMapId:id);
         if(!shared.CompletedOriginalSourceGuard||!shared.SharedSessionMatches||
            !shared.NoMutationMarker||!shared.NoPendingConversion||!shared.BothPeersDone||
            !shared.LocalMapBindingMatches||!shared.HistoricalFilesUnchanged)
@@ -1533,7 +1543,13 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         map.RconPasswordProtected=SecureStore.Protect(rcon.Password);
         if(!AsaRconConfigurationEvidence.Matches(map))
             throw new InvalidDataException("UM-STORE-EXTRA-RCON-INI-MISMATCH");
-        LocalMapPortPolicy.RequireNoConflicts(map,cluster.Config.LocalMaps);
+        if(LocalMapPortPolicy.Conflicts(map,cluster.Config.LocalMaps).Count>0)
+            throw new InvalidDataException("UM-STORE-EXTRA-PORT-CONFLICT");
+        var operation=cluster.Operations.Observe(root);
+        if(operation!=null&&operation.Phase is not
+            (UntamedOperationPhase.Completed or UntamedOperationPhase.CancelledBeforeMutation or
+             UntamedOperationPhase.OperatorReviewed))
+            throw new InvalidDataException("UM-STORE-EXTRA-INSTALLATION-OPERATION-PENDING");
         var launch=LegacyStoreV1ActiveLaunch.Build(new(map.HistoricalMapKey,map.GamePort,
             map.QueryPort,map.HistoricalEnabledMods,map.HistoricalPassiveMods,
             originalCluster.RuntimeClusterId,originalCluster.TransferRoot,"active",
