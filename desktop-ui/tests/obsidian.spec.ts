@@ -3540,7 +3540,9 @@ test("native Operations Center displays local PID RAM uptime and saved schedules
   await expect(page.locator(".ops-compact-table tbody tr").first()).toContainText("12345");
   await expect(page.locator(".ops-compact-table tbody tr").first()).toContainText(/9\\s?234,5 MiB|9234,5 MiB/);
   await expect(page.locator(".ops-compact-table tbody tr").last()).toContainText("Nem mérhető");
-  await expect(page.locator(".ops-schedule-table")).toHaveCount(0);
+  await expect(page.locator(".ops-schedules .ops-schedule-table")).toHaveCount(0);
+  await expect(page.getByRole("region",{name:"Automatikus Watchdog Recovery"})).toBeVisible();
+  await expect(page.getByRole("region",{name:"Ban Manager"})).toBeVisible();
   await expect(page.locator(".ops-compact-table")).toContainText("Nincs beállítva");
   await expect(page.locator(".ops-center").getByText("Ragnarok")).toHaveCount(0);
   await page.locator(".ops-compact-table tbody tr").first().getByRole("button",{name:"Map megnyitása"}).click();

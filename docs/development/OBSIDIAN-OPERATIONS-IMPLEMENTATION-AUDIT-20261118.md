@@ -1,6 +1,6 @@
 # Obsidian Operations specification – implementation map (2026-11-18)
 
-Baseline: main `f2f58cebc820fcf464ce710c0869872229ed64bc`; active PR #173 baseline `7a0b208b9af7f92517651fcf5512f9a8eb5a4c9d`, Windows CI #3129 successful, not merged. The owner has already accepted existing Store-v1 gameplay transfer; new restore or recovery behavior is separate. This is an initial source inventory, not a completed method-by-method acceptance audit. All 18 IDs retain their requested acceptance tests. This branch includes the new requirements file; do not duplicate existing bridges.
+Baseline: main `f2f58cebc820fcf464ce710c0869872229ed64bc`; active PR #173 baseline `7a0b208b9af7f92517651fcf5512f9a8eb5a4c9d`, Windows CI #3129 successful, not merged. The owner has already accepted existing Store-v1 gameplay transfer; new restore or recovery behavior is separate. This is an initial source inventory, not a completed method-by-method acceptance audit. Owner scope revision: PWR-01, BCN-01 and new AUTH-01 account/role management excluded. Retain existing native security. Fifteen original IDs remain in scope; a CI-verified preview of implemented features is explicitly requested before full production acceptance. This branch includes the new requirements file; do not duplicate existing bridges.
 
 | ID | Source map (desktop, desktop-ui/src, shared Core) | Current evidence and outstanding scope |
 |---|---|---|
@@ -17,12 +17,16 @@ Baseline: main `f2f58cebc820fcf464ce710c0869872229ed64bc`; active PR #173 baseli
 | WD-01 | DesktopStandaloneWatchdog.cs, wpf/Supervisor/Worker.cs, DurableWatchdogTracker.cs, WatchdogDiagnostics.cs, OperationsCenter.tsx | PARTIAL: separate read-only process, backoff and heartbeat tested #3129. Desired-state coordination, durable recovery and resource rules open. |
 | ADM-01 | RCON read-only/admin bridges and dashboard player telemetry | PARTIAL: current players and admin commands; complete ban/expiry queue, tribe and history management not found in initial shipping-route inventory. |
 | NOT-01 | LocalLogCenter.cs, EventJournal.cs, DesktopAsaLifecycleJournalBridge.cs, App.tsx | PARTIAL: local logs and journals; webhook delivery/configuration and common event routing open. No chat relay. |
-| PWR-01 | No shipping UPS/NUT bridge identified | MISSING in initial inventory; external hardware/driver acceptance required. |
-| BCN-01 | No shipping Beacon bridge identified | MISSING in initial inventory; official supported access/credential required. |
-| AUTH-01 | DesktopCredentialBridge.cs, DesktopLanSettingsBridge.cs, SecureStore, local-owner checks | PARTIAL: protected secrets and ownership; restricted role/scoped authorization model open. |
+| PWR-01 | Owner exclusion | OUT OF SCOPE. |
+| BCN-01 | Owner exclusion | OUT OF SCOPE. |
+| AUTH-01 | Existing native protections retained | New accounts/roles OUT OF SCOPE; preserve local ownership, authenticated LAN, secret protection and bridge guards. |
 | SELF-01 | DesktopUpdateStatusBridge.cs, DesktopObsidianUpdateInstallBridge.cs, UpdateCenterPage.tsx, wpf/Updater/Program.cs, AuthenticodePublisher.cs | PARTIAL: manual verified SHA, optional signer pin, freeze/rollback tests; real signing identity and end-to-end live reattachment pending. |
 | EXT-01 | TelemetryHistory.cs, existing scheduler/INI/mod profiles | PARTIAL: existing observation/profile foundation, full new forecasts, presets, maintenance calendar and CLI open. |
 
 ## Evidence discipline
 
 CI #3129 covers its exact baseline, not subsequent commits or live ASA. New standalone wipe tests verify a synthetic claimed slot and UI binding; native admin code independently validates real owned PID/listener, readiness and one-shot send. New plugin diagnostics report only syntax categories and hashes; they do not claim schema/runtime validation. New CI and disposable ASA acceptance required. No live server operation, production data write, network-port change, new SQL subsystem, automatic SteamCMD/Manager update, or ClusterChat.
+
+
+## Owner-requested preview scope, 2026-11-18
+Included at head `7f03847d`: existing native lifecycle, rolling local batch, calendar scheduling and standalone wipe, protected webhook, local crash recovery with Manager running, local EOS moderation (review date, no auto-unban), opt-in Steam payload cache (target Valve validation; no proven full binary rollback), coordinated offline restore packages (no live cutover). CI #3139: 241/242 UI tests passed; old scheduler-only selector also matched new tables. Native/package verification of the new head remains pending. Do not claim production acceptance, signed release, standalone mutating recovery or coordinated live restore. Owner will test the verified merged preview manually. No live server mutation from development.
