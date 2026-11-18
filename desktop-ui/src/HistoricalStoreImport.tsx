@@ -9,6 +9,51 @@ import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, t
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
   const [archive,setArchive]=useState("");
   const [directList,setDirectList]=useState<OriginalKovaLocalMapList|null>(null);
+  const [extraPreview,setExtraPreview]=useState<Awaited<ReturnType<typeof managerBridge.historicalSupplementalPreview>>|null>(null);
+  const [extraApi,setExtraApi]=useState(true);
+  const [extraBusy,setExtraBusy]=useState(false);
+  const [extraError,setExtraError]=useState("");
+  const [extraNotice,setExtraNotice]=useState("");
+  const extraFailure=(e:unknown)=>{
+    const code=e instanceof Error?e.message:String(e);
+    const messages:Record<string,string>={
+      "UM-STORE-EXTRA-SOURCE-MISSING":"A map eredeti forrásrekordja hiányzik. Ellenőrizd a helyi korábbi Manager-profilt.",
+      "UM-STORE-EXTRA-SESSION-MISMATCH":"A map és az eredeti cluster session-kötése nem egyezik. Külön Store-forrásvizsgálat szükséges; leállítás nem javítja.",
+      "UM-STORE-EXTRA-NOT-ACTIVE":"A map forrásrekordja nem aktív.",
+      "UM-STORE-EXTRA-LAUNCH-UNVERIFIED":"Hiányzó vagy eltérő launch-profil/modsorrend.",
+      "UM-STORE-EXTRA-ROOT-CONFLICT":"A telepítési mappa átfed egy másik map vagy Manager mappájával.",
+      "UM-STORE-EXTRA-CLUSTER-MISMATCH":"A regisztrált cluster transferútvonala nem egyezik a forrással.",
+      "UM-STORE-EXTRA-PORT-OWNER-MISMATCH":"A Game, Query vagy RCON port nem a kiválasztott ASA PID tulajdona.",
+      "UM-STORE-EXTRA-PORT-BUSY":"A leállított map valamelyik portja foglalt.",
+      "UM-STORE-EXTRA-SOURCE-OR-PROCESS-CHANGED":"A forrás vagy a folyamat megváltozott. Indíts új előellenőrzést.",
+      "UM-STORE-EXTRA-PREVIEW-EXPIRED":"Az előnézet lejárt. Indíts új előellenőrzést.",
+      "UM-STORE-EXTRA-RCON-INI-MISMATCH":"A tényleges INI/RCON beállítás nem egyezik.",
+      "UM-STORE-EXTRA-SHARED-SESSION-UNVERIFIED":"A közös Store-session nem igazolható; ellenőrizd a megosztás elérését.",
+      "UM-STORE-EXTRA-API-INSTALLATION-UNVERIFIED":"Az ASA API telepítési fájljai nem igazolhatók."
+    };
+    return (Object.entries(messages).find(([key])=>code.includes(key))?.[1]??"A native ellenőrzés elutasította az átvételt; ellenőrizd a megadott hibakódot.")+" ("+code+")";
+  };
+  const reviewExtra=async(id:string)=>{
+    if(extraBusy)return;
+    setExtraBusy(true);setExtraPreview(null);setExtraError("");setExtraNotice("");
+    try{
+      const result=await managerBridge.historicalSupplementalPreview(id,extraApi);
+      if(result.alreadyRegistered){setExtraNotice(result.mapName+" már regisztrált.");return;}
+      setExtraPreview(result);
+    }catch(e){setExtraError(extraFailure(e));}finally{setExtraBusy(false);}
+  };
+  const registerExtra=async()=>{
+    if(extraBusy||!extraPreview||extraPreview.alreadyRegistered)return;
+    const token=extraPreview.token;
+    setExtraBusy(true);setExtraPreview(null);setExtraError("");
+    try{
+      const result=await managerBridge.historicalSupplementalRegister(token);
+      setExtraNotice(result.mapName+" regisztrálva; "+(result.processInventoryUnchanged?
+        "a folyamatleltár változatlan.":"a folyamatleltár utóellenőrzése szükséges."));
+      setDirectList(await managerBridge.historicalOriginalList());
+      await onImported();
+    }catch(e){setExtraError(extraFailure(e));}finally{setExtraBusy(false);}
+  };
   const [pinPreview,setPinPreview]=useState<{token:string;verifiedLocalMaps:number}|null>(null);
   const [pinBusy,setPinBusy]=useState(false);
   const [pinError,setPinError]=useState("");
@@ -254,6 +299,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     const epoch=++directEpoch.current;
     setDirectBusy(true);setDirectError("");setDirectNotice("");
     setDirectList(null);setDirectPreview(null);setDirectApproved(false);
+    setExtraPreview(null);setExtraError("");setExtraNotice("");
     setBatchPreview(null);setBatchApproved(false);
     setLiveBatchPreview(null);setLiveControllerStopped(false);
     try{
@@ -770,14 +816,28 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           </div>}
         {!!directList?.additionalMaps?.length&&<div className="historical-preview" aria-label="További forrásmapok">
           <b>További helyi forrásmapok ({directList.additionalMaps.length})</b>
-          <p className="muted small">Külön forrásleltár, nem az öt eredeti Store-tulajdonos. Nem ad indítási vagy Store-írási jogot.</p>
+          <p className="muted small">Külön ellenőrzött átvétel, az eredeti öt map módosítása nélkül.</p>
+          <label><input type="checkbox" checked={extraApi} disabled={extraBusy||!!extraPreview}
+            onChange={e=>setExtraApi(e.target.checked)}/> Leállított map későbbi indítása ASA API-val (futó mapnál automatikus felismerés)</label>
           {directList.additionalMaps.map(m=><p key={m.mapId}>
             {m.mapKey} · {m.registered?"regisztrált":"nincs regisztrálva"} ·
             Game {m.gamePort??"ismeretlen"} / Query {m.queryPort??"ismeretlen"} ·
             {m.enabledMods??"?"} aktív mod · {m.active?"aktív forrásrekord":"nem aktív forrásrekord"} ·
             {m.sessionMatches?"azonos session a forrásban":"eltérő vagy hiányzó session"} ·
-            {m.launchState==="source-launch-matched"?"egyező launch-forrás":"launch-forrás nem igazolt"}
+            {m.launchState==="source-launch-matched"?"egyező launch-forrás":"launch-forrás nem igazolt"}{" "}
+            {!m.registered&&<button className="secondary" type="button"
+              disabled={extraBusy||directBusy||registering} onClick={()=>void reviewExtra(m.mapId)}>Átvétel ellenőrzése</button>}
           </p>)}
+          {extraPreview&&!extraPreview.alreadyRegistered&&<div role="region" aria-label="További map átvétele">
+            <b>{extraPreview.mapName}</b>
+            <p>{extraPreview.mapKey} · {extraPreview.running?"futó":"leállított"} · {extraPreview.useApi?"ASA API":"közvetlen ASA"} · {extraPreview.clusterId}</p>
+            <p>Game {extraPreview.gamePort} / Query {extraPreview.queryPort} / RCON {extraPreview.rconPort} · {extraPreview.mods.length} aktív mod</p>
+            <p>Modok: {extraPreview.mods.join(", ")} · Passzív: {extraPreview.passiveMods.join(", ")||"nincs"}</p>
+            <p>Az eredeti GUID megmarad. Csak külön Manager-forráspin, profil és cluster-tagság készül; nem állít le szervert, nem ad hozzá ütemezést. A modtartalom telepítési ellenőrzése külön feladat.</p>
+            <button type="button" className="primary" disabled={extraBusy} onClick={()=>void registerExtra()}>Regisztrálás / Átvétel</button>
+            <button type="button" className="secondary" disabled={extraBusy} onClick={()=>setExtraPreview(null)}>Mégse</button>
+          </div>}
+          {extraError&&<p role="alert">{extraError}</p>}{extraNotice&&<p role="status">{extraNotice}</p>}
         </div>}
         {directList&&directList.maps.length===5&&<div className="settings-actions">
             <button type="button" className="secondary" disabled={directBusy||registering}

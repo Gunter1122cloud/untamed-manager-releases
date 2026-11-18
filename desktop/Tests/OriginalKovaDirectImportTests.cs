@@ -189,6 +189,17 @@ internal static class OriginalKovaDirectImportTests
                     supplemental.QueryPort==27197&&supplemental.EnabledMods!.Length==2&&
                     supplemental.LaunchState=="source-launch-matched",
                     "additional Event source GUID and launch facts are visible without granting historical session ownership");
+                bool refusedSession=false;
+                try{_=LegacyStoreV1PinnedSource.RequireSupplemental(expandedImport,Guid.Parse(extraId));}
+                catch(InvalidDataException e) when(e.Message=="UM-STORE-EXTRA-SESSION-MISMATCH"){refusedSession=true;}
+                Check(refusedSession,"supplemental claim cannot override a mismatched session");
+                var validExtra=expandedImport with{AdditionalMaps=new[]{supplemental with{SessionMatches=true}}};
+                var extraOwner=new LocalMap{Id=Guid.Parse(extraId),HistoricalStoreProtected=true,
+                    HistoricalSupplementalSource=true,HistoricalArchiveSha256=validExtra.FourFilesSha256,
+                    HistoricalMapKey=supplemental.MapKey,InstallationPath=supplemental.OriginalInstallationRoot};
+                LegacyStoreV1PinnedSource.RequireImmutableIdentity(extraOwner,validExtra);
+                Check(validExtra.Maps.Length==5&&LegacyStoreV1PinnedSource.RequireSupplemental(validExtra,extraOwner.Id).MapId==extraOwner.Id,
+                    "supplemental source validates separately without adding an original selected map");
                 await using(var expandedManager=new ClusterService(
                     "six-member-event-registry-test",
                     Path.Combine(baseRoot,"six-member-event-registry-profile")))
