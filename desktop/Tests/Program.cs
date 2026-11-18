@@ -777,6 +777,17 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
     Check(historicCommandMap.HistoricalEnabledMods.SequenceEqual(new[]{"123456","789012"})&&
         historicCommandMap.HistoricalPassiveMods.SequenceEqual(new[]{"123456"}),
         "live mod observation never overwrites the next-start profile");
+    var capturedMods=LegacyStoreV1ProcessObserver.ReadVerifiedModOrder(changedMods,observedExe,historicCommandMap);
+    Check(capturedMods.Enabled.SequenceEqual(new[]{"789012","123456","999999"})&&
+        capturedMods.Passive.SequenceEqual(new[]{"123456"})&&
+        LegacyStoreV1ProcessObserver.SelectRestartMods(historicCommandMap,capturedMods).Same(capturedMods),
+        "restart adopts verified running mod order when no next-start draft is pending");
+    historicCommandMap.ModChangesPending=true;
+    var pendingMods=LegacyStoreV1ProcessObserver.SelectRestartMods(historicCommandMap,capturedMods);
+    Check(pendingMods.Enabled.SequenceEqual(new[]{"123456","789012"})&&
+        pendingMods.Passive.SequenceEqual(new[]{"123456"})&&!pendingMods.Same(capturedMods),
+        "explicit pending next-start mod draft wins over observed running list");
+    historicCommandMap.ModChangesPending=false;
     string driftLoader=Path.Combine(Path.GetDirectoryName(observedExe)!,"AsaApiLoader.exe");
     string driftLoaderCommand=changedMods.Replace(observedExe,driftLoader,StringComparison.Ordinal);
     var driftParentStart=DateTimeOffset.UtcNow.AddMinutes(-2);

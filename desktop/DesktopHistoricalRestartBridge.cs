@@ -21,7 +21,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
 {
     private sealed record Approval(Guid Token,Guid MapId,int Pid,
         DateTimeOffset StartedUtc,string Profile,string SourceSha,
-        int RconPort,DateTimeOffset Created);
+        int RconPort,DateTimeOffset Created,
+        LegacyStoreV1ProcessObserver.LiveModOrder? LiveMods,
+        LegacyStoreV1ProcessObserver.LiveModOrder? RestartMods);
 
     private sealed class Job
     {
@@ -273,14 +275,34 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     if(!ReferenceEquals(owned.Map,map)||owned.Process.Pid<=0||
                        owned.Process.StartedUtc==default||owned.SourceSha.Length!=64)
                         return Fail(id,"UM-ORIGINAL-RESTART-SOURCE-INVALID");
+                    LegacyStoreV1ProcessObserver.LiveModOrder? observedMods=null,selectedMods=null;
+                    if(nativeLauncher)
+                    {
+                        observedMods=LegacyStoreV1ProcessObserver.CaptureVerifiedModOrder(
+                            map,cluster.Config.LocalMaps,owned.Process);
+                        selectedMods=LegacyStoreV1ProcessObserver.SelectRestartMods(map,observedMods);
+                        var saved=ModStateController.Read(map);
+                        // The legacy fallback builds from immutable original
+                        // source lists. Never stop a map whose intended next
+                        // list cannot be honored by that launch planner.
+                        if((!saved.EnabledOrder.SequenceEqual(selectedMods.Enabled)||
+                            !saved.Passive.SequenceEqual(selectedMods.Passive))&&
+                           !LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,map))
+                            return Fail(id,"UM-ORIGINAL-RESTART-MOD-SYNC-REQUIRES-PIN");
+                    }
                     var permit=new Approval(Guid.NewGuid(),mapId,owned.Process.Pid,
                         owned.Process.StartedUtc,JsonSerializer.Serialize(map),
-                        owned.SourceSha,map.RconPort,DateTimeOffset.UtcNow);
+                        owned.SourceSha,map.RconPort,DateTimeOffset.UtcNow,observedMods,selectedMods);
                     approvalsByMap[mapId]=permit;
                     return Ok(id,new{
                         token=permit.Token,mapId,mapName=map.Name,
                         pid=owned.Process.Pid,rconPort=map.RconPort,
                         launchMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",
+                        liveModOrder=permit.LiveMods?.Enabled,
+                        nextModOrder=permit.RestartMods?.Enabled,
+                        livePassiveModOrder=permit.LiveMods?.Passive,
+                        nextPassiveModOrder=permit.RestartMods?.Passive,
+                        nextModsSource=permit.RestartMods==null?"test":map.ModChangesPending?"pendingProfile":"verifiedRunning",
                         usesSaveWorld=true,usesDoExit=true,launchesOriginalActive=true,
                         conversionAllowed=false,automaticRetry=false,
                         gameplayReadinessCertified=false,originalStoreTouched=false,
@@ -323,6 +345,14 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     var underLease=await Task.Run(()=>preview(approved.MapId));
                     if(!Same(underLease,original,approved))
                         return Fail(id,"UM-ORIGINAL-RESTART-LEASE-OWNER-CHANGED");
+                    if(approved.LiveMods!=null)
+                    {
+                        var currentMods=LegacyStoreV1ProcessObserver.CaptureVerifiedModOrder(
+                            original,cluster.Config.LocalMaps,underLease.Process);
+                        if(!approved.LiveMods.Same(currentMods)||approved.RestartMods==null||
+                           !approved.RestartMods.Same(LegacyStoreV1ProcessObserver.SelectRestartMods(original,currentMods)))
+                            return Fail(id,"UM-ORIGINAL-RESTART-LIVE-MODS-CHANGED");
+                    }
                     // Establish durable restart boundary before a single RCON
                     // byte can be sent; interruptions require operator review.
                     // Establish the durable Restart-v1 boundary BEFORE
@@ -351,6 +381,45 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         Update(job,"running","Régi eredeti PID kilépett; új indítás előellenőrzése",
                             oldStopped:true,saved:stopped.PreExitSaveLogAndWorldObserved,
                             worldMetadata:stopped.PreExitWorldMetadataObserved);
+                        // Old process is gone. Persist only the approved mod
+                        // fields, under the same install lease, before the
+                        // planner fingerprints and launches the new process.
+                        // A failed save yields a durable NeedsOperator, not
+                        // a fallback launch from the stale profile.
+                        if(approved.RestartMods!=null)
+                        {
+                            using var modLease=cluster.Operations.Acquire(
+                                original.InstallationPath,UntamedOperationKind.Configuration);
+                            if(JsonSerializer.Serialize(original)!=approved.Profile)
+                                throw new InvalidDataException("UM-ORIGINAL-RESTART-MAP-CHANGED");
+                            var target=approved.RestartMods;
+                            var saved=ModStateController.Read(original);
+                            if(!saved.EnabledOrder.SequenceEqual(target.Enabled)||
+                               !saved.Passive.SequenceEqual(target.Passive))
+                            {
+                                if(!LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,original))
+                                    throw new InvalidDataException("UM-ORIGINAL-RESTART-MOD-SYNC-REQUIRES-PIN");
+                                var oldEnabled=original.HistoricalEnabledMods;
+                                var oldPassive=original.HistoricalPassiveMods;
+                                var oldDisabled=original.DisabledModIds;
+                                modLease.MarkMutationStarted();
+                                try
+                                {
+                                    original.HistoricalEnabledMods=target.Enabled.ToList();
+                                    original.HistoricalPassiveMods=target.Passive.ToList();
+                                    original.DisabledModIds=(oldDisabled??new()).Except(target.Enabled).ToList();
+                                    cluster.Save();
+                                }
+                                catch
+                                {
+                                    original.HistoricalEnabledMods=oldEnabled;
+                                    original.HistoricalPassiveMods=oldPassive;
+                                    original.DisabledModIds=oldDisabled;
+                                    throw;
+                                }
+                            }
+                            modLease.Complete();
+                        }
                         restart.Change(record.Id,AsaRestartPhase.Starting);
                         // Start uses the SAME selected original mode. For
                         // API mode Process.Start yields ONLY a Loader parent,

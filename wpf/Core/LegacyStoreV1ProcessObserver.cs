@@ -374,6 +374,70 @@ public static class LegacyStoreV1ProcessObserver
         catch(Exception){return false;}
     }
 
+    internal sealed record LiveModOrder(string[] Enabled,string[] Passive)
+    {
+        internal bool Same(LiveModOrder other)=>Enabled.SequenceEqual(other.Enabled)&&
+            Passive.SequenceEqual(other.Passive);
+    }
+
+    internal static LiveModOrder ReadVerifiedModOrder(string command,string expectedExe,LocalMap map)
+    {
+        if(!MatchesOriginalActiveCommand(command,expectedExe,map,observeLiveMods:true))
+            throw new InvalidDataException("UM-ORIGINAL-RESTART-LIVE-MODS-UNVERIFIED");
+        var tokens=ExtractArguments(command,expectedExe)!.Split((char[]?)null,
+            StringSplitOptions.RemoveEmptyEntries);
+        string[] List(string prefix)=>tokens.SingleOrDefault(x=>x.StartsWith(prefix,
+            StringComparison.OrdinalIgnoreCase)) is string value?
+            value[prefix.Length..].Split(','):Array.Empty<string>();
+        return new(List("-mods="),List("-passivemods="));
+    }
+
+    // Caller already proved the original source and RCON owner. Fetch the
+    // full observed family again and pin the source command to its actual
+    // PID, executable and creation time. Never persist the command line.
+    internal static LiveModOrder CaptureVerifiedModOrder(LocalMap map,
+        IEnumerable<LocalMap> maps,ProcessIdentity approved)
+    {
+        var observed=Observe(map,maps);
+        if(!observed.Running||observed.Identity is not { } server||
+           server.Pid!=approved.Pid||server.StartedUtc!=approved.StartedUtc||
+           !string.Equals(server.ExecutablePath,approved.ExecutablePath,StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("UM-ORIGINAL-RESTART-LIVE-MODS-OWNER");
+        var source=map.StartWithAsaApi?observed.LoaderIdentity:server;
+        if(source==null||source.Pid<=0)
+            throw new InvalidDataException("UM-ORIGINAL-RESTART-LIVE-MODS-UNVERIFIED");
+        using var process=Process.GetProcessById(source.Pid);
+        if(process.HasExited||new DateTimeOffset(process.StartTime.ToUniversalTime())!=source.StartedUtc)
+            throw new InvalidDataException("UM-ORIGINAL-RESTART-LIVE-MODS-OWNER");
+        using var query=new ManagementObjectSearcher(
+            "SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process WHERE ProcessId="+
+            source.Pid.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        using var rows=query.Get();
+        string? command=null;int count=0;
+        foreach(ManagementObject row in rows)
+        {
+            count++;
+            if(Convert.ToInt32(row["ProcessId"])!=source.Pid||
+               !string.Equals(Convert.ToString(row["ExecutablePath"]),source.ExecutablePath,
+                   StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("UM-ORIGINAL-RESTART-LIVE-MODS-OWNER");
+            command=Convert.ToString(row["CommandLine"]);
+        }
+        if(count!=1||command==null||process.HasExited||
+           new DateTimeOffset(process.StartTime.ToUniversalTime())!=source.StartedUtc)
+            throw new InvalidDataException("UM-ORIGINAL-RESTART-LIVE-MODS-UNVERIFIED");
+        return ReadVerifiedModOrder(command,source.ExecutablePath,map);
+    }
+
+    // The saved next-start draft wins only when explicitly marked pending.
+    // Otherwise a verified running ordered list is the restart baseline.
+    internal static LiveModOrder SelectRestartMods(LocalMap map,LiveModOrder live)
+    {
+        var saved=ModStateController.Read(map);
+        return map.ModChangesPending?
+            new(saved.EnabledOrder.ToArray(),saved.Passive.ToArray()):live;
+    }
+
     public static ProcessCheck ObserveStoppedForNativeStart(LocalMap map)=>
         ObserveStoppedForNativeStart(map,Array.Empty<LocalMap>());
 
@@ -401,10 +465,10 @@ public static class LegacyStoreV1ProcessObserver
                 // session flags and locally REGISTERED map must all match.
                 string? command=Convert.ToString(item["CommandLine"]);
                 if(name.Equals("ArkAscendedServer.exe",StringComparison.OrdinalIgnoreCase)&&
-                   ProvenDistinctOwnedMap(command,map.ExecutablePath,map,locallyRegisteredMaps))
+                   ProvenDistinctOwnedMap(command,map.ExecutablePath,map,locallyRegisteredMaps,observeLiveMods:true))
                     continue;
                 if(name.Equals("AsaApiLoader.exe",StringComparison.OrdinalIgnoreCase)&&
-                   ProvenDistinctOwnedApiLoader(command,map.ExecutablePath,map,locallyRegisteredMaps))
+                   ProvenDistinctOwnedApiLoader(command,map.ExecutablePath,map,locallyRegisteredMaps,observeLiveMods:true))
                     continue;
                 return new(false,"UM-HISTORICAL-PROCESS-FAMILY-NOT-STOPPED",null,false);
             }
