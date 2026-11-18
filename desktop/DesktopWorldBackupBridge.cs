@@ -675,14 +675,16 @@ public sealed class DesktopWorldBackupBridge
                 if(method=="backup.worldStage")
                 {
                     if(!root.TryGetProperty("mapId",out var stageMap)||
-                       stageMap.ValueKind!=JsonValueKind.String||!Guid.TryParse(stageMap.GetString(),out var mapId)||
-                       !root.TryGetProperty("point",out var stagePoint)||stagePoint.ValueKind!=JsonValueKind.String||
+                       stageMap.ValueKind!=JsonValueKind.String||!Guid.TryParse(stageMap.GetString(),out var mapId)||mapId==Guid.Empty)
+                        return Fail(id,"UM-BACKUP-INVALID-MAP");
+                    if(!root.TryGetProperty("point",out var stagePoint)||stagePoint.ValueKind!=JsonValueKind.String||
                        !Guid.TryParseExact(stagePoint.GetString(),"D",out var pointId)||pointId==Guid.Empty)
                         return Fail(id,"UM-BACKUP-INVALID-POINT");
                     if(!root.TryGetProperty("confirm",out var consent)||consent.ValueKind!=JsonValueKind.True)
                         return Fail(id,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED");
                     var map=Owned(mapId);
-                    var roots=cluster.Config.LocalMaps.Select(x=>x.InstallationPath).ToArray();
+                    var roots=cluster.Config.LocalMaps.Select(x=>x.InstallationPath)
+                        .Where(x=>!string.IsNullOrWhiteSpace(x)).ToArray();
                     var receipt=await Task.Run(()=>UntamedWorldBackup.StageVerifiedWorld(
                         map,cluster.Store.Root,pointId.ToString("D"),roots));
                     return Ok(id,new{mapId,point=pointId,relativeFolder=receipt.RelativeFolder,

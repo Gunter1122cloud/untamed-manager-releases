@@ -11,6 +11,13 @@ import {managerBridge,type PublicMap,type WorldBackupCreated,
 function backupResourceError(error:unknown,fallback:string):string {
   const code=error instanceof Error?error.message:"";
   switch(code){
+    case "UM-BACKUP-MAP-NOT-LOCAL":
+      return "A kiválasztott map nem helyi, kezelhető Manager-profil.";
+    case "UM-BACKUP-INVALID-MAP":
+    case "UM-BACKUP-INVALID-POINT":
+      return "Érvénytelen map vagy mentési pont. Frissítsd a listát.";
+    case "UM-BACKUP-PATHS-OVERLAP":
+      return "A visszaállítási cél átfed egy szerver telepítési könyvtárával.";
     case "UM-BACKUP-CONFIRMED-STOP-REQUIRED":
       return "A map fut, vagy leállított állapota nem igazolt. Az Obsidian nem állítja le automatikusan.";
     case "UM-BACKUP-STORE-V1-RESTORE-LOCKED":

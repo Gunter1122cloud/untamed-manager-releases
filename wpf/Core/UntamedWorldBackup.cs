@@ -430,6 +430,9 @@ public static class UntamedWorldBackup
             throw new IOException("UM-BACKUP-INSUFFICIENT-RESTORE-CAPACITY");
         string stage=Guard(Path.Combine(parent,Guid.NewGuid().ToString("N")+".incomplete"));
         string target=stage[..^".incomplete".Length];
+        // Guard the final path independently; an existing reparse point
+        // must not be followed even when it appeared after staging preview.
+        _=Guard(target);
         if(Directory.Exists(stage)||File.Exists(stage)||Directory.Exists(target)||File.Exists(target))
             throw new IOException("UM-BACKUP-STAGE-EXISTS");
         Directory.CreateDirectory(stage);
@@ -442,7 +445,11 @@ public static class UntamedWorldBackup
                 throw new InvalidDataException("UM-BACKUP-DIGEST-MISMATCH");
             WriteDurable(Path.Combine(stage,"manifest.json"),JsonSerializer.Serialize(manifest,Json));
             WriteDurable(Path.Combine(stage,"complete"),"1");
+            _=Guard(target);
             Directory.Move(stage,target);
+            var published=Read(Guard(target),map.Id,key,installation);
+            if(!published.Files.SequenceEqual(manifest.Files))
+                throw new InvalidDataException("UM-BACKUP-DIGEST-MISMATCH");
             return new(Path.GetRelativePath(Guard(profile),target),manifest.Files.Length,bytes);
         }
         finally{if(Directory.Exists(stage))Directory.Delete(stage,true);}

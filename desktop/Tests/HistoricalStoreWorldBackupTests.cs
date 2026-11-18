@@ -103,6 +103,12 @@ internal static class HistoricalStoreWorldBackupTests
         Check(!restore.GetProperty("ok").GetBoolean()&&restore.GetProperty("error").GetString()=="UM-BACKUP-STORE-V1-RESTORE-LOCKED",
             "one-sided original Store world restore remains denied");
         independentlyStopped=false;
+        var notApproved=await Call(bridge,"backup.worldStage",new{mapId=map.Id,point,confirm=false});
+        Check(!notApproved.GetProperty("ok").GetBoolean()&&notApproved.GetProperty("error").GetString()=="UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED",
+            "isolated world stage requires explicit approval");
+        var foreign=await Call(bridge,"backup.worldStage",new{mapId=Guid.NewGuid(),point,confirm=true});
+        Check(!foreign.GetProperty("ok").GetBoolean()&&foreign.GetProperty("error").GetString()=="UM-BACKUP-MAP-NOT-LOCAL",
+            "isolated world stage rejects foreign GUID");
         var stage=await Call(bridge,"backup.worldStage",new{mapId=map.Id,point,confirm=true});
         Check(stage.GetProperty("ok").GetBoolean(),"archive-only restore stage succeeds without stopping a map");
         var data=stage.GetProperty("data");
@@ -112,5 +118,12 @@ internal static class HistoricalStoreWorldBackupTests
             new FileInfo(Path.Combine(folder,Path.GetFileName(oldLoose))).Length==0&&
             File.ReadAllBytes(layout.WorldFile).SequenceEqual(original),
             "stage verifies world and zero-byte profile without touching live files");
+        string package=Path.Combine(cluster.Store.Root,"world-backups",map.Id.ToString("N"),point,"files");
+        File.WriteAllBytes(Path.Combine(package,Path.GetFileName(layout.WorldFile)),new byte[]{1,2,3});
+        var rejected=await Call(bridge,"backup.worldStage",new{mapId=map.Id,point,confirm=true});
+        Check(!rejected.GetProperty("ok").GetBoolean()&&rejected.GetProperty("error").GetString()=="UM-BACKUP-DIGEST-MISMATCH"&&
+            File.ReadAllBytes(layout.WorldFile).SequenceEqual(original)&&
+            Directory.GetDirectories(Path.GetDirectoryName(Path.GetDirectoryName(folder)!)!).Length==1,
+            "corrupt archive cannot publish another stage or modify world");
     }
 }

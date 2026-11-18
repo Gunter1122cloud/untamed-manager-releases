@@ -7007,12 +7007,12 @@ try
             "world backup history starts empty");
         var impossible=await Call(worldBridge.HandleAsync,"backup.preview",
             new{mapId=Guid.NewGuid()});
-        Check(IsError(impossible,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+        Check(IsError(impossible,"UM-BACKUP-MAP-NOT-LOCAL"),
             "foreign map does not receive backup capability");
         stopped=false;
         var busy=await Call(worldBridge.HandleAsync,"backup.preview",
             new{mapId=localMap.Id});
-        Check(IsError(busy,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+        Check(IsError(busy,"UM-BACKUP-CONFIRMED-STOP-REQUIRED"),
             "running map cannot be snapshotted as stopped world");
         stopped=true;
         var preview=await Call(worldBridge.HandleAsync,"backup.preview",
@@ -7024,7 +7024,7 @@ try
         stopped=false;
         var invalidReplacement=await Call(worldBridge.HandleAsync,
             "backup.preview",new{mapId=localMap.Id});
-        Check(IsError(invalidReplacement,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+        Check(IsError(invalidReplacement,"UM-BACKUP-CONFIRMED-STOP-REQUIRED"),
             "running-state backup replacement preview is rejected");
         stopped=true;
         var noConfirm=await Call(worldBridge.HandleAsync,"backup.create",
