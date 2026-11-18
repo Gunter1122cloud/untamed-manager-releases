@@ -88,6 +88,9 @@ class ObsidianControl(commands.Cog):
         self.task = None
         self.panel = ControlPanel(self)
         self.last_states = {}
+        self.seen_hosts = set()
+        self.known_maps = {}
+        self.known_discovery = {}
 
     def persist(self):
         atomic_json(self.state_file, self.state)
@@ -246,12 +249,20 @@ class ObsidianControl(commands.Cog):
         embed = discord.Embed(title="Untamed Kingdom · Obsidian Status",colour=0x3584E4,
             timestamp=datetime.now(timezone.utc))
         online=known_players=unknown_players=total=unreachable=0
+        self.status_overflow=False
         for label, status in zip(self.hosts,data):
             if status is None:
                 unreachable+=1
                 embed.add_field(name=clean(label,100),value="Nem elérhető · állapot ismeretlen",inline=False)
                 continue
             lines=[]
+            current={m["mapId"]:m["mapName"] for m in status["maps"]}
+            old_maps=self.known_maps.get(label,{})
+            if label in self.seen_hosts:
+                for mid in current.keys()-old_maps.keys():
+                    await self.say("alerts",f'{label}: Új regisztrált map · {current[mid]}')
+            self.known_maps[label]=current
+            self.seen_hosts.add(label)
             for m in status["maps"]:
                 total+=1
                 running=m["running"]
@@ -280,14 +291,41 @@ class ObsidianControl(commands.Cog):
                 self.last_states[key]=new
                 if old and old!=new:
                     await self.say("alerts",f'{label}: {m["mapName"]} · állapotváltozás: {state}')
-            value="\n".join(lines) or "Nincs helyi map"
-            # Discord field / total embed limits; truncate only display,
-            # never discovery or control target IDs.
-            if len(embed.fields)<20 and len(embed)+len(value[:1000])<5400:
-                embed.add_field(name=clean(label,100),value=value[:1000],inline=False)
+            if status.get("discoveryFresh"):
+                discovered=status.get("discoveredMaps",[])
+                seen=self.known_discovery.get(label)
+                current_discovery={(m["pid"],m.get("startedUtc")):m["mapKey"] for m in discovered}
+                if seen is not None:
+                    for key in current_discovery.keys()-seen.keys():
+                        await self.say("alerts",f'{label}: Új felderített ASA · {current_discovery[key]} · csak megfigyelés')
+                self.known_discovery[label]=current_discovery
+                for m in discovered:
+                    lines.append(f'⚪ {clean(m["mapKey"],65)} · felderített ASA · regisztráció/azonosság nem igazolt')
+            else:
+                lines.append("Felderítés nem igazolt")
+            # Keep whole rows in continuation fields. Large fleets still have
+            # Discord's finite embed size; explicitly disclose overflow.
+            chunks=[]
+            value=""
+            for line in lines or ["Nincs helyi map"]:
+                if value and len(value)+len(line)+1>1000:
+                    chunks.append(value)
+                    value=""
+                value+=(("\n" if value else "")+line)
+            if value:chunks.append(value)
+            for n,chunk in enumerate(chunks):
+                field_name=clean(label,85)+(f" · {n+1}/{len(chunks)}" if len(chunks)>1 else "")
+                if len(embed.fields)<23 and len(embed)+len(field_name)+len(chunk)<5200:
+                    embed.add_field(name=field_name,value=chunk,inline=False)
+                else:
+                    if not getattr(self,"status_overflow",False):
+                        self.status_overflow=True
+                    break
         embed.description=f'{online}/{total} ismert map fut · {known_players} igazolt játékos'
         if unknown_players or unreachable:
             embed.description+=f' · {unknown_players} futó map játékosszáma ismeretlen · {unreachable} host nem elérhető'
+        if self.status_overflow:
+            embed.description+=" · További mapok: a vezérlőpulton vagy Managerben"
         embed.set_footer(text="Automatikus frissítés · ismeretlen ≠ nulla; részletek a vezérlőpulton")
         await self.replace_message("status",embed=embed)
 

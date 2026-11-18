@@ -385,7 +385,7 @@ public sealed class ObsidianWindow : Form
             TryEnterRecoveryLane,ReleaseRecoveryLane,()=>_updateHandoff,
             _freshStart.HandleAsync,_historicalStart.HandleAsync,_historicalReadOnlyRcon.HandleAsync);
         _discordControl = new DesktopDiscordControlApi(_bridge.LocalCluster,_bridgeGate,()=>_updateHandoff,
-            TryEnterRecoveryLane,ReleaseRecoveryLane,DispatchDiscordNative);
+            TryEnterRecoveryLane,ReleaseRecoveryLane,DispatchDiscordNative,_asaDiscovery.Snapshot);
         Text = suppressScheduledMutations&&!smokeTest
             ? "Untamed Kingdom — Obsidian Command [MANUÁLIS TESZT]"
             : "Untamed Kingdom — Obsidian Command";

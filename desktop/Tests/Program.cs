@@ -480,6 +480,25 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         DesktopDiscordControlApi.ParsePlayerCount("1. Survivor, "+new string('a',32))==1&&
         DesktopDiscordControlApi.ParsePlayerCount("Authentication failed")==null,"Discord player count does not infer zero from errors");
 }
+// Read-only discovery reports unregistered maps without exposing launch secrets
+// or constructing a control target. A known Loader's child is not duplicated.
+{
+    var instant=DateTimeOffset.UtcNow;
+    var candidate=Guid.NewGuid().ToString("D");
+    var observations=new[]{
+        new LocalRunningAsaDiscovery.Observation(601,0,instant,"asaServer","Event_WP","unregistered",null,null,false),
+        new LocalRunningAsaDiscovery.Observation(602,0,instant,"asaServer","Island_WP","profileCandidate",candidate,"Island",false),
+        new LocalRunningAsaDiscovery.Observation(603,0,instant,"apiLoader","Ragnarok_WP","profileCandidate",candidate,"Rag",false),
+        new LocalRunningAsaDiscovery.Observation(604,603,instant,"asaServer","Ragnarok_WP","unverified",null,null,true),
+        new LocalRunningAsaDiscovery.Observation(605,0,instant,"asaServer","Future_WP","unregistered",null,null,false)
+    };
+    var state=new DesktopAutomaticAsaDiscoverySupervisor.State(instant,"ok",observations,true);
+    var discovered=DesktopDiscordControlApi.DiscoveredOnly(state);
+    Check(discovered.Select(x=>x.MapKey).SequenceEqual(new[]{"Event_WP","Future_WP"})&&
+        discovered.All(x=>!x.Controllable&&!x.StoreWriteAuthorized)&&
+        DesktopDiscordControlApi.DiscoveredOnly(state with{Fresh=false}).Length==0,
+        "Discord discovery publishes new unregistered ASA maps only as read-only observations");
+}
 // Test the exact API authorization/dispatch boundary using an isolated profile.
 // No actual server, network listener, RCON or SteamCMD is invoked.
 {

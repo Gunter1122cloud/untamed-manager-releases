@@ -41,6 +41,10 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     private readonly Func<bool> frozen,enterLane;
     private readonly Action leaveLane;
     private readonly Func<string,string,Task<string>> native;
+    private readonly Func<DesktopAutomaticAsaDiscoverySupervisor.State>? discovery;
+    internal sealed record DiscoveredMap(int Pid,DateTimeOffset? StartedUtc,
+        string MapKey,string MatchState,bool LoaderParentObserved,
+        bool Controllable=false,bool StoreWriteAuthorized=false);
     private readonly string root,settingsPath,auditFolder;
     private readonly CancellationTokenSource closing=new();
     private readonly Dictionary<Guid,Approval> approvals=new();
@@ -51,10 +55,12 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     private TcpListener? listener;
     private readonly SemaphoreSlim connections=new(4,4);
     internal DesktopDiscordControlApi(ClusterService cluster,SemaphoreSlim hostGate,Func<bool> frozen,
-        Func<bool> enterLane,Action leaveLane,Func<string,string,Task<string>> native)
+        Func<bool> enterLane,Action leaveLane,Func<string,string,Task<string>> native,
+        Func<DesktopAutomaticAsaDiscoverySupervisor.State>? discovery=null)
     {
         this.cluster=cluster;this.hostGate=hostGate;this.frozen=frozen;
         this.enterLane=enterLane;this.leaveLane=leaveLane;this.native=native;
+        this.discovery=discovery;
         root=Path.Combine(cluster.Store.Root,"discord-control-v1");
         settingsPath=Path.Combine(root,"settings.json");
         auditFolder=Path.Combine(root,"audit");
@@ -231,6 +237,20 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         if(row.RequestId!=id||row.Maps==null||row.Maps.Length is <1 or >25)throw new InvalidDataException("UM-DC-AUDIT");
         return row;
     }
+    // Separate display-only inventory: no profile GUID, executable, launch
+    // line, password, RCON route or operation token can leave this projection.
+    internal static DiscoveredMap[] DiscoveredOnly(
+        DesktopAutomaticAsaDiscoverySupervisor.State? state)
+    {
+        if(state==null||!state.Fresh)return Array.Empty<DiscoveredMap>();
+        var rows=state.Processes;
+        return rows.Where(p=>p.ProcessKind=="asaServer"&&p.ProfileMapId==null&&
+                !(p.LoaderParentObserved&&rows.Any(parent=>
+                    parent.ProcessKind=="apiLoader"&&parent.Pid==p.ParentPid&&
+                    parent.ProfileMapId!=null&&parent.MapKey==p.MapKey)))
+            .Select(p=>new DiscoveredMap(p.Pid,p.StartedUtc,
+                p.MapKey,p.MatchState,p.LoaderParentObserved)).ToArray();
+    }
     private async Task<object> Status()
     {
         var result=new List<object>();int offset=0;string? key=null;
@@ -269,7 +289,14 @@ internal sealed class DesktopDiscordControlApi : IDisposable
                     useApi=map.StartWithAsaApi,maintenance=map.Maintenance});
             }
             if(Value(data,"nextOffset") is not {ValueKind:JsonValueKind.Number} next)
-                return new{hostId=cluster.Config.LocalHostId,hostName=cluster.Config.LocalHostName,observedUtc=DateTimeOffset.UtcNow,maps=result};
+            {
+                var observed=discovery?.Invoke();
+                return new{hostId=cluster.Config.LocalHostId,hostName=cluster.Config.LocalHostName,
+                    observedUtc=DateTimeOffset.UtcNow,maps=result,
+                    discoveryFresh=observed?.Fresh??false,
+                    discoveryObservedUtc=observed?.ObservedUtc,
+                    discoveredMaps=DiscoveredOnly(observed)};
+            }
             offset=next.GetInt32();
         }
         throw new InvalidOperationException("UM-DC-SNAPSHOT-LIMIT");
