@@ -24,16 +24,17 @@ const displayEventStatus:Record<string,string>={
 };
 function eventStatus(raw:string){return displayEventStatus[raw]??raw;}
 
-function localDate(value:string|null|undefined){
+function localDate(value:string|null|undefined,zone="Europe/Budapest"){
   if(!value)return "Nem ellenőrizhető";
   const date=new Date(value);
-  return Number.isNaN(date.getTime())?"Nem ellenőrizhető":
-    date.toLocaleString("hu-HU",{timeZone:"Europe/Budapest"});
+  if(Number.isNaN(date.getTime()))return "Nem ellenőrizhető";
+  try{return date.toLocaleString("hu-HU",{timeZone:zone});}catch{return date.toISOString();}
 }
 function kindLabel(kind:NativeScheduleKind){return kind==="SaveWorld"?"SaveWorld":kind==="WildWipe"?"Dinowipe":"Újraindítás";}
 type Draft={
   kind:NativeScheduleKind;frequency:NativeScheduleFrequency;
   minutes:number;clock:string;daysMask:number;postRestartWipe:boolean;wipeDelaySeconds:number;
+  zone:string;perDay:boolean;dayClocks:string[];onceMode:"delay"|"date";onceLocal:string;
 };
 function parseClock(raw:string){
   const match=/^([01]\d|2[0-3]):([0-5]\d)$/.exec(raw);
@@ -43,9 +44,18 @@ function clockOf(minute:number){
   return String(Math.floor(minute/60)).padStart(2,"0")+":"+
     String(minute%60).padStart(2,"0");
 }
+function wallClock(iso:string,zone:string){
+  try{
+    const parts=new Intl.DateTimeFormat("en-CA",{timeZone:zone,year:"numeric",month:"2-digit",day:"2-digit",
+      hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(new Date(iso));
+    const get=(type:string)=>parts.find(p=>p.type===type)?.value??"";
+    return get("year")+"-"+get("month")+"-"+get("day")+"T"+get("hour")+":"+get("minute");
+  }catch{return "";}
+}
 function defaultDraft(kind:NativeScheduleKind):Draft{
   return {kind,frequency:kind==="Restart"?"Daily":"Interval",
-    minutes:120,clock:kind==="Restart"?"04:00":"03:00",daysMask:127,postRestartWipe:false,wipeDelaySeconds:0};
+    minutes:120,clock:kind==="Restart"?"04:00":"03:00",daysMask:127,postRestartWipe:false,wipeDelaySeconds:0,
+    zone:"Europe/Budapest",perDay:false,dayClocks:Array(7).fill(kind==="Restart"?"04:00":"03:00"),onceMode:"delay",onceLocal:""};
 }
 function ScheduleEditor({mapId,kind,status,onChanged}:{
   mapId:string;kind:NativeScheduleKind;status:NativeAsaScheduleStatus;
@@ -62,13 +72,17 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
   useEffect(()=>{
     setDraft(existing?{
       kind,frequency:existing.frequency,minutes:existing.intervalMinutes,
-      clock:clockOf(existing.minuteOfDay),daysMask:existing.daysMask,postRestartWipe:!!existing.postRestartWipe,wipeDelaySeconds:existing.wipeDelaySeconds??0
+      clock:clockOf(existing.minuteOfDay),daysMask:existing.daysMask,postRestartWipe:!!existing.postRestartWipe,wipeDelaySeconds:existing.wipeDelaySeconds??0,
+      zone:existing.timeZoneId??"Europe/Budapest",perDay:!!existing.dayMinutes,
+      dayClocks:existing.dayMinutes?.map(clockOf)??Array(7).fill(clockOf(existing.minuteOfDay)),
+      onceMode:existing.onceAtUtc?"date":"delay",onceLocal:existing.onceAtUtc?wallClock(existing.onceAtUtc,existing.timeZoneId??"Europe/Budapest"):""
     }:defaultDraft(kind));
     setMessage("");setError("");setWipeConsent(false);
-  },[mapId,kind,existing?.nextDueUtc,existing?.enabled]);
-  const valid=parseClock(draft.clock)>=0 && draft.daysMask>0 &&
+  },[mapId,kind,existing?.nextDueUtc,existing?.enabled,existing?.revision]);
+  const valid=parseClock(draft.clock)>=0 && draft.daysMask>0 && draft.zone.trim().length>0 &&
+    (!draft.perDay||draft.frequency!=="Daily"||draft.dayClocks.every(x=>parseClock(x)>=0)) &&
     (!draft.postRestartWipe||Number.isInteger(draft.wipeDelaySeconds)&&draft.wipeDelaySeconds>=0&&draft.wipeDelaySeconds<=600) &&
-    (draft.frequency==="Once"?[1,2].includes(draft.minutes):draft.frequency!=="Interval"||
+    (draft.frequency==="Once"?(draft.onceMode==="date"?/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(draft.onceLocal):[1,2].includes(draft.minutes)):draft.frequency!=="Interval"||
       Number.isInteger(draft.minutes)&&draft.minutes>=15&&draft.minutes<=10080);
   const change=async(enable:boolean)=>{
     if(actionInFlight.current||busy||(enable&&(!valid||!canConfigure||(kind==="WildWipe"&&!wipeConsent))))return;
@@ -77,7 +91,9 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
     try{
       if(enable){
         await managerBridge.nativeScheduleSet(mapId,kind,draft.frequency,
-          draft.minutes,parseClock(draft.clock),draft.daysMask,draft.postRestartWipe,draft.postRestartWipe?draft.wipeDelaySeconds:0);
+          draft.minutes,parseClock(draft.clock),draft.daysMask,draft.postRestartWipe,draft.postRestartWipe?draft.wipeDelaySeconds:0,
+          draft.zone,draft.frequency==="Daily"&&draft.perDay?draft.dayClocks.map(parseClock):undefined,
+          draft.frequency==="Once"&&draft.onceMode==="date"?draft.onceLocal:undefined);
       }else await managerBridge.nativeScheduleDisable(mapId,kind);
       await onChanged();
       setMessage(enable?"A map ütemezése tartósan mentve.":"A map automatikus feladata kikapcsolva.");
@@ -94,8 +110,8 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
         {existing?.enabled?"Bekapcsolva":"Kikapcsolva"}</span>
     </header>
     <div className="native-schedule-summary">
-      <div><span>Következő végrehajtás</span><strong>{existing?.lastStatus==="claimed-no-auto-retry"?"Folyamatban":existing?.enabled?localDate(existing.nextDueUtc):"Nincs beállítva"}</strong></div>
-      <div><span>Utolsó végrehajtás</span><strong>{existing?.lastClaimedUtc?localDate(existing.lastClaimedUtc):"Még nem futott"}</strong></div>
+      <div><span>Következő végrehajtás</span><strong>{existing?.lastStatus==="claimed-no-auto-retry"?"Folyamatban":existing?.enabled?localDate(existing.nextDueUtc,existing.timeZoneId):"Nincs beállítva"}</strong></div>
+      <div><span>Utolsó végrehajtás</span><strong>{existing?.lastClaimedUtc?localDate(existing.lastClaimedUtc,existing.timeZoneId):"Még nem futott"}</strong></div>
       {existing?.lastClaimedUtc&&<p role="status">{existing.lastStatus} · {existing.lastEvidence||"Nincs független játékon belüli igazolás"}</p>}
     </div>
     <div className="native-schedule-controls">
@@ -108,7 +124,21 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
           <option value="Once">Egyszeri próba</option>
         </select>
       </label>
-      {draft.frequency==="Once"&&<label>Első és egyetlen esedékesség
+      {draft.frequency!=="Interval"&&<label>Időzóna (IANA vagy Windows)
+        <input aria-label={kindLabel(kind)+" időzóna"} value={draft.zone} disabled={busy||!canConfigure}
+          onChange={e=>setDraft(old=>({...old,zone:e.target.value}))} placeholder="Europe/Budapest"/>
+      </label>}
+      {draft.frequency==="Once"&&<label>Egyszeri futás módja
+        <select aria-label={kindLabel(kind)+" egyszeri futás módja"} value={draft.onceMode} disabled={busy||!canConfigure}
+          onChange={e=>setDraft(old=>({...old,onceMode:e.target.value as "delay"|"date"}))}>
+          <option value="delay">1–2 perces próba</option><option value="date">Pontos dátum és idő</option>
+        </select>
+      </label>}
+      {draft.frequency==="Once"&&draft.onceMode==="date"&&<label>Dátum és helyi idő
+        <input type="datetime-local" aria-label={kindLabel(kind)+" pontos dátum"} value={draft.onceLocal}
+          disabled={busy||!canConfigure} onChange={e=>setDraft(old=>({...old,onceLocal:e.target.value}))}/>
+      </label>}
+      {draft.frequency==="Once"&&draft.onceMode==="delay"&&<label>Első és egyetlen esedékesség
         <select aria-label="Egyszeri próba késleltetése" value={draft.minutes} disabled={busy||!canConfigure}
           onChange={e=>setDraft(old=>({...old,minutes:Number(e.target.value)}))}>
           <option value={1}>1 perc múlva</option><option value={2}>2 perc múlva</option>
@@ -119,7 +149,7 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
           step={5} value={draft.minutes} disabled={busy||!canConfigure}
           onChange={e=>setDraft(old=>({...old,minutes:Number(e.target.value)}))}/>
       </label>}
-      {draft.frequency==="Daily"&&<label>Időpont (Budapest)
+      {draft.frequency==="Daily"&&<label>Időpont (választott időzóna)
         <input aria-label={kindLabel(kind)+" időpont"}
           type="time" value={draft.clock} disabled={busy||!canConfigure}
           onChange={e=>setDraft(old=>({...old,clock:e.target.value}))}/>
@@ -135,6 +165,13 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
           {d.name}
         </label>)}
       </fieldset>}
+      {draft.frequency==="Daily"&&<label><input type="checkbox" checked={draft.perDay} disabled={busy||!canConfigure}
+        onChange={e=>setDraft(old=>({...old,perDay:e.target.checked,dayClocks:e.target.checked?Array(7).fill(old.clock):old.dayClocks}))}/>
+        Külön időpont minden kiválasztott naphoz</label>}
+      {draft.frequency==="Daily"&&draft.perDay&&<div>{days.filter(d=>Boolean(draft.daysMask&(1<<d.key))).map(d=><label key={d.key}>
+        {d.name} · <input type="time" aria-label={kindLabel(kind)+" "+d.name+" időpont"} value={draft.dayClocks[d.key]} disabled={busy||!canConfigure}
+          onChange={e=>setDraft(old=>({...old,dayClocks:old.dayClocks.map((x,i)=>i===d.key?e.target.value:x)}))}/></label>)}</div>}
+      {draft.frequency!=="Interval"&&<p className="muted small">Nyári időszámítás: hiányzó időpont esetén a következő érvényes perc; ismétlődő órában egyszer, a későbbi időpontban.</p>}
     </div>
     {kind==="Restart"&&status.restartConflicts.length>0&&<p className="native-schedule-warning">
       <AlertTriangle size={16}/> Azonos helyi időpont más mapokkal: {status.restartConflicts.join(", ")}.

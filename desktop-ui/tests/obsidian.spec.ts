@@ -2356,7 +2356,7 @@ test.beforeEach(async ({ page }) => {
             !["SaveWorld","Restart","WildWipe"].includes(m.kind??"")||
             !["Interval","Daily","Once"].includes(m.frequency??"")||
             (m.kind==="Restart"&&m.frequency==="Interval")||
-            (m.frequency==="Once"&&![1,2].includes(m.intervalMinutes??0))||
+            (m.frequency==="Once"&&!m.onceAtLocal&&![1,2].includes(m.intervalMinutes??0))||
             (m.postRestartWipe&&(!map.storeProtected||m.kind!=="Restart"))||
             !Number.isInteger(m.minuteOfDay)||m.minuteOfDay!<0||m.minuteOfDay!>1439||
             !Number.isInteger(m.daysMask)||m.daysMask!<1||m.daysMask!>127)
@@ -2366,6 +2366,7 @@ test.beforeEach(async ({ page }) => {
           const next={mapId:id,kind:m.kind,frequency:m.frequency,
             intervalMinutes:m.intervalMinutes??120,minuteOfDay:m.minuteOfDay,
             daysMask:m.daysMask,postRestartWipe:!!m.postRestartWipe,wipeDelaySeconds:m.wipeDelaySeconds??0,enabled:true,nextDueUtc:"2026-11-09T03:00:00Z",
+            timeZoneId:m.timeZoneId??"Europe/Budapest",dayMinutes:m.dayMinutes??null,onceAtUtc:m.onceAtLocal?m.onceAtLocal+":00Z":null,
             lastClaimedUtc:null,lastStatus:"scheduled",lastEvidence:"",
             evidence:"DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY"};
           nativeSchedules[id]=[...jobs.filter(x=>x.kind!==m.kind),next];

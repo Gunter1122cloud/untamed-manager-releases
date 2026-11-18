@@ -277,6 +277,30 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     IsOk(review,"batch journal can be explicitly reviewed without redispatch");
     Check(calls==1&&batch.CanManagerUpdate(),"review releases batch update block without replay");
 }
+// Deterministic calendar tests: no Windows clock changes and no RCON.
+{
+    var sample=new ScheduledAsaOperation(Guid.NewGuid(),"Restart","Daily",0,60,127,
+        new string('A',64),true,default,null,"scheduled","",TimeZoneId:"Europe/Budapest",
+        DayMinutes:new[]{150,180,240,300,360,420,480});
+    var spring=DesktopScheduledAsaOperationsSupervisor.Next(sample,
+        new DateTimeOffset(2026,3,29,0,0,0,TimeSpan.Zero));
+    Check(spring==new DateTimeOffset(2026,3,29,1,0,0,TimeSpan.Zero),
+        "weekly scheduler advances missing Budapest spring wall time to first valid minute");
+    var autumn=DesktopScheduledAsaOperationsSupervisor.Next(sample,
+        new DateTimeOffset(2026,10,25,0,0,0,TimeSpan.Zero));
+    Check(autumn==new DateTimeOffset(2026,10,25,1,30,0,TimeSpan.Zero)&&
+          DesktopScheduledAsaOperationsSupervisor.Next(sample,autumn)==
+             new DateTimeOffset(2026,10,26,2,0,0,TimeSpan.Zero),
+        "weekly scheduler chooses later repeated-hour slot once and honors Monday-specific time");
+    var utc=DesktopScheduledAsaOperationsSupervisor.Next(sample with{TimeZoneId="UTC"},
+        new DateTimeOffset(2026,10,25,0,0,0,TimeSpan.Zero));
+    Check(utc==new DateTimeOffset(2026,10,25,2,30,0,TimeSpan.Zero),
+        "explicit UTC timezone is used rather than host-local clock");
+    var once=sample with{Frequency="Once",DayMinutes=null,OnceAtUtc=utc};
+    Check(DesktopScheduledAsaOperationsSupervisor.Next(once,utc.AddDays(-1))==utc&&
+          DesktopScheduledAsaOperationsSupervisor.Next(once with{NextDueUtc=utc},utc)==DateTimeOffset.MaxValue,
+        "date-specific one-time job has one durable occurrence and no replay");
+}
 NativeWebViewDispatchContractTests.Run();
 LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();

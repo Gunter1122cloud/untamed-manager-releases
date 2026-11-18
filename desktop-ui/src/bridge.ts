@@ -57,6 +57,7 @@ export type NativeScheduleFrequency = "Interval"|"Daily"|"Once";
 export type NativeAsaScheduleTask = {
   mapId:string;kind:NativeScheduleKind;frequency:NativeScheduleFrequency;
   intervalMinutes:number;minuteOfDay:number;daysMask:number;postRestartWipe?:boolean;wipeDelaySeconds?:number;
+  timeZoneId?:string;dayMinutes?:number[]|null;onceAtUtc?:string|null;revision?:string;
   enabled:boolean;nextDueUtc:string;lastClaimedUtc:string|null;
   lastStatus:string;lastEvidence:string;
   evidence:"DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY";
@@ -1811,6 +1812,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
    targetDirectoryName?:string;
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
   intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;postRestartWipe?:boolean;wipeDelaySeconds?:number;delaySeconds?:number;
+  timeZoneId?:string;dayMinutes?:number[];onceAtLocal?:string;
   gamePort?: number; queryPort?: number; customLevel?: string; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
@@ -2131,9 +2133,10 @@ export const managerBridge = {
     request<NativeScheduleResumeReceipt>("schedule.nativeResume",{mapId,confirm:true}),
   nativeScheduleSet: (mapId:string,kind:NativeScheduleKind,
       frequency:NativeScheduleFrequency,intervalMinutes:number,
-      minuteOfDay:number,daysMask:number,postRestartWipe=false,wipeDelaySeconds=0) =>
+      minuteOfDay:number,daysMask:number,postRestartWipe=false,wipeDelaySeconds=0,
+      timeZoneId="Europe/Budapest",dayMinutes?:number[],onceAtLocal?:string) =>
     request<NativeAsaScheduleSaved>("schedule.nativeSet",{
-      mapId,kind,frequency,intervalMinutes,minuteOfDay,daysMask,postRestartWipe,wipeDelaySeconds,confirm:true
+      mapId,kind,frequency,intervalMinutes,minuteOfDay,daysMask,postRestartWipe,wipeDelaySeconds,timeZoneId,dayMinutes,onceAtLocal,confirm:true
     }),
   nativeScheduleDisable: (mapId:string,kind:NativeScheduleKind) =>
     request<NativeAsaScheduleTask>("schedule.nativeDisable",{

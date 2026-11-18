@@ -257,7 +257,7 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                     var current=Read();
                     if(current?.State=="running")
                     {
-                        try{using var stale=LockOwner();current=current with{State="needsReview"};}
+                        try{using var stale=LockOwner();current=Read();if(current?.State=="running")current=current with{State="needsReview"};}
                         catch(IOException){/* live owner or unavailable, do not replay */}
                     }
                     return Task.FromResult(Ok(id,new{receipt=current,remoteExecutionAllowed=false}));

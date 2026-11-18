@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -19,7 +20,8 @@ public sealed record ScheduledAsaOperation(
     Guid MapId,string Kind,string Frequency,int IntervalMinutes,
     int MinuteOfDay,int DaysMask,string Fingerprint,bool Enabled,
     DateTimeOffset NextDueUtc,DateTimeOffset? LastClaimedUtc,
-    string LastStatus,string LastEvidence,bool PostRestartWipe=false,int WipeDelaySeconds=0);
+    string LastStatus,string LastEvidence,bool PostRestartWipe=false,int WipeDelaySeconds=0,
+    string TimeZoneId="Europe/Budapest",int[]? DayMinutes=null,DateTimeOffset? OnceAtUtc=null,Guid Revision=default);
 
 // Bounded, persisted execution evidence. A slot is recorded BEFORE dispatch;
 // after a crash an unfinished claim remains visible and is never auto-replayed.
@@ -189,7 +191,9 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 (j.Frequency!="Interval"&&j.Frequency!="Daily"&&j.Frequency!="Once")||
                 (j.PostRestartWipe&&j.Kind!="Restart")||
                 j.WipeDelaySeconds is <0 or >600||(!j.PostRestartWipe&&j.WipeDelaySeconds!=0)||
-                (j.Frequency=="Once"&&j.IntervalMinutes is <1 or >2)||
+                (j.Frequency=="Once"&&j.OnceAtUtc==null&&j.IntervalMinutes is <1 or >2)||
+                (j.OnceAtUtc!=null&&j.Frequency!="Once")||
+                !ValidCalendar(j.TimeZoneId,j.DayMinutes,j.Frequency)||
                 j.DaysMask is <1 or >127 || j.MinuteOfDay is <0 or >1439 ||
                 j.Fingerprint.Length!=64 || j.LastStatus.Length>90)||
            state.Jobs.GroupBy(j=>(j.MapId,j.Kind)).Any(group=>group.Count()>1))
@@ -243,16 +247,35 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             map.HistoricalRuntimeClusterId,map.HistoricalRuntimeTransferDirectory,map.ApiLoaderPath);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material)));
     }
-    private static TimeZoneInfo Zone()
+    private static TimeZoneInfo Zone(string id)
     {
-        try{return TimeZoneInfo.FindSystemTimeZoneById("Europe/Budapest");}
-        catch(TimeZoneNotFoundException)
+        if(string.IsNullOrWhiteSpace(id)||id.Length>100||id.Any(char.IsControl))
+            throw new InvalidDataException("UM-ASA-SCHEDULE-TIMEZONE");
+        try{return TimeZoneInfo.FindSystemTimeZoneById(id);}
+        catch(TimeZoneNotFoundException) when(id=="Europe/Budapest")
         {return TimeZoneInfo.FindSystemTimeZoneById("Central European Standard Time");}
     }
-    private static DateTimeOffset Next(ScheduledAsaOperation item,DateTimeOffset now)
+    private static bool ValidCalendar(string zone,int[]? minutes,string frequency)
+    {
+        if(minutes!=null&&(frequency!="Daily"||minutes.Length!=7||minutes.Any(x=>x is <0 or >1439)))
+            return false;
+        try{_=Zone(zone);return true;}catch{return false;}
+    }
+    // Explicit DST policy: spring gap advances to the first valid local
+    // minute; autumn overlap uses the later UTC instant exactly once.
+    private static DateTimeOffset WallToUtc(DateTime wall,TimeZoneInfo zone)
+    {
+        wall=DateTime.SpecifyKind(wall,DateTimeKind.Unspecified);
+        while(zone.IsInvalidTime(wall))wall=wall.AddMinutes(1);
+        var shift=zone.IsAmbiguousTime(wall)?zone.GetAmbiguousTimeOffsets(wall).Min():zone.GetUtcOffset(wall);
+        return new DateTimeOffset(wall,shift).ToUniversalTime();
+    }
+    private static int DayMinute(ScheduledAsaOperation item,int index)=>item.DayMinutes?[index]??item.MinuteOfDay;
+    internal static DateTimeOffset Next(ScheduledAsaOperation item,DateTimeOffset now)
     {
         now=now.ToUniversalTime();
-        if(item.Frequency=="Once")return item.NextDueUtc==default?now.AddMinutes(item.IntervalMinutes):DateTimeOffset.MaxValue;
+        if(item.Frequency=="Once")return item.NextDueUtc==default?
+            item.OnceAtUtc??now.AddMinutes(item.IntervalMinutes):DateTimeOffset.MaxValue;
         if(item.Frequency=="Interval")
         {
             if(item.IntervalMinutes is <15 or >10080)
@@ -267,18 +290,13 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             }
             return cursor;
         }
-        var zone=Zone();
+        var zone=Zone(item.TimeZoneId);
         var local=TimeZoneInfo.ConvertTime(now,zone).Date;
         for(int offset=0;offset<9;offset++)
         {
             var day=local.AddDays(offset);
             if((item.DaysMask&(1<<(int)day.DayOfWeek))==0)continue;
-            var wall=DateTime.SpecifyKind(day.AddMinutes(item.MinuteOfDay),
-                DateTimeKind.Unspecified);
-            while(zone.IsInvalidTime(wall))wall=wall.AddMinutes(1);
-            var shift=zone.IsAmbiguousTime(wall)?
-                zone.GetAmbiguousTimeOffsets(wall).Min():zone.GetUtcOffset(wall);
-            var candidate=new DateTimeOffset(wall,shift).ToUniversalTime();
+            var candidate=WallToUtc(day.AddMinutes(DayMinute(item,(int)day.DayOfWeek)),zone);
             if(candidate>now)return candidate;
         }
         throw new InvalidDataException("UM-ASA-SCHEDULE-NEXT-UNAVAILABLE");
@@ -295,17 +313,30 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     }
 
     public ScheduledAsaOperation Configure(Guid mapId,string kind,string frequency,
-        int intervalMinutes,int minuteOfDay,int daysMask,bool postRestartWipe=false,int wipeDelaySeconds=0)
+        int intervalMinutes,int minuteOfDay,int daysMask,bool postRestartWipe=false,int wipeDelaySeconds=0,
+        string timeZoneId="Europe/Budapest",int[]? dayMinutes=null,string? onceAtLocal=null)
     {
         if(mapId==Guid.Empty || kind is not ("SaveWorld" or "Restart" or "WildWipe") ||
            frequency is not ("Interval" or "Daily" or "Once") ||
            (kind=="Restart"&&frequency=="Interval") ||
-           (frequency=="Once"&&intervalMinutes is <1 or >2) ||
+           (frequency=="Once"&&onceAtLocal==null&&intervalMinutes is <1 or >2) ||
+           (onceAtLocal!=null&&frequency!="Once")||!ValidCalendar(timeZoneId,dayMinutes,frequency)||
            (postRestartWipe&&kind!="Restart") ||
            wipeDelaySeconds is <0 or >600||(!postRestartWipe&&wipeDelaySeconds!=0)||
            minuteOfDay is <0 or >1439 || daysMask is <1 or >127 ||
            (frequency=="Interval"&&intervalMinutes is <15 or >10080))
             throw new InvalidDataException("UM-ASA-SCHEDULE-FIELDS");
+        DateTimeOffset? onceAtUtc=null;
+        if(onceAtLocal!=null)
+        {
+            if(!DateTime.TryParseExact(onceAtLocal,"yyyy-MM-dd'T'HH:mm",CultureInfo.InvariantCulture,
+                DateTimeStyles.None,out var wall))
+                throw new InvalidDataException("UM-ASA-SCHEDULE-ONCE-DATE");
+            onceAtUtc=WallToUtc(wall,Zone(timeZoneId));
+            var now=DateTimeOffset.UtcNow;
+            if(onceAtUtc<=now||onceAtUtc>now.AddYears(1))
+                throw new InvalidDataException("UM-ASA-SCHEDULE-ONCE-RANGE");
+        }
         var map=Owned(mapId);
         if(!Eligible(map)||(postRestartWipe&&!HistoricalEligible(map)))
             throw new UnauthorizedAccessException("UM-ASA-SCHEDULE-PREFLIGHT-DENIED");
@@ -313,7 +344,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             var state=Read();
             var fingerprint=Fingerprint(map);
             var sample=new ScheduledAsaOperation(map.Id,kind,frequency,intervalMinutes,
-                minuteOfDay,daysMask,fingerprint,true,default,null,"scheduled","",postRestartWipe,wipeDelaySeconds);
+                minuteOfDay,daysMask,fingerprint,true,default,null,"scheduled","",postRestartWipe,wipeDelaySeconds,
+                timeZoneId,dayMinutes?.ToArray(),onceAtUtc,Guid.NewGuid());
             var task=sample with {NextDueUtc=Next(sample,DateTimeOffset.UtcNow)};
             int ix=state.Jobs.FindIndex(j=>j.MapId==map.Id&&j.Kind==kind);
             if(state.History.Any(x=>x.MapId==map.Id&&x.Kind==kind&&UnknownSlot(x.Status)))
@@ -345,7 +377,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             var self=jobs.FirstOrDefault(x=>x.MapId==mapId&&x.Kind=="Restart"&&x.Frequency=="Daily"&&x.Enabled);
             if(self==null)return Array.Empty<string>();
             return jobs.Where(x=>x.MapId!=mapId&&x.Kind=="Restart"&&x.Frequency=="Daily"&&x.Enabled&&
-                    x.MinuteOfDay==self.MinuteOfDay&&(x.DaysMask&self.DaysMask)!=0)
+                    (x.NextDueUtc==self.NextDueUtc || (x.TimeZoneId==self.TimeZoneId&&
+                    Enumerable.Range(0,7).Any(d=>(x.DaysMask&self.DaysMask&(1<<d))!=0&&DayMinute(x,d)==DayMinute(self,d)))))
                 .Select(x=>cluster.Config.LocalMaps.FirstOrDefault(m=>m.Id==x.MapId)?.Name)
                 .Where(x=>!string.IsNullOrWhiteSpace(x)).Select(x=>x!)
                 .Distinct().ToArray();
@@ -356,6 +389,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         mapId=job.MapId,kind=job.Kind,frequency=job.Frequency,
         intervalMinutes=job.IntervalMinutes,minuteOfDay=job.MinuteOfDay,
         daysMask=job.DaysMask,enabled=job.Enabled,nextDueUtc=job.NextDueUtc,postRestartWipe=job.PostRestartWipe,wipeDelaySeconds=job.WipeDelaySeconds,
+        timeZoneId=job.TimeZoneId,dayMinutes=job.DayMinutes,onceAtUtc=job.OnceAtUtc,revision=job.Revision,
         lastClaimedUtc=job.LastClaimedUtc,lastStatus=job.LastStatus,
         lastEvidence=job.LastEvidence,
         evidence="DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY"
@@ -608,7 +642,13 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             if(args.TryGetProperty("wipeDelaySeconds",out var delayField)&&
                 (delayField.ValueKind!=JsonValueKind.Number||!delayField.TryGetInt32(out delay)))
                 return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-FIELDS"));
-            var result=Configure(mapId,kind,rawFreq.GetString()!,interval,minute,days,wipe,delay);
+            string zone=args.TryGetProperty("timeZoneId",out var zoneField)?
+                zoneField.GetString()??throw new InvalidDataException("UM-ASA-SCHEDULE-TIMEZONE"):"Europe/Budapest";
+            int[]? perDay=args.TryGetProperty("dayMinutes",out var daily)&&daily.ValueKind!=JsonValueKind.Null?
+                daily.EnumerateArray().Select(x=>x.GetInt32()).ToArray():null;
+            string? once=args.TryGetProperty("onceAtLocal",out var onceField)&&onceField.ValueKind!=JsonValueKind.Null?
+                onceField.GetString()??throw new InvalidDataException("UM-ASA-SCHEDULE-ONCE-DATE"):null;
+            var result=Configure(mapId,kind,rawFreq.GetString()!,interval,minute,days,wipe,delay,zone,perDay,once);
             return Task.FromResult(Ok(id,new {
                 job=Data(result),restartConflicts=RestartConflicts(mapId)
             }));
@@ -726,7 +766,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             // but it must not send a newly pending wipe.
             bool WipeStillEnabled()=>Locked(()=>Read().Jobs.Any(x=>x.MapId==job.MapId&&
                 x.Kind==job.Kind&&x.Enabled&&x.PostRestartWipe&&x.WipeDelaySeconds==job.WipeDelaySeconds&&
-                x.Fingerprint==job.Fingerprint&&x.LastStatus=="claimed-no-auto-retry"));
+                x.Revision==job.Revision&&x.Fingerprint==job.Fingerprint&&x.LastStatus=="claimed-no-auto-retry"));
             if(!WipeStillEnabled())return evidence+"_RESTART_WIPE_DISABLED";
             if(job.WipeDelaySeconds>0)
             {
@@ -898,7 +938,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     if(ix<0)return false;
                     var actual=state.Jobs[ix];
                     if(!actual.Enabled||actual.NextDueUtc!=observed.NextDueUtc||
-                       actual.Fingerprint!=observed.Fingerprint||actual.PostRestartWipe!=observed.PostRestartWipe||actual.WipeDelaySeconds!=observed.WipeDelaySeconds)return false;
+                       actual.Revision!=observed.Revision||actual.Fingerprint!=observed.Fingerprint||actual.PostRestartWipe!=observed.PostRestartWipe||actual.WipeDelaySeconds!=observed.WipeDelaySeconds)return false;
                     // Unknown earlier dispatch blocks ONLY this task. Do not
                     // accidentally execute its next slot because the
                     // schedule cursor was advanced before a crash.
@@ -951,7 +991,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     var map=Owned(observed.MapId);
                     bool stillApproved=Locked(()=>Read().Jobs.Any(x=>
                         x.MapId==observed.MapId&&x.Kind==observed.Kind&&
-                        x.Enabled&&x.Fingerprint==observed.Fingerprint&&x.PostRestartWipe==observed.PostRestartWipe&&x.WipeDelaySeconds==observed.WipeDelaySeconds&&
+                        x.Enabled&&x.Revision==observed.Revision&&x.Fingerprint==observed.Fingerprint&&x.PostRestartWipe==observed.PostRestartWipe&&x.WipeDelaySeconds==observed.WipeDelaySeconds&&
                         x.LastClaimedUtc==now&&x.LastStatus=="claimed-no-auto-retry"));
                     if(stillApproved&&Eligible(map)&&Fingerprint(map)==observed.Fingerprint)
                     {
