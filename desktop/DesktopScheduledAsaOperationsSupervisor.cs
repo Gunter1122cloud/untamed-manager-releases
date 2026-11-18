@@ -315,7 +315,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             var state=Read();
             int ix=state.Jobs.FindIndex(j=>j.MapId==mapId&&j.Kind==kind);
             if(ix<0)throw new InvalidDataException("UM-ASA-SCHEDULE-NOT-FOUND");
-            var changed=state.Jobs[ix] with {Enabled=false,LastStatus="disabled"};
+            var item=state.Jobs[ix];
+            var changed=item with {Enabled=false,LastStatus=item.LastStatus=="claimed-no-auto-retry"?item.LastStatus:"disabled"};
             state.Jobs[ix]=changed;Write(state);return changed;
         });
     }

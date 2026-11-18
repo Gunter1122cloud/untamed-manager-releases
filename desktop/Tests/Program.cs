@@ -1312,6 +1312,13 @@ try
             Check(history.Any(x=>x.MapId==m1.Id&&x.Kind=="Restart")&&
                   history.Any(x=>x.MapId==m2.Id&&x.Kind=="Restart"&&!x.Enabled),
                 "native schedule journal retains both independent map identities");
+            var once=supervisor.Configure(m2.Id,"Restart","Once",1,240,127);
+            await supervisor.TickOnceAsync(once.NextDueUtc);
+            Check(!supervisor.Snapshot().Single(x=>x.MapId==m2.Id&&x.Kind=="Restart").Enabled,
+                "one-minute test Restart disables itself after its single durable execution");
+            int afterOnce=sent;
+            await supervisor.TickOnceAsync(once.NextDueUtc.AddSeconds(1));
+            Check(sent==afterOnce,"one-time schedule never replays the claimed slot");
         }
         using(var recovered=new DesktopScheduledAsaOperationsSupervisor(
             scheduleCluster,rcon,restarter,SyntheticRunner,_=>true))

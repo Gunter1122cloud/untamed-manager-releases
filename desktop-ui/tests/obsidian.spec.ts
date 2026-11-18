@@ -2347,15 +2347,17 @@ test.beforeEach(async ({ page }) => {
                 j.minuteOfDay===reboot.minuteOfDay&&Boolean(j.daysMask&reboot.daysMask))
               .map(()=>x.name));
           return {mapId:m.mapId,runnerState:"fixture-no-asareal",jobs,history:[],restartConflicts,
-            protectedStore:Boolean(map.storeProtected),autoUpdateAvailable:false,
+            protectedStore:Boolean(map.storeProtected),historicalSchedulingSupported:Boolean(map.storeProtected&&map.rconConfigured),canConfigure:!map.storeProtected||!!map.rconConfigured,autoUpdateAvailable:false,
             remoteExecutionAllowed:false};
         }
         case "schedule.nativeSet": {
           const map=state.local.maps.find(x=>x.id===m.mapId);
-          if(!map||map.storeProtected||!m.confirm||
+          if(!map||(map.storeProtected&&!map.rconConfigured)||!m.confirm||
             !["SaveWorld","Restart"].includes(m.kind??"")||
-            !["Interval","Daily"].includes(m.frequency??"")||
-            (m.kind==="Restart"&&m.frequency!=="Daily")||
+            !["Interval","Daily","Once"].includes(m.frequency??"")||
+            (m.kind==="Restart"&&m.frequency==="Interval")||
+            (m.frequency==="Once"&&![1,2].includes(m.intervalMinutes??0))||
+            (m.postRestartWipe&&(!map.storeProtected||m.kind!=="Restart"))||
             !Number.isInteger(m.minuteOfDay)||m.minuteOfDay!<0||m.minuteOfDay!>1439||
             !Number.isInteger(m.daysMask)||m.daysMask!<1||m.daysMask!>127)
             throw new Error("UM-ASA-SCHEDULE-NATIVE-DENIED");
@@ -2363,7 +2365,7 @@ test.beforeEach(async ({ page }) => {
           const jobs=nativeSchedules[id]??[];
           const next={mapId:id,kind:m.kind,frequency:m.frequency,
             intervalMinutes:m.intervalMinutes??120,minuteOfDay:m.minuteOfDay,
-            daysMask:m.daysMask,enabled:true,nextDueUtc:"2026-11-09T03:00:00Z",
+            daysMask:m.daysMask,postRestartWipe:!!m.postRestartWipe,enabled:true,nextDueUtc:"2026-11-09T03:00:00Z",
             lastClaimedUtc:null,lastStatus:"scheduled",lastEvidence:"",
             evidence:"DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY"};
           nativeSchedules[id]=[...jobs.filter(x=>x.kind!==m.kind),next];
@@ -3613,7 +3615,7 @@ test("map-only scheduling never exposes another local map's tasks",async({page})
   await expect(page.getByRole("button",{name:"Ellenőrzés bekapcsolása"})).toBeDisabled();
 });
 
-test("real native per-map SaveWorld and Restart schedule controls require opt-in",async({page})=>{
+test("real native per-map SaveWorld and Restart schedule controls save in one deliberate click",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
@@ -3624,12 +3626,12 @@ test("real native per-map SaveWorld and Restart schedule controls require opt-in
   await expect(panel.getByText("Még nincs végrehajtási esemény ezen a mapon.")).toBeVisible();
   const save=panel.getByRole("region",{name:"SaveWorld ütemezése"});
   const restart=panel.getByRole("region",{name:"Újraindítás ütemezése"});
-  await expect(save.getByRole("button",{name:"Ütemezés mentése"})).toBeDisabled();
-  await save.getByRole("checkbox",{name:/Kifejezetten jóváhagyom/}).check();
+  await expect(save.getByRole("button",{name:"Ütemezés mentése"})).toBeEnabled();
+  await expect(save.getByRole("checkbox",{name:/Kifejezetten jóváhagyom/})).toHaveCount(0);
   await save.getByRole("button",{name:"Ütemezés mentése"}).click();
   await expect(save.getByText("Bekapcsolva")).toBeVisible();
-  await expect(restart.getByRole("button",{name:"Ütemezés mentése"})).toBeDisabled();
-  await restart.getByRole("checkbox",{name:/Kifejezetten jóváhagyom/}).check();
+  await expect(restart.getByRole("button",{name:"Ütemezés mentése"})).toBeEnabled();
+  await expect(restart.getByRole("checkbox",{name:/Kifejezetten jóváhagyom/})).toHaveCount(0);
   await restart.getByRole("button",{name:"Ütemezés mentése"}).click();
   await expect(restart.getByText("Bekapcsolva")).toBeVisible();
   await expect(panel.getByText(/Automatikus SteamCMD-frissítés nem engedélyezett/)).toBeVisible();
@@ -3641,6 +3643,22 @@ test("real native per-map SaveWorld and Restart schedule controls require opt-in
   await expect(page.locator(".ops-summary")).toContainText("Natív ASA feladat");
 });
 
+
+test("pinned Store-v1 one-time Restart saves exact post-ready wild wipe setting without additional approval",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {__UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void}).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"Ütemező"}).click();
+  const restart=page.getByRole("region",{name:"Újraindítás ütemezése"});
+  await restart.getByRole("combobox",{name:"Újraindítás gyakoriság"}).selectOption("Once");
+  await restart.getByRole("combobox",{name:"Egyszeri próba késleltetése"}).selectOption("1");
+  await restart.getByRole("checkbox",{name:/Újraindítás után vad dinók/}).check();
+  await restart.getByRole("button",{name:"Ütemezés mentése"}).click();
+  await expect(restart.getByText("Bekapcsolva")).toBeVisible();
+  await expect(restart.getByRole("combobox",{name:"Újraindítás gyakoriság"})).toHaveValue("Once");
+  await expect(restart.getByRole("checkbox",{name:/Újraindítás után vad dinók/})).toBeChecked();
+});
 
 test("dashboard shows authenticated per-map ASA players and zero without inventing peer counts",async({page})=>{
   await page.setViewportSize({width:1600,height:900});

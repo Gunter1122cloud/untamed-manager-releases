@@ -31,7 +31,7 @@ function localDate(value:string|null|undefined){
 }
 type Draft={
   kind:NativeScheduleKind;frequency:NativeScheduleFrequency;
-  minutes:number;clock:string;daysMask:number;
+  minutes:number;clock:string;daysMask:number;postRestartWipe:boolean;
 };
 function parseClock(raw:string){
   const match=/^([01]\d|2[0-3]):([0-5]\d)$/.exec(raw);
@@ -43,7 +43,7 @@ function clockOf(minute:number){
 }
 function defaultDraft(kind:NativeScheduleKind):Draft{
   return {kind,frequency:kind==="Restart"?"Daily":"Interval",
-    minutes:120,clock:kind==="Restart"?"04:00":"03:00",daysMask:127};
+    minutes:120,clock:kind==="Restart"?"04:00":"03:00",daysMask:127,postRestartWipe:false};
 }
 function ScheduleEditor({mapId,kind,status,onChanged}:{
   mapId:string;kind:NativeScheduleKind;status:NativeAsaScheduleStatus;
@@ -51,35 +51,36 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
 }){
   const existing=status.jobs.find(j=>j.kind===kind);
   const [draft,setDraft]=useState<Draft>(()=>defaultDraft(kind));
-  const [approved,setApproved]=useState(false);
+  const canConfigure=status.canConfigure??!status.protectedStore;
+  const actionInFlight=useRef(false);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
   const [error,setError]=useState("");
   useEffect(()=>{
     setDraft(existing?{
       kind,frequency:existing.frequency,minutes:existing.intervalMinutes,
-      clock:clockOf(existing.minuteOfDay),daysMask:existing.daysMask
+      clock:clockOf(existing.minuteOfDay),daysMask:existing.daysMask,postRestartWipe:!!existing.postRestartWipe
     }:defaultDraft(kind));
-    setApproved(false);setMessage("");setError("");
+    setMessage("");setError("");
   },[mapId,kind,existing?.nextDueUtc,existing?.enabled]);
   const valid=parseClock(draft.clock)>=0 && draft.daysMask>0 &&
-    (draft.frequency!=="Interval"||
+    (draft.frequency==="Once"?[1,2].includes(draft.minutes):draft.frequency!=="Interval"||
       Number.isInteger(draft.minutes)&&draft.minutes>=15&&draft.minutes<=10080);
   const change=async(enable:boolean)=>{
-    if(!approved||busy||!valid||status.protectedStore)return;
+    if(actionInFlight.current||busy||(enable&&(!valid||!canConfigure)))return;
+    actionInFlight.current=true;
     setBusy(true);setMessage("");setError("");
     try{
       if(enable){
         await managerBridge.nativeScheduleSet(mapId,kind,draft.frequency,
-          draft.minutes,parseClock(draft.clock),draft.daysMask);
+          draft.minutes,parseClock(draft.clock),draft.daysMask,draft.postRestartWipe);
       }else await managerBridge.nativeScheduleDisable(mapId,kind);
-      setApproved(false);
       await onChanged();
       setMessage(enable?"A map ütemezése tartósan mentve.":"A map automatikus feladata kikapcsolva.");
     }catch(e){
       setError("A natív Manager nem fogadta el az ütemezést. "+
         (e instanceof Error?e.message:"Ellenőrizd a map állapotát."));
-    }finally{setBusy(false);}
+    }finally{actionInFlight.current=false;setBusy(false);}
   };
   return <section className="native-schedule-editor" aria-label={kind==="SaveWorld"?"SaveWorld ütemezése":"Újraindítás ütemezése"}>
     <header>
@@ -89,32 +90,40 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
         {existing?.enabled?"Bekapcsolva":"Kikapcsolva"}</span>
     </header>
     <div className="native-schedule-summary">
-      <div><span>Következő végrehajtás</span><strong>{existing?.enabled?localDate(existing.nextDueUtc):"Nincs beállítva"}</strong></div>
+      <div><span>Következő végrehajtás</span><strong>{existing?.lastStatus==="claimed-no-auto-retry"?"Folyamatban":existing?.enabled?localDate(existing.nextDueUtc):"Nincs beállítva"}</strong></div>
       <div><span>Utolsó végrehajtás</span><strong>{existing?.lastClaimedUtc?localDate(existing.lastClaimedUtc):"Még nem futott"}</strong></div>
       {existing?.lastClaimedUtc&&<p role="status">{existing.lastStatus} · {existing.lastEvidence||"Nincs független játékon belüli igazolás"}</p>}
     </div>
     <div className="native-schedule-controls">
-      {kind==="SaveWorld"&&<label>Gyakoriság
-        <select aria-label="SaveWorld gyakoriság" value={draft.frequency}
-          disabled={busy||status.protectedStore}
-          onChange={e=>setDraft(old=>({...old,frequency:e.target.value as NativeScheduleFrequency}))}>
-          <option value="Interval">Adott percenként</option><option value="Daily">Megadott napokon</option>
+      <label>Gyakoriság
+        <select aria-label={kind==="SaveWorld"?"SaveWorld gyakoriság":"Újraindítás gyakoriság"} value={draft.frequency}
+          disabled={busy||!canConfigure}
+          onChange={e=>setDraft(old=>({...old,frequency:e.target.value as NativeScheduleFrequency,
+            minutes:e.target.value==="Once"?2:e.target.value==="Interval"?Math.max(15,old.minutes):old.minutes}))}>
+          {kind==="SaveWorld"&&<option value="Interval">Adott percenként</option>}<option value="Daily">Megadott napokon</option>
+          <option value="Once">Egyszeri próba</option>
+        </select>
+      </label>
+      {draft.frequency==="Once"&&<label>Első és egyetlen esedékesség
+        <select aria-label="Egyszeri próba késleltetése" value={draft.minutes} disabled={busy||!canConfigure}
+          onChange={e=>setDraft(old=>({...old,minutes:Number(e.target.value)}))}>
+          <option value={1}>1 perc múlva</option><option value={2}>2 perc múlva</option>
         </select>
       </label>}
       {draft.frequency==="Interval"&&kind==="SaveWorld"&&<label>Ismétlés (perc)
         <input aria-label="SaveWorld gyakorisága percben" type="number" min={15} max={10080}
-          step={5} value={draft.minutes} disabled={busy||status.protectedStore}
+          step={5} value={draft.minutes} disabled={busy||!canConfigure}
           onChange={e=>setDraft(old=>({...old,minutes:Number(e.target.value)}))}/>
       </label>}
       {draft.frequency==="Daily"&&<label>Időpont (Budapest)
         <input aria-label={kind==="SaveWorld"?"SaveWorld időpont":"Újraindítás időpont"}
-          type="time" value={draft.clock} disabled={busy||status.protectedStore}
+          type="time" value={draft.clock} disabled={busy||!canConfigure}
           onChange={e=>setDraft(old=>({...old,clock:e.target.value}))}/>
       </label>}
       {draft.frequency==="Daily"&&<fieldset className="native-schedule-days">
         <legend>Napok</legend>
         {days.map(d=><label key={d.key} className={(draft.daysMask&(1<<d.key))?"selected":""}>
-          <input type="checkbox" aria-label={d.name+" nap"} disabled={busy||status.protectedStore}
+          <input type="checkbox" aria-label={d.name+" nap"} disabled={busy||!canConfigure}
             checked={Boolean(draft.daysMask&(1<<d.key))}
             onChange={e=>setDraft(old=>({...old,
               daysMask:e.target.checked?old.daysMask|(1<<d.key):old.daysMask&~(1<<d.key)
@@ -126,15 +135,16 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
     {kind==="Restart"&&status.restartConflicts.length>0&&<p className="native-schedule-warning">
       <AlertTriangle size={16}/> Azonos helyi időpont más mapokkal: {status.restartConflicts.join(", ")}.
       A natív végrehajtás sorban történik. Ez csak figyelmeztetés.</p>}
-    <label className="native-schedule-consent">
-      <input type="checkbox" checked={approved} disabled={busy||status.protectedStore}
-        onChange={e=>setApproved(e.target.checked)}/>
-      Kifejezetten jóváhagyom ennek a mapnak az automatikus {kind==="SaveWorld"?"RCON SaveWorld küldését":"SaveWorld → DoExit → indítás műveletét"}.
-    </label>
+    {kind==="Restart"&&status.historicalSchedulingSupported&&<label className="native-schedule-consent">
+      <input type="checkbox" checked={draft.postRestartWipe} disabled={busy||!canConfigure}
+        onChange={e=>setDraft(old=>({...old,postRestartWipe:e.target.checked}))}/>
+      Újraindítás után vad dinók törlése (DestroyWildDinos) – csak az új saját ASA PID és játékosfogadási napló igazolása után
+    </label>}
+    <p className="muted small">A mentés a kijelölt map automatikus {kind==="SaveWorld"?"SaveWorld":"SaveWorld → DoExit → Start"} feladatát aktiválja. {draft.frequency==="Once"?"Az egyszeri próba nem ismétlődik.":""}</p>
     <div className="native-schedule-buttons">
-      <button type="button" className="primary" disabled={!approved||!valid||busy||status.protectedStore}
+      <button type="button" className="primary" disabled={!valid||busy||!canConfigure}
         onClick={()=>{void change(true);}}>{busy?"Mentés...":"Ütemezés mentése"}</button>
-      <button type="button" className="secondary" disabled={!approved||!existing?.enabled||busy||status.protectedStore}
+      <button type="button" className="secondary" disabled={!existing?.enabled||busy}
         onClick={()=>{void change(false);}}>Kikapcsolás</button>
     </div>
     {error&&<p className="error-inline" role="alert">{error}</p>}
@@ -231,11 +241,12 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
       <button type="button" className="secondary" disabled={busy}
         onClick={()=>{void reload();}}><RefreshCw size={15}/> Frissítés</button>
     </div>
-    <p className="muted small">A feladatok a helyi Windows Managerben futnak. Csak előzetesen jóváhagyott, új, nem Store-v1 ASA telepítésen aktiválhatók. Kimaradt vagy megszakadt műveletet nem indítanak újra automatikusan.</p>
+    <p className="muted small">A feladatok a helyi Windows Managerben futnak. Bizonyított saját ASA telepítésen és ellenőrzött, átvett Store-v1 mapon aktiválhatók. Kimaradt vagy megszakadt műveletet nem indítanak újra automatikusan.</p>
     {error&&<p role="alert" className="error-inline">{error}</p>}
     {!status&&!error&&<p>Helyi ütemezések ellenőrzése...</p>}
-    {status?.protectedStore&&<p className="native-schedule-warning"><Shield size={17}/>
-      Store-v1 vagy történeti karakteradat-védelem: automatikus RCON és restart tiltva.</p>}
+    {status?.protectedStore&&!status.historicalSchedulingSupported&&<p className="native-schedule-warning"><Shield size={17}/>
+      Az átvett Store-v1 map helyi forrása vagy RCON-beállítása nem igazolt az ütemezőhöz.</p>}
+    {status?.historicalSchedulingSupported&&<p className="muted small">Megőrzött Store-v1: támogatott helyi ütemezés, a közös cluster változatlan marad.</p>}
     {status?.blockedScope!=="none"&&status?.blockedScope&&
       <p className="native-schedule-warning" role="status">
         <AlertTriangle size={16}/> Blokkolás hatóköre: {status.blockedScope==="task"?

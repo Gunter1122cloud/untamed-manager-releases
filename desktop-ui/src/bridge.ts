@@ -53,10 +53,10 @@ export type MapMaintenanceStatus={
   evidence:"PERSISTED_LOCAL_MANAGER_MAINTENANCE_ONLY";
 };
 export type NativeScheduleKind = "SaveWorld"|"Restart";
-export type NativeScheduleFrequency = "Interval"|"Daily";
+export type NativeScheduleFrequency = "Interval"|"Daily"|"Once";
 export type NativeAsaScheduleTask = {
   mapId:string;kind:NativeScheduleKind;frequency:NativeScheduleFrequency;
-  intervalMinutes:number;minuteOfDay:number;daysMask:number;
+  intervalMinutes:number;minuteOfDay:number;daysMask:number;postRestartWipe?:boolean;
   enabled:boolean;nextDueUtc:string;lastClaimedUtc:string|null;
   lastStatus:string;lastEvidence:string;
   evidence:"DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY";
@@ -76,7 +76,7 @@ export type NativeAsaScheduleStatus={
   history:NativeAsaExecutionEntry[];
   unknownRunIds:string[];blockedScope:"none"|"task"|"supervisor";
   supportedNextAction:string;
-  restartConflicts:string[];protectedStore:boolean;
+  restartConflicts:string[];protectedStore:boolean;canConfigure?:boolean;historicalSchedulingSupported?:boolean;
   autoUpdateAvailable:false;remoteExecutionAllowed:false;
 };
 export type NativeScheduleReviewPreview={
@@ -1798,7 +1798,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
    confirm?: boolean; ackUnknownOutcome?:boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; runId?:string; journalId?:string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
-  intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;
+  intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;postRestartWipe?:boolean;
   gamePort?: number; queryPort?: number; customLevel?: string; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
@@ -2108,9 +2108,9 @@ export const managerBridge = {
     request<NativeScheduleResumeReceipt>("schedule.nativeResume",{mapId,confirm:true}),
   nativeScheduleSet: (mapId:string,kind:NativeScheduleKind,
       frequency:NativeScheduleFrequency,intervalMinutes:number,
-      minuteOfDay:number,daysMask:number) =>
+      minuteOfDay:number,daysMask:number,postRestartWipe=false) =>
     request<NativeAsaScheduleSaved>("schedule.nativeSet",{
-      mapId,kind,frequency,intervalMinutes,minuteOfDay,daysMask,confirm:true
+      mapId,kind,frequency,intervalMinutes,minuteOfDay,daysMask,postRestartWipe,confirm:true
     }),
   nativeScheduleDisable: (mapId:string,kind:NativeScheduleKind) =>
     request<NativeAsaScheduleTask>("schedule.nativeDisable",{
