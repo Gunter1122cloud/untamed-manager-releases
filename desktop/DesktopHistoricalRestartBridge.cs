@@ -99,6 +99,15 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             // or WebView-supplied launch arguments are reused.
             var plan=LegacyStoreV1NativeStartPlanner.Prepare(
                 cluster,map,restartId);
+            // Confirm the planner actually consumed the synchronized
+            // profile rather than an obsolete immutable source list.
+            string launchExe=map.StartWithAsaApi?map.ApiLoaderPath:map.ExecutablePath;
+            var plannedMods=LegacyStoreV1ProcessObserver.ReadVerifiedModOrder(
+                "\""+launchExe+"\" "+plan.Arguments,launchExe,map);
+            var configured=ModStateController.Read(map);
+            if(!configured.EnabledOrder.SequenceEqual(plannedMods.Enabled)||
+               !configured.Passive.SequenceEqual(plannedMods.Passive))
+                throw new InvalidDataException("UM-ORIGINAL-RESTART-PLAN-MODS-MISMATCH");
             report("Eredeti ACTIVE Store indítási állapot újraellenőrizve");
             return cluster.LaunchOriginalActiveStoreAsa(
                 mapId,plan.Fingerprint,true,restartId);
@@ -279,13 +288,14 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     if(nativeLauncher)
                     {
                         observedMods=LegacyStoreV1ProcessObserver.CaptureVerifiedModOrder(
-                            map,cluster.Config.LocalMaps,owned.Process);
+                            cluster,map,owned.Process);
                         selectedMods=LegacyStoreV1ProcessObserver.SelectRestartMods(map,observedMods);
                         var saved=ModStateController.Read(map);
                         // The legacy fallback builds from immutable original
                         // source lists. Never stop a map whose intended next
                         // list cannot be honored by that launch planner.
-                        if((!saved.EnabledOrder.SequenceEqual(selectedMods.Enabled)||
+                        if((map.ModChangesPending||
+                            !saved.EnabledOrder.SequenceEqual(selectedMods.Enabled)||
                             !saved.Passive.SequenceEqual(selectedMods.Passive))&&
                            !LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,map))
                             return Fail(id,"UM-ORIGINAL-RESTART-MOD-SYNC-REQUIRES-PIN");
@@ -348,7 +358,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     if(approved.LiveMods!=null)
                     {
                         var currentMods=LegacyStoreV1ProcessObserver.CaptureVerifiedModOrder(
-                            original,cluster.Config.LocalMaps,underLease.Process);
+                            cluster,original,underLease.Process);
                         if(!approved.LiveMods.Same(currentMods)||approved.RestartMods==null||
                            !approved.RestartMods.Same(LegacyStoreV1ProcessObserver.SelectRestartMods(original,currentMods)))
                             return Fail(id,"UM-ORIGINAL-RESTART-LIVE-MODS-CHANGED");
@@ -388,8 +398,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         // a fallback launch from the stale profile.
                         if(approved.RestartMods!=null)
                         {
-                            using var modLease=cluster.Operations.Acquire(
-                                original.InstallationPath,UntamedOperationKind.Configuration);
+                            using var modLease=cluster.Operations.AcquireMany(
+                                new[]{cluster.Store.Root,original.InstallationPath},
+                                UntamedOperationKind.Configuration);
                             if(JsonSerializer.Serialize(original)!=approved.Profile)
                                 throw new InvalidDataException("UM-ORIGINAL-RESTART-MAP-CHANGED");
                             var target=approved.RestartMods;

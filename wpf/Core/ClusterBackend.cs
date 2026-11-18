@@ -1861,6 +1861,13 @@ public sealed partial class ClusterService : IAsyncDisposable
             map.LastProcess=redacted;
             map.LastLoader=null;
         }
+        // A pending mod draft means "not yet submitted at launch", not
+        // proof a mod downloaded or loaded in game. Clear it ONLY after
+        // Process.Start returned the exact planned arguments and those
+        // arguments match the saved ordered configuration.
+        if(map.ModChangesPending&&LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
+            "\""+expectedExe+"\" "+started.Arguments,expectedExe,map))
+            map.ModChangesPending=false;
         Save();
         lease.Complete();
         return redacted;

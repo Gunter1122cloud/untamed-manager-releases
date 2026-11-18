@@ -47,7 +47,11 @@ public static class LegacyStoreV1ProcessObserver
     }
 
     public static bool MatchesOriginalActiveCommand(string? commandLine,
-        string expectedExe,LocalMap map,bool observeLiveMods=false)
+        string expectedExe,LocalMap map)=>
+        MatchesOriginalActiveCommand(commandLine,expectedExe,map,false);
+
+    public static bool MatchesOriginalActiveCommand(string? commandLine,
+        string expectedExe,LocalMap map,bool observeLiveMods)
     {
         if(map==null||!map.HistoricalStoreProtected||
            string.IsNullOrWhiteSpace(map.HistoricalMapKey) ||
@@ -395,10 +399,10 @@ public static class LegacyStoreV1ProcessObserver
     // Caller already proved the original source and RCON owner. Fetch the
     // full observed family again and pin the source command to its actual
     // PID, executable and creation time. Never persist the command line.
-    internal static LiveModOrder CaptureVerifiedModOrder(LocalMap map,
-        IEnumerable<LocalMap> maps,ProcessIdentity approved)
+    internal static LiveModOrder CaptureVerifiedModOrder(ClusterService cluster,
+        LocalMap map,ProcessIdentity approved)
     {
-        var observed=Observe(map,maps);
+        var observed=Observe(map,cluster.Config.LocalMaps);
         if(!observed.Running||observed.Identity is not { } server||
            server.Pid!=approved.Pid||server.StartedUtc!=approved.StartedUtc||
            !string.Equals(server.ExecutablePath,approved.ExecutablePath,StringComparison.OrdinalIgnoreCase))
@@ -426,7 +430,27 @@ public static class LegacyStoreV1ProcessObserver
         if(count!=1||command==null||process.HasExited||
            new DateTimeOffset(process.StartTime.ToUniversalTime())!=source.StartedUtc)
             throw new InvalidDataException("UM-ORIGINAL-RESTART-LIVE-MODS-UNVERIFIED");
-        return ReadVerifiedModOrder(command,source.ExecutablePath,map);
+        // Pin the actual runtime cluster/transfer arguments to the approved
+        // map's original source, even when an older profile omits the
+        // explicit runtime override fields. Never trust a path merely
+        // because it was present on a running command line.
+        LocalMap expected=map;
+        if(LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,map))
+        {
+            var pinned=LegacyStoreV1PinnedSource.Resolve(cluster.Store.Root,
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"Kova"),map);
+            var identity=LegacyStoreV1PinnedSource.ReadOriginalCluster(pinned);
+            expected=System.Text.Json.JsonSerializer.Deserialize<LocalMap>(
+                System.Text.Json.JsonSerializer.Serialize(map))??
+                throw new InvalidDataException("UM-ORIGINAL-RESTART-MOD-CLONE");
+            if(string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)&&
+                string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory))
+            {
+                expected.HistoricalRuntimeClusterId=identity.RuntimeClusterId;
+                expected.HistoricalRuntimeTransferDirectory=identity.TransferRoot;
+            }
+        }
+        return ReadVerifiedModOrder(command,source.ExecutablePath,expected);
     }
 
     // The saved next-start draft wins only when explicitly marked pending.
@@ -507,6 +531,7 @@ public static class LegacyStoreV1ProcessObserver
             var loaderProcesses=new List<ObservedProcess>();
             var unparameterizedApiChildren=new List<(ObservedProcess Process,string Command)>();
             var loaderCommands=new Dictionary<int,string>();
+            var directServerCommands=new Dictionary<int,string>();
             bool uncertain=false,modDrift=false;
             using var searcher=new ManagementObjectSearcher(
                 "SELECT ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine FROM Win32_Process");
@@ -566,7 +591,11 @@ public static class LegacyStoreV1ProcessObserver
                         loaderCommands.Add(pid,command);
                     }
                     else if(childOnly)unparameterizedApiChildren.Add((observed,command));
-                    else serverProcesses.Add(observed);
+                    else
+                    {
+                        serverProcesses.Add(observed);
+                        directServerCommands.Add(pid,command);
+                    }
                 }
                 catch(Exception)
                 {uncertain=true;}
@@ -649,6 +678,13 @@ public static class LegacyStoreV1ProcessObserver
                 new[]{parent,child},parentIdentity,childIdentity))
                 return new(false,
                     "ASA API Loader szülő–gyermek PID kapcsolat nem igazolt",null);
+            // A child with its own complete source grammar must agree with
+            // the verified parent's live lists. Relaxation is relative to
+            // the saved draft, never between members of the active family.
+            if(directServerCommands.TryGetValue(child.Pid,out var directCommand)&&
+               !ReadVerifiedModOrder(directCommand,exe,map).Same(
+                   ReadVerifiedModOrder(loaderCommands[parent.Pid],loader,map)))
+                return new(false,"ASA API Loader és gyermek modlistája eltér",null);
             // The child is the only ASA/RCON owner. The Loader PID must never
             // be reported as a running ASA server or used for SaveWorld/Stop.
             childIdentity.Arguments="HISTORICAL_STORE_V1_API_CHILD_VERIFIED";

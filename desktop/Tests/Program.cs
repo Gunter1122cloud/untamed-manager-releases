@@ -788,6 +788,8 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
         pendingMods.Passive.SequenceEqual(new[]{"123456"})&&!pendingMods.Same(capturedMods),
         "explicit pending next-start mod draft wins over observed running list");
     historicCommandMap.ModChangesPending=false;
+    Check(LegacyStoreV1ProcessObserver.SelectRestartMods(historicCommandMap,capturedMods).Same(capturedMods),
+        "after a submitted draft is cleared, a later external mod change may become the next restart baseline");
     string driftLoader=Path.Combine(Path.GetDirectoryName(observedExe)!,"AsaApiLoader.exe");
     string driftLoaderCommand=changedMods.Replace(observedExe,driftLoader,StringComparison.Ordinal);
     var driftParentStart=DateTimeOffset.UtcNow.AddMinutes(-2);
