@@ -513,6 +513,7 @@ public sealed class DesktopWorldBackupBridge
                         lastPoint=row?.LastPoint,
                         runnerState=scheduled.RuntimeState,
                         storeProtected=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(owned),
+                        canSchedule=scheduled.CanSchedule(owned),
                         automaticRestoreAllowed=false,
                         automaticServerStopAllowed=false,
                         evidence="PERSISTED_OPT_IN_STOPPED_NONSTORE_WORLD_BACKUPS"

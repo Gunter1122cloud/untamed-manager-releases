@@ -182,6 +182,21 @@ public sealed class DesktopObsidianUpdateInstallBridge
                         StringComparison.OrdinalIgnoreCase))
                         return Error(id,"UM-UPDATE-INSTALLER-CHANGED");
                 }
+                // Revalidate the CURRENT configured publisher before handoff,
+                // not just the optional pin observed during preparation.
+                string publisher=cluster?.Config.PublisherCertificateThumbprint??"";
+                if(!string.IsNullOrWhiteSpace(publisher))
+                    UpdateCenter.CheckAuthenticodePublisher(saved.Package,publisher);
+                if(cluster!=null)
+                {
+                    foreach(var map in cluster.Config.LocalMaps)
+                    {
+                        if(string.IsNullOrWhiteSpace(map.InstallationPath))continue;
+                        var op=cluster.Operations.Observe(map.InstallationPath);
+                        if(op?.Phase is UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
+                            return Error(id,"UM-UPDATE-LOCAL-OPERATION-PENDING");
+                    }
+                }
                 string stagedHelper=UpdateCenter.StageUpdater(saved.Helper);
                 string backup=Path.Combine(UpdateCenter.UpdateRoot,
                     "rollback-"+DateTime.UtcNow.ToString("yyyyMMddHHmmss")+

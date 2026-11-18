@@ -43,7 +43,8 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
         Func<LocalMap,ProcessCheck>? processInspector=null)
     {
         cluster=source??throw new ArgumentNullException(nameof(source));
-        inspect=processInspector??(map=>new WindowsProcessInspector().InspectFamily(map));
+        inspect=processInspector??(map=>map.HistoricalStoreProtected?
+            cluster.ObserveLocalProcessesReadOnly(map):new WindowsProcessInspector().InspectFamily(map));
         string root=cluster.Store.Root;
         if(string.IsNullOrWhiteSpace(root)||!Path.IsPathFullyQualified(root)||
            root.StartsWith(@"\\",StringComparison.Ordinal))
@@ -62,6 +63,15 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
         Locked(()=>{_ = Read();return true;});
     }
 
+    internal bool CanSchedule(LocalMap map)
+    {
+        if(map.ObservedReadOnlyImported||!string.IsNullOrWhiteSpace(map.StoreTestRoot))return false;
+        if(!UntamedWorldBackup.HasLiveOrHistoricalStore(map))return true;
+        if(!map.HistoricalStoreProtected)return false;
+        try{return LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,map);}
+        catch(Exception){return false;}
+    }
+
     private static string Fingerprint(LocalMap map)
     {
         // Reconfiguration cannot silently redirect an enabled task to a
@@ -70,6 +80,8 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
             Path.GetFullPath(map.InstallationPath).ToUpperInvariant()+"\n"+
             UntamedWorldBackup.MapKey(map)+"\n"+(map.Arguments??"")+"\n"+
             (map.ApiLoaderArguments??"");
+        if(map.HistoricalStoreProtected)source+="\n"+map.HistoricalArchiveSha256+"\n"+map.HistoricalMapKey+
+            "\n"+map.HistoricalRuntimeClusterId+"\n"+map.HistoricalRuntimeTransferDirectory;
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source)));
     }
 
@@ -166,7 +178,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
         if(intervalMinutes is <60 or >10080)
             throw new InvalidDataException("UM-SCHEDULED-BACKUP-INTERVAL");
         var map=Owned(mapId);
-        if(UntamedWorldBackup.HasLiveOrHistoricalStore(map))
+        if(!CanSchedule(map))
             throw new UnauthorizedAccessException("UM-SCHEDULED-BACKUP-STORE-V1-DENIED");
         AsaSaveLayoutResolver.DemandUniqueOwner(map,cluster.Config.LocalMaps);
         string fingerprint=Fingerprint(map);
@@ -239,7 +251,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                 {
                     var map=Owned(observed.MapId);
                     if(Fingerprint(map)!=observed.MapFingerprint ||
-                       UntamedWorldBackup.HasLiveOrHistoricalStore(map))
+                       !CanSchedule(map))
                         result="config-or-store-blocked";
                     else if(map.Maintenance||
                             UntamedWorldBackup.InstallationRecoveryRequired(map))
@@ -256,7 +268,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                             var current=Owned(observed.MapId);
                             if(Fingerprint(current)!=observed.MapFingerprint||
                                current.Maintenance||
-                               UntamedWorldBackup.HasLiveOrHistoricalStore(current)||
+                               !CanSchedule(current)||
                                UntamedWorldBackup.InstallationRecoveryRequired(current))
                                 throw new InvalidOperationException(
                                     "UM-SCHEDULED-BACKUP-STATE-CHANGED");
@@ -279,7 +291,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                             // Core re-checks stop state before and after copy.
                             // It only writes a new verified local archive.
                             var saved=UntamedWorldBackup.Create(map,cluster.Store.Root,
-                                SafeInspection);
+                                SafeInspection,operationCoordinator:cluster.Operations);
                             point=saved.Id;
                             result="verified-backup-created";
                         }

@@ -106,7 +106,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     return ()=>{active=false;};
   },[chosen]);
   const changeSchedule=async(enable:boolean)=>{
-    if(!current||!scheduleConfirm||scheduleBusy)return;
+    if(!current||!scheduleConfirm||scheduleBusy||(enable&&!(scheduled?.canSchedule??!current.storeProtected)))return;
     const requestedMap=chosen;
     setScheduleBusy(true);setScheduleNotice("");
     try{
@@ -116,7 +116,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
       if(selectedRef.current!==requestedMap)return;
       setScheduled(result);setScheduleConfirm(false);
       setScheduleNotice(enable?
-        "Ütemezés bekapcsolva. Mentés csak igazoltan leállított, nem Store-v1 mapnál készül.":
+        "Ütemezés bekapcsolva. Mentés csak igazoltan leállított, helyben azonosított mapnál készül.":
         "Az ütemezés kikapcsolva. Meglévő archívum nem törlődött.");
     }catch(e){
       if(selectedRef.current===requestedMap)setScheduleNotice("Ütemezés nem módosítható: "+
@@ -442,7 +442,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
           <b>Automatikus mentés – csak leállított helyi mapról</b>
           <p>Az engedélyezett időpontban a Manager ellenőrzi, hogy az ASA map igazoltan leállt-e.
             Futó vagy bizonytalan állapotú mapot kihagy; nem küld SaveWorld/RCON parancsot, nem állítja le,
-            nem indítja újra és nem állítja vissza a szervert. Store-v1 mapokra nem engedélyezhető.
+            nem indítja újra és nem állítja vissza a szervert. Átvett Store-v1 mapnál a helyi, jóváhagyott forrásazonosság is szükséges. Ez világmentés, nem teljes clustermentés.
             A mentések külön SHA-256 archívumba kerülnek, automatikus törlés nélkül.</p>
           {scheduled&&<p role="status">
             Állapot: <b>{scheduled.enabled?"Bekapcsolva":"Kikapcsolva"}</b>
@@ -454,7 +454,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
           <label>Ismétlés percben (60–10080)
             <input aria-label="Automatikus mentés időköze percben" type="number"
               min={60} max={10080} step={30} value={scheduleMinutes}
-              disabled={scheduleBusy||Boolean(current?.storeProtected)}
+              disabled={scheduleBusy||!(scheduled?.canSchedule??!current?.storeProtected)}
               onChange={e=>setScheduleMinutes(Number(e.target.value))}/>
           </label>
           <label><input aria-label="Automatikus mentés jóváhagyása" type="checkbox"
@@ -464,7 +464,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
           {scheduleNotice&&<p role="status">{scheduleNotice}</p>}
         </div>
         <button type="button" className="primary" disabled={scheduleBusy||!scheduleConfirm||
-          !scheduled||Boolean(current?.storeProtected)||!Number.isInteger(scheduleMinutes)||
+          !scheduled||!(scheduled.canSchedule??!current?.storeProtected)||!Number.isInteger(scheduleMinutes)||
           scheduleMinutes<60||scheduleMinutes>10080}
           onClick={()=>{void changeSchedule(true);}}>Mentés ütemezése</button>
         <button type="button" className="secondary" disabled={scheduleBusy||!scheduleConfirm||!scheduled?.enabled}

@@ -49,16 +49,26 @@ public static class UpdateCenter
     {
         if(!Uri.TryCreate(release.AssetUrl,UriKind.Absolute,out var uri) || uri.Scheme!="https" ||
            uri.Host!="github.com")throw new InvalidDataException("Update must originate from GitHub HTTPS");
+        if(string.IsNullOrWhiteSpace(release.AssetName)||Path.GetFileName(release.AssetName)!=release.AssetName||
+           release.AssetName.IndexOfAny(Path.GetInvalidFileNameChars())>=0||release.AssetName is "." or "..")
+            throw new InvalidDataException("Invalid update asset name");
+        if(release.Sha256.Length!=64||!release.Sha256.All(Uri.IsHexDigit))
+            throw new InvalidDataException("Invalid release digest");
+        destinationDirectory=Path.GetFullPath(destinationDirectory);
+        for(var dir=new DirectoryInfo(destinationDirectory);dir!=null;dir=dir.Parent)
+            if(dir.Exists&&(dir.Attributes&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("Linked update staging directory refused");
         Directory.CreateDirectory(destinationDirectory);
         string final=Path.Combine(destinationDirectory,release.AssetName);
-        string temp=final+".download";
+        string temp=final+"."+Guid.NewGuid().ToString("N")+".part";
         try
         {
             using var response=await Client.GetAsync(uri,HttpCompletionOption.ResponseHeadersRead,cancellationToken);
             response.EnsureSuccessStatusCode();
             long? size=response.Content.Headers.ContentLength;
+            if(size is <=0 or >700_000_000)throw new InvalidDataException("Invalid installer content length");
             using var source=await response.Content.ReadAsStreamAsync(cancellationToken);
-            await using(var output=new FileStream(temp,FileMode.Create,FileAccess.Write,FileShare.None,65536,true))
+            await using(var output=new FileStream(temp,FileMode.CreateNew,FileAccess.Write,FileShare.None,65536,true))
             {
                 byte[] buffer=new byte[65536];
                 long received=0;
@@ -69,6 +79,8 @@ public static class UpdateCenter
                     received+=count;progress?.Report((received,size));
                     if(received>700_000_000)throw new InvalidDataException("Installer exceeds size limit");
                 }
+                if(received<=0||(size.HasValue&&received!=size.Value))throw new InvalidDataException("Incomplete installer download");
+                await output.FlushAsync(cancellationToken);output.Flush(true);
             }
             await using(var stream=new FileStream(temp,FileMode.Open,FileAccess.Read,FileShare.Read,65536,true))
             {
@@ -77,6 +89,9 @@ public static class UpdateCenter
                     Convert.FromHexString(actual),Convert.FromHexString(release.Sha256)))
                     throw new InvalidDataException("GitHub SHA-256 digest mismatch. Update cancelled.");
             }
+            cancellationToken.ThrowIfCancellationRequested();
+            if(File.Exists(final)&&(File.GetAttributes(final)&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("Linked installed staging file refused");
             File.Move(temp,final,true);return final;
         }
         finally {try{if(File.Exists(temp))File.Delete(temp);}catch{}}

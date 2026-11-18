@@ -807,7 +807,7 @@ export type ScheduledStoppedBackupState={
   mapId:string;mapName:string;enabled:boolean;
   intervalMinutes:number|null;nextDueUtc:string|null;
   lastAttemptUtc:string|null;lastStatus:string;lastPoint:string|null;
-  runnerState:string;storeProtected:boolean;
+  runnerState:string;storeProtected:boolean;canSchedule?:boolean;
   automaticRestoreAllowed:false;automaticServerStopAllowed:false;
   evidence:"PERSISTED_OPT_IN_STOPPED_NONSTORE_WORLD_BACKUPS";
 };
