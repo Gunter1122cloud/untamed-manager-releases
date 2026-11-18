@@ -302,6 +302,22 @@ internal static class OriginalKovaDirectImportTests
                         GamePort=row.GamePort!.Value,QueryPort=row.QueryPort!.Value,
                         HistoricalEnabledMods=row.EnabledMods!.ToList(),HistoricalPassiveMods=row.PassiveMods!.ToList()};
                     var registry=recovered.Registry.Snapshot();
+                    bool rejectedStale=false;
+                    try{recovered.RegisterSupplementalHistoricalMap(map,VaultProtocol.ClusterId,originalCluster.path,registry.Revision-1);}
+                    catch(InvalidOperationException e) when(e.Message=="UM-STORE-EXTRA-REGISTRY-CHANGED"){rejectedStale=true;}
+                    int originalGamePort=map.GamePort;
+                    map.GamePort=recovered.Config.LocalMaps[0].GamePort;
+                    bool rejectedPort=false;
+                    try{recovered.RegisterSupplementalHistoricalMap(map,VaultProtocol.ClusterId,originalCluster.path,registry.Revision);}
+                    catch(InvalidDataException e) when(e.Message=="UM-STORE-EXTRA-PORT-CONFLICT"){rejectedPort=true;}
+                    map.GamePort=originalGamePort;
+                    bool rejectedCluster=false;
+                    try{recovered.RegisterSupplementalHistoricalMap(map,VaultProtocol.ClusterId,originalCluster.path+"-wrong",registry.Revision);}
+                    catch(InvalidDataException e) when(e.Message=="UM-STORE-EXTRA-CLUSTER-MISMATCH"){rejectedCluster=true;}
+                    Check(rejectedStale&&rejectedPort&&rejectedCluster&&
+                        recovered.Config.LocalMaps.Count==5&&
+                        registry.Revision==recovered.Registry.Snapshot().Revision,
+                        "stale revision, conflicting UDP port and wrong transfer root cannot publish a supplemental profile");
                     recovered.RegisterSupplementalHistoricalMap(map,VaultProtocol.ClusterId,originalCluster.path,registry.Revision);
                     Check(recovered.Config.LocalMaps.Count==6&&
                         recovered.Registry.Snapshot().ClusterRegistry.MapAssignments.Any(x=>x.MapId==map.Id)&&
@@ -323,6 +339,14 @@ internal static class OriginalKovaDirectImportTests
                         LegacyStoreV1PinnedSource.HasApprovedLocalSource(reopened.Store.Root,map)&&
                         reopened.Registry.Snapshot().ClusterRegistry.MapAssignments.Any(x=>x.MapId==map.Id),
                         "restart retains audited Event registration and exact original GUID");
+                    // Runtime source proof must resolve the registered supplemental pin,
+                    // not fall back to the five-map peer writer selection or a remote share.
+                    var fingerprint=LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                        reopened.Store.Root,Path.Combine(baseRoot,"removed-legacy-profile"),map);
+                    Check(fingerprint.Length==64&&fingerprint.All(Uri.IsHexDigit)&&
+                        ModStateController.Read(map).EnabledOrder.SequenceEqual(new[]{"123456789","987654321"})&&
+                        ModStateController.Read(map).Passive.SequenceEqual(new[]{"123456789"}),
+                        "reopened Event resolves a local lifecycle source fingerprint with exact enabled/passive mods");
                 }
                 SetExpanded();
                 // Even if an expanded current cluster is represented in a
