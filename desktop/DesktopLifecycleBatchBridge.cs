@@ -362,12 +362,14 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                         var result=await execute(plan.MapId,approved.Action,plan.Historical,ct);
                         Set(i,"completed",approved.Action=="stop"?"NATIVE_STOP_RECEIPT":
                             "NEW_PID_AND_RCON_READY_GAME_CLIENT_UNVERIFIED",result.JobId);
+                        DesktopDiscordNotifications.Record(cluster,plan.MapId,"lifecycle",false);
                     }
                     catch(Exception ex)
                     {
                         Set(i,"unknown",NativeLifecycleFailureCode.From(ex));
                         for(int j=i+1;j<approved.Plans.Length;j++)Set(j,"skipped","HALTED_AFTER_UNCERTAIN_NATIVE_OPERATION");
-                        receipt=receipt with{State="needsReview",UpdatedUtc=DateTimeOffset.UtcNow};Write(receipt);return;
+                        receipt=receipt with{State="needsReview",UpdatedUtc=DateTimeOffset.UtcNow};Write(receipt);
+                        DesktopDiscordNotifications.Record(cluster,plan.MapId,"lifecycle",true);return;
                     }
                     if(i+1<approved.Plans.Length&&approved.DelaySeconds>0)
                         await Task.Delay(TimeSpan.FromSeconds(approved.DelaySeconds),ct);

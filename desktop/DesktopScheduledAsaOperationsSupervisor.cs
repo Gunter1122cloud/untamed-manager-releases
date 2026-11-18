@@ -1033,6 +1033,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                             }
                             return true;
                         });
+                        DesktopDiscordNotifications.Record(cluster,observed.MapId,"schedule",status!="executed-no-fsync-or-client-certification");
                     }
                     catch
                     {

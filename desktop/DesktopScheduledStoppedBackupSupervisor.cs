@@ -371,6 +371,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                     }
                     return true;
                 });
+                DesktopDiscordNotifications.Record(cluster,observed.MapId,"backup",result is not ("verified-backup-created" or "verified-full-local-backup-created"));
             }
             return Snapshot();
         }

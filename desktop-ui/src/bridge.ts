@@ -102,6 +102,7 @@ export type NativeAsaScheduleSaved={
   job:NativeAsaScheduleTask;restartConflicts:string[];
 };
 
+export type DiscordNotificationStatus={configured:boolean;categories:string[];warningsOnly:boolean;lastStatus:string;lastAttemptUtc:string|null;cooldownUntilUtc:string};
 export type LifecycleBatchAction="start"|"stop"|"restart";
 export type LifecycleBatchPreview={token:string;action:LifecycleBatchAction;delaySeconds:number;maps:Array<{mapId:string;mapName:string}>;remoteExecutionAllowed:false};
 export type LifecycleBatchReceipt={jobId:string;action:LifecycleBatchAction;state:"running"|"completed"|"needsReview"|"reviewed";createdUtc:string;updatedUtc:string;
@@ -1720,6 +1721,7 @@ export type ConfiguredMods = {
 
 type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
   "operations.scheduleCreate" | "operations.scheduleDisable" | "operations.watchdogStart" |
+  "notifications.status" | "notifications.save" | "notifications.clear" | "notifications.test" |
   "operations.lifecycleBatchPreview" | "operations.lifecycleBatchApply" | "operations.lifecycleBatchCurrent" | "operations.lifecycleBatchReview" |
   "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" |
   "schedule.nativeReviewPreview" | "schedule.nativeReviewApply" |
@@ -1799,6 +1801,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   peerAction?:"upsert"|"remove";
   mapId?: string; useApi?:boolean; term?: string; page?: number; credential?: string;
+  categories?:string[];warningsOnly?:boolean;
   offset?:number;limit?:number;snapshotKey?:string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode | ModCopyMode;
   position?: number; sourceMapId?:string;targets?:string[]; expectedPeerHostId?:string;
@@ -1920,6 +1923,10 @@ export const managerBridge = {
     request<LanPhysicalStoreProbe>("lan.physicalStoreProbe"),
   lanHistoricalSaveProbe: () =>
     request<LanHistoricalSaveProbe>("lan.historicalSaveProbe"),
+  notificationsStatus:()=>request<DiscordNotificationStatus>("notifications.status"),
+  notificationsSave:(credential:string,categories:string[],warningsOnly:boolean)=>request<DiscordNotificationStatus>("notifications.save",{credential,categories,warningsOnly,confirm:true}),
+  notificationsClear:()=>request<DiscordNotificationStatus>("notifications.clear",{confirm:true}),
+  notificationsTest:()=>request<DiscordNotificationStatus>("notifications.test",{confirm:true}),
   operationsWatchdogStart:()=>request<{pid:number;requested:true;evidence:"LOCAL_WATCHDOG_PROCESS_REQUESTED"}>("operations.watchdogStart",{confirm:true}),
   lifecycleBatchPreview:(mapIds:string[],action:LifecycleBatchAction,delaySeconds:number)=>
     request<LifecycleBatchPreview>("operations.lifecycleBatchPreview",{mapIds,action,delaySeconds}),

@@ -301,6 +301,36 @@ await SteamPublicBuildParsingTests.RunAsync(root);
           DesktopScheduledAsaOperationsSupervisor.Next(once with{NextDueUtc=utc},utc)==DateTimeOffset.MaxValue,
         "date-specific one-time job has one durable occurrence and no replay");
 }
+// Discord tests inject transport: no request leaves the CI machine.
+{
+    string notifyRoot=Path.Combine(root,"discord-notify-fixture");
+    await using var notifyCluster=new ClusterService("notify-fixture",notifyRoot);
+    int sends=0;bool failNext=false;string body="";
+    using var notify=new DesktopDiscordNotifications(notifyCluster,(uri,payload,ct)=>{
+        sends++;body=payload;
+        if(failNext)throw new IOException("synthetic network uncertainty");
+        return Task.FromResult(System.Net.HttpStatusCode.NoContent);
+    });
+    string url="https://discord.com/api/webhooks/123456789012345678/"+new string('a',64);
+    var denied=await Call(notify.HandleAsync,"notifications.save",new{credential="https://example.com/api/webhooks/123456789012345678/"+new string('a',64),categories=new[]{"schedule"},warningsOnly=false,confirm=true});
+    Check(!denied.GetProperty("ok").GetBoolean()&&sends==0,"webhook allows only exact Discord HTTPS endpoint");
+    var saved=await Call(notify.HandleAsync,"notifications.save",new{credential=url,categories=new[]{"schedule"},warningsOnly=false,confirm=true});
+    IsOk(saved,"webhook saves protected configuration");
+    Check(!saved.GetRawText().Contains(url)&&!File.ReadAllText(Path.Combine(notifyRoot,"discord-notifications-v1.json")).Contains(url),
+        "webhook URL is not returned and never stored as plaintext");
+    DesktopDiscordNotifications.Record(notifyCluster,null,"backup",false);
+    DesktopDiscordNotifications.Record(notifyCluster,null,"schedule",false);
+    await notify.TickOnceAsync();await notify.TickOnceAsync();
+    Check(sends==1&&body.Contains("schedule-completed")&&body.Contains("allowed_mentions")&&!body.Contains(url),
+        "webhook delivers only selected event code once with mentions suppressed");
+    failNext=true;
+    DesktopDiscordNotifications.Record(notifyCluster,null,"schedule",true);
+    await notify.TickOnceAsync();await notify.TickOnceAsync();
+    var status=await Call(notify.HandleAsync,"notifications.status");
+    Check(sends==2&&status.GetProperty("data").GetProperty("lastStatus").GetString()=="delivery-unknown-no-replay",
+        "uncertain webhook delivery is durably claimed and not retried");
+    IsOk(await Call(notify.HandleAsync,"notifications.clear",new{confirm=true}),"webhook can be explicitly removed");
+}
 NativeWebViewDispatchContractTests.Run();
 LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();

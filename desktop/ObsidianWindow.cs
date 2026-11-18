@@ -113,7 +113,7 @@ public sealed class ObsidianWindow : Form
             "dashboard.snapshot" or "servers.runningLocal" or
             "servers.lifecycleJournal" or
             "servers.lifecycleRecoveryPreview" or
-            "operations.snapshot" or "operations.map" or "operations.lifecycleBatchCurrent" or
+            "operations.snapshot" or "operations.map" or "operations.lifecycleBatchCurrent" or "notifications.status" or
             "schedule.nativeStatus" or "schedule.nativeOverview" or
             "servers.gracefulStopStatus" or "servers.gracefulStopCurrent" or "servers.restartStatus" or
             "servers.restartCurrent" or "servers.freshStartStatus" or
@@ -246,6 +246,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopFreshAsaRestartBridge _freshRestart;
     private readonly DesktopAsaLifecycleJournalBridge _lifecycleJournal;
     private readonly DesktopOperationsCenterBridge _operations;
+    private readonly DesktopDiscordNotifications _notifications;
     private readonly DesktopLifecycleBatchBridge _lifecycleBatch;
     private readonly DesktopRecurringReadOnlySupervisor _readOnlySupervisor;
     private readonly DesktopAutomaticAsaDiscoverySupervisor _asaDiscovery;
@@ -329,6 +330,7 @@ public sealed class ObsidianWindow : Form
         _bridge.AttachAutomaticAsaDiscovery(_asaDiscovery);
         _readOnlySupervisor = new DesktopRecurringReadOnlySupervisor(_bridge.LocalCluster);
         _operations = new DesktopOperationsCenterBridge(_bridge.LocalCluster,_readOnlySupervisor);
+        _notifications = new DesktopDiscordNotifications(_bridge.LocalCluster);
         _lifecycleBatch = new DesktopLifecycleBatchBridge(_bridge.LocalCluster,
             _freshStart.HandleAsync,_freshStop.HandleAsync,_freshRestart.HandleAsync,
             _historicalStart.HandleAsync,_historicalStop.HandleAsync,_historicalRestart.HandleAsync,
@@ -385,6 +387,7 @@ public sealed class ObsidianWindow : Form
                 {
                     _scheduledBackups.Start();
                     _nativeSchedules.Start();
+                    _notifications.Start();
                 }
                 _scheduledSteam.Start();
                 try { await _bridge.LocalCluster.BeginLanAsync(); }
@@ -409,6 +412,7 @@ public sealed class ObsidianWindow : Form
             _scheduledSteam.Dispose();
             _nativeSchedules.Dispose();
             _lifecycleBatch.Dispose();
+            _notifications.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
             _browser.Dispose();
@@ -566,6 +570,7 @@ public sealed class ObsidianWindow : Form
                 bool freshRestartRoute = false;
                 bool lifecycleJournalRoute = false;
                 bool operationsRoute = false;
+                bool notificationsRoute = false;
                 bool lifecycleBatchRoute = false;
                 bool nativeScheduleRoute = false;
                 bool mapMaintenanceRoute = false;
@@ -601,6 +606,7 @@ public sealed class ObsidianWindow : Form
                         lifecycleJournalRoute = name is "servers.lifecycleJournal" or
                             "servers.lifecycleRecoveryPreview" or
                             "servers.lifecycleRecoveryApply";
+                        notificationsRoute = name is "notifications.status" or "notifications.save" or "notifications.clear" or "notifications.test";
                         operationsRoute = name is "operations.snapshot" or "operations.map" or
                             "operations.scheduleCreate" or "operations.scheduleDisable" or "operations.watchdogStart";
                         lifecycleBatchRoute = name is "operations.lifecycleBatchPreview" or
@@ -732,6 +738,7 @@ public sealed class ObsidianWindow : Form
                         : nativeScheduleRoute ? await _nativeSchedules.HandleAsync(incoming)
                         : mapMaintenanceRoute ? await _mapMaintenance.HandleAsync(incoming)
                         : lifecycleBatchRoute ? await _lifecycleBatch.HandleAsync(incoming)
+                        : notificationsRoute ? await _notifications.HandleAsync(incoming)
                         : operationsRoute ? await _operations.HandleAsync(incoming)
                         : freshRestartRoute ? await _freshRestart.HandleAsync(incoming)
                         : lifecycleJournalRoute ? await _lifecycleJournal.HandleAsync(incoming)
