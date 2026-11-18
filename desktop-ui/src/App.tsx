@@ -1059,7 +1059,10 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
           <small>{plugin.binaries.map(b=>b.name+
             (b.version?" · "+b.version:"")).join(", ")||"Nincs DLL-adat"}</small>
         </div>
-        <span className="mod-tag amber">Pluginmappa megtalálva · betöltés nem igazolt</span>
+        <span className={"mod-tag "+(info.moduleObservation==="observed-current-asa-process"&&plugin.binaries.some(b=>b.loadedModuleObserved)?"green":"amber")}>
+          {info.moduleObservation==="observed-current-asa-process"&&plugin.binaries.some(b=>b.loadedModuleObserved)
+            ?`${plugin.binaries.filter(b=>b.loadedModuleObserved).length}/${plugin.binaries.length} DLL megfigyelve az aktuális ASA-folyamatban`
+            :"Pluginmappa megtalálva · betöltés nem igazolt"}</span>
       </div>)}
       {info&&info.plugins.length===0&&<div className="empty">
         Nem található plugin a map helyi ASA API mappájában.
@@ -1072,7 +1075,7 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
         <AlertTriangle size={16}/>{error}
       </div>}
       <div className="warning-inline"><Shield size={17}/>
-        A plugin DLL-ek jelenléte nem bizonyítja az ASA API futásidejű betöltést.
+        A fájlleltár nem igazol betöltést. Az aktuális, azonosított ASA-folyamat moduljai külön megfigyelhetők; ez nem igazolja a hookok vagy a plugin játékbeli működését.
         A Manager nem másol, nem konfigurál és nem reloadol pluginokat.
       </div>
     </Panel>

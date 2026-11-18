@@ -3424,7 +3424,10 @@ test.beforeEach(async ({ page }) => {
             runtimeLoadedVerified:false,filesChanged:false,
             serverOperation:false,rconSent:false,
             evidence:"LOCAL_ARKAPI_PLUGIN_FOLDER_OPENED_IN_EXPLORER"};
-        case "plugins.inventory": return {mapId:wrongPluginInventoryMap?two:m.mapId,mapName:"The Island",evidence:"READ_ONLY_LOCAL_FILE_INVENTORY",plugins:[{name:"ExamplePlugin",protectedData:false,binaries:[{name:"ExamplePlugin.dll",version:"1.0",bytes:1234}]}]};
+        case "plugins.inventory": {
+          const observed=new URLSearchParams(window.location.search).get("fixture")==="loadedPluginEvidence";
+          return {mapId:wrongPluginInventoryMap?two:m.mapId,mapName:"The Island",evidence:"READ_ONLY_LOCAL_FILE_INVENTORY",moduleObservation:observed?"observed-current-asa-process":"unverified",plugins:[{name:"ExamplePlugin",protectedData:false,binaries:[{name:"ExamplePlugin.dll",version:"1.0",bytes:1234,loadedModuleObserved:observed}]}]};
+        }
         case "backups.summary": return {evidence:"FILE_INTEGRITY_ONLY_NOT_ASA_SAVE_COMPLETE",maps:[{mapId:one,mapName:"The Island",validPackages:1,invalidPackages:0,verifiedBytes:1250000,latestVerifiedUtc:"2026-11-05T12:00:00Z"}]};
         case "steam.installations": return {evidence:"READ_ONLY_STEAM_INSTALLATION_PREFLIGHT",installations:[{id:0,maps:["The Island","Astraeos"],executablePresent:true,installedSteamBuild:"123456",updateBlocked:true,reason:"Read-only test fixture: upgrade blocked"}]};
         case "servers.suggestPorts": return {game:7797,query:27035,rcon:37035,evidence:"PROFILE_ONLY_NO_NETWORK_PROBE"};
@@ -7870,6 +7873,15 @@ test("each map Plugin Center opens only its owned local plugin folder with manua
   await expect(page.getByLabel("Pluginok forrásmapja")).toHaveText("Astraeos");
   await expect(page.getByRole("button",{name:"Pluginmappa megnyitása"})).toBeVisible();
 });
+test("plugin module observation distinguishes current ASA DLL evidence from file presence",async({page})=>{
+  await page.goto("/?fixture=loadedPluginEvidence");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
+  await expect(page.getByText("1/1 DLL megfigyelve az aktuális ASA-folyamatban")).toBeVisible();
+  await expect(page.getByText("Pluginmappa megtalálva · betöltés nem igazolt")).toHaveCount(0);
+});
+
 
 test("map detail keeps Plugin Center and ASA API controls bound to its own local map",async({page})=>{
   await page.goto("/");

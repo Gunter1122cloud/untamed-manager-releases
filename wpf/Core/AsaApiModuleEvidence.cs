@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 
@@ -12,6 +13,36 @@ namespace UntamedManager.Core;
 /// </summary>
 internal static class AsaApiModuleEvidence
 {
+    // A snapshot is valid only for the exact current, independently observed
+    // ASA child. A missing module is not a diagnosis of failed plugin hooks.
+    internal static HashSet<string>? ObserveLoadedPaths(LocalMap map,ProcessIdentity child)
+    {
+        if(!OperatingSystem.IsWindows()||map.ObservedReadOnlyImported||
+           child.Pid<=0||child.StartedUtc==default||
+           string.IsNullOrWhiteSpace(map.InstallationPath))return null;
+        try
+        {
+            string expected=Path.GetFullPath(Path.Combine(map.InstallationPath,
+                "ShooterGame","Binaries","Win64","ArkAscendedServer.exe"));
+            if(!string.Equals(Path.GetFullPath(child.ExecutablePath),expected,
+                StringComparison.OrdinalIgnoreCase))return null;
+            using var process=Process.GetProcessById(child.Pid);
+            bool OwnCurrent()=>!process.HasExited&&
+                process.StartTime.ToUniversalTime()==child.StartedUtc.UtcDateTime&&
+                string.Equals(Path.GetFullPath(process.MainModule!.FileName),expected,
+                    StringComparison.OrdinalIgnoreCase);
+            if(!OwnCurrent())return null;
+            var paths=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach(ProcessModule module in process.Modules)
+                paths.Add(Path.GetFullPath(module.FileName));
+            return OwnCurrent()?paths:null;
+        }
+        catch(Exception ex) when(ex is InvalidOperationException or Win32Exception or
+            IOException or UnauthorizedAccessException or ArgumentException or
+            NotSupportedException or NullReferenceException or System.Security.SecurityException)
+        {return null;}
+    }
+
     internal static bool IsLoaded(LocalMap map,ProcessIdentity child)
     {
         if(!OperatingSystem.IsWindows() || map==null || child==null ||

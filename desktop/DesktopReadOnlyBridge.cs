@@ -356,15 +356,29 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
         var map = _cluster.Config.LocalMaps.SingleOrDefault(m => m.Id == mapId);
         if (map is null) throw new UnauthorizedAccessException("Not locally owned");
         var entries = LocalPluginInventory.Scan(map);
+        System.Collections.Generic.HashSet<string>? loaded=null;
+        try
+        {
+            var process=map.HistoricalStoreProtected?
+                LegacyStoreV1ProcessObserver.Observe(map,_cluster.Config.LocalMaps):
+                _cluster.Check(map);
+            if(process.Running&&!process.ConfirmedStopped&&process.Identity is {Pid:>0} child)
+                loaded=AsaApiModuleEvidence.ObserveLoadedPaths(map,child);
+        }
+        catch(Exception){/* Access denied/ambiguous PID is unverified, not a plugin failure. */}
+        string pluginRoot=Path.GetFullPath(Path.Combine(map.InstallationPath,
+            "ShooterGame","Binaries","Win64","ArkApi","Plugins"));
         return new
         {
             mapId = map.Id,
             mapName = map.Name,
+            moduleObservation=loaded==null?"unverified":"observed-current-asa-process",
             plugins = entries.Select(p => new {
                 name = p.PluginName,
                 protectedData = p.Protected,
                 binaries = p.Binaries.Select(b => new {
-                    name = b.Name, version = b.Version, bytes = b.Bytes
+                    name = b.Name, version = b.Version, bytes = b.Bytes,
+                    loadedModuleObserved=loaded!=null&&loaded.Contains(Path.GetFullPath(Path.Combine(pluginRoot,p.PluginName,b.Name)))
                 }).ToArray()
             }).ToArray(),
             evidence = "READ_ONLY_LOCAL_FILE_INVENTORY"

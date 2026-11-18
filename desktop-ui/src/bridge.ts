@@ -371,8 +371,9 @@ export type PluginInventory = {
   mapId: string;
   mapName: string;
   evidence: "READ_ONLY_LOCAL_FILE_INVENTORY";
+  moduleObservation?:"unverified"|"observed-current-asa-process";
   plugins: Array<{ name: string; protectedData: boolean;
-    binaries: Array<{ name: string; version: string; bytes: number }> }>;
+    binaries: Array<{ name: string; version: string; bytes: number; loadedModuleObserved?:boolean }> }>;
 };
 
 export type EmbeddedStoreArchiveMap = {
