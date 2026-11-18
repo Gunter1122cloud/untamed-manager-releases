@@ -403,6 +403,50 @@ public static class UntamedWorldBackup
         var m=Read(folder,map.Id,MapKey(map),Guard(map.InstallationPath));
         return AsPoint(g.ToString("D"),m);
     }
+    public sealed record StagedWorld(string RelativeFolder,int Files,long Bytes);
+    // Restore a committed archive to an isolated, manager-owned directory.
+    // A running world is never opened or replaced; only archive bytes are
+    // read. This does not restore a shared Store/transfer transaction.
+    internal static StagedWorld StageVerifiedWorld(LocalMap map,string profile,string point,
+        IEnumerable<string> installationRoots)
+    {
+        if(map.ObservedReadOnlyImported)throw new UnauthorizedAccessException("UM-BACKUP-MAP-NOT-LOCAL");
+        if(!Guid.TryParseExact(point,"D",out var id)||id==Guid.Empty)
+            throw new InvalidDataException("UM-BACKUP-INVALID-POINT");
+        string archive=ArchiveRoot(profile,map),key=MapKey(map),installation=Guard(map.InstallationPath);
+        string package=Guard(Path.Combine(archive,id.ToString("D")));
+        var manifest=Read(package,map.Id,key,installation);
+        long bytes=Total(manifest.Files);
+        BackupResourcePolicy.ForManagerProfile(profile).DemandFits(manifest.Files.Length,bytes);
+        string parent=Guard(Path.Combine(Guard(profile),"world-restore-staging",map.Id.ToString("N")));
+        foreach(var candidate in installationRoots)
+        {
+            string root=Guard(candidate);
+            if(parent.Equals(root,StringComparison.OrdinalIgnoreCase)||
+               Contained(root,parent)||Contained(parent,root))
+                throw new InvalidDataException("UM-BACKUP-PATHS-OVERLAP");
+        }
+        if(new DriveInfo(Path.GetPathRoot(parent)!).AvailableFreeSpace<checked(bytes+64L*1024*1024))
+            throw new IOException("UM-BACKUP-INSUFFICIENT-RESTORE-CAPACITY");
+        string stage=Guard(Path.Combine(parent,Guid.NewGuid().ToString("N")+".incomplete"));
+        string target=stage[..^".incomplete".Length];
+        if(Directory.Exists(stage)||File.Exists(stage)||Directory.Exists(target)||File.Exists(target))
+            throw new IOException("UM-BACKUP-STAGE-EXISTS");
+        Directory.CreateDirectory(stage);
+        try
+        {
+            string world=Path.Combine(stage,"files");
+            CopyVerified(Path.Combine(package,"files"),world,manifest.Files);
+            if(!Scan(world,key,allowHistoricalEmptyProfiles:true).SequenceEqual(manifest.Files)||
+               !Read(package,map.Id,key,installation).Files.SequenceEqual(manifest.Files))
+                throw new InvalidDataException("UM-BACKUP-DIGEST-MISMATCH");
+            WriteDurable(Path.Combine(stage,"manifest.json"),JsonSerializer.Serialize(manifest,Json));
+            WriteDurable(Path.Combine(stage,"complete"),"1");
+            Directory.Move(stage,target);
+            return new(Path.GetRelativePath(Guard(profile),target),manifest.Files.Length,bytes);
+        }
+        finally{if(Directory.Exists(stage))Directory.Delete(stage,true);}
+    }
     public static RestoreReceipt Restore(LocalMap map,string profile,string point,
         Func<ProcessCheck> process,Action? beforeSwap=null,
         UntamedOperationCoordinator? operationCoordinator=null)

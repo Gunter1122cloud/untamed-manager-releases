@@ -312,7 +312,7 @@ public sealed class DesktopWorldBackupBridge
             id=request.ToString("D");
             string? method=methodRaw.GetString();
             if(method is not ("backup.history" or "backup.preview" or
-                "backup.create" or "backup.restorePreview" or "backup.restore" or
+                "backup.create" or "backup.restorePreview" or "backup.restore" or "backup.worldStage" or
                 "backup.fullLocalCreate" or "backup.fullLocalHistory" or "backup.fullLocalStage" or
                 "backup.retentionPreview" or "backup.retentionProtect" or "backup.retentionQuarantine" or "backup.retentionReturn" or
                 "backup.scheduleStatus" or "backup.scheduleCreate" or
@@ -672,6 +672,23 @@ public sealed class DesktopWorldBackupBridge
                         sharedTransferIncluded=false,databaseConsistencyCertified=false,
                         evidence="VERIFIED_STOPPED_LOCAL_INSTALLATION_FILES"});
                 }
+                if(method=="backup.worldStage")
+                {
+                    if(!root.TryGetProperty("mapId",out var stageMap)||
+                       stageMap.ValueKind!=JsonValueKind.String||!Guid.TryParse(stageMap.GetString(),out var mapId)||
+                       !root.TryGetProperty("point",out var stagePoint)||stagePoint.ValueKind!=JsonValueKind.String||
+                       !Guid.TryParseExact(stagePoint.GetString(),"D",out var pointId)||pointId==Guid.Empty)
+                        return Fail(id,"UM-BACKUP-INVALID-POINT");
+                    if(!root.TryGetProperty("confirm",out var consent)||consent.ValueKind!=JsonValueKind.True)
+                        return Fail(id,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED");
+                    var map=Owned(mapId);
+                    var roots=cluster.Config.LocalMaps.Select(x=>x.InstallationPath).ToArray();
+                    var receipt=await Task.Run(()=>UntamedWorldBackup.StageVerifiedWorld(
+                        map,cluster.Store.Root,pointId.ToString("D"),roots));
+                    return Ok(id,new{mapId,point=pointId,relativeFolder=receipt.RelativeFolder,
+                        files=receipt.Files,bytes=receipt.Bytes,productionRestoreAllowed=false,
+                        storeWriterTouched=false,evidence="VERIFIED_ISOLATED_WORLD_BACKUP_RESTORE"});
+                }
                 if(method=="backup.history")
                 {
                     if(!root.TryGetProperty("mapId",out var m)||
@@ -832,11 +849,18 @@ public sealed class DesktopWorldBackupBridge
         {
             // Only whitelisted, path-free resource codes cross into WebView.
             // Never forward raw IO/Store exceptions, paths or secrets.
-            if(e is InvalidDataException && e.Message is
+            if(e.Message is
                 ("UM-BACKUP-RESOURCE-FILE-LIMIT" or
                  "UM-BACKUP-RESOURCE-BYTE-LIMIT" or
                  "UM-BACKUP-RESOURCE-POLICY-INVALID" or
-                 "UM-BACKUP-RESOURCE-POLICY-NOT-FILE"))
+                 "UM-BACKUP-RESOURCE-POLICY-NOT-FILE" or
+                 "UM-BACKUP-CONFIRMED-STOP-REQUIRED" or
+                 "UM-BACKUP-STORE-CHARACTER-RESTORE-REQUIRES-TWO-HOST-TRANSACTION" or
+                 "UM-BACKUP-RESTORE-RECOVERY-REQUIRED" or
+                 "UM-BACKUP-INSUFFICIENT-RESTORE-CAPACITY" or
+                 "UM-BACKUP-DIGEST-MISMATCH" or "UM-BACKUP-PATHS-OVERLAP" or
+                 "UM-BACKUP-INVALID-POINT" or "UM-BACKUP-MAP-NOT-LOCAL" or
+                 "UM-BACKUP-MANIFEST-OWNER-MISMATCH" or "UM-BACKUP-INCOMPLETE"))
                 return Fail(id,e.Message);
             return Fail(id,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED");
         }

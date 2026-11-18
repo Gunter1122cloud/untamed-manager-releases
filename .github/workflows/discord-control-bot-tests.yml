@@ -5,6 +5,7 @@ on:
       - 'scripts/obsidian_discord_*.py'
       - 'scripts/obsidian_discord_*.cjs'
       - 'scripts/test_obsidian_discord_status.cjs'
+      - 'scripts/test_obsidian_discord_admin.cjs'
       - 'scripts/test_obsidian_discord_bot.py'
       - 'scripts/obsidian-discord-*.txt'
       - 'scripts/obsidian-discord-*.json'
@@ -27,4 +28,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test scripts/test_obsidian_discord_status.cjs
+      - run: node --test scripts/test_obsidian_discord_status.cjs scripts/test_obsidian_discord_admin.cjs

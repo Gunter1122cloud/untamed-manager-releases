@@ -59,7 +59,8 @@ internal static class HistoricalStoreWorldBackupTests
         File.WriteAllBytes(oldLoose,Array.Empty<byte>());
         var bridge=new DesktopWorldBackupBridge(cluster);
         var refused=await Call(bridge,"backup.preview",new{mapId=map.Id});
-        Check(!refused.GetProperty("ok").GetBoolean(),
+        Check(!refused.GetProperty("ok").GetBoolean()&&
+            refused.GetProperty("error").GetString()=="UM-BACKUP-CONFIRMED-STOP-REQUIRED",
             "uncertain original ASA process cannot authorize a Store map backup");
         independentlyStopped=true;
         var preview=await Call(bridge,"backup.preview",new{mapId=map.Id});
@@ -99,7 +100,17 @@ internal static class HistoricalStoreWorldBackupTests
             .GetProperty("id").GetString()!;
         var restore=await Call(bridge,"backup.restorePreview",
             new{mapId=map.Id,point});
-        Check(!restore.GetProperty("ok").GetBoolean(),
+        Check(!restore.GetProperty("ok").GetBoolean()&&restore.GetProperty("error").GetString()=="UM-BACKUP-STORE-V1-RESTORE-LOCKED",
             "one-sided original Store world restore remains denied");
+        independentlyStopped=false;
+        var stage=await Call(bridge,"backup.worldStage",new{mapId=map.Id,point,confirm=true});
+        Check(stage.GetProperty("ok").GetBoolean(),"archive-only restore stage succeeds without stopping a map");
+        var data=stage.GetProperty("data");
+        string folder=Path.Combine(cluster.Store.Root,data.GetProperty("relativeFolder").GetString()!,"files");
+        Check(!data.GetProperty("productionRestoreAllowed").GetBoolean()&&
+            File.ReadAllBytes(Path.Combine(folder,Path.GetFileName(layout.WorldFile))).SequenceEqual(original)&&
+            new FileInfo(Path.Combine(folder,Path.GetFileName(oldLoose))).Length==0&&
+            File.ReadAllBytes(layout.WorldFile).SequenceEqual(original),
+            "stage verifies world and zero-byte profile without touching live files");
     }
 }
