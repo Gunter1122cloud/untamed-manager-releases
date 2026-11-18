@@ -52,6 +52,51 @@ function retainWorldReceipt(mapId:string,receipt:WorldBackupCreated|WorldBackupR
   recentWorldReceipts.set(mapId,receipt);
 }
 
+function FullLocalBackup({map}:{map:PublicMap}){
+  const [points,setPoints]=useState<Array<{point:string;files:number;bytes:number;createdUtc:string}>>([]);
+  const [busy,setBusy]=useState(false);
+  const [notice,setNotice]=useState("");
+  const flight=useRef(false);
+  const mounted=useRef(true);
+  useEffect(()=>{mounted.current=true;return ()=>{mounted.current=false;};},[]);
+  const action=async(kind:"list"|"create"|"stage",point?:string)=>{
+    if(flight.current||kind==="create"&&map.running)return;
+    flight.current=true;setBusy(true);setNotice("");
+    try{
+      if(kind==="create"){
+        const result=await managerBridge.backupFullLocalCreate(map.id);
+        if(result.mapId.toLowerCase()!==map.id.toLowerCase()||
+           result.sharedTransferIncluded!==false||result.databaseConsistencyCertified!==false||
+           result.evidence!=="VERIFIED_STOPPED_LOCAL_INSTALLATION_FILES")throw new Error("UM-BACKUP-FULL-RECEIPT");
+        if(mounted.current)setNotice("Ellenőrzött helyi mentés elkészült: "+result.files+" fájl.");
+      }else if(kind==="stage"){
+        if(!point)return;
+        const result=await managerBridge.backupFullLocalStage(map.id,point);
+        if(result.mapId.toLowerCase()!==map.id.toLowerCase()||result.point!==point||
+           result.productionRestoreAllowed!==false||
+           result.evidence!=="VERIFIED_NEW_LOCAL_RESTORE_FOLDER_NO_LIVE_REPLACEMENT")throw new Error("UM-BACKUP-FULL-RECEIPT");
+        if(mounted.current)setNotice("Ellenőrzött visszaállítási másolat a Manager profiljában: "+result.relativeFolder);
+      }
+      const history=await managerBridge.backupFullLocalHistory(map.id);
+      if(history.mapId.toLowerCase()!==map.id.toLowerCase()||
+         history.evidence!=="VERIFIED_LOCAL_INSTALLATION_FILE_ARCHIVES")throw new Error("UM-BACKUP-FULL-HISTORY");
+      if(mounted.current)setPoints(history.points);
+    }catch(e){if(mounted.current)setNotice(backupResourceError(e,"A helyi mentési művelet nem igazolható. Éles restore vagy automatikus Stop nem indult."));}
+    finally{flight.current=false;if(mounted.current)setBusy(false);}
+  };
+  return <section className="uk-world-backup-confirm" aria-label="Teljes helyi map fájlmentése">
+    <div><b>Teljes helyi map fájlmentése</b>
+      <p>Leállított, külön telepítésű map SavedArks/SaveGames, Game.ini, GameUserSettings.ini és meglévő ASA API/pluginfájljai. A közös transfer és a külső adatbázis konzisztenciája külön mentendő.</p>
+      <button className="primary" type="button" disabled={busy||map.running||map.observedReadOnlyImported} onClick={()=>void action("create")}>Teljes helyi fájlmentés készítése</button>
+      <button className="secondary" type="button" disabled={busy} onClick={()=>void action("list")}>Teljes mentések ellenőrzése</button>
+      {points.map(p=><div key={p.point} className="settings-actions"><span>{new Date(p.createdUtc).toLocaleString("hu-HU")} · {p.files} fájl</span>
+        <button type="button" className="secondary" disabled={busy} onClick={()=>void action("stage",p.point)}>Visszaállítás külön mappába</button></div>)}
+      {notice&&<p role="status">{notice}</p>}
+      <small>Nem írja felül az éles mapot, nem indít vagy állít le szervert.</small>
+    </div>
+  </section>;
+}
+
 export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selectedMap?:string}){
   const [chosen,setChosen]=useState(selectedMap??maps[0]?.id??"");
   const [history,setHistory]=useState<WorldBackupHistory|null>(null);
@@ -342,6 +387,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         <button className="primary" type="button" disabled={!chosen||busy||current?.running||history?.recoveryRequired}
           onClick={()=>{void preview();}}><Save size={15}/> Világmentés készítése</button>
       </div>
+      {current&&<FullLocalBackup key={current.id} map={current}/>}
       {originalLocalFive.length>=5&&<section className="uk-world-backup-confirm"
         aria-label="Eredeti Store-v1 ötmapos helyi mentés">
         <div>

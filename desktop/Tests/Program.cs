@@ -6539,6 +6539,20 @@ try
                     Pid=23563,ExecutablePath="synthetic.exe",
                     StartedUtc=DateTimeOffset.UtcNow
                 },stopped));
+        string configDir=Path.Combine(localInstall,"ShooterGame","Saved","Config","WindowsServer");
+        Directory.CreateDirectory(configDir);
+        File.WriteAllText(Path.Combine(configDir,"Game.ini"),"[/script/shootergame.shootergamemode]");
+        File.WriteAllText(Path.Combine(configDir,"GameUserSettings.ini"),"[ServerSettings]");
+        var full=await Call(worldBridge.HandleAsync,"backup.fullLocalCreate",new{mapId=localMap.Id,confirm=true});
+        IsOk(full,"full local stopped-map world and INI package");
+        string fullPoint=full.GetProperty("data").GetProperty("point").GetString()!;
+        var stagedFull=await Call(worldBridge.HandleAsync,"backup.fullLocalStage",new{mapId=localMap.Id,point=fullPoint,confirm=true});
+        IsOk(stagedFull,"verified full local package restore to new folder only");
+        string restoredFolder=Path.Combine(localProfile,stagedFull.GetProperty("data").GetProperty("relativeFolder").GetString()!);
+        Check(File.ReadAllBytes(Path.Combine(restoredFolder,Path.GetRelativePath(localInstall,arkFile))).SequenceEqual(worldBeforeBackup)&&
+              File.ReadAllBytes(arkFile).SequenceEqual(worldBeforeBackup)&&
+              !stagedFull.GetProperty("data").GetProperty("productionRestoreAllowed").GetBoolean(),
+              "staged full restore preserves original local world without any live replacement");
         var empty=await Call(worldBridge.HandleAsync,"backup.history",
             new{mapId=localMap.Id});
         IsOk(empty,"initial genuine map backup archive is readable");

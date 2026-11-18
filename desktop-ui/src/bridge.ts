@@ -1778,6 +1778,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
+  "backup.fullLocalCreate" | "backup.fullLocalHistory" | "backup.fullLocalStage" |
   "backup.originalBatchPreview" | "backup.originalBatchCreate" | "backup.originalBatchStatus" | "backup.originalBatchJournalRepairPreview" | "backup.originalBatchJournalRepairApply" |
   "backup.restorePreview" | "backup.restore" |
   "backup.scheduleStatus" | "backup.scheduleCreate" | "backup.scheduleDisable" |
@@ -1839,7 +1840,8 @@ function timeoutFor(method: WireRequest["method"]): number {
       method === "store.inspectCopy" || method === "historical.localParity" ||
       method === "historical.pairedEvidence" || method === "backup.create" ||
       method === "backup.restore" ||
-      method === "backup.originalBatchCreate") return 60 * 60_000; // bounded large-file workflows
+      method === "backup.originalBatchCreate" || method === "backup.fullLocalCreate" ||
+      method === "backup.fullLocalHistory" || method === "backup.fullLocalStage") return 60 * 60_000; // bounded large-file workflows
   return 120_000;
 }
 
@@ -2125,6 +2127,9 @@ export const managerBridge = {
     request<ScheduledStoppedBackupState>("backup.scheduleCreate",{mapId,intervalMinutes,confirm:true}),
   backupScheduleDisable: (mapId:string) =>
     request<ScheduledStoppedBackupState>("backup.scheduleDisable",{mapId,confirm:true}),
+  backupFullLocalHistory:(mapId:string)=>request<{mapId:string;points:Array<{point:string;files:number;bytes:number;createdUtc:string}>;evidence:"VERIFIED_LOCAL_INSTALLATION_FILE_ARCHIVES"}>("backup.fullLocalHistory",{mapId}),
+  backupFullLocalCreate:(mapId:string)=>request<{mapId:string;point:string;files:number;bytes:number;createdUtc:string;sharedTransferIncluded:false;databaseConsistencyCertified:false;evidence:"VERIFIED_STOPPED_LOCAL_INSTALLATION_FILES"}>("backup.fullLocalCreate",{mapId,confirm:true}),
+  backupFullLocalStage:(mapId:string,point:string)=>request<{mapId:string;point:string;relativeFolder:string;files:number;bytes:number;productionRestoreAllowed:false;evidence:"VERIFIED_NEW_LOCAL_RESTORE_FOLDER_NO_LIVE_REPLACEMENT"}>("backup.fullLocalStage",{mapId,point,confirm:true}),
   backupHistory: (mapId:string) =>
     request<WorldBackupHistory>("backup.history",{mapId}),
   backupPreview: (mapId:string) =>

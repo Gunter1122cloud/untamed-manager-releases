@@ -167,6 +167,43 @@ public static class LocalBackupWorkflow
         return new(target,manifest);
     }
 
+    /// <summary>Restore verified package bytes ONLY to a previously absent
+    /// isolated folder. No production path replacement or shared transfer write.
+    /// </summary>
+    public static BackupManifest RestoreToNewFolder(string package,string destination,Guid mapId)
+    {
+        string source=FixedLocalPath(package),target=FixedLocalPath(destination);
+        if(source.Equals(target,StringComparison.OrdinalIgnoreCase)||
+           IsInside(source,target)||IsInside(target,source))
+            throw new InvalidDataException("UM-BACKUP-RESTORE-PATH-OVERLAP");
+        string stage=FixedLocalPath(target+".incomplete");
+        if(Directory.Exists(target)||File.Exists(target)||Directory.Exists(stage)||File.Exists(stage))
+            throw new IOException("UM-BACKUP-RESTORE-DESTINATION-EXISTS");
+        var manifest=TestBackupPackage.Verify(source,mapId);
+        long bytes=manifest.Files.Sum(x=>x.Size);
+        ValidateFileBudget(manifest.Files.Count,bytes);
+        long free=new DriveInfo(Path.GetPathRoot(target)!).AvailableFreeSpace;
+        if(bytes>free||Math.Max(64L*1024*1024,bytes/10)>free-bytes)
+            throw new IOException("UM-BACKUP-RESTORE-DISK");
+        Directory.CreateDirectory(stage);
+        foreach(var item in manifest.Files)
+        {
+            string input=Path.GetFullPath(Path.Combine(source,"data",item.Path));
+            string output=Path.GetFullPath(Path.Combine(stage,item.Path));
+            if(!IsInside(Path.Combine(source,"data"),input)||!IsInside(stage,output))
+                throw new InvalidDataException("UM-BACKUP-RESTORE-PATH");
+            Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+            using var from=new FileStream(input,FileMode.Open,FileAccess.Read,FileShare.Read);
+            using var to=new FileStream(output,FileMode.CreateNew,FileAccess.Write,FileShare.None);
+            from.CopyTo(to);to.Flush(true);
+        }
+        BackupIntegrity.Verify(stage,manifest,mapId);
+        TestBackupPackage.Verify(source,mapId);
+        Directory.Move(stage,target);
+        BackupIntegrity.Verify(target,manifest,mapId);
+        return manifest;
+    }
+
     // The generic local backup is used before SteamCMD as well as by the
     // Backup Center. A 0-byte ASA world is never a recoverable copy, and a
     // 0-byte loose profile/tribe must not be advertised as a healthy

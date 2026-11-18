@@ -610,6 +610,7 @@ public sealed class ObsidianWindow : Form
                         embeddedStoreRoute = name is "store.inspectCopy" or "store.inspectArchive" or "store.compareArchives";
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
                             "backup.create" or "backup.restorePreview" or "backup.restore" or
+                            "backup.fullLocalCreate" or "backup.fullLocalHistory" or "backup.fullLocalStage" or
                             "backup.scheduleStatus" or "backup.scheduleCreate" or
                             "backup.scheduleDisable" or "backup.originalBatchPreview" or
                             "backup.originalBatchCreate" or "backup.originalBatchStatus" or
