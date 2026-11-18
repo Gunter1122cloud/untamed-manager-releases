@@ -287,17 +287,22 @@ class ObsidianControl(commands.Cog):
 
     async def worker(self):
         await self.bot.wait_until_ready()
-        try:
-            await self.provision_once()
-        except Exception:
-            # Fail closed, no sensitive exception or credentials in logs.
-            return
-        if self.provision_only:
-            return
-        try:
-            await self.replace_message("control",content="Obsidian Command · Tulajdonos és Admin egyenlő joggal. Válassz műveletet, hostot, mapot; minden írás külön megerősítést igényel.",view=self.panel)
-        except Exception:
-            return
+        # Transient Discord HTTP/cache failures at startup must not leave
+        # the integration permanently offline. Retry only provisioning and
+        # the private panel, never a previously submitted native operation.
+        while True:
+            try:
+                await self.provision_once()
+                if self.provision_only:
+                    return
+                await self.replace_message("control",content="Obsidian Command · Tulajdonos és Admin egyenlő joggal. Válassz műveletet, hostot, mapot; minden írás külön megerősítést igényel.",view=self.panel)
+                break
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Every attempt repeats the private-channel/role proof.
+                # No fallback channel, raw exception, or mutation replay.
+                await asyncio.sleep(30)
         while True:
             try:
                 await self.refresh_status()
