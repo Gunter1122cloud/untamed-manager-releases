@@ -1798,7 +1798,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
-  "backup.fullLocalCreate" | "backup.fullLocalHistory" | "backup.fullLocalStage" |
+  "backup.fullLocalCreate" | "backup.fullLocalHistory" | "backup.fullLocalStage" | "backup.worldStage" |
   "backup.retentionPreview" | "backup.retentionProtect" | "backup.retentionQuarantine" | "backup.retentionReturn" |
   "backup.originalBatchPreview" | "backup.originalBatchCreate" | "backup.originalBatchStatus" | "backup.originalBatchJournalRepairPreview" | "backup.originalBatchJournalRepairApply" |
   "backup.restorePreview" | "backup.restore" |
@@ -1864,7 +1864,7 @@ function timeoutFor(method: WireRequest["method"]): number {
       method === "historical.pairedEvidence" || method === "backup.create" ||
       method === "backup.restore" || method === "cluster.multiHostCoordinatedPreview" ||
       method === "backup.originalBatchCreate" || method === "backup.fullLocalCreate" ||
-      method === "backup.fullLocalHistory" || method === "backup.fullLocalStage" ||
+      method === "backup.fullLocalHistory" || method === "backup.fullLocalStage" || method === "backup.worldStage" ||
       method === "backup.retentionPreview" || method === "backup.retentionProtect" ||
       method === "backup.retentionQuarantine" || method === "backup.retentionReturn") return 60 * 60_000; // bounded large-file workflows
   return 120_000;
