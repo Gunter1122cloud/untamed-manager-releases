@@ -24,7 +24,8 @@ namespace UntamedDesktop;
 internal sealed class DesktopDiscordControlApi : IDisposable
 {
     internal sealed record Settings(string BindIp,int Port,string BotIp,string CertificateThumbprint,
-        string TokenSha256,string GuildId,string[] ChannelIds,string[] RoleIds,string? ServiceUserId=null);
+        string TokenSha256,string GuildId,string[] ChannelIds,string[] RoleIds,string? ServiceUserId=null,
+        string? ControlChannelId=null,string? StatusChannelId=null);
     private sealed record Approval(Guid Token,string Actor,string Channel,string Action,Guid[] Maps,
         bool? UseApi,string Message,string Point,int Delay,string[] Profiles,DateTimeOffset Expires,
         string ApplyRoute,Guid? NativeToken);
@@ -70,8 +71,12 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             IPAddress.TryParse(s.BotIp,out var bot)&&PrivateIp(bot)&&
             s.Port is >=1024 and <=65535&&s.CertificateThumbprint is {Length:40}&&s.CertificateThumbprint.All(Uri.IsHexDigit)&&
             s.TokenSha256 is {Length:64}&&s.TokenSha256.All(Uri.IsHexDigit)&&
-            Snowflake.IsMatch(s.GuildId??"")&&(s.ServiceUserId==null||Snowflake.IsMatch(s.ServiceUserId))&&s.ChannelIds is {Length:>=1 and <=20}&&s.RoleIds is {Length:>=1 and <=20}&&
-            s.ChannelIds.All(x=>Snowflake.IsMatch(x??""))&&s.RoleIds.All(x=>Snowflake.IsMatch(x??""));
+            Snowflake.IsMatch(s.GuildId??"")&&Snowflake.IsMatch(s.ServiceUserId??"")&&
+            Snowflake.IsMatch(s.ControlChannelId??"")&&Snowflake.IsMatch(s.StatusChannelId??"")&&
+            s.ControlChannelId!=s.StatusChannelId&&s.ChannelIds is {Length:2}&&s.RoleIds is {Length:>=1 and <=20}&&
+            s.ChannelIds.Contains(s.ControlChannelId)&&s.ChannelIds.Contains(s.StatusChannelId)&&
+            s.RoleIds.All(x=>Snowflake.IsMatch(x??"")&&x!=s.GuildId)&&
+            s.RoleIds.Distinct().Count()==s.RoleIds.Length;
     }
     private static void SafePath(string path)
     {
@@ -89,18 +94,21 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     {
         try
         {
+            if(!ValidSettings(s))return false;
             var credential=Field(a,"credential",64);
             if(credential.Length!=64||!credential.All(Uri.IsHexDigit))return false;
             if(!CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(credential)),Convert.FromHexString(s.TokenSha256)))return false;
-            if(Field(a,"guildId",25)!=s.GuildId||!s.ChannelIds.Contains(Field(a,"channelId",25))||
-                !Snowflake.IsMatch(Field(a,"userId",25)))return false;
-            if(s.ServiceUserId!=null&&Field(a,"userId",25)==s.ServiceUserId)
-                return (Field(a,"kind",32) is "status" or "players" or "job")&&
-                    Math.Abs((now-a.GetProperty("sentUtc").GetDateTimeOffset()).TotalSeconds)<=60;
+            string channel=Field(a,"channelId",25),actor=Field(a,"userId",25),kind=Field(a,"kind",32);
+            if(Field(a,"guildId",25)!=s.GuildId||!Snowflake.IsMatch(actor)||
+                Math.Abs((now-a.GetProperty("sentUtc").GetDateTimeOffset()).TotalSeconds)>60)return false;
+            if(actor==s.ServiceUserId)
+                return channel==s.StatusChannelId&&(kind is "status" or "players" or "job");
+            if(channel!=s.ControlChannelId||kind is not
+                ("status" or "players" or "job" or "backupHistory" or "preview" or "apply"))return false;
             var roles=a.GetProperty("roleIds");
             if(roles.ValueKind!=JsonValueKind.Array||roles.GetArrayLength()>100||
                 !roles.EnumerateArray().Any(x=>x.ValueKind==JsonValueKind.String&&s.RoleIds.Contains(x.GetString())))return false;
-            return Math.Abs((now-a.GetProperty("sentUtc").GetDateTimeOffset()).TotalSeconds)<=60;
+            return true;
         }
         catch{return false;}
     }

@@ -185,8 +185,14 @@ class ObsidianControl(commands.Cog):
         _, _, member = await self.guild_and_roles()
         return Identity(member.id,ch.id,())
 
-    async def call(self, label, who, kind, **data):
+    async def call(self, label, who, kind, *, interaction=None, **data):
         async with self.host_locks[label]:
+            # A request may have waited behind a long backup/update. Re-fetch
+            # actual permissions once the lock is acquired, not before waiting.
+            if kind in ("preview", "apply"):
+                if interaction is None:
+                    raise PermissionError("Human interaction required for mutation")
+                who = await self.identity(interaction, who.user_id)
             result = await async_call(self.hosts[label],guild_id=self.guild_id,channel_id=who.channel_id,
                 user_id=who.user_id,role_ids=who.role_ids,kind=kind,**data)
         if not result["ok"]:
@@ -395,7 +401,7 @@ class ObsidianControl(commands.Cog):
             fields["message"]=parameter
         if base=="restore":
             fields["point"]=parameter
-        plan=await self.call(label,who,"preview",timeout=60,**fields)
+        plan=await self.call(label,who,"preview",interaction=interaction,timeout=60,**fields)
         if plan["action"]!=base or {m["mapId"] for m in plan["maps"]}!=set(ids):
             raise ValueError("Native approval scope mismatch")
         names=", ".join(m["mapName"] for m in plan["maps"])
@@ -421,7 +427,7 @@ class ObsidianControl(commands.Cog):
                 await interaction.followup.send("A helyi műveleti napló nem írható; nem küldtem parancsot.",ephemeral=True)
                 return
         try:
-            result=await self.call(label,who,"apply",token=plan["token"],confirm=True,request_id=operation,timeout=180)
+            result=await self.call(label,who,"apply",interaction=interaction,token=plan["token"],confirm=True,request_id=operation,timeout=180)
             state="native-receipt"
             detail=clean(json.dumps(result.get("receipt",{}),ensure_ascii=False),1000)
         except Exception:

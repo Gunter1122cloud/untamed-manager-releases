@@ -11,8 +11,8 @@ pin, reject all other certificates. Do not use this API without pinning.
 ## Provision (Windows PowerShell on EACH host, as the Manager Windows user)
 
 Run scripts/Configure-DiscordControl.ps1 with the actual Manager profile
-root, host's private IPv4, bot's private IPv4, port, GuildId, ChannelIds
-and RoleIds (both owner and admin role IDs, equal access). The script prints
+root, host's private IPv4, bot's private IPv4, port, GuildId
+and RoleIds (both owner and admin role IDs, equal access); pass ControlChannelId and StatusChannelId separately (not ChannelIds). The script prints
 the one-time bearer and certificate pin; put these into the bot's local
 secret store, NEVER GitHub, logs, Discord messages or command arguments.
 Restart Manager only. Remove settings.json and restart Manager to disable.
@@ -25,7 +25,7 @@ TLS 1.2/1.3, exactly one request per connection. Frame = four-byte unsigned
 big-endian payload length followed by UTF-8 JSON. Request <= 16384 bytes.
 Read reply by the same framing. Certificate SHA-256 pin MUST be checked
 before sending bearer. Server verifies exact remote bot IP, token,
-guild/channel ID, role ID, UTC timestamp within +/-60 seconds.
+guild ID, distinct control/status channel scope, role ID, UTC timestamp within +/-60 seconds. The configured service identity can only read status/players/jobs from the status channel. Human admin requests must originate in the control channel. The API independently rejects @everyone as an authorized role.
 Discord bot is the trusted identity authority: obtain actual guild member
 roles again for every interaction (including confirmation), never from
 button custom IDs or user-controlled strings. Verify private category
@@ -103,3 +103,7 @@ The published Setup and Portable include a `DiscordIntegration` directory with t
 ```
 
 Use the real paths chosen by Codex; omit StartAtLogon if manual start is preferred. Registration never starts the bot and refuses replacement of an existing task. In Obsidian's notification-area (tray) menu select **Discord bot** to see Windows task state and start/stop it without a console. The task uses the same interactive Windows user, not a Windows service; it does not run after logoff and logon autostart requires the option. Windows Task Scheduler prevents concurrent instances of this task and can retry a failed exit up to three times, one minute apart. It does not detect a hung or disconnected bot. A separately launched copy is not detected: disable other startup mechanisms first. The task survives Manager close/update; do not assume an API request interrupted by a Manager update succeeded. The API requires the Manager running. Actual Discord connectivity, bot application logs and task registration/control on the target Windows host remain local acceptance checks. Never place bot tokens in command line, task description, logs or GitHub. The control window only operates the fixed provisioned local task; no generic task/shell commands over Discord. Manual-test mode disables the task mutations. No task is registered in CI or by the installer.
+
+
+### Authorization trust boundary
+The API trusts the configured bot process to attest freshly fetched Discord identities. The per-host bearer is a privileged secret: someone who controls the bot process, its secret or an authorized Discord account is outside this guarantee. Do not make existing unrelated bot commands capable of assigning the designated owner/admin roles or exposing the credential. Verify guild role hierarchy, permission to manage roles, and the existing bot's role-grant paths locally. Never give the API bearer to Discord users. The tightened configuration requires explicit distinct ControlChannelId and StatusChannelId plus ServiceUserId; older configuration is rejected until reprovisioned. The bot re-fetches actor roles immediately before preview/apply after acquiring the host lane. Role revocation cannot cancel a command already dispatched.
