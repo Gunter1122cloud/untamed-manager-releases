@@ -2365,7 +2365,7 @@ test.beforeEach(async ({ page }) => {
           const jobs=nativeSchedules[id]??[];
           const next={mapId:id,kind:m.kind,frequency:m.frequency,
             intervalMinutes:m.intervalMinutes??120,minuteOfDay:m.minuteOfDay,
-            daysMask:m.daysMask,postRestartWipe:!!m.postRestartWipe,enabled:true,nextDueUtc:"2026-11-09T03:00:00Z",
+            daysMask:m.daysMask,postRestartWipe:!!m.postRestartWipe,wipeDelaySeconds:m.wipeDelaySeconds??0,enabled:true,nextDueUtc:"2026-11-09T03:00:00Z",
             lastClaimedUtc:null,lastStatus:"scheduled",lastEvidence:"",
             evidence:"DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY"};
           nativeSchedules[id]=[...jobs.filter(x=>x.kind!==m.kind),next];
@@ -3659,10 +3659,12 @@ test("pinned Store-v1 one-time Restart saves exact post-ready wild wipe setting 
   await restart.getByRole("combobox",{name:"Újraindítás gyakoriság"}).selectOption("Once");
   await restart.getByRole("combobox",{name:"Egyszeri próba késleltetése"}).selectOption("1");
   await restart.getByRole("checkbox",{name:/Újraindítás után vad dinók/}).check();
+  await restart.getByRole("spinbutton",{name:"Dinowipe késleltetése másodpercben"}).fill("60");
   await restart.getByRole("button",{name:"Ütemezés mentése"}).click();
   await expect(restart.getByText("Bekapcsolva")).toBeVisible();
   await expect(restart.getByRole("combobox",{name:"Újraindítás gyakoriság"})).toHaveValue("Once");
   await expect(restart.getByRole("checkbox",{name:/Újraindítás után vad dinók/})).toBeChecked();
+  await expect(restart.getByRole("spinbutton",{name:"Dinowipe késleltetése másodpercben"})).toHaveValue("60");
 });
 
 test("dashboard shows authenticated per-map ASA players and zero without inventing peer counts",async({page})=>{

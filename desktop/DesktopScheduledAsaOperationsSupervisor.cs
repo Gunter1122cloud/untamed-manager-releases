@@ -19,7 +19,7 @@ public sealed record ScheduledAsaOperation(
     Guid MapId,string Kind,string Frequency,int IntervalMinutes,
     int MinuteOfDay,int DaysMask,string Fingerprint,bool Enabled,
     DateTimeOffset NextDueUtc,DateTimeOffset? LastClaimedUtc,
-    string LastStatus,string LastEvidence,bool PostRestartWipe=false);
+    string LastStatus,string LastEvidence,bool PostRestartWipe=false,int WipeDelaySeconds=0);
 
 // Bounded, persisted execution evidence. A slot is recorded BEFORE dispatch;
 // after a crash an unfinished claim remains visible and is never auto-replayed.
@@ -186,6 +186,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 (j.Kind!="SaveWorld"&&j.Kind!="Restart")||
                 (j.Frequency!="Interval"&&j.Frequency!="Daily"&&j.Frequency!="Once")||
                 (j.PostRestartWipe&&j.Kind!="Restart")||
+                j.WipeDelaySeconds is <0 or >600||(!j.PostRestartWipe&&j.WipeDelaySeconds!=0)||
                 (j.Frequency=="Once"&&j.IntervalMinutes is <1 or >2)||
                 j.DaysMask is <1 or >127 || j.MinuteOfDay is <0 or >1439 ||
                 j.Fingerprint.Length!=64 || j.LastStatus.Length>90)||
@@ -292,13 +293,14 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     }
 
     public ScheduledAsaOperation Configure(Guid mapId,string kind,string frequency,
-        int intervalMinutes,int minuteOfDay,int daysMask,bool postRestartWipe=false)
+        int intervalMinutes,int minuteOfDay,int daysMask,bool postRestartWipe=false,int wipeDelaySeconds=0)
     {
         if(mapId==Guid.Empty || kind is not ("SaveWorld" or "Restart") ||
            frequency is not ("Interval" or "Daily" or "Once") ||
            (kind=="Restart"&&frequency=="Interval") ||
            (frequency=="Once"&&intervalMinutes is <1 or >2) ||
            (postRestartWipe&&kind!="Restart") ||
+           wipeDelaySeconds is <0 or >600||(!postRestartWipe&&wipeDelaySeconds!=0)||
            minuteOfDay is <0 or >1439 || daysMask is <1 or >127 ||
            (frequency=="Interval"&&intervalMinutes is <15 or >10080))
             throw new InvalidDataException("UM-ASA-SCHEDULE-FIELDS");
@@ -309,7 +311,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             var state=Read();
             var fingerprint=Fingerprint(map);
             var sample=new ScheduledAsaOperation(map.Id,kind,frequency,intervalMinutes,
-                minuteOfDay,daysMask,fingerprint,true,default,null,"scheduled","",postRestartWipe);
+                minuteOfDay,daysMask,fingerprint,true,default,null,"scheduled","",postRestartWipe,wipeDelaySeconds);
             var task=sample with {NextDueUtc=Next(sample,DateTimeOffset.UtcNow)};
             int ix=state.Jobs.FindIndex(j=>j.MapId==map.Id&&j.Kind==kind);
             if(state.History.Any(x=>x.MapId==map.Id&&x.Kind==kind&&UnknownSlot(x.Status)))
@@ -351,7 +353,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     private static object Data(ScheduledAsaOperation job)=>new {
         mapId=job.MapId,kind=job.Kind,frequency=job.Frequency,
         intervalMinutes=job.IntervalMinutes,minuteOfDay=job.MinuteOfDay,
-        daysMask=job.DaysMask,enabled=job.Enabled,nextDueUtc=job.NextDueUtc,postRestartWipe=job.PostRestartWipe,
+        daysMask=job.DaysMask,enabled=job.Enabled,nextDueUtc=job.NextDueUtc,postRestartWipe=job.PostRestartWipe,wipeDelaySeconds=job.WipeDelaySeconds,
         lastClaimedUtc=job.LastClaimedUtc,lastStatus=job.LastStatus,
         lastEvidence=job.LastEvidence,
         evidence="DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY"
@@ -600,7 +602,11 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-FIELDS"));
                 wipe=wipeField.GetBoolean();
             }
-            var result=Configure(mapId,kind,rawFreq.GetString()!,interval,minute,days,wipe);
+            int delay=0;
+            if(args.TryGetProperty("wipeDelaySeconds",out var delayField)&&
+                (delayField.ValueKind!=JsonValueKind.Number||!delayField.TryGetInt32(out delay)))
+                return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-FIELDS"));
+            var result=Configure(mapId,kind,rawFreq.GetString()!,interval,minute,days,wipe,delay);
             return Task.FromResult(Ok(id,new {
                 job=Data(result),restartConflicts=RestartConflicts(mapId)
             }));
@@ -705,10 +711,21 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             if(!ready)throw new InvalidOperationException("UM-SCHEDULE-WIPE-NOT-READY");
             // A disabled or edited job may finish its in-progress Restart,
             // but it must not send a newly pending wipe.
-            bool wipeStillEnabled=Locked(()=>Read().Jobs.Any(x=>x.MapId==job.MapId&&
-                x.Kind==job.Kind&&x.Enabled&&x.PostRestartWipe&&
+            bool WipeStillEnabled()=>Locked(()=>Read().Jobs.Any(x=>x.MapId==job.MapId&&
+                x.Kind==job.Kind&&x.Enabled&&x.PostRestartWipe&&x.WipeDelaySeconds==job.WipeDelaySeconds&&
                 x.Fingerprint==job.Fingerprint&&x.LastStatus=="claimed-no-auto-retry"));
-            if(!wipeStillEnabled)return evidence+"_RESTART_WIPE_DISABLED";
+            if(!WipeStillEnabled())return evidence+"_RESTART_WIPE_DISABLED";
+            if(job.WipeDelaySeconds>0)
+            {
+                var delayEnd=DateTimeOffset.UtcNow.AddSeconds(job.WipeDelaySeconds);
+                while(DateTimeOffset.UtcNow<delayEnd)
+                {
+                    if(!WipeStillEnabled())return evidence+"_RESTART_WIPE_DISABLED";
+                    ct.ThrowIfCancellationRequested();
+                    await Task.Delay(TimeSpan.FromSeconds(1),ct);
+                }
+            }
+            if(!WipeStillEnabled())return evidence+"_RESTART_WIPE_DISABLED";
             ct.ThrowIfCancellationRequested();
             var wipe=Decode(await historicalAdmin!.HandleScheduledWipeAsync(
                 Message("historical.adminPreview",new{mapId=job.MapId,action="wildWipe",message=""}),pid,started));
@@ -716,6 +733,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                wipe.GetProperty("command").GetString()!="DestroyWildDinos")
                 throw new InvalidDataException("UM-SCHEDULE-WIPE-PREVIEW");
             ct.ThrowIfCancellationRequested();
+            if(!WipeStillEnabled())return evidence+"_RESTART_WIPE_DISABLED";
             var sent=Decode(await historicalAdmin.HandleScheduledWipeAsync(
                 Message("historical.adminSend",new{token=wipe.GetProperty("token").GetGuid(),
                     confirm=true,typedApproval="STORE-V1 DINÓTÖRLÉS"}),pid,started));
@@ -826,7 +844,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     if(ix<0)return false;
                     var actual=state.Jobs[ix];
                     if(!actual.Enabled||actual.NextDueUtc!=observed.NextDueUtc||
-                       actual.Fingerprint!=observed.Fingerprint||actual.PostRestartWipe!=observed.PostRestartWipe)return false;
+                       actual.Fingerprint!=observed.Fingerprint||actual.PostRestartWipe!=observed.PostRestartWipe||actual.WipeDelaySeconds!=observed.WipeDelaySeconds)return false;
                     // Unknown earlier dispatch blocks ONLY this task. Do not
                     // accidentally execute its next slot because the
                     // schedule cursor was advanced before a crash.
@@ -864,7 +882,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     var map=Owned(observed.MapId);
                     bool stillApproved=Locked(()=>Read().Jobs.Any(x=>
                         x.MapId==observed.MapId&&x.Kind==observed.Kind&&
-                        x.Enabled&&x.Fingerprint==observed.Fingerprint&&x.PostRestartWipe==observed.PostRestartWipe&&
+                        x.Enabled&&x.Fingerprint==observed.Fingerprint&&x.PostRestartWipe==observed.PostRestartWipe&&x.WipeDelaySeconds==observed.WipeDelaySeconds&&
                         x.LastClaimedUtc==now&&x.LastStatus=="claimed-no-auto-retry"));
                     if(stillApproved&&Eligible(map)&&Fingerprint(map)==observed.Fingerprint)
                     {

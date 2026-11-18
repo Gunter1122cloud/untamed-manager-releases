@@ -31,7 +31,7 @@ function localDate(value:string|null|undefined){
 }
 type Draft={
   kind:NativeScheduleKind;frequency:NativeScheduleFrequency;
-  minutes:number;clock:string;daysMask:number;postRestartWipe:boolean;
+  minutes:number;clock:string;daysMask:number;postRestartWipe:boolean;wipeDelaySeconds:number;
 };
 function parseClock(raw:string){
   const match=/^([01]\d|2[0-3]):([0-5]\d)$/.exec(raw);
@@ -43,7 +43,7 @@ function clockOf(minute:number){
 }
 function defaultDraft(kind:NativeScheduleKind):Draft{
   return {kind,frequency:kind==="Restart"?"Daily":"Interval",
-    minutes:120,clock:kind==="Restart"?"04:00":"03:00",daysMask:127,postRestartWipe:false};
+    minutes:120,clock:kind==="Restart"?"04:00":"03:00",daysMask:127,postRestartWipe:false,wipeDelaySeconds:0};
 }
 function ScheduleEditor({mapId,kind,status,onChanged}:{
   mapId:string;kind:NativeScheduleKind;status:NativeAsaScheduleStatus;
@@ -59,11 +59,12 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
   useEffect(()=>{
     setDraft(existing?{
       kind,frequency:existing.frequency,minutes:existing.intervalMinutes,
-      clock:clockOf(existing.minuteOfDay),daysMask:existing.daysMask,postRestartWipe:!!existing.postRestartWipe
+      clock:clockOf(existing.minuteOfDay),daysMask:existing.daysMask,postRestartWipe:!!existing.postRestartWipe,wipeDelaySeconds:existing.wipeDelaySeconds??0
     }:defaultDraft(kind));
     setMessage("");setError("");
   },[mapId,kind,existing?.nextDueUtc,existing?.enabled]);
   const valid=parseClock(draft.clock)>=0 && draft.daysMask>0 &&
+    (!draft.postRestartWipe||Number.isInteger(draft.wipeDelaySeconds)&&draft.wipeDelaySeconds>=0&&draft.wipeDelaySeconds<=600) &&
     (draft.frequency==="Once"?[1,2].includes(draft.minutes):draft.frequency!=="Interval"||
       Number.isInteger(draft.minutes)&&draft.minutes>=15&&draft.minutes<=10080);
   const change=async(enable:boolean)=>{
@@ -73,7 +74,7 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
     try{
       if(enable){
         await managerBridge.nativeScheduleSet(mapId,kind,draft.frequency,
-          draft.minutes,parseClock(draft.clock),draft.daysMask,draft.postRestartWipe);
+          draft.minutes,parseClock(draft.clock),draft.daysMask,draft.postRestartWipe,draft.postRestartWipe?draft.wipeDelaySeconds:0);
       }else await managerBridge.nativeScheduleDisable(mapId,kind);
       await onChanged();
       setMessage(enable?"A map ütemezése tartósan mentve.":"A map automatikus feladata kikapcsolva.");
@@ -139,6 +140,10 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
       <input type="checkbox" checked={draft.postRestartWipe} disabled={busy||!canConfigure}
         onChange={e=>setDraft(old=>({...old,postRestartWipe:e.target.checked}))}/>
       Újraindítás után vad dinók törlése (DestroyWildDinos) – csak az új saját ASA PID és játékosfogadási napló igazolása után
+    </label>}
+    {kind==="Restart"&&status.historicalSchedulingSupported&&draft.postRestartWipe&&<label>Dinowipe késleltetése a készenlét után (másodperc)
+      <input type="number" min={0} max={600} step={15} aria-label="Dinowipe késleltetése másodpercben" disabled={busy||!canConfigure}
+        value={draft.wipeDelaySeconds} onChange={e=>setDraft(old=>({...old,wipeDelaySeconds:Number(e.target.value)}))}/>
     </label>}
     <p className="muted small">A mentés a kijelölt map automatikus {kind==="SaveWorld"?"SaveWorld":"SaveWorld → DoExit → Start"} feladatát aktiválja. {draft.frequency==="Once"?"Az egyszeri próba nem ismétlődik.":""}</p>
     <div className="native-schedule-buttons">

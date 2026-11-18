@@ -56,7 +56,7 @@ export type NativeScheduleKind = "SaveWorld"|"Restart";
 export type NativeScheduleFrequency = "Interval"|"Daily"|"Once";
 export type NativeAsaScheduleTask = {
   mapId:string;kind:NativeScheduleKind;frequency:NativeScheduleFrequency;
-  intervalMinutes:number;minuteOfDay:number;daysMask:number;postRestartWipe?:boolean;
+  intervalMinutes:number;minuteOfDay:number;daysMask:number;postRestartWipe?:boolean;wipeDelaySeconds?:number;
   enabled:boolean;nextDueUtc:string;lastClaimedUtc:string|null;
   lastStatus:string;lastEvidence:string;
   evidence:"DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY";
@@ -1800,7 +1800,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
    confirm?: boolean; ackUnknownOutcome?:boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; runId?:string; journalId?:string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
-  intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;postRestartWipe?:boolean;
+  intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;postRestartWipe?:boolean;wipeDelaySeconds?:number;
   gamePort?: number; queryPort?: number; customLevel?: string; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
@@ -2113,9 +2113,9 @@ export const managerBridge = {
     request<NativeScheduleResumeReceipt>("schedule.nativeResume",{mapId,confirm:true}),
   nativeScheduleSet: (mapId:string,kind:NativeScheduleKind,
       frequency:NativeScheduleFrequency,intervalMinutes:number,
-      minuteOfDay:number,daysMask:number,postRestartWipe=false) =>
+      minuteOfDay:number,daysMask:number,postRestartWipe=false,wipeDelaySeconds=0) =>
     request<NativeAsaScheduleSaved>("schedule.nativeSet",{
-      mapId,kind,frequency,intervalMinutes,minuteOfDay,daysMask,postRestartWipe,confirm:true
+      mapId,kind,frequency,intervalMinutes,minuteOfDay,daysMask,postRestartWipe,wipeDelaySeconds,confirm:true
     }),
   nativeScheduleDisable: (mapId:string,kind:NativeScheduleKind) =>
     request<NativeAsaScheduleTask>("schedule.nativeDisable",{
