@@ -490,11 +490,17 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         new LocalRunningAsaDiscovery.Observation(602,0,instant,"asaServer","Island_WP","profileCandidate",candidate,"Island",false),
         new LocalRunningAsaDiscovery.Observation(603,0,instant,"apiLoader","Ragnarok_WP","profileCandidate",candidate,"Rag",false),
         new LocalRunningAsaDiscovery.Observation(604,603,instant,"asaServer","Ragnarok_WP","unverified",null,null,true),
-        new LocalRunningAsaDiscovery.Observation(605,0,instant,"asaServer","Future_WP","unregistered",null,null,false)
+        new LocalRunningAsaDiscovery.Observation(605,0,instant,"asaServer","Future_WP","unregistered",null,null,false),
+        new LocalRunningAsaDiscovery.Observation(606,0,instant,"asaServer","Island_WP","profileCandidate",candidate,"Island",false),
+        new LocalRunningAsaDiscovery.Observation(607,0,instant,"apiLoader","Next_WP","unregistered",null,null,false)
     };
     var state=new DesktopAutomaticAsaDiscoverySupervisor.State(instant,"ok",observations,true);
-    var discovered=DesktopDiscordControlApi.DiscoveredOnly(state);
-    Check(discovered.Select(x=>x.MapKey).SequenceEqual(new[]{"Event_WP","Future_WP"})&&
+    var verified=new HashSet<(int Pid,DateTimeOffset StartedUtc)>{(602,instant),(604,instant)};
+    var discovered=DesktopDiscordControlApi.DiscoveredOnly(state,verified);
+    Check(discovered.Select(x=>x.MapKey).SequenceEqual(new[]{"Event_WP","Future_WP","Island_WP","Next_WP"})&&
+        discovered.Last().ProcessKind=="apiLoader"&&
+        DesktopDiscordControlApi.DiscoveredOnly(state,new HashSet<(int,DateTimeOffset)>{(602,instant.AddSeconds(-1))})
+            .Any(x=>x.Pid==602)&&
         discovered.All(x=>!x.Controllable&&!x.StoreWriteAuthorized)&&
         DesktopDiscordControlApi.DiscoveredOnly(state with{Fresh=false}).Length==0,
         "Discord discovery publishes new unregistered ASA maps only as read-only observations");

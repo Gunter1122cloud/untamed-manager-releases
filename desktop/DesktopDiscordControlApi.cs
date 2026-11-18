@@ -44,6 +44,8 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     private readonly Func<DesktopAutomaticAsaDiscoverySupervisor.State>? discovery;
     internal sealed record DiscoveredMap(int Pid,DateTimeOffset? StartedUtc,
         string MapKey,string MatchState,bool LoaderParentObserved,
+        int? GamePort=null,int? QueryPort=null,
+        string ProcessKind="asaServer",
         bool Controllable=false,bool StoreWriteAuthorized=false);
     private readonly string root,settingsPath,auditFolder;
     private readonly CancellationTokenSource closing=new();
@@ -240,20 +242,41 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     // Separate display-only inventory: no profile GUID, executable, launch
     // line, password, RCON route or operation token can leave this projection.
     internal static DiscoveredMap[] DiscoveredOnly(
-        DesktopAutomaticAsaDiscoverySupervisor.State? state)
+        DesktopAutomaticAsaDiscoverySupervisor.State? state,
+        IReadOnlySet<(int Pid,DateTimeOffset StartedUtc)>? verifiedServers=null)
     {
         if(state==null||!state.Fresh)return Array.Empty<DiscoveredMap>();
         var rows=state.Processes;
-        return rows.Where(p=>p.ProcessKind=="asaServer"&&p.ProfileMapId==null&&
-                !(p.LoaderParentObserved&&rows.Any(parent=>
-                    parent.ProcessKind=="apiLoader"&&parent.Pid==p.ParentPid&&
-                    parent.ProfileMapId!=null&&parent.MapKey==p.MapKey)))
-            .Select(p=>new DiscoveredMap(p.Pid,p.StartedUtc,
-                p.MapKey,p.MatchState,p.LoaderParentObserved)).ToArray();
+        // A same-map/same-EXE candidate is not ownership. Event instances
+        // may deliberately use the same level as a registered map but other
+        // ports. Suppress ONLY the exact verified ASA PID and creation time.
+        bool Known(LocalRunningAsaDiscovery.Observation p)=>
+            p.StartedUtc.HasValue&&verifiedServers?.Contains((p.Pid,p.StartedUtc.Value))==true;
+        var discovered=new List<DiscoveredMap>();
+        foreach(var p in rows.Where(x=>x.ProcessKind=="asaServer"))
+        {
+            if(Known(p))continue;
+            var parent=p.LoaderParentObserved?rows.SingleOrDefault(x=>
+                x.ProcessKind=="apiLoader"&&x.Pid==p.ParentPid&&x.MapKey==p.MapKey):null;
+            var facts=p.LaunchFacts?.ArgumentsValidated==true?p.LaunchFacts:parent?.LaunchFacts;
+            discovered.Add(new(p.Pid,p.StartedUtc,p.MapKey,p.MatchState,
+                p.LoaderParentObserved,facts?.GamePort,facts?.QueryPort,p.ProcessKind));
+        }
+        // Also surface an observed Loader that has not yet produced a
+        // correlated ASA child. Never label that Loader an online server.
+        foreach(var p in rows.Where(x=>x.ProcessKind=="apiLoader"))
+        {
+            if(rows.Any(child=>child.ProcessKind=="asaServer"&&child.LoaderParentObserved&&
+                child.ParentPid==p.Pid&&child.MapKey==p.MapKey))continue;
+            discovered.Add(new(p.Pid,p.StartedUtc,p.MapKey,p.MatchState,false,
+                p.LaunchFacts?.GamePort,p.LaunchFacts?.QueryPort,p.ProcessKind));
+        }
+        return discovered.ToArray();
     }
     private async Task<object> Status()
     {
         var result=new List<object>();int offset=0;string? key=null;
+        var verifiedServers=new HashSet<(int Pid,DateTimeOffset StartedUtc)>();
         for(int page=0;page<100;page++)
         {
             var data=await Invoke("operations.snapshot",key==null?(object)new{offset,limit=50}:new{offset,limit=50,snapshotKey=key});
@@ -267,6 +290,8 @@ internal sealed class DesktopDiscordControlApi : IDisposable
                 var now=DateTimeOffset.UtcNow;
                 if(pid.HasValue&&start.HasValue)
                 {
+                    if(Yes(row,"running")&&!Yes(row,"confirmedStopped"))
+                        verifiedServers.Add((pid.Value,start.Value));
                     if(players.TryGetValue(map.Id,out var count)&&count.Pid==pid&&count.StartedUtc==start&&now-count.ObservedUtc<=TimeSpan.FromSeconds(65))
                     {playerCount=count.Count;playerObserved=count.ObservedUtc;}
                     try
@@ -298,7 +323,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
                     observedUtc=DateTimeOffset.UtcNow,maps=result,
                     discoveryFresh=observed?.Fresh??false,
                     discoveryObservedUtc=observed?.ObservedUtc,
-                    discoveredMaps=DiscoveredOnly(observed)};
+                    discoveredMaps=DiscoveredOnly(observed,verifiedServers)};
             }
             offset=next.GetInt32();
         }

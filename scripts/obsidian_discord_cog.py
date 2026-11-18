@@ -300,7 +300,9 @@ class ObsidianControl(commands.Cog):
                         await self.say("alerts",f'{label}: Új felderített ASA · {current_discovery[key]} · csak megfigyelés')
                 self.known_discovery[label]=current_discovery
                 for m in discovered:
-                    lines.append(f'⚪ {clean(m["mapKey"],65)} · felderített ASA · regisztráció/azonosság nem igazolt')
+                    port=f' :{m["gamePort"]}' if isinstance(m.get("gamePort"),int) else ""
+                    kind="Loader észlelve; ASA még nem igazolt" if m.get("processKind")=="apiLoader" else "ASA folyamat észlelve"
+                    lines.append(f'⚪ {clean(m["mapKey"],65)}{port} · {kind} · csak megfigyelés')
             else:
                 lines.append("Felderítés nem igazolt")
             # Keep whole rows in continuation fields. Large fleets still have
