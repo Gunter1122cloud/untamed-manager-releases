@@ -504,6 +504,17 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         discovered.All(x=>!x.Controllable&&!x.StoreWriteAuthorized)&&
         DesktopDiscordControlApi.DiscoveredOnly(state with{Fresh=false}).Length==0,
         "Discord discovery publishes new unregistered ASA maps only as read-only observations");
+    var launchFacts=new LocalAsaLaunchFacts.Facts(7809,27046,new[]{"123","456"},Array.Empty<string>(),
+        "parsed","notDeclared",true,true,true,false,true);
+    var eventState=state with{Processes=new[]{
+        new LocalRunningAsaDiscovery.Observation(701,0,instant,"apiLoader","Event_WP","unregistered",null,null,false,LaunchFacts:launchFacts),
+        new LocalRunningAsaDiscovery.Observation(702,701,instant,"asaServer","Event_WP","unverified",null,null,true)
+    }};
+    var eventRow=DesktopDiscordControlApi.DiscoveredOnly(eventState).Single();
+    Check(eventRow.GamePort==7809&&eventRow.ActiveModIds!.SequenceEqual(new[]{"123","456"})&&
+        eventRow.StoreFlagPresent==true&&eventRow.RegistrationState=="store-or-cluster-ownership-required"&&
+        !eventRow.Controllable&&!eventRow.StoreWriteAuthorized,
+        "Event Loader supplies sanitized onboarding evidence only; never a control target");
 }
 // Test the exact API authorization/dispatch boundary using an isolated profile.
 // No actual server, network listener, RCON or SteamCMD is invoked.
@@ -551,6 +562,12 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     Check(!other.GetProperty("ok").GetBoolean()&&sends==0,"Discord confirmation bound to initiating actor even for equally privileged owner");
     var applied=await Request("apply",operation,alice,admin,new{token=approve,confirm=true});
     Check(applied.GetProperty("ok").GetBoolean()&&sends==1,"Discord sends exact approved local native Start once");
+    var audit=applied.GetProperty("data");
+    Check(audit.GetProperty("actorId").GetString()==alice&&
+        audit.GetProperty("mapNames")[0].GetString()==m.Name&&
+        audit.GetProperty("mapIds")[0].GetGuid()==m.Id&&
+        !audit.GetProperty("gameEffectVerified").GetBoolean(),
+        "Discord receipt exposes approved actor and captured target names without claiming game effect");
     var replay=await Request("apply",operation,alice,admin,new{token=approve,confirm=true});
     Check(!replay.GetProperty("ok").GetBoolean()&&sends==1,"Discord consumes confirmation");
     pre=await Request("preview",Guid.NewGuid(),alice,owner,new{action="start",mapIds=new[]{m.Id}});

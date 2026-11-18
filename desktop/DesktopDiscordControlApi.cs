@@ -30,7 +30,8 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         bool? UseApi,string Message,string Point,int Delay,string[] Profiles,DateTimeOffset Expires,
         string ApplyRoute,Guid? NativeToken);
     private sealed record Audit(Guid RequestId,DateTimeOffset Utc,string Actor,string Action,Guid[] Maps,
-        string State,string? StatusRoute,Guid? NativeJobId);
+        string State,string? StatusRoute,Guid? NativeJobId,
+        string[]? MapNames=null,string? HostName=null);
     private sealed record CountSample(int Pid,DateTimeOffset StartedUtc,int? Count,DateTimeOffset ObservedUtc);
     private sealed record CpuSample(int Pid,DateTimeOffset StartedUtc,double Seconds,DateTimeOffset ObservedUtc);
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -46,7 +47,12 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         string MapKey,string MatchState,bool LoaderParentObserved,
         int? GamePort=null,int? QueryPort=null,
         string ProcessKind="asaServer",
-        bool Controllable=false,bool StoreWriteAuthorized=false);
+        bool Controllable=false,bool StoreWriteAuthorized=false,
+        string[]? ActiveModIds=null,string[]? PassiveModIds=null,
+        string ActiveModsState="unverified",string PassiveModsState="unverified",
+        bool? StoreFlagPresent=null,bool? ClusterSwitchPresent=null,
+        bool? TransferOverridePresent=null,bool? ConversionFlagPresent=null,
+        string RegistrationState="ownership-not-proven");
     private readonly string root,settingsPath,auditFolder;
     private readonly CancellationTokenSource closing=new();
     private readonly Dictionary<Guid,Approval> approvals=new();
@@ -259,8 +265,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             var parent=p.LoaderParentObserved?rows.SingleOrDefault(x=>
                 x.ProcessKind=="apiLoader"&&x.Pid==p.ParentPid&&x.MapKey==p.MapKey):null;
             var facts=p.LaunchFacts?.ArgumentsValidated==true?p.LaunchFacts:parent?.LaunchFacts;
-            discovered.Add(new(p.Pid,p.StartedUtc,p.MapKey,p.MatchState,
-                p.LoaderParentObserved,facts?.GamePort,facts?.QueryPort,p.ProcessKind));
+            discovered.Add(DescribeDiscovered(p,facts));
         }
         // Also surface an observed Loader that has not yet produced a
         // correlated ASA child. Never label that Loader an online server.
@@ -268,10 +273,31 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         {
             if(rows.Any(child=>child.ProcessKind=="asaServer"&&child.LoaderParentObserved&&
                 child.ParentPid==p.Pid&&child.MapKey==p.MapKey))continue;
-            discovered.Add(new(p.Pid,p.StartedUtc,p.MapKey,p.MatchState,false,
-                p.LaunchFacts?.GamePort,p.LaunchFacts?.QueryPort,p.ProcessKind));
+            discovered.Add(DescribeDiscovered(p,p.LaunchFacts));
         }
         return discovered.ToArray();
+    }
+    private static DiscoveredMap DescribeDiscovered(LocalRunningAsaDiscovery.Observation row,
+        LocalAsaLaunchFacts.Facts? facts)
+    {
+        bool parsed=facts?.ArgumentsValidated==true;
+        string reason=!parsed?"launch-arguments-unverified":
+            facts!.ConversionFlagPresent?"conversion-flag-observed":
+            facts.StoreFlagPresent||facts.ClusterSwitchPresent||facts.TransferOverridePresent?
+                "store-or-cluster-ownership-required":
+            row.ProcessKind=="apiLoader"||row.LoaderParentObserved?
+                "loader-ownership-required":"explicit-registration-required";
+        return new(row.Pid,row.StartedUtc,row.MapKey,row.MatchState,row.LoaderParentObserved,
+            facts?.GamePort,facts?.QueryPort,row.ProcessKind,
+            ActiveModIds:parsed?facts!.ActiveModIds.ToArray():null,
+            PassiveModIds:parsed?facts!.PassiveModIds.ToArray():null,
+            ActiveModsState:parsed?facts!.ActiveModsState:"unverified",
+            PassiveModsState:parsed?facts!.PassiveModsState:"unverified",
+            StoreFlagPresent:parsed?facts!.StoreFlagPresent:null,
+            ClusterSwitchPresent:parsed?facts!.ClusterSwitchPresent:null,
+            TransferOverridePresent:parsed?facts!.TransferOverridePresent:null,
+            ConversionFlagPresent:parsed?facts!.ConversionFlagPresent:null,
+            RegistrationState:reason);
     }
     private async Task<object> Status()
     {
@@ -312,6 +338,12 @@ internal sealed class DesktopDiscordControlApi : IDisposable
                     pid,status=Value(row,"status"),uptimeSeconds=Value(row,"uptimeSeconds"),memoryMiB=Value(row,"memoryMiB"),cpuPercent,
                     freeBytes,totalBytes,playerCount,playerObservedUtc=playerObserved,storeV1=map.HistoricalStoreProtected,
                     useApi=map.StartWithAsaApi,maintenance=map.Maintenance,
+                    observedReadOnlyImported=map.ObservedReadOnlyImported,
+                    // Eligibility only; a native preview must still authorize
+                    // each action. Store-backed maps never advertise single-map restore.
+                    controlCandidate=!map.ObservedReadOnlyImported&&!map.Maintenance,
+                    singleMapRestoreSupported=!UntamedWorldBackup.HasLiveOrHistoricalStore(map)&&
+                        !map.ObservedReadOnlyImported&&!map.Maintenance,
                     liveModOrder=Value(row,"liveModOrder"),livePassiveModOrder=Value(row,"livePassiveModOrder"),
                     nextModOrder=Value(row,"nextModOrder"),nextPassiveModOrder=Value(row,"nextPassiveModOrder"),
                     modChangesPending=map.ModChangesPending});
@@ -432,7 +464,8 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         if(!enterLane())return Error("UM-DC-HOST-BUSY");
         try
         {
-            var row=new Audit(requestId,DateTimeOffset.UtcNow,actor,p.Action,p.Maps,"claimed-no-replay",null,null);
+            var row=new Audit(requestId,DateTimeOffset.UtcNow,actor,p.Action,p.Maps,"claimed-no-replay",null,null,
+                p.Maps.Select(id=>Owned(id).Name).ToArray(),cluster.Config.LocalHostName);
             Claim(row); // durable before any native dispatch
             try
             {
@@ -462,7 +495,8 @@ internal sealed class DesktopDiscordControlApi : IDisposable
                 Guid? job=Value(response,"jobId") is {ValueKind:JsonValueKind.String} j?j.GetGuid():null;
                 row=row with{State="native-receipt",NativeJobId=job,StatusRoute=StatusRoute(apply)};
                 Finish(row);
-                return Ok(new{requestId,action=p.Action,receipt=Projection(response,"mapId","jobId","state","startRequested",
+                return Ok(new{requestId,action=p.Action,actorId=row.Actor,hostName=row.HostName,
+                    mapIds=row.Maps,mapNames=row.MapNames,requestedUtc=row.Utc,receipt=Projection(response,"mapId","jobId","state","startRequested",
                     "started","pid","launchMode","commandSent","rconCommandDispatched","backupVerified","point",
                     "restored","bytesRestoredAndHashesVerified","evidence","response"),
                     gameEffectVerified=false});
@@ -510,7 +544,9 @@ internal sealed class DesktopDiscordControlApi : IDisposable
                     status=receipt;
                 }
                 if(status.GetProperty("jobId").GetGuid()!=row.NativeJobId)return Error("UM-DC-JOB-ID");
-                return Ok(new{operationId=row.RequestId,job=Projection(status,"jobId","state","stage","evidence","confirmedStopped","newPid","targets","changedUtc")});
+                return Ok(new{operationId=row.RequestId,action=row.Action,actorId=row.Actor,
+                    hostName=row.HostName,mapIds=row.Maps,mapNames=row.MapNames,requestedUtc=row.Utc,
+                    job=Projection(status,"jobId","state","stage","evidence","confirmedStopped","newPid","targets","changedUtc")});
             }
             if(kind=="preview")
             {
