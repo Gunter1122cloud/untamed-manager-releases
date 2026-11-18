@@ -407,6 +407,11 @@ public sealed class ObsidianWindow : Form
         _tray.Visible = true;
         var menu = new ContextMenuStrip();
         menu.Items.Add("Megnyitás", null, (_, _) => RestoreWindow());
+        if(!smokeTest)
+            menu.Items.Add("Discord bot",null,(_,_)=>{
+                RestoreWindow();
+                DesktopDiscordBotRuntime.Show(this,!_suppressScheduledMutations&&!_updateHandoff);
+            });
         menu.Items.Add("Kilépés a Managerből", null, (_, _) =>
         {
             _reallyExit = true;
