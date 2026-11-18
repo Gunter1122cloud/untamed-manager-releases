@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace UntamedManager.Core;
 
@@ -54,6 +55,42 @@ public static class LocalPluginInventory
             output.Add(new(plugin.Name,binaries,false));
         }
         return output;
+    }
+    // Explicit, bounded config syntax inspection for the desktop diagnostic
+    // view. Return only a category; never the file content, exception, keys
+    // or credentials. A syntactically valid config is not a plugin-specific
+    // schema or runtime compatibility claim.
+    public static string ConfigSyntax(LocalMap map,LocalPluginInfo plugin)
+    {
+        if(plugin.Protected)return "protected";
+        try
+        {
+            string name=plugin.PluginName;
+            if(string.IsNullOrWhiteSpace(name)||name is "." or ".."||
+               name.IndexOfAny(Path.GetInvalidFileNameChars())>=0||
+               name!=Path.GetFileName(name)||name.EndsWith('.')||name.EndsWith(' '))
+                return "unverified";
+            string root=FixedRoot(map.InstallationPath);
+            string directory=Path.Combine(root,"ShooterGame","Binaries","Win64","ArkApi","Plugins",name);
+            RejectLinksInParents(directory);
+            var file=new FileInfo(Path.Combine(directory,"config.json"));
+            if(!file.Exists)return "missing";
+            if((file.Attributes&FileAttributes.ReparsePoint)!=0||
+                file.Length>1_048_576)return "unverified";
+            using var stream=new FileStream(file.FullName,FileMode.Open,FileAccess.Read,FileShare.Read);
+            if(stream.Length>1_048_576)return "unverified";
+            int length=(int)stream.Length;
+            var bytes=new byte[length];
+            stream.ReadExactly(bytes);
+            if(stream.ReadByte()!=-1)return "unverified";
+            int bom=length>=3&&bytes[0]==0xef&&bytes[1]==0xbb&&bytes[2]==0xbf?3:0;
+            using var document=JsonDocument.Parse(bytes.AsMemory(bom),new JsonDocumentOptions{MaxDepth=64});
+            return "valid-json";
+        }
+        catch(JsonException){return "invalid-json";}
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
+            ArgumentException or NotSupportedException or System.Security.SecurityException)
+        {return "unverified";}
     }
     private static string FixedRoot(string path)
     {

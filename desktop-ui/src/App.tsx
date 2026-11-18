@@ -1052,12 +1052,23 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
       <p className="muted small">Az adott map tényleges
         ShooterGame/Binaries/Win64/ArkApi/Plugins mappája nyílik meg.
         Működő szervernél sem indít, állít le, indít újra vagy küld RCON-parancsot.</p>
+      {info&&<p className="muted small" role="status">ASA API inicializálási napló:
+        {" "+(info.apiLogInitialized?"Aktuális folyamatnál igazolt pozitív jel":"Nem igazolt")}.
+        Modulmegfigyelés: {info.moduleObservedUtc?new Date(info.moduleObservedUtc).toLocaleString("hu-HU"):"nem ellenőrizhető"}.
+      </p>}
       {info?.plugins.map(plugin=><div className="plugin-row" key={plugin.name}>
         <span className="plugin-symbol"><Plug size={19}/></span>
         <div className="plugin-copy">
           <b>{plugin.name}</b>
           <small>{plugin.binaries.map(b=>b.name+
             (b.version?" · "+b.version:"")).join(", ")||"Nincs DLL-adat"}</small>
+          <small>config.json: {plugin.configStatus==="valid-json"?"Érvényes JSON-szintaxis":
+            plugin.configStatus==="invalid-json"?"Hibás JSON-szintaxis":
+            plugin.configStatus==="missing"?"Nem található":
+            plugin.configStatus==="protected"?"Védett, nem olvasott":"Nem ellenőrizhető"}</small>
+          {plugin.binaries.some(b=>b.sha256)&&<details><summary>DLL ellenőrzőösszegek</summary>
+            {plugin.binaries.filter(b=>b.sha256).map(b=><small key={b.name} title={b.sha256}>{b.name} · SHA-256: {b.sha256?.slice(0,16)}…</small>)}
+          </details>}
         </div>
         <span className={"mod-tag "+(info.moduleObservation==="observed-current-asa-process"&&plugin.binaries.some(b=>b.loadedModuleObserved)?"green":"amber")}>
           {info.moduleObservation==="observed-current-asa-process"&&plugin.binaries.some(b=>b.loadedModuleObserved)

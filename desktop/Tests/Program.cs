@@ -7433,6 +7433,16 @@ try
             "{\"preserve\":\"user-value\"}");
         File.WriteAllText(Path.Combine(installedPlugin,"license.key"),
             "PRIVATE-LICENSE-UNCHANGED");
+        var inventory=LocalPluginInventory.Scan(zipMap).Single(p=>p.PluginName=="SampleZip");
+        Check(LocalPluginInventory.ConfigSyntax(zipMap,inventory)=="valid-json"&&
+              File.ReadAllText(Path.Combine(installedPlugin,"config.json"))=="{\"preserve\":\"user-value\"}",
+            "plugin diagnostics report syntax without altering config or exposing contents");
+        var broken=Path.Combine(pluginRoot,"BrokenJson");
+        Directory.CreateDirectory(broken);File.WriteAllText(Path.Combine(broken,"config.json"),"{ broken");
+        Check(LocalPluginInventory.ConfigSyntax(zipMap,new LocalPluginInfo("BrokenJson",Array.Empty<PluginBinaryInfo>(),false))=="invalid-json"&&
+              LocalPluginInventory.ConfigSyntax(zipMap,new LocalPluginInfo("BrokenJson",Array.Empty<PluginBinaryInfo>(),true))=="protected"&&
+              LocalPluginInventory.ConfigSyntax(zipMap,new LocalPluginInfo("missing",Array.Empty<PluginBinaryInfo>(),false))=="missing",
+            "plugin diagnostics distinguish syntax failure, protected data and missing config");
         File.Delete(zipPath);
         using(var stream=File.Create(zipPath))
         using(var zip=new System.IO.Compression.ZipArchive(stream,
