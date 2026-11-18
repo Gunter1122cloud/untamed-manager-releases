@@ -164,7 +164,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         using var doc=JsonDocument.Parse(bytes,new JsonDocumentOptions{MaxDepth=12});
         if(!Authorize(settings!,doc.RootElement,DateTimeOffset.UtcNow))return;
         timeout.CancelAfter(Timeout.InfiniteTimeSpan);
-        string reply=await Handle(doc.RootElement);
+        string reply=await Handle(doc.RootElement,settings!);
         if(Encoding.UTF8.GetByteCount(reply)>1_048_576)reply=Error("UM-DC-RESPONSE-LIMIT");
         byte[] output=Encoding.UTF8.GetBytes(reply);
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(header,(uint)output.Length);
@@ -200,7 +200,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     private string AuditPath(Guid id)=>Path.Combine(auditFolder,id.ToString("N")+".json");
     private void Claim(Audit row)
     {
-        string path=AuditPath(row.RequestId);SafePath(path);
+        string path=AuditPath(row.RequestId);SafePath(path);Directory.CreateDirectory(auditFolder);SafePath(path);
         using var f=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.Read,4096,FileOptions.WriteThrough);
         JsonSerializer.Serialize(f,row,Json);f.Flush(true);
     }
@@ -299,6 +299,8 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             if(mode.HasValue||action is not ("start" or "stop" or "restart")||delay is <0 or >300)
                 throw new InvalidDataException("UM-DC-BATCH-SCOPE");
             preview=await Invoke("operations.lifecycleBatchPreview",new{mapIds=ids,action,delaySeconds=delay});
+            if(!preview.GetProperty("maps").EnumerateArray().Select(x=>x.GetProperty("mapId").GetGuid()).SequenceEqual(ids))
+                throw new InvalidDataException("UM-DC-BATCH-PREVIEW-SCOPE");
             applyRoute="operations.lifecycleBatchApply";
         }
         else
@@ -324,6 +326,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             else if(action=="save"&&!historical)
             {
                 preview=await Invoke("rcon.status",new{mapId});
+                if(!Yes(preview,"permitted"))throw new InvalidOperationException("UM-DC-RCON-NOT-READY");
                 applyRoute="rcon.saveWorld";
             }
             else if(action is "wipe" or "rcon")
@@ -406,13 +409,14 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         }
         finally{leaveLane();}
     }
-    internal async Task<string> Handle(JsonElement a)
+    internal async Task<string> Handle(JsonElement a,Settings cfg)
     {
-        // Only Serve (after auth) calls this; tests exercise pure authorization.
+        if(!Authorize(cfg,a,DateTimeOffset.UtcNow))return Error("UM-DC-AUTH");
         if(!await hostGate.WaitAsync(TimeSpan.FromSeconds(2)))return Error("UM-DC-HOST-BUSY");
         try
         {
             if(frozen()||closing.IsCancellationRequested)return Error("UM-DC-HANDOFF");
+            if(!Authorize(cfg,a,DateTimeOffset.UtcNow))return Error("UM-DC-AUTH");
             Guid id=a.GetProperty("requestId").GetGuid();if(id==Guid.Empty)return Error("UM-DC-ID");
             string actor=Field(a,"userId",25),channel=Field(a,"channelId",25);
             string kind=Field(a,"kind",32);
@@ -428,6 +432,9 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             {
                 var row=ReadAudit(a.GetProperty("operationId").GetGuid());
                 if(row.NativeJobId==null||row.StatusRoute==null)return Ok(row);
+                if(row.StatusRoute is not ("operations.lifecycleBatchCurrent" or "historical.restartStatus" or
+                    "servers.restartStatus" or "historical.gracefulStopStatus" or "servers.gracefulStopStatus" or
+                    "historical.saveWorldStatus" or "steam.stoppedStatus"))return Error("UM-DC-JOB-ROUTE");
                 var status=await Invoke(row.StatusRoute,new{jobId=row.NativeJobId});
                 if(row.StatusRoute=="operations.lifecycleBatchCurrent")
                 {

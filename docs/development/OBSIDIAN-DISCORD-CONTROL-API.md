@@ -74,6 +74,10 @@ No raw arbitrary WebView methods, paths, passwords, RCON credentials,
 firewall changes, Manager update, or OS commands over the endpoint.
 Native custom RCON restrictions still apply.
 
+## Bot transport helper
+
+`scripts/obsidian_discord_client.py` contains a Python standard-library pinned TLS client and async wrapper. The bot must persist its apply request UUID before sending, defer Discord interaction responses for long operations, and recheck Discord roles/channel at each action. Do not log the request envelope. The helper is not a complete Discord bot.
+
 ## Acceptance
 
 This branch introduces the listener and a typed adapter. Real Discord bot
