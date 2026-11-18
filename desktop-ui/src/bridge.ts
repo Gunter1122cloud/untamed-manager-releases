@@ -696,6 +696,7 @@ export type StoppedSteamStatus = {
 };
 export type StoppedSteamBatchPreview = {
   token:string;requestedMaps:number;installations:number;
+  useSharedPayloadCache?:boolean;cacheMinimumStagingBytes?:number;
   details:Array<{mapId:string;mapName:string;installedBuild:string;
     sharedMapCount:number;availableBytes:number;requiredReserveBytes:number}>;
   requiresTypedApproval:true;serverStopRequested:false;
@@ -1815,7 +1816,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   pid?:number; startedUtc?:string;
   categoryId?: number; sort?: number; descending?: boolean;
   mapName?: string; installRoot?: string; steamExe?: string;
-  allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
+  allowSteamCmdDownload?: boolean; explicitRetry?: boolean;useSharedPayloadCache?:boolean;
    confirm?: boolean; ackUnknownOutcome?:boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; runId?:string; journalId?:string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
@@ -2068,8 +2069,8 @@ export const managerBridge = {
     request<StoppedSteamStatus>("steam.stoppedStatus",{jobId}),
   steamBatchCurrent: () =>
     request<StoppedSteamBatchCurrent>("steam.batchCurrent"),
-  steamBatchPreview: (mapIds:string[]) =>
-    request<StoppedSteamBatchPreview>("steam.batchPreview",{mapIds}),
+  steamBatchPreview: (mapIds:string[],useSharedPayloadCache=false) =>
+    request<StoppedSteamBatchPreview>("steam.batchPreview",{mapIds,useSharedPayloadCache}),
   steamBatchApply: (token:string,typedApproval:string) =>
     request<{jobId:string;started:true;serverStopRequested:false;
       remoteHostTouched:false;storeWriterTouched:false;

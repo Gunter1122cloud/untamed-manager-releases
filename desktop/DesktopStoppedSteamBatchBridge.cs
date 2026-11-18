@@ -21,7 +21,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
 {
     private sealed record Candidate(Guid MapId,string Root,string Build);
     private sealed record Pending(Guid Token,Candidate[] Maps,string SteamExe,
-        DateTimeOffset CreatedUtc);
+        DateTimeOffset CreatedUtc,bool UseCache);
     private sealed class Job
     {
         public Guid Id=Guid.NewGuid();
@@ -32,7 +32,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
     }
     private readonly ClusterService cluster;
-    private readonly Func<IReadOnlyList<LocalMap>,IProgress<SteamQueueProgress>,
+    private readonly Func<IReadOnlyList<LocalMap>,IProgress<SteamQueueProgress>,bool,
         Task<IReadOnlyList<SteamStoppedMapUpdater.Receipt>>> runBatch;
     private readonly Func<LocalMap,SteamUpdatePreview> plan;
     private readonly Func<LocalMap,bool,ProcessCheck> observeOriginal;
@@ -54,13 +54,16 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
         // injected process fixture is not a route exposed to WebView2.
         observeOriginal=isolatedOriginalObserver??((map,underOwnOperation)=>
             HistoricalLocalConfigGuard.DemandStopped(cluster,map,underOwnOperation));
-        runBatch=isolatedRunner??((maps,progress)=>
+        runBatch=isolatedRunner!=null?((maps,progress,useCache)=>{
+            if(useCache)throw new InvalidOperationException("UM-STEAM-CACHE-ISOLATED-RUNNER");
+            return isolatedRunner(maps,progress);
+        }):((maps,progress,useCache)=>
             SteamStoppedMapUpdater.UpdateAllStoppedAsync(cluster,maps,
                 cluster.Config.SteamCmdExecutable,Reserve,
                 TimeSpan.FromHours(2),progress,
                 originalStoppedObserver:member=>ObserveForSteam(member),
                 originalStoppedObserverUnderLease:
-                    member=>ObserveForSteam(member,true)));
+                    member=>ObserveForSteam(member,true),useSharedPayloadCache:useCache));
         plan=isolatedPlanner??(map=>SteamUpdateDryRun.Plan(
             cluster.Config.SteamCmdExecutable,map.InstallationPath,
             cluster.Config.LocalMaps.ToArray(),
@@ -290,12 +293,14 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                         ids.Add(mapId);
                     }
                     var selected=ValidateMaps(ids.ToArray());
+                    bool useCache=data.TryGetProperty("useSharedPayloadCache",out var cache)&&cache.ValueKind==JsonValueKind.True;
                     var token=Guid.NewGuid();
                     pending=new(token,selected.Evidence,
-                        cluster.Config.SteamCmdExecutable,DateTimeOffset.UtcNow);
+                        cluster.Config.SteamCmdExecutable,DateTimeOffset.UtcNow,useCache);
                     return Ok(id,new{
                         token,requestedMaps=ids.Count,
                         installations=selected.Evidence.Length,
+                        useSharedPayloadCache=useCache,cacheMinimumStagingBytes=SteamSharedPayloadCache.MinimumStagingFreeBytes,
                         details=selected.Details,
                         requiresTypedApproval=true,
                         serverStopRequested=false,storeWriterTouched=false,
@@ -338,7 +343,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                             item.Position,item.MapName));
                     try
                     {
-                        var receipt=await runBatch(rechecked.Maps,progress);
+                        var receipt=await runBatch(rechecked.Maps,progress,saved.UseCache);
                         if(receipt.Count!=rechecked.Maps.Length ||
                            receipt.Any(x=>!x.ProtectedFilesIntact)||
                            !receipt.Select(x=>x.MapId).SequenceEqual(

@@ -238,10 +238,10 @@ public static class SteamStoppedMapUpdater
         IProgress<SteamQueueProgress>? queueProgress=null,
         IProgress<SteamMaintenanceStage>? stageProgress=null,CancellationToken ct=default,
         Func<LocalMap,ProcessCheck>? originalStoppedObserver=null,
-        Func<LocalMap,ProcessCheck>? originalStoppedObserverUnderLease=null) =>
+        Func<LocalMap,ProcessCheck>? originalStoppedObserverUnderLease=null,bool useSharedPayloadCache=false) =>
         BatchCore(cluster,candidates,steamExecutable,downloadReserveBytes,
             timeout,null,queueProgress,stageProgress,ct,
-            originalStoppedObserver,originalStoppedObserverUnderLease);
+            originalStoppedObserver,originalStoppedObserverUnderLease,useSharedPayloadCache);
 
     internal static Task<IReadOnlyList<Receipt>> RunAllFakeFixtureAsync(
         ClusterService cluster,IReadOnlyList<LocalMap> candidates,
@@ -262,7 +262,7 @@ public static class SteamStoppedMapUpdater
         string? fakeExecutable,IProgress<SteamQueueProgress>? queueProgress,
         IProgress<SteamMaintenanceStage>? stageProgress,CancellationToken ct,
         Func<LocalMap,ProcessCheck>? originalStoppedObserver=null,
-        Func<LocalMap,ProcessCheck>? originalStoppedObserverUnderLease=null)
+        Func<LocalMap,ProcessCheck>? originalStoppedObserverUnderLease=null,bool useSharedPayloadCache=false)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(candidates);
@@ -291,12 +291,29 @@ public static class SteamStoppedMapUpdater
         foreach(var selectedMap in selected)
             DemandSafeLocalInstallation(cluster,selectedMap,originalStoppedObserver);
         var receipts=new List<Receipt>();
+        SteamSharedPayloadCache.Package? payload=null;
+        if(useSharedPayloadCache&&fakeExecutable!=null)throw new InvalidOperationException("UM-STEAM-CACHE-FIXTURE-DENIED");
         var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
         await queue.ExecuteAsync(selected,cluster.Config.LocalMaps,ObserveStopped,
             async (map,token)=>{
+                if(useSharedPayloadCache&&payload==null)
+                {
+                    queueProgress?.Report(new SteamQueueProgress(1,selected.Length,map.Name,"cache-preparation"));
+                    // The clean staging root is not a registered map. The
+                    // host-wide queue serializes all SteamCMD preparation.
+                    await SteamFreshInstall.BootstrapSteamCmdAsync(steamExecutable,null,token);
+                    var published=await AsaSteamBuildCatalog.CheckAsync(steamExecutable,map.InstallationPath,
+                        "public",ct:token);
+                    if(published.AvailableBuild==null)throw new InvalidDataException("UM-STEAM-CACHE-PUBLIC-BUILD-UNKNOWN");
+                    payload=await SteamSharedPayloadCache.PrepareAsync(cluster.Store.Root,cluster.Config.LocalMaps,
+                        published.AvailableBuild,(stage,cancel)=>RunSteamAsync(steamExecutable,stage,timeout,false,
+                            ()=>{_=UntamedOperationCoordinator.ResourceKey(stage);cancel.ThrowIfCancellationRequested();},cancel),token);
+                    queueProgress?.Report(new SteamQueueProgress(1,selected.Length,map.Name,
+                        payload.CacheHit?"cache-hit-verified":"cache-download-verified"));
+                }
                 var item=await RunCore(cluster,map,steamExecutable,reserve,
                     timeout,fakeExecutable,stageProgress,true,token,
-                    originalStoppedObserver,originalStoppedObserverUnderLease);
+                    originalStoppedObserver,originalStoppedObserverUnderLease,payload);
                 receipts.Add(item);
             },queueProgress,ct);
         return receipts;
@@ -306,7 +323,7 @@ public static class SteamStoppedMapUpdater
         string steamExecutable,long reserve,TimeSpan timeout,string? fakeExecutable,
         IProgress<SteamMaintenanceStage>? progress,bool insideQueue,CancellationToken ct,
         Func<LocalMap,ProcessCheck>? originalStoppedObserver=null,
-        Func<LocalMap,ProcessCheck>? originalStoppedObserverUnderLease=null)
+        Func<LocalMap,ProcessCheck>? originalStoppedObserverUnderLease=null,SteamSharedPayloadCache.Package? payload=null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(map);
@@ -417,6 +434,7 @@ public static class SteamStoppedMapUpdater
                 token.ThrowIfCancellationRequested();
                 operation.MarkMutationStarted();
                 progress?.Report(SteamMaintenanceStage.SteamCmd);
+                if(payload!=null)SteamSharedPayloadCache.Seed(payload,root,VerifyStopped,token);
                 await RunSteamAsync(fakeExecutable??steamExecutable,root,
                     timeout,fakeExecutable!=null,VerifyStopped,token);
                 VerifyStopped();
@@ -429,6 +447,8 @@ public static class SteamStoppedMapUpdater
                 if(next==null || !AsaReadyProbe.IsRegisteredServerBinary(map))
                     throw new InvalidDataException(
                         "SteamCMD completed but the on-disk manifest or ASA EXE is invalid");
+                if(payload!=null&&next!=payload.Index.Build)
+                    throw new InvalidDataException("UM-STEAM-CACHE-PUBLIC-BUILD-CHANGED_DURING_TARGET_VALIDATION");
                 // No Start, RCON or SaveWorld is invoked here.
                 VerifyStopped();
                 operation.Complete();

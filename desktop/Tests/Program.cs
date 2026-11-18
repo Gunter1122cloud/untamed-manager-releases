@@ -414,6 +414,46 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     Check(history.GetProperty("data").GetProperty("rows")[0].GetProperty("targets")[0].GetProperty("status").GetString()=="sent-effect-unverified",
         "moderation durable journal distinguishes send from verified game effect");
 }
+// Shared payload cache uses only a deliberately tiny clean fixture. No
+// Valve downloads, ASA processes or production installations.
+{
+    string cacheRoot=Path.Combine(root,"steam-cache-fixture");
+    string installA=Path.Combine(root,"steam-cache-target-a");
+    string installB=Path.Combine(root,"steam-cache-target-b");
+    var maps=new[]{new LocalMap{InstallationPath=installA},new LocalMap{InstallationPath=installB}};
+    int fetches=0;
+    Task Fetch(string stage,CancellationToken ct)
+    {
+        fetches++;
+        foreach(string dir in new[]{@"steamapps",@"ShooterGame\Content\Paks",@"ShooterGame\Saved",@"ShooterGame\Binaries\Win64"})
+            Directory.CreateDirectory(Path.Combine(stage,dir));
+        File.WriteAllText(Path.Combine(stage,@"steamapps\appmanifest_2430930.acf"),"\"appid\" \"2430930\"\n\"buildid\" \"987654\"");
+        File.WriteAllText(Path.Combine(stage,@"ShooterGame\Binaries\Win64\ArkAscendedServer.exe"),"tiny-fixture-exe");
+        File.WriteAllText(Path.Combine(stage,@"ShooterGame\Content\Paks\pakchunk0-WindowsServer.pak"),"tiny-fixture-pak");
+        File.WriteAllText(Path.Combine(stage,@"ShooterGame\Content\Paks\custom-mod.pak"),"never cache");
+        File.WriteAllText(Path.Combine(stage,@"ShooterGame\Saved\private.ark"),"never copy");
+        return Task.CompletedTask;
+    }
+    var payload=await SteamSharedPayloadCache.PrepareAsync(cacheRoot,maps,"987654",Fetch,default,0);
+    var hit=await SteamSharedPayloadCache.PrepareAsync(cacheRoot,maps,"987654",Fetch,default,0);
+    Check(fetches==1&&hit.CacheHit&&payload.Index.Files.Length==2,"one clean Steam cache fetch per public Windows build");
+    foreach(string install in new[]{installA,installB})
+    {
+        Directory.CreateDirectory(Path.Combine(install,@"ShooterGame\Saved"));
+        File.WriteAllText(Path.Combine(install,@"ShooterGame\Saved\private.ark"),"keep-target-world");
+        SteamSharedPayloadCache.Seed(hit,install,()=>{},default);
+        Check(File.ReadAllText(Path.Combine(install,@"ShooterGame\Saved\private.ark"))=="keep-target-world"&&
+            File.ReadAllText(Path.Combine(install,@"ShooterGame\Content\Paks\pakchunk0-WindowsServer.pak"))=="tiny-fixture-pak"&&
+            !File.Exists(Path.Combine(install,@"ShooterGame\Content\Paks\custom-mod.pak"))&&
+            !File.Exists(Path.Combine(install,@"steamapps\appmanifest_2430930.acf")),
+            "cache seeds allowlisted payload only, preserving world and leaving target Steam manifest untouched");
+    }
+    File.AppendAllText(Path.Combine(hit.Root,@"ShooterGame\Content\Paks\pakchunk0-WindowsServer.pak"),"corruption");
+    bool denied=false;
+    try{await SteamSharedPayloadCache.PrepareAsync(cacheRoot,maps,"987654",Fetch,default,0);}
+    catch(InvalidDataException){denied=true;}
+    Check(denied&&fetches==1,"corrupt cache entry is rejected without implicit redownload");
+}
 NativeWebViewDispatchContractTests.Run();
 LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();
