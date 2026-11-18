@@ -286,7 +286,10 @@ internal sealed class DesktopDiscordControlApi : IDisposable
                 result.Add(new{mapId=map.Id,mapName=map.Name,running=Yes(row,"running"),confirmedStopped=Yes(row,"confirmedStopped"),
                     pid,status=Value(row,"status"),uptimeSeconds=Value(row,"uptimeSeconds"),memoryMiB=Value(row,"memoryMiB"),cpuPercent,
                     freeBytes,totalBytes,playerCount,playerObservedUtc=playerObserved,storeV1=map.HistoricalStoreProtected,
-                    useApi=map.StartWithAsaApi,maintenance=map.Maintenance});
+                    useApi=map.StartWithAsaApi,maintenance=map.Maintenance,
+                    liveModOrder=Value(row,"liveModOrder"),livePassiveModOrder=Value(row,"livePassiveModOrder"),
+                    nextModOrder=Value(row,"nextModOrder"),nextPassiveModOrder=Value(row,"nextPassiveModOrder"),
+                    modChangesPending=map.ModChangesPending});
             }
             if(Value(data,"nextOffset") is not {ValueKind:JsonValueKind.Number} next)
             {

@@ -101,11 +101,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                 cluster,map,restartId);
             // Confirm the planner actually consumed the synchronized
             // profile rather than an obsolete immutable source list.
-            string launchExe=map.StartWithAsaApi?map.ApiLoaderPath:map.ExecutablePath;
-            var plannedMods=LegacyStoreV1ProcessObserver.ReadVerifiedModOrder(
-                "\""+launchExe+"\" "+plan.Arguments,launchExe,map);
+            var plannedMods=ModStateController.Read(new LocalMap{Arguments=plan.Arguments});
             var configured=ModStateController.Read(map);
-            if(!configured.EnabledOrder.SequenceEqual(plannedMods.Enabled)||
+            if(!configured.EnabledOrder.SequenceEqual(plannedMods.EnabledOrder)||
                !configured.Passive.SequenceEqual(plannedMods.Passive))
                 throw new InvalidDataException("UM-ORIGINAL-RESTART-PLAN-MODS-MISMATCH");
             report("Eredeti ACTIVE Store indítási állapot újraellenőrizve");
@@ -410,24 +408,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             {
                                 if(!LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,original))
                                     throw new InvalidDataException("UM-ORIGINAL-RESTART-MOD-SYNC-REQUIRES-PIN");
-                                var oldEnabled=original.HistoricalEnabledMods;
-                                var oldPassive=original.HistoricalPassiveMods;
-                                var oldDisabled=original.DisabledModIds;
-                                modLease.MarkMutationStarted();
-                                try
-                                {
-                                    original.HistoricalEnabledMods=target.Enabled.ToList();
-                                    original.HistoricalPassiveMods=target.Passive.ToList();
-                                    original.DisabledModIds=(oldDisabled??new()).Except(target.Enabled).ToList();
-                                    cluster.Save();
-                                }
-                                catch
-                                {
-                                    original.HistoricalEnabledMods=oldEnabled;
-                                    original.HistoricalPassiveMods=oldPassive;
-                                    original.DisabledModIds=oldDisabled;
-                                    throw;
-                                }
+                                if(!HistoricalLiveModSync.WriteVerifiedBaseline(original,target,
+                                    cluster.Save,modLease.MarkMutationStarted))
+                                    throw new InvalidDataException("UM-ORIGINAL-RESTART-MOD-SYNC-CONFLICT");
                             }
                             modLease.Complete();
                         }

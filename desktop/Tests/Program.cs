@@ -790,6 +790,23 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
     historicCommandMap.ModChangesPending=false;
     Check(LegacyStoreV1ProcessObserver.SelectRestartMods(historicCommandMap,capturedMods).Same(capturedMods),
         "after a submitted draft is cleared, a later external mod change may become the next restart baseline");
+    int persisted=0,marked=0;
+    historicCommandMap.ModChangesPending=true;
+    Check(!HistoricalLiveModSync.WriteVerifiedBaseline(historicCommandMap,capturedMods,
+        ()=>persisted++,()=>marked++)&&persisted==0&&marked==0,
+        "automatic live mod synchronization never overwrites a pending draft");
+    historicCommandMap.ModChangesPending=false;
+    bool failedSave=false;
+    try{HistoricalLiveModSync.WriteVerifiedBaseline(historicCommandMap,capturedMods,
+        ()=>throw new IOException("synthetic save failure"),()=>marked++);}
+    catch(IOException){failedSave=true;}
+    Check(failedSave&&historicCommandMap.HistoricalEnabledMods.SequenceEqual(new[]{"123456","789012"}),
+        "failed local mod synchronization restores the original in-memory profile");
+    Check(HistoricalLiveModSync.WriteVerifiedBaseline(historicCommandMap,capturedMods,()=>persisted++,()=>marked++)&&
+        historicCommandMap.HistoricalEnabledMods.SequenceEqual(capturedMods.Enabled)&&persisted==1&&
+        !HistoricalLiveModSync.WriteVerifiedBaseline(historicCommandMap,capturedMods,()=>persisted++,()=>marked++)&&persisted==1,
+        "live mod synchronization preserves exact order and performs no redundant writes");
+    historicCommandMap.HistoricalEnabledMods=new(){"123456","789012"};
     string driftLoader=Path.Combine(Path.GetDirectoryName(observedExe)!,"AsaApiLoader.exe");
     string driftLoaderCommand=changedMods.Replace(observedExe,driftLoader,StringComparison.Ordinal);
     var driftParentStart=DateTimeOffset.UtcNow.AddMinutes(-2);

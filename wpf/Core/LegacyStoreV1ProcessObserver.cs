@@ -629,10 +629,13 @@ public static class LegacyStoreV1ProcessObserver
                     return new(false,
                         "Eredeti Store-v1 közvetlen ASA-folyamat nem igazolt",null);
                 var direct=serverProcesses[0];
+                var directMods=ReadVerifiedModOrder(directServerCommands[direct.Pid],exe,map);
                 return new(true,(modDrift?"Fut · eredeti Store-v1 ASA igazolt; futó modlista eltér a következő indítás profiljától":"Fut · eredeti Store-v1 ASA processz ellenőrizve"),
                     new ProcessIdentity{Pid=direct.Pid,StartedUtc=direct.StartedUtc,
                         ExecutablePath=direct.ExecutablePath,
-                        Arguments="HISTORICAL_STORE_V1_READ_ONLY_OBSERVATION"});
+                        Arguments="HISTORICAL_STORE_V1_READ_ONLY_OBSERVATION"}){
+                    LiveModOrder=directMods.Enabled,LivePassiveModOrder=directMods.Passive
+                };
             }
             if(serverProcesses.Count==1&&loaderProcesses.Count==0)
             {
@@ -681,9 +684,9 @@ public static class LegacyStoreV1ProcessObserver
             // A child with its own complete source grammar must agree with
             // the verified parent's live lists. Relaxation is relative to
             // the saved draft, never between members of the active family.
+            var parentMods=ReadVerifiedModOrder(loaderCommands[parent.Pid],loader,map);
             if(directServerCommands.TryGetValue(child.Pid,out var directCommand)&&
-               !ReadVerifiedModOrder(directCommand,exe,map).Same(
-                   ReadVerifiedModOrder(loaderCommands[parent.Pid],loader,map)))
+               !ReadVerifiedModOrder(directCommand,exe,map).Same(parentMods))
                 return new(false,"ASA API Loader és gyermek modlistája eltér",null);
             // The child is the only ASA/RCON owner. The Loader PID must never
             // be reported as a running ASA server or used for SaveWorld/Stop.
@@ -691,7 +694,9 @@ public static class LegacyStoreV1ProcessObserver
             parentIdentity.Arguments="HISTORICAL_STORE_V1_API_LOADER_VERIFIED";
             return new(true,
                 (modDrift?"Fut · eredeti Store-v1 API pár igazolt; futó modlista eltér a következő indítás profiljától":"Fut · eredeti Store-v1 ASA API Loader és gyermek PID igazolt"),
-                childIdentity,false,parentIdentity);
+                childIdentity,false,parentIdentity){
+                LiveModOrder=parentMods.Enabled,LivePassiveModOrder=parentMods.Passive
+            };
         }
         catch(Exception)
         {

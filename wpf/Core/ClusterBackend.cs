@@ -293,7 +293,13 @@ public sealed class ConfigStore
     }
 }
 public sealed record ProcessCheck(bool Running, string Status, ProcessIdentity? Identity,
-    bool ConfirmedStopped = false, ProcessIdentity? LoaderIdentity = null);
+    bool ConfirmedStopped = false, ProcessIdentity? LoaderIdentity = null)
+{
+    // Exact current process launch lists, not evidence of game-side
+    // downloads. Null means unknown; an empty list is a verified no-mod run.
+    public string[]? LiveModOrder {get;init;}
+    public string[]? LivePassiveModOrder {get;init;}
+}
 
 public sealed partial class WindowsProcessInspector
 {
@@ -1865,9 +1871,14 @@ public sealed partial class ClusterService : IAsyncDisposable
         // proof a mod downloaded or loaded in game. Clear it ONLY after
         // Process.Start returned the exact planned arguments and those
         // arguments match the saved ordered configuration.
-        if(map.ModChangesPending&&LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
-            "\""+expectedExe+"\" "+started.Arguments,expectedExe,map))
-            map.ModChangesPending=false;
+        if(map.ModChangesPending)
+        {
+            var submitted=ModStateController.Read(new LocalMap{Arguments=started.Arguments});
+            var configured=ModStateController.Read(map);
+            if(submitted.EnabledOrder.SequenceEqual(configured.EnabledOrder)&&
+               submitted.Passive.SequenceEqual(configured.Passive))
+                map.ModChangesPending=false;
+        }
         Save();
         lease.Complete();
         return redacted;

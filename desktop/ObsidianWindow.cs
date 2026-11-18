@@ -289,6 +289,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopLifecycleBatchBridge _lifecycleBatch;
     private readonly DesktopRecurringReadOnlySupervisor _readOnlySupervisor;
     private readonly DesktopAutomaticAsaDiscoverySupervisor _asaDiscovery;
+    private readonly DesktopHistoricalLiveModSync _liveMods;
     private readonly DesktopLanSettingsBridge _lan;
     private readonly DesktopStoreTravelEvidenceBridge _travel;
     private readonly DesktopEmbeddedStoreBridge _embeddedStore;
@@ -386,6 +387,8 @@ public sealed class ObsidianWindow : Form
             _freshStart.HandleAsync,_historicalStart.HandleAsync,_historicalReadOnlyRcon.HandleAsync);
         _discordControl = new DesktopDiscordControlApi(_bridge.LocalCluster,_bridgeGate,()=>_updateHandoff,
             TryEnterRecoveryLane,ReleaseRecoveryLane,DispatchDiscordNative,_asaDiscovery.Snapshot);
+        _liveMods=new DesktopHistoricalLiveModSync(_bridge.LocalCluster,_bridgeGate,
+            ()=>_updateHandoff,TryEnterRecoveryLane,ReleaseRecoveryLane);
         Text = suppressScheduledMutations&&!smokeTest
             ? "Untamed Kingdom — Obsidian Command [MANUÁLIS TESZT]"
             : "Untamed Kingdom — Obsidian Command";
@@ -430,6 +433,9 @@ public sealed class ObsidianWindow : Form
                 // never starts/stops any ARK server or touches shared Store.
                 _asaDiscovery.Start();
                 _readOnlySupervisor.Start();
+                // Local profile metadata only, never a scheduled ASA
+                // command. Leave smoke fixtures and update handoff untouched.
+                if(!_smokeTest)_liveMods.Start();
                 // Installation acceptance never silently executes a
                 // previously configured ASA Restart/SaveWorld or backup.
                 // Explicit native manual commands remain fully available.
@@ -458,6 +464,7 @@ public sealed class ObsidianWindow : Form
         };
         FormClosed += (_, _) =>
         {
+            _liveMods.Dispose();
             _discordControl.Dispose();
             _asaDiscovery.Dispose();
             _readOnlySupervisor.Dispose();
