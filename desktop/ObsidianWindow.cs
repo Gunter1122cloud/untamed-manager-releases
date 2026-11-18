@@ -677,7 +677,8 @@ public sealed class ObsidianWindow : Form
                             "cluster.offlineApply" or "cluster.offlineStatus";
                         offlineRestoreLabRoute = name is "cluster.restoreLabPreview" or
                             "cluster.restoreLabApply" or "cluster.restoreLabStatus";
-                        multiHostBackupRoute = name is "cluster.multiHostHostStagePreview" or
+                        multiHostBackupRoute = name is "cluster.multiHostCoordinatedPreview" or "cluster.multiHostCoordinatedApply" or
+                            "cluster.multiHostHostStagePreview" or
                             "cluster.multiHostHostStageApply" or
                             "cluster.multiHostHostStageStatus" or
                             "cluster.multiHostBackupRecoveryPreview" or

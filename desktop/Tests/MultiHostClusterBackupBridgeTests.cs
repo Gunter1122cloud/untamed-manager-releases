@@ -429,6 +429,19 @@ public static class MultiHostClusterBackupBridgeTests
               Directory.Exists(Path.Combine(Path.GetTempPath(), sandboxName)) &&
               File.ReadAllText(liveMarker) == "synthetic test marker only",
             "sandbox restore verifies bytes while the original map path remains untouched");
+        string coordinatedParent=Path.Combine(root,"coordinated-host-output");Directory.CreateDirectory(coordinatedParent);
+        choices.Enqueue(Path.Combine(Path.GetTempPath(),sandboxName));choices.Enqueue(coordinatedParent);
+        var coordinated=await Call(bridge,"cluster.multiHostCoordinatedPreview");
+        Check(coordinated.GetProperty("ok").GetBoolean()&&coordinated.GetProperty("data").GetProperty("hosts").GetArrayLength()==1,"coordinated restore includes all cluster owners from one batch");
+        string coordinatedToken=coordinated.GetProperty("data").GetProperty("token").GetString()!;
+        var coordinatedDenied=await Call(bridge,"cluster.multiHostCoordinatedApply",new{token=coordinatedToken,confirm=false});
+        Check(!coordinatedDenied.GetProperty("ok").GetBoolean()&&!Directory.EnumerateFileSystemEntries(coordinatedParent).Any(),"coordinated restore requires explicit approval before any output");
+        var coordinatedStart=await Call(bridge,"cluster.multiHostCoordinatedApply",new{token=coordinatedToken,confirm=true,typedApproval="CLUSTER RESTORE TEST"});
+        Check(coordinatedStart.GetProperty("ok").GetBoolean(),"approved coordinated staging started");
+        var coordinatedDone=await WaitFor(bridge,"cluster.multiHostHostStageStatus",coordinatedStart.GetProperty("data").GetProperty("jobId").GetString()!);
+        Check(coordinatedDone.GetProperty("data").GetProperty("state").GetString()=="completed"&&File.ReadAllText(liveMarker)=="synthetic test marker only","coordinated restore verifies all host payloads without live cutover");
+        string journal=Path.Combine(coordinatedParent,"coordinated-restore-"+archive.BatchId.ToString("N")+".json");
+        Check(File.Exists(journal)&&File.ReadAllText(journal).Contains("offline-ready"),"coordinated restore retains durable offline receipt");
         Directory.Delete(Path.Combine(Path.GetTempPath(), sandboxName), true);
 
         string replacementTarget = Path.Combine(Path.GetTempPath(),

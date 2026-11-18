@@ -1589,6 +1589,7 @@ export type MultiHostBackupRecoveryStarted = {
   productionRestoreAllowed:false;rconUsed:false;serverProcessTouched:false;
   evidence:"OPERATOR_APPROVED_EXISTING_MULTIHOST_ARCHIVE_REBUILD";
 };
+export type MultiHostCoordinatedPreview={token:string;batchId:string;maps:number;clusters:number;bytes:number;hosts:Array<{hostId:string;maps:number;components:number;bytes:number}>;productionRestoreAllowed:false;remoteHostWritten:false};
 export type MultiHostHostStagePreview = {
   token:string;hostId:string;batchId:string;maps:number;
   clusters:number;components:number;bytes:number;stageDirectoryName:string;
@@ -1740,6 +1741,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "mods.copyPreview" | "mods.copyApply" |
   "mods.profileExport" | "mods.profileImportPreview" | "mods.profileImportApply" |
   "cluster.offlinePreview" | "cluster.offlineApply" | "cluster.offlineStatus" |
+  "cluster.multiHostCoordinatedPreview" | "cluster.multiHostCoordinatedApply" |
   "cluster.multiHostHostStagePreview" | "cluster.multiHostHostStageApply" |
   "cluster.multiHostHostStageStatus" |
   "cluster.multiHostBackupRecoveryPreview" | "cluster.multiHostBackupRecoveryApply" |
@@ -1860,7 +1862,7 @@ function timeoutFor(method: WireRequest["method"]): number {
   if (method === "store.inspectArchive" || method === "store.compareArchives" ||
       method === "store.inspectCopy" || method === "historical.localParity" ||
       method === "historical.pairedEvidence" || method === "backup.create" ||
-      method === "backup.restore" ||
+      method === "backup.restore" || method === "cluster.multiHostCoordinatedPreview" ||
       method === "backup.originalBatchCreate" || method === "backup.fullLocalCreate" ||
       method === "backup.fullLocalHistory" || method === "backup.fullLocalStage" ||
       method === "backup.retentionPreview" || method === "backup.retentionProtect" ||
@@ -2227,6 +2229,8 @@ export const managerBridge = {
     request<OfflineAsaArchiveStarted>("cluster.offlineApply",{token,confirm:true}),
   offlineArchiveStatus: (jobId:string) =>
     request<OfflineAsaArchiveStatus>("cluster.offlineStatus",{jobId}),
+  multiHostCoordinatedPreview:()=>request<MultiHostCoordinatedPreview>("cluster.multiHostCoordinatedPreview"),
+  multiHostCoordinatedApply:(token:string)=>request<{jobId:string;started:true;productionRestoreAllowed:false;remoteHostWritten:false;originalStoreTouched:false}>("cluster.multiHostCoordinatedApply",{token,confirm:true,typedApproval:"CLUSTER RESTORE TEST"}),
   multiHostHostStagePreview: () =>
     request<MultiHostHostStagePreview>("cluster.multiHostHostStagePreview"),
   multiHostHostStageApply: (token:string,typedApproval:string) =>
