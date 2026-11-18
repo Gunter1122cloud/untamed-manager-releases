@@ -15,9 +15,9 @@ const lastReceipts=new Map<string,string>();
  * RCON, PID, journal and stored-character permissions stay in native C#.
  * Historical Store-v1 maps always use their own ACTIVE/SaveWorld/DoExit flow. */
 export function LocalMapLifecycleBar({mapId,mapName,running,historical,
-  journalBlocked,onRefresh,onConfigure}:{
+  journalBlocked,onRefresh,onConfigure,refreshRevision=0}:{
   mapId:string;mapName:string;running:boolean;historical:boolean;
-  journalBlocked?:boolean;onRefresh:()=>Promise<void>;onConfigure:()=>void;
+  journalBlocked?:boolean;onRefresh:()=>Promise<void>;onConfigure:()=>void;refreshRevision?:number;
 }){
   const actionInFlight=useRef(false);
   const currentMap=useRef(mapId);
@@ -29,6 +29,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
   const [reconnecting,setReconnecting]=useState(true);
   const [reconnectFailed,setReconnectFailed]=useState(false);
   const [reconnectNonce,setReconnectNonce]=useState(0);
+  const waitingForOtherStoreJob=useRef(false);
   const [ownJournalBlocked,setOwnJournalBlocked]=useState(true);
   const [job,setJob]=useState<RunningJob|null>(()=>runningJobs.get(mapId)??null);
   const [message,setMessage]=useState(()=>lastReceipts.get(mapId)??"");
@@ -66,8 +67,14 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
             jobs.push({action:"stop",id:stop.jobId});
           if(restart.inMemoryRunning&&restart.jobId)
             jobs.push({action:"restart",id:restart.jobId});
-          if(stop.inMemoryRunning&&stop.activeJobKind!=="Stop")
+          if(stop.inMemoryRunning&&stop.activeJobKind!=="Stop"){
+            waitingForOtherStoreJob.current=true;
             throw new Error("UM-LIFECYCLE-OTHER-STORE-JOB-RUNNING");
+          }
+          if(waitingForOtherStoreJob.current){
+            waitingForOtherStoreJob.current=false;
+            if(active&&belongs(mapId))setError("");
+          }
         }else{
           const [stop,restart]=await Promise.all([
             managerBridge.freshAsaStopCurrent(mapId),
@@ -112,6 +119,9 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
     void reattach();
     return ()=>{active=false;};
   },[mapId,historical,reconnectNonce]);
+  useEffect(()=>{
+    if(refreshRevision&&waitingForOtherStoreJob.current&&!busy&&!job)setReconnectNonce(n=>n+1);
+  },[refreshRevision]);
   useEffect(()=>{
     setError("");setMessage(lastReceipts.get(mapId)??"");
     setBusy(false);setJob(runningJobs.get(mapId)??null);

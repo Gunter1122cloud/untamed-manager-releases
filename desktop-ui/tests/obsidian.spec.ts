@@ -3508,6 +3508,7 @@ test.beforeEach(async ({ page }) => {
                   e.message==="UM-ORIGINAL-ADMIN-LIFECYCLE-JOURNAL-REVIEW-REQUIRED"||
                   e.message==="UM-ORIGINAL-ADMIN-INSTALLATION-BUSY"||
                   e.message==="UM-HISTORICAL-RCON-SAVEWORLD-IN-PROGRESS"||
+                  e.message==="UM-STEAMCMD-NOT-CONFIGURED"||
                   e.message.startsWith("UM-RECOVERY-"))
                 ?e.message:"UM-METHOD-DENIED";
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));

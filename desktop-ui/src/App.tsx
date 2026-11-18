@@ -1831,7 +1831,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
       <State running={map.running} status={map.status}/>
     </div>
     <LocalMapLifecycleBar key={mapId} mapId={mapId} mapName={map.name}
-      running={map.running} historical={historical} journalBlocked={lifecycleBlocked}
+      running={map.running} historical={historical} journalBlocked={lifecycleBlocked} refreshRevision={refreshRevision}
       onRefresh={onConfigured} onConfigure={()=>setSection(historical?"rcon":"overview")}/>
     {journalReadError&&<div className="warning-inline" role="alert">
       <Shield size={17}/> A helyi ASA-műveleti naplók nem olvashatók.
@@ -1886,7 +1886,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
           <div className="warning-inline"><Shield size={17}/> Frissen telepített helyi map indítása jóváhagyással elérhető. A megőrzött Store-v1 map helyi indítása egy kattintással, natív forrás-, folyamat- és konfiguráció-ellenőrzéssel történik. A karakterutazás, SaveComplete és közös Store-restore igazolása továbbra is külön követelmény.</div>
         </Panel>
       </div>
-      <MapMaintenancePanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>
+      <MapMaintenancePanel key={mapId+":MapMaintenancePanel"} mapId={mapId} onConfigured={onConfigured}/>
       {fresh&&map.gamePort>0&&<Panel title="Új map teljes indítási beállítása">
         <div role="region" aria-label="Új map beállításának lépései">
           <p className="muted small">
@@ -1936,10 +1936,10 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
           Vad dinók törlése (RCON)
         </button>
       </div>}
-      {historical&&<HistoricalActiveStartPanel key={mapId} mapId={mapId} rconAttached={!!map.rconConfigured} refreshRevision={refreshRevision} onStarted={onConfigured}/>}
-      {historical&&<HistoricalStoreSaveWorldPanel key={mapId} mapId={mapId} running={map.running} refreshRevision={refreshRevision} onSaved={onConfigured}/>}
-      {historical&&<HistoricalGracefulStopPanel key={mapId} mapId={mapId} running={map.running} refreshRevision={refreshRevision} onStopped={onConfigured}/>}
-      {historical&&<HistoricalStoreRestartPanel key={mapId} mapId={mapId} running={map.running} refreshRevision={refreshRevision} onRestarted={onConfigured}/>}
+      {historical&&<HistoricalActiveStartPanel key={mapId+":HistoricalActiveStartPanel"} mapId={mapId} rconAttached={!!map.rconConfigured} refreshRevision={refreshRevision} onStarted={onConfigured}/>}
+      {historical&&<HistoricalStoreSaveWorldPanel key={mapId+":HistoricalStoreSaveWorldPanel"} mapId={mapId} running={map.running} refreshRevision={refreshRevision} onSaved={onConfigured}/>}
+      {historical&&<HistoricalGracefulStopPanel key={mapId+":HistoricalGracefulStopPanel"} mapId={mapId} running={map.running} refreshRevision={refreshRevision} onStopped={onConfigured}/>}
+      {historical&&<HistoricalStoreRestartPanel key={mapId+":HistoricalStoreRestartPanel"} mapId={mapId} running={map.running} refreshRevision={refreshRevision} onRestarted={onConfigured}/>}
       {map.gamePort>0 && fresh && <div id="fresh-asa-start-control">
         <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured}
           onOpenRcon={()=>setSection("rcon")} journalBlocked={lifecycleBlocked}/>
@@ -1958,9 +1958,9 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
           await onConfigured();
         }} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && (!map.storeProtected||map.freshStoreEnrolled) &&
-        <FreshStoreEnrollmentPanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>}
+        <FreshStoreEnrollmentPanel key={mapId+":FreshStoreEnrollmentPanel"} mapId={mapId} onConfigured={onConfigured}/>}
       {map.freshStoreEnrolled &&
-        <FreshStoreLoaderModePanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>}
+        <FreshStoreLoaderModePanel key={mapId+":FreshStoreLoaderModePanel"} mapId={mapId} onConfigured={onConfigured}/>}
       {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={async()=>{
         await onConfigured();
         setInitialSetupSaved(true);
@@ -1992,10 +1992,10 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
     {section==="logs" && <LogsCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
     {section==="rcon" && (historical
       ?<>
-        <HistoricalRconAttach key={mapId} mapId={mapId} onConfigured={onConfigured}/>
+        <HistoricalRconAttach key={mapId+":HistoricalRconAttach"} mapId={mapId} onConfigured={onConfigured}/>
         {map.rconConfigured
-          ?<><HistoricalRconLivePanel key={mapId} mapId={mapId} running={map.running}/>
-            <HistoricalAdminRconPanel key={mapId} mapId={mapId}
+          ?<><HistoricalRconLivePanel key={mapId+":HistoricalRconLivePanel"} mapId={mapId} running={map.running}/>
+            <HistoricalAdminRconPanel key={mapId+":HistoricalAdminRconPanel"} mapId={mapId}
               initialAction={originalRconAction} running={map.running}/></>
           :<div className="warning-inline" role="status">
             <Shield size={17}/> A meglévő RCON-csatlakoztatás befejezéséig

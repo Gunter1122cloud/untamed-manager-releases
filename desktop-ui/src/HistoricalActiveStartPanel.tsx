@@ -70,7 +70,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted,refresh
           setStartAccepted(false);setStartUncertain(false);
           setModeUncertain(false);
         }
-        if(!automatic||(!startUncertain&&!modeUncertain))setError("");
+        if(!automatic)setError("");
       }
     }catch{
       if(belongs(requested,generation)){
