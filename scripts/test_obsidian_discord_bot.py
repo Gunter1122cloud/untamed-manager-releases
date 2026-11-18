@@ -1,6 +1,7 @@
 """Offline UI and transport checks; no Discord/ASA network connections."""
 import tempfile
 import unittest
+from unittest.mock import AsyncMock, patch
 from pathlib import Path
 from obsidian_discord_client import Host
 from obsidian_discord_cog import ObsidianControl, MapPicker, ACTIONS
@@ -41,3 +42,22 @@ class TestPanel(unittest.IsolatedAsyncioTestCase):
                 provision_only=True,hosts={}))
             self.assertEqual(cog.hosts,{})
             cog.panel.stop()
+
+    async def test_worker_retries_transient_startup_without_dispatch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            bot=AsyncMock()
+            cog=ObsidianControl(bot,dict(guild_id=123456789012345678,
+                role_ids=[223456789012345678],state_file=str(Path(temp)/"state.json"),
+                provision_only=True,hosts={}))
+            cog.provision_once=AsyncMock(side_effect=[OSError("temporary"),None])
+            cog.replace_message=AsyncMock()
+            cog.call=AsyncMock()
+            try:
+                with patch("obsidian_discord_cog.asyncio.sleep",new_callable=AsyncMock) as sleep:
+                    await cog.worker()
+                    sleep.assert_awaited_once_with(30)
+                self.assertEqual(cog.provision_once.await_count,2)
+                cog.replace_message.assert_not_awaited()
+                cog.call.assert_not_awaited()
+            finally:
+                cog.panel.stop()
