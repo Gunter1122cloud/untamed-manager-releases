@@ -6,6 +6,7 @@ import "./operations-fidelity.css";
 import {LocalMapLifecycleBar} from "./LocalMapLifecycleBar";
 import {LifecycleBatchPanel} from "./LifecycleBatchPanel";
 import {DiscordNotificationsPanel} from "./DiscordNotificationsPanel";
+import {WatchdogRecoveryPanel} from "./WatchdogRecoveryPanel";
 
 function elapsed(seconds:number|null){
   if(seconds===null || seconds<0)return "Nem ellenőrizhető";
@@ -185,6 +186,7 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
           nativeOverview.jobs.filter(x=>x.enabled).length:"—"}</strong><span>Natív ASA feladat</span></div>
       </div>}
       {!selectedMapId&&<LifecycleBatchPanel maps={snapshot.maps} visible={visible} onRefresh={reload}/>}
+      {!selectedMapId&&<WatchdogRecoveryPanel/>}
       {!selectedMapId&&<DiscordNotificationsPanel/>}
       {(!selectedMapId||!showScheduler)&&(visible.length===0?<div className="empty">A szűrőnek megfelelő helyi map nem található.</div>:
         selectedMapId?<div className="ops-grid">

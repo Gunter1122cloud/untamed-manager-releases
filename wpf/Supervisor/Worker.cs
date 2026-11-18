@@ -70,7 +70,8 @@ public static class SupervisorWorker
                             }
                             string rcon="Ismeretlen – nincs hitelesített mérés";
                             if(!maintenance&&state.Running&&state.Identity is {Pid:>0} identity&&map.MonitorRcon&&
-                               map.RconHost=="127.0.0.1"&&map.RconPort is >=1024 and <=65535)
+                               map.RconHost=="127.0.0.1"&&map.RconPort is >=1024 and <=65535&&
+                               RconPortOwnership.IsOwnedListener(map.RconPort,identity.Pid))
                             {
                                 bool same=priorRcon.TryGetValue(map.Id,out var oldRcon)&&
                                     oldRcon.Pid==identity.Pid&&oldRcon.Start==identity.StartedUtc;
@@ -81,7 +82,9 @@ public static class SupervisorWorker
                                     try
                                     {
                                         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(token);deadline.CancelAfter(TimeSpan.FromSeconds(2));
+                                        if(!RconPortOwnership.IsOwnedListener(map.RconPort,identity.Pid))throw new IOException("RCON listener changed");
                                         string response=await RconProtocol.Execute(map.RconHost,map.RconPort,SecureStore.Unprotect(map.RconPasswordProtected),"ListPlayers",deadline.Token);
+                                        if(!RconPortOwnership.IsOwnedListener(map.RconPort,identity.Pid))throw new IOException("RCON listener changed");
                                         rcon=response.StartsWith("RCON parancs elküldve",StringComparison.Ordinal)?"Nincs ellenőrzött válasz":"Hitelesített válasz; játékosszám nem igazolt";
                                     }catch(UnauthorizedAccessException){rcon="RCON hitelesítési hiba";}
                                     catch(OperationCanceledException) when(token.IsCancellationRequested){throw;}

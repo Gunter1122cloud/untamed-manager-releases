@@ -97,7 +97,7 @@ public sealed class DesktopDiscordNotifications : IDisposable
     // Notification failure must never turn an ASA success into failure.
     internal static void Record(ClusterService cluster,Guid? map,string category,bool warning)
     {
-        if(category is not ("lifecycle" or "schedule" or "backup"))return;
+        if(category is not ("lifecycle" or "schedule" or "backup" or "recovery"))return;
         try
         {
             var path=Path.Combine(cluster.Store.Root,"notification-events","events.jsonl");CheckPath(path);
@@ -110,6 +110,7 @@ public sealed class DesktopDiscordNotifications : IDisposable
         "lifecycle-completed" or "lifecycle-needs-review"=>"lifecycle",
         "schedule-completed" or "schedule-needs-review"=>"schedule",
         "backup-completed" or "backup-needs-review"=>"backup",
+        "recovery-completed" or "recovery-needs-review" or
         "process-observation-changed" or "watchdog-persistent-operator-review" or
         "watchdog-attention-required" or "watchdog-observed-ok" or "rcon-observation-changed"=>"watchdog",
         _=>null};

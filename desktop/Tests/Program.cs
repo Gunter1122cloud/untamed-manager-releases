@@ -331,6 +331,53 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         "uncertain webhook delivery is durably claimed and not retried");
     IsOk(await Call(notify.HandleAsync,"notifications.clear",new{confirm=true}),"webhook can be explicitly removed");
 }
+// Watchdog fatal-exit classification, explicit intent, and one-shot native
+// dispatch using an isolated profile and fake process witness. No ASA launch.
+{
+    Check(DesktopWatchdogRecovery.FatalExitCode(unchecked((int)0xC0000005))&&
+          DesktopWatchdogRecovery.FatalExitCode(unchecked((int)0xC0000409))&&
+          !DesktopWatchdogRecovery.FatalExitCode(0)&&!DesktopWatchdogRecovery.FatalExitCode(1),
+        "watchdog requires known fatal Windows exit, not clean or ambiguous code");
+    string recoveryRoot=Path.Combine(root,"watchdog-recovery-fixture");
+    await using var recoveryCluster=new ClusterService("recovery-fixture",recoveryRoot);
+    var m=new LocalMap{Name="Recovery test",InstallationPath=Path.Combine(recoveryRoot,"asa"),
+        RconHost="127.0.0.1",RconPort=45678,RconPasswordProtected="synthetic",StartWithAsaApi=true,HistoricalStoreProtected=true};
+    recoveryCluster.Config.LocalMaps.Add(m);recoveryCluster.Save();
+    var start=DateTimeOffset.UtcNow.AddHours(-1);
+    var child=new ProcessIdentity{Pid=52311,StartedUtc=start,ExecutablePath="synthetic-asa"};
+    var loader=new ProcessIdentity{Pid=52310,StartedUtc=start,ExecutablePath="synthetic-loader"};
+    bool stopped=false;var fake=new SyntheticRecoveryExitWitness();
+    using var hostGate=new SemaphoreSlim(1,1);int launches=0;
+    Task<string> NoNative(string raw)=>throw new InvalidOperationException("unexpected real request");
+    using var recovery=new DesktopWatchdogRecovery(recoveryCluster,hostGate,()=>true,()=>{},()=>false,
+        NoNative,NoNative,NoNative,
+        _=>stopped?new ProcessCheck(false,"stopped",null,true):
+            new ProcessCheck(true,"running",child,false,loader),
+        _=>fake,_=>new string('A',64),(_,_)=>Task.FromResult(true),
+        _=>{launches++;return Task.FromResult((52320,DateTimeOffset.UtcNow));});
+    IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=m.Id,confirm=true}),"watchdog arms exact Store-v1 API family");
+    var now=DateTimeOffset.UtcNow;
+    await recovery.TickOnceAsync(now);Check(launches==0,"running map never auto-starts");
+    stopped=true;fake.Exited=true;fake.Code=unchecked((int)0xC0000005);
+    await recovery.TickOnceAsync(now.AddSeconds(10));await recovery.TickOnceAsync(now.AddSeconds(20));
+    Check(launches==0,"fatal exit requires three distinct stopped samples");
+    await recovery.TickOnceAsync(now.AddSeconds(30));
+    Check(launches==1&&!recovery.CanManagerUpdate(),"confirmed crash claims one start and blocks Manager handoff during readiness");
+    await recovery.TickOnceAsync(now.AddSeconds(40));await recovery.TickOnceAsync(now.AddSeconds(50));
+    Check(launches==1,"failed recovery never repeats its native launch");
+    // Separate exact epoch and retained stop intent suppress a manual stop
+    // even when the process exits with a crash-style code.
+    stopped=false;fake.Exited=false;
+    child=new ProcessIdentity{Pid=52312,StartedUtc=DateTimeOffset.UtcNow.AddMinutes(-1),ExecutablePath="synthetic-asa"};
+    loader=new ProcessIdentity{Pid=52313,StartedUtc=child.StartedUtc,ExecutablePath="synthetic-loader"};
+    IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=m.Id,confirm=true}),"operator may explicitly arm a new verified family");
+    RecoveryStopIntent.Mark(m,child);
+    stopped=true;fake.Exited=true;
+    await recovery.TickOnceAsync(now.AddSeconds(60));
+    var result=await Call(recovery.HandleAsync,"recovery.status");
+    Check(launches==1&&result.GetProperty("data").GetProperty("maps")[0].GetProperty("status").GetString()=="disarmed",
+        "durable intentional stop suppresses automatic recovery");
+}
 NativeWebViewDispatchContractTests.Run();
 LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();

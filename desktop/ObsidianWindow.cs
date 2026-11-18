@@ -69,12 +69,27 @@ public sealed class ObsidianWindow : Form
     // Staging an installer is isolated from ASA maps and local configuration.
     // It can take minutes on a slow connection, so the WebView host must not
     // block Dashboard/RCON/status RPCs behind the global command gate.
+    // Recovery is invoked under the host gate. Freeze independent native
+    // scheduling/backup lanes only for the actual automatic launch dispatch.
+    private bool TryEnterRecoveryLane()
+    {
+        if(!_lifecycleBatch.CanManagerUpdate()||!_nativeSchedules.TryFreezeForManagerUpdate())return false;
+        if(_scheduledBackups.TryFreezeForManagerUpdate())return true;
+        _nativeSchedules.ReleaseManagerUpdateFreeze();return false;
+    }
+    private void ReleaseRecoveryLane()
+    {
+        _scheduledBackups.ReleaseManagerUpdateFreeze();
+        _nativeSchedules.ReleaseManagerUpdateFreeze();
+    }
     // Final update.install still takes the global gate before handing off
     // to the external updater and closing the Manager.
     private async Task<string> InstallManagerWithFrozenSchedulesAsync(string raw)
     {
         // update.install is dispatched under the host command gate. Hold the
         // independent scheduler lanes too; if busy, leave the running task alone.
+        if(!_recovery.CanManagerUpdate())
+            return NativeErrorResponse(raw,"UM-UPDATE-WATCHDOG-RECOVERY-IN-PROGRESS");
         if(!_lifecycleBatch.CanManagerUpdate())
             return NativeErrorResponse(raw,"UM-UPDATE-LIFECYCLE-BATCH-IN-PROGRESS");
         if(!_nativeSchedules.TryFreezeForManagerUpdate())
@@ -247,6 +262,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopAsaLifecycleJournalBridge _lifecycleJournal;
     private readonly DesktopOperationsCenterBridge _operations;
     private readonly DesktopDiscordNotifications _notifications;
+    private readonly DesktopWatchdogRecovery _recovery;
     private readonly DesktopLifecycleBatchBridge _lifecycleBatch;
     private readonly DesktopRecurringReadOnlySupervisor _readOnlySupervisor;
     private readonly DesktopAutomaticAsaDiscoverySupervisor _asaDiscovery;
@@ -341,6 +357,9 @@ public sealed class ObsidianWindow : Form
         _scheduledBackups = new DesktopScheduledStoppedBackupSupervisor(_bridge.LocalCluster);
         _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster,
             scheduledBackups:_scheduledBackups);
+        _recovery = new DesktopWatchdogRecovery(_bridge.LocalCluster,_bridgeGate,
+            TryEnterRecoveryLane,ReleaseRecoveryLane,()=>_updateHandoff,
+            _freshStart.HandleAsync,_historicalStart.HandleAsync,_historicalReadOnlyRcon.HandleAsync);
         Text = suppressScheduledMutations&&!smokeTest
             ? "Untamed Kingdom — Obsidian Command [MANUÁLIS TESZT]"
             : "Untamed Kingdom — Obsidian Command";
@@ -388,6 +407,7 @@ public sealed class ObsidianWindow : Form
                     _scheduledBackups.Start();
                     _nativeSchedules.Start();
                     _notifications.Start();
+                    _recovery.Start();
                 }
                 _scheduledSteam.Start();
                 try { await _bridge.LocalCluster.BeginLanAsync(); }
@@ -412,6 +432,7 @@ public sealed class ObsidianWindow : Form
             _scheduledSteam.Dispose();
             _nativeSchedules.Dispose();
             _lifecycleBatch.Dispose();
+            _recovery.Dispose();
             _notifications.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
@@ -571,6 +592,7 @@ public sealed class ObsidianWindow : Form
                 bool lifecycleJournalRoute = false;
                 bool operationsRoute = false;
                 bool notificationsRoute = false;
+                bool recoveryRoute = false;
                 bool lifecycleBatchRoute = false;
                 bool nativeScheduleRoute = false;
                 bool mapMaintenanceRoute = false;
@@ -606,6 +628,7 @@ public sealed class ObsidianWindow : Form
                         lifecycleJournalRoute = name is "servers.lifecycleJournal" or
                             "servers.lifecycleRecoveryPreview" or
                             "servers.lifecycleRecoveryApply";
+                        recoveryRoute = name is "recovery.status" or "recovery.arm" or "recovery.disarm";
                         notificationsRoute = name is "notifications.status" or "notifications.save" or "notifications.clear" or "notifications.test";
                         operationsRoute = name is "operations.snapshot" or "operations.map" or
                             "operations.scheduleCreate" or "operations.scheduleDisable" or "operations.watchdogStart";
@@ -738,6 +761,7 @@ public sealed class ObsidianWindow : Form
                         : nativeScheduleRoute ? await _nativeSchedules.HandleAsync(incoming)
                         : mapMaintenanceRoute ? await _mapMaintenance.HandleAsync(incoming)
                         : lifecycleBatchRoute ? await _lifecycleBatch.HandleAsync(incoming)
+                        : recoveryRoute ? await _recovery.HandleAsync(incoming)
                         : notificationsRoute ? await _notifications.HandleAsync(incoming)
                         : operationsRoute ? await _operations.HandleAsync(incoming)
                         : freshRestartRoute ? await _freshRestart.HandleAsync(incoming)

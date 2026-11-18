@@ -101,6 +101,7 @@ public static class AsaGracefulStop
         if(!AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new InvalidOperationException("UM-ASA-STOP-LOCAL-BINARY-CHANGED");
         Verify();
+        RecoveryStopIntent.Mark(map,expected);
         lease.MarkMutationStarted();
         bool preExitEvidence=false,worldMetadataEvidence=false;
         if(sendCommands!=null)
