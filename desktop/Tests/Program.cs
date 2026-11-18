@@ -515,6 +515,14 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         eventRow.StoreFlagPresent==true&&eventRow.RegistrationState=="store-or-cluster-ownership-required"&&
         !eventRow.Controllable&&!eventRow.StoreWriteAuthorized,
         "Event Loader supplies sanitized onboarding evidence only; never a control target");
+    var contradiction=eventState with{Processes=new[]{
+        eventState.Processes[0],
+        eventState.Processes[1] with{LaunchFacts=launchFacts with{GamePort=7808}}
+    }};
+    var deniedEvent=DesktopDiscordControlApi.DiscoveredOnly(contradiction).Single();
+    Check(deniedEvent.GamePort==null&&deniedEvent.ActiveModIds==null&&
+        deniedEvent.RegistrationState=="loader-child-arguments-conflict"&&!deniedEvent.Controllable,
+        "conflicting Event parent/child metadata is never published as an exact launch list");
 }
 // Test the exact API authorization/dispatch boundary using an isolated profile.
 // No actual server, network listener, RCON or SteamCMD is invoked.

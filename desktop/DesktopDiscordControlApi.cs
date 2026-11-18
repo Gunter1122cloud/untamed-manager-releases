@@ -52,7 +52,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         string ActiveModsState="unverified",string PassiveModsState="unverified",
         bool? StoreFlagPresent=null,bool? ClusterSwitchPresent=null,
         bool? TransferOverridePresent=null,bool? ConversionFlagPresent=null,
-        string RegistrationState="ownership-not-proven");
+        string RegistrationState="ownership-not-proven",string LaunchFactsSource="unverified");
     private readonly string root,settingsPath,auditFolder;
     private readonly CancellationTokenSource closing=new();
     private readonly Dictionary<Guid,Approval> approvals=new();
@@ -262,10 +262,12 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         foreach(var p in rows.Where(x=>x.ProcessKind=="asaServer"))
         {
             if(Known(p))continue;
-            var parent=p.LoaderParentObserved?rows.SingleOrDefault(x=>
-                x.ProcessKind=="apiLoader"&&x.Pid==p.ParentPid&&x.MapKey==p.MapKey):null;
-            var facts=p.LaunchFacts?.ArgumentsValidated==true?p.LaunchFacts:parent?.LaunchFacts;
-            discovered.Add(DescribeDiscovered(p,facts));
+            var parents=p.LoaderParentObserved?rows.Where(x=>
+                x.ProcessKind=="apiLoader"&&x.Pid==p.ParentPid&&x.MapKey==p.MapKey&&
+                x.StartedUtc.HasValue&&p.StartedUtc.HasValue&&x.StartedUtc.Value<=p.StartedUtc.Value).Take(2).ToArray():
+                Array.Empty<LocalRunningAsaDiscovery.Observation>();
+            var (facts,source)=LocalRunningAsaDiscovery.DisplayFacts(p,parents.Length==1?parents[0].LaunchFacts:null);
+            discovered.Add(DescribeDiscovered(p,facts,source));
         }
         // Also surface an observed Loader that has not yet produced a
         // correlated ASA child. Never label that Loader an online server.
@@ -273,15 +275,17 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         {
             if(rows.Any(child=>child.ProcessKind=="asaServer"&&child.LoaderParentObserved&&
                 child.ParentPid==p.Pid&&child.MapKey==p.MapKey))continue;
-            discovered.Add(DescribeDiscovered(p,p.LaunchFacts));
+            var (facts,source)=LocalRunningAsaDiscovery.DisplayFacts(p);
+            discovered.Add(DescribeDiscovered(p,facts,source));
         }
         return discovered.ToArray();
     }
     private static DiscoveredMap DescribeDiscovered(LocalRunningAsaDiscovery.Observation row,
-        LocalAsaLaunchFacts.Facts? facts)
+        LocalAsaLaunchFacts.Facts? facts,string source)
     {
         bool parsed=facts?.ArgumentsValidated==true;
-        string reason=!parsed?"launch-arguments-unverified":
+        string reason=source=="conflicting"?"loader-child-arguments-conflict":
+            !parsed?"launch-arguments-unverified":
             facts!.ConversionFlagPresent?"conversion-flag-observed":
             facts.StoreFlagPresent||facts.ClusterSwitchPresent||facts.TransferOverridePresent?
                 "store-or-cluster-ownership-required":
@@ -297,7 +301,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             ClusterSwitchPresent:parsed?facts!.ClusterSwitchPresent:null,
             TransferOverridePresent:parsed?facts!.TransferOverridePresent:null,
             ConversionFlagPresent:parsed?facts!.ConversionFlagPresent:null,
-            RegistrationState:reason);
+            RegistrationState:reason,LaunchFactsSource:source);
     }
     private async Task<object> Status()
     {

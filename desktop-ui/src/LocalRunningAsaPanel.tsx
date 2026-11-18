@@ -295,10 +295,22 @@ export function LocalRunningAsaPanel({onRegistered}:{
               Konverziós kapcsoló észlelve – csak megfigyelés, újraindítás és átvétel tiltva.</p>}
           </>}
           {p.loaderParentObserved && <p>ASA API Loader szülőfolyamat észlelve (csak megfigyelés).</p>}
+          {p.loaderParentObserved && p.loaderLaunchFacts?.argumentsValidated && <>
+            <p><b>Loader indítási adatok</b> · Game {p.loaderLaunchFacts.gamePort??"ismeretlen"} · Query {p.loaderLaunchFacts.queryPort??"ismeretlen"}</p>
+            <p>Loader aktív modok: {p.loaderLaunchFacts.activeModsState==="parsed"?p.loaderLaunchFacts.activeModIds.join(", "):"nem igazolt"} ·
+              passzív: {p.loaderLaunchFacts.passiveModsState==="parsed"?p.loaderLaunchFacts.passiveModIds.join(", "):"nem igazolt"}</p>
+            <p>Store: {p.loaderLaunchFacts.storeFlagPresent?"észlelve":"nem igazolt"} · Cluster: {p.loaderLaunchFacts.clusterSwitchPresent?"észlelve":"nem igazolt"} ·
+              Transfer: {p.loaderLaunchFacts.transferOverridePresent?"észlelve":"nem igazolt"}</p>
+            {(p.loaderLaunchFacts.storeFlagPresent||p.loaderLaunchFacts.clusterSwitchPresent||
+              p.loaderLaunchFacts.transferOverridePresent||p.loaderLaunchFacts.conversionFlagPresent)&&
+              <p className="muted small">A Loader védett indítási kapcsolókat tartalmaz. Teljes tulajdonosi/cluster-ellenőrzés szükséges; az észlelés nem regisztráció vagy vezérlési jog.</p>}
+          </>}
           {p.processKind==="asaServer" && p.matchState==="profileCandidate" &&
             p.observedReadOnlyImported && p.profileMapId &&
             !p.launchFacts?.storeFlagPresent && !p.launchFacts?.clusterSwitchPresent &&
             !p.launchFacts?.transferOverridePresent && !p.launchFacts?.conversionFlagPresent &&
+            !p.loaderLaunchFacts?.storeFlagPresent && !p.loaderLaunchFacts?.clusterSwitchPresent &&
+            !p.loaderLaunchFacts?.transferOverridePresent && !p.loaderLaunchFacts?.conversionFlagPresent &&
             <LiveAdoptControls process={p} afterAdopt={()=>{
               void inspect();void onRegistered?.();
             }}/>}
@@ -306,6 +318,8 @@ export function LocalRunningAsaPanel({onRegistered}:{
             p.launchFacts?.argumentsValidated && !p.launchFacts.storeFlagPresent &&
             !p.launchFacts.clusterSwitchPresent && !p.launchFacts.transferOverridePresent &&
             !p.launchFacts.conversionFlagPresent && p.startedUtc &&
+            !p.loaderLaunchFacts?.storeFlagPresent && !p.loaderLaunchFacts?.clusterSwitchPresent &&
+            !p.loaderLaunchFacts?.transferOverridePresent && !p.loaderLaunchFacts?.conversionFlagPresent &&
             <LiveImportControls process={p} afterImport={()=>{
               void inspect();void onRegistered?.();
             }}/>}

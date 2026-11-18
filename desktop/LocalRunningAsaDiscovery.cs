@@ -23,7 +23,8 @@ public static class LocalRunningAsaDiscovery
         string? ProfileMapName,bool LoaderParentObserved,
         bool Controllable=false,bool StoreWriteAuthorized=false,
         LocalAsaLaunchFacts.Facts? LaunchFacts=null,
-        bool ObservedReadOnlyImported=false);
+        bool ObservedReadOnlyImported=false,
+        LocalAsaLaunchFacts.Facts? LoaderLaunchFacts=null);
 
     // The final Core physical Windows ownership check uses exactly
     // the same parser as this display-only WMI classification.
@@ -170,9 +171,50 @@ public static class LocalRunningAsaDiscovery
                 key??"unknown",matchState,selected?.Id.ToString("D"),
                 selected?.Name,hasLoaderParent,false,false,
                 LocalAsaLaunchFacts.Parse(p.CommandLine,p.ExecutablePath),
-                selected?.ObservedReadOnlyImported??false));
+                selected?.ObservedReadOnlyImported??false,
+                hasLoaderParent?LocalAsaLaunchFacts.Parse(parents[0].CommandLine,parents[0].ExecutablePath):null));
         }
         return result.OrderBy(x=>x.Pid).ToArray();
+    }
+
+    // Presentation only. A child may have no launch URL, or may repeat
+    // the map URL but omit switches. The parent provides complete display
+    // evidence only when it has validated arguments. Explicit contradictions
+    // must not be silently resolved by selecting the more convenient source.
+    internal static (LocalAsaLaunchFacts.Facts? Facts,string Source) DisplayFacts(
+        Observation child,LocalAsaLaunchFacts.Facts? parentFacts=null)
+    {
+        var direct=child.LaunchFacts;
+        var parent=child.LoaderParentObserved?(child.LoaderLaunchFacts??parentFacts):null;
+        if(parent?.ArgumentsValidated!=true)
+            return (direct,direct?.ArgumentsValidated==true?"process":"unverified");
+        if(direct?.ArgumentsValidated!=true)return(parent,"loader");
+        bool conflict=(direct.GamePort.HasValue&&parent.GamePort.HasValue&&direct.GamePort!=parent.GamePort)||
+            (direct.QueryPort.HasValue&&parent.QueryPort.HasValue&&direct.QueryPort!=parent.QueryPort)||
+            (direct.ActiveModsState=="parsed"&&parent.ActiveModsState=="parsed"&&
+                !direct.ActiveModIds.SequenceEqual(parent.ActiveModIds,StringComparer.Ordinal))||
+            (direct.PassiveModsState=="parsed"&&parent.PassiveModsState=="parsed"&&
+                !direct.PassiveModIds.SequenceEqual(parent.PassiveModIds,StringComparer.Ordinal))||
+            direct.ActiveModsState is "conflict" or "unverified"||
+            direct.PassiveModsState is "conflict" or "unverified"||
+            parent.ActiveModsState is "conflict" or "unverified"||
+            parent.PassiveModsState is "conflict" or "unverified";
+        if(conflict)return(null,"conflicting");
+        // Boolean flags denote presence, not permission. If the child
+        // declares a protected flag not seen in its parent, retain it.
+        var merged=parent with{
+            GamePort=parent.GamePort??direct.GamePort,
+            QueryPort=parent.QueryPort??direct.QueryPort,
+            ActiveModIds=parent.ActiveModsState=="parsed"?parent.ActiveModIds:direct.ActiveModIds,
+            PassiveModIds=parent.PassiveModsState=="parsed"?parent.PassiveModIds:direct.PassiveModIds,
+            ActiveModsState=parent.ActiveModsState=="parsed"?parent.ActiveModsState:direct.ActiveModsState,
+            PassiveModsState=parent.PassiveModsState=="parsed"?parent.PassiveModsState:direct.PassiveModsState,
+            StoreFlagPresent=parent.StoreFlagPresent||direct.StoreFlagPresent,
+            ClusterSwitchPresent=parent.ClusterSwitchPresent||direct.ClusterSwitchPresent,
+            TransferOverridePresent=parent.TransferOverridePresent||direct.TransferOverridePresent,
+            ConversionFlagPresent=parent.ConversionFlagPresent||direct.ConversionFlagPresent
+        };
+        return(merged,"loader-and-process");
     }
 
     /// <summary>Enumerates Windows WMI processes without altering any process.</summary>

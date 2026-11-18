@@ -181,6 +181,7 @@ export type RunningLocalAsaProcess = {
   profileMapId:string|null;profileMapName:string|null;
   loaderParentObserved:boolean;
   launchFacts:LocalAsaLaunchFacts|null;
+  loaderLaunchFacts?:LocalAsaLaunchFacts|null;
   observedReadOnlyImported?:boolean;
   controllable:false;storeWriteAuthorized:false;
 };
