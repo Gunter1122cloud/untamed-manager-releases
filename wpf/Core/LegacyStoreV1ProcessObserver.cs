@@ -47,7 +47,7 @@ public static class LegacyStoreV1ProcessObserver
     }
 
     public static bool MatchesOriginalActiveCommand(string? commandLine,
-        string expectedExe,LocalMap map)
+        string expectedExe,LocalMap map,bool observeLiveMods=false)
     {
         if(map==null||!map.HistoricalStoreProtected||
            string.IsNullOrWhiteSpace(map.HistoricalMapKey) ||
@@ -84,10 +84,27 @@ public static class LegacyStoreV1ProcessObserver
                 map.HistoricalRuntimeClusterId)?
                 VaultProtocol.ClusterId:map.HistoricalRuntimeClusterId;
             var mods=ModStateController.Read(map);
+            IReadOnlyList<string> enabled=mods.EnabledOrder,passive=mods.Passive;
+            if(observeLiveMods)
+            {
+                // Rebuild canonical grammar from actual live mod switches.
+                // Keep the next-start draft unchanged; validate every other
+                // argument exactly, including Store, ports and cluster.
+                string[] activeFlags=supplied.Where(x=>x.StartsWith("-mods=",
+                    StringComparison.OrdinalIgnoreCase)).ToArray();
+                string[] passiveFlags=supplied.Where(x=>x.StartsWith("-passivemods=",
+                    StringComparison.OrdinalIgnoreCase)).ToArray();
+                if(activeFlags.Length>1||passiveFlags.Length>1)return false;
+                enabled=activeFlags.Length==0?Array.Empty<string>():
+                    activeFlags[0]["-mods=".Length..].Split(',');
+                passive=passiveFlags.Length==0?Array.Empty<string>():
+                    passiveFlags[0]["-passivemods=".Length..].Split(',');
+                // Builder enforces ID syntax, uniqueness and passive subset.
+            }
             var canonical=LegacyStoreV1ActiveLaunch.Build(
                 new LegacyStoreV1ActiveLaunch.Input(
                     map.HistoricalMapKey,map.GamePort,map.QueryPort,
-                    mods.EnabledOrder,mods.Passive,
+                    enabled,passive,
                     runtimeCluster,sharedPath,"active",string.Empty,
                     SourcePinnedClusterOnly:string.IsNullOrWhiteSpace(
                         map.HistoricalRuntimeClusterId)));
@@ -116,7 +133,8 @@ public static class LegacyStoreV1ProcessObserver
     public static bool MatchesOriginalApiLoaderChild(
         string? childCommand,string expectedServer,int childPid,int childParentPid,
         DateTimeOffset childStarted,string? loaderCommand,string expectedLoader,
-        int loaderPid,DateTimeOffset loaderStarted,LocalMap map)
+        int loaderPid,DateTimeOffset loaderStarted,LocalMap map,
+        bool observeLiveMods=false)
     {
         if(map==null||!map.HistoricalStoreProtected||
            childPid<=0||loaderPid<=0||childPid==loaderPid||
@@ -135,7 +153,7 @@ public static class LegacyStoreV1ProcessObserver
                     StringComparison.OrdinalIgnoreCase)||
                !loader.Equals(Path.GetFullPath(expectedLoader),
                     StringComparison.OrdinalIgnoreCase)||
-               !MatchesOriginalActiveCommand(loaderCommand,loader,map))
+               !MatchesOriginalActiveCommand(loaderCommand,loader,map,observeLiveMods))
                 return false;
             string? childArgs=ExtractArguments(childCommand,expected);
             if(childArgs==null)
@@ -151,7 +169,7 @@ public static class LegacyStoreV1ProcessObserver
                 string? parentArgs=ExtractArguments(loaderCommand,loader);
                 return aliasArgs!=null&&parentArgs!=null&&
                     aliasArgs.Equals(parentArgs,StringComparison.OrdinalIgnoreCase)&&
-                    MatchesOriginalActiveCommand(childCommand,loader,map);
+                    MatchesOriginalActiveCommand(childCommand,loader,map,observeLiveMods);
             }
             if(childArgs.IndexOfAny(new[]{'"','\r','\n','\0'})>=0)return false;
             // For a true ASA argv[0], only harmless child-local flags are
@@ -267,7 +285,8 @@ public static class LegacyStoreV1ProcessObserver
     /// This cannot be used as cross-host writer/session authority.
     /// </summary>
     internal static bool ProvenDistinctOwnedMap(string? commandLine,
-        string expectedExe,LocalMap requested,IEnumerable<LocalMap> localMaps)
+        string expectedExe,LocalMap requested,IEnumerable<LocalMap> localMaps,
+        bool observeLiveMods=false)
     {
         if(requested==null||localMaps==null||
            string.IsNullOrWhiteSpace(commandLine)||
@@ -282,7 +301,7 @@ public static class LegacyStoreV1ProcessObserver
                 other.RconPort!=requested.RconPort&&
                 Path.GetFullPath(other.ExecutablePath).Equals(
                     exe,StringComparison.OrdinalIgnoreCase)&&
-                MatchesOriginalActiveCommand(commandLine,exe,other));
+                MatchesOriginalActiveCommand(commandLine,exe,other,observeLiveMods));
         }
         catch(Exception){return false;}
     }
@@ -298,7 +317,8 @@ public static class LegacyStoreV1ProcessObserver
     /// changed arguments or inaccessible WMI is never ignored.
     /// </summary>
     internal static bool ProvenDistinctOwnedApiLoader(string? commandLine,
-        string expectedServer,LocalMap requested,IEnumerable<LocalMap> localMaps)
+        string expectedServer,LocalMap requested,IEnumerable<LocalMap> localMaps,
+        bool observeLiveMods=false)
     {
         if(string.IsNullOrWhiteSpace(commandLine)||requested==null||
            localMaps==null||string.IsNullOrWhiteSpace(expectedServer))
@@ -320,7 +340,7 @@ public static class LegacyStoreV1ProcessObserver
                 !string.IsNullOrWhiteSpace(other.ApiLoaderPath)&&
                 Path.GetFullPath(other.ApiLoaderPath).Equals(
                     loader,StringComparison.OrdinalIgnoreCase)&&
-                MatchesOriginalActiveCommand(commandLine,loader,other));
+                MatchesOriginalActiveCommand(commandLine,loader,other,observeLiveMods));
         }
         catch(Exception){return false;}
     }
@@ -423,7 +443,7 @@ public static class LegacyStoreV1ProcessObserver
             var loaderProcesses=new List<ObservedProcess>();
             var unparameterizedApiChildren=new List<(ObservedProcess Process,string Command)>();
             var loaderCommands=new Dictionary<int,string>();
-            bool uncertain=false;
+            bool uncertain=false,modDrift=false;
             using var searcher=new ManagementObjectSearcher(
                 "SELECT ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine FROM Win32_Process");
             using var processes=searcher.Get();
@@ -445,13 +465,15 @@ public static class LegacyStoreV1ProcessObserver
                     if(!api&&!server)continue;
                     string command=Convert.ToString(entry["CommandLine"])??"";
                     if(server&&ProvenDistinctOwnedMap(
-                        command,exe,map,locallyRegisteredMaps))
+                        command,exe,map,locallyRegisteredMaps,observeLiveMods:true))
                         continue;
                     if(api&&ProvenDistinctOwnedApiLoader(
-                        command,exe,map,locallyRegisteredMaps))
+                        command,exe,map,locallyRegisteredMaps,observeLiveMods:true))
                         continue;
                     bool exact=MatchesOriginalActiveCommand(
-                        command,api?loader:exe,map);
+                        command,api?loader:exe,map,observeLiveMods:true);
+                    if(exact&&!MatchesOriginalActiveCommand(command,api?loader:exe,map))
+                        modDrift=true;
                     // A bare child command is not independently original:
                     // defer its classification until its exact original
                     // ASA API Loader parent has been verified separately.
@@ -460,7 +482,7 @@ public static class LegacyStoreV1ProcessObserver
                          // The WMI child has ArkAscendedServer.exe as its
                          // actual executable, but inherited the Loader's
                          // exact argv[0] and original Kova launch grammar.
-                         MatchesOriginalActiveCommand(command,loader,map));
+                         MatchesOriginalActiveCommand(command,loader,map,observeLiveMods:true));
                     if(!exact&&!childOnly)
                     {uncertain=true;continue;}
                     int pid=Convert.ToInt32(entry["ProcessId"]);
@@ -493,7 +515,7 @@ public static class LegacyStoreV1ProcessObserver
                     MatchesOriginalApiLoaderChild(candidate.Command,exe,
                         candidate.Process.Pid,candidate.Process.ParentPid,
                         candidate.Process.StartedUtc,parentCommand,loader,
-                        loaderProcesses[0].Pid,loaderProcesses[0].StartedUtc,map);
+                        loaderProcesses[0].Pid,loaderProcesses[0].StartedUtc,map,observeLiveMods:true);
                 // A Loader is allowed to exit after ASA has spawned, but
                 // only the exact previously persisted and verified pair can
                 // preserve read-only observation. A new or recycled child
@@ -514,7 +536,7 @@ public static class LegacyStoreV1ProcessObserver
                     return new(false,
                         "Eredeti Store-v1 közvetlen ASA-folyamat nem igazolt",null);
                 var direct=serverProcesses[0];
-                return new(true,"Fut · eredeti Store-v1 ASA processz ellenőrizve",
+                return new(true,(modDrift?"Fut · eredeti Store-v1 ASA igazolt; futó modlista eltér a következő indítás profiljától":"Fut · eredeti Store-v1 ASA processz ellenőrizve"),
                     new ProcessIdentity{Pid=direct.Pid,StartedUtc=direct.StartedUtc,
                         ExecutablePath=direct.ExecutablePath,
                         Arguments="HISTORICAL_STORE_V1_READ_ONLY_OBSERVATION"});
@@ -568,7 +590,7 @@ public static class LegacyStoreV1ProcessObserver
             childIdentity.Arguments="HISTORICAL_STORE_V1_API_CHILD_VERIFIED";
             parentIdentity.Arguments="HISTORICAL_STORE_V1_API_LOADER_VERIFIED";
             return new(true,
-                "Fut · eredeti Store-v1 ASA API Loader és gyermek PID igazolt",
+                (modDrift?"Fut · eredeti Store-v1 API pár igazolt; futó modlista eltér a következő indítás profiljától":"Fut · eredeti Store-v1 ASA API Loader és gyermek PID igazolt"),
                 childIdentity,false,parentIdentity);
         }
         catch(Exception)

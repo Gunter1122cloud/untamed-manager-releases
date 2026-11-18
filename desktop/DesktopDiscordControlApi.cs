@@ -264,7 +264,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
                 }
                 try{var drive=new DriveInfo(Path.GetPathRoot(map.InstallationPath)!);if(drive.DriveType==DriveType.Fixed){freeBytes=drive.AvailableFreeSpace;totalBytes=drive.TotalSize;}}catch{}
                 result.Add(new{mapId=map.Id,mapName=map.Name,running=Yes(row,"running"),confirmedStopped=Yes(row,"confirmedStopped"),
-                    pid,uptimeSeconds=Value(row,"uptimeSeconds"),memoryMiB=Value(row,"memoryMiB"),cpuPercent,
+                    pid,status=Value(row,"status"),uptimeSeconds=Value(row,"uptimeSeconds"),memoryMiB=Value(row,"memoryMiB"),cpuPercent,
                     freeBytes,totalBytes,playerCount,playerObservedUtc=playerObserved,storeV1=map.HistoricalStoreProtected,
                     useApi=map.StartWithAsaApi,maintenance=map.Maintenance});
             }

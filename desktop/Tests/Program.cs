@@ -739,6 +739,38 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
           !Match(originalCommand.Replace("-mods=123456,789012",
               "-mods=789012,123456",StringComparison.Ordinal)),
         "historical observer denies reconversion, repeated Store flag, unknown switches, changed ports, cluster ID or mod order");
+    bool ObserveMods(string command)=>LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
+        command,observedExe,historicCommandMap,observeLiveMods:true);
+    string changedMods=originalCommand.Replace("-mods=123456,789012",
+        "-mods=789012,123456,999999",StringComparison.Ordinal);
+    Check(ObserveMods(changedMods)&&!Match(changedMods)&&
+        ObserveMods(originalCommand.Replace("-mods=123456,789012","-mods=123456"))&&
+        ObserveMods(originalCommand.Replace(" -mods=123456,789012 -passivemods=123456","")),
+        "live original process accepts valid added, removed, reordered and empty mod lists without changing strict launch profile");
+    Check(!ObserveMods(changedMods+" -mods=999999")&&
+        !ObserveMods(changedMods.Replace("-mods=789012,123456,999999","-mods=123456,123456"))&&
+        !ObserveMods(changedMods.Replace("-passivemods=123456","-passivemods=888888"))&&
+        !ObserveMods(changedMods.Replace("-mods=789012,123456,999999","-mods=123456,invalid"))&&
+        !ObserveMods(changedMods+" -converttostore")&&
+        !ObserveMods(changedMods.Replace("-Port=7797","-Port=7798"))&&
+        !ObserveMods(changedMods.Replace("-clusterid=KovaCluster","-clusterid=Other")),
+        "live mod tolerance never permits duplicate flags, malformed mods, invalid passive subset, Store conversion, wrong ports or cluster");
+    Check(historicCommandMap.HistoricalEnabledMods.SequenceEqual(new[]{"123456","789012"})&&
+        historicCommandMap.HistoricalPassiveMods.SequenceEqual(new[]{"123456"}),
+        "live mod observation never overwrites the next-start profile");
+    string driftLoader=Path.Combine(Path.GetDirectoryName(observedExe)!,"AsaApiLoader.exe");
+    string driftLoaderCommand=changedMods.Replace(observedExe,driftLoader,StringComparison.Ordinal);
+    var driftParentStart=DateTimeOffset.UtcNow.AddMinutes(-2);
+    Check(LegacyStoreV1ProcessObserver.MatchesOriginalApiLoaderChild(
+        driftLoaderCommand,observedExe,50102,50101,driftParentStart.AddSeconds(1),
+        driftLoaderCommand,driftLoader,50101,driftParentStart,historicCommandMap,observeLiveMods:true)&&
+        !LegacyStoreV1ProcessObserver.MatchesOriginalApiLoaderChild(
+        driftLoaderCommand,observedExe,50102,50101,driftParentStart.AddSeconds(1),
+        driftLoaderCommand,driftLoader,50101,driftParentStart,historicCommandMap)&&
+        !LegacyStoreV1ProcessObserver.MatchesOriginalApiLoaderChild(
+        driftLoaderCommand,observedExe,50102,50103,driftParentStart.AddSeconds(1),
+        driftLoaderCommand,driftLoader,50101,driftParentStart,historicCommandMap,observeLiveMods:true),
+        "live changed mod list still requires exact Loader alias, parent PID and creation-time proof");
     Check(!LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
         originalCommand,Path.Combine(root,"different","ArkAscendedServer.exe"),
         historicCommandMap) &&
