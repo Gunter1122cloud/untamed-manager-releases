@@ -2127,6 +2127,9 @@ export const managerBridge = {
     request<ScheduledStoppedBackupState>("backup.scheduleCreate",{mapId,intervalMinutes,confirm:true,fullLocal}),
   backupScheduleDisable: (mapId:string) =>
     request<ScheduledStoppedBackupState>("backup.scheduleDisable",{mapId,confirm:true}),
+  backupRetentionPreview:(mapId:string,keepLatest:number)=>request<{mapId:string;keepLatest:number;points:Array<{point:string;eligible:boolean;protected:boolean;verified:boolean;createdUtc:string;bytes:number;reason:string}>;quarantine:Array<{point:string;status:string}>;evidence:"VERIFIED_MANAGED_BACKUP_RETENTION_PREVIEW"}>("backup.retentionPreview",{mapId,keepLatest}),
+  backupRetentionAction:(mapId:string,keepLatest:number,kind:"Protect"|"Quarantine"|"Return",point:string,protect?:boolean)=>
+    request<{mapId:string;point:string;completed:true;evidence:"MANAGED_BACKUP_CATALOG_ONLY"}>("backup.retention"+kind,{mapId,keepLatest,point,protect,confirm:true}),
   backupFullLocalHistory:(mapId:string)=>request<{mapId:string;points:Array<{point:string;files:number;bytes:number;createdUtc:string}>;evidence:"VERIFIED_LOCAL_INSTALLATION_FILE_ARCHIVES"}>("backup.fullLocalHistory",{mapId}),
   backupFullLocalCreate:(mapId:string)=>request<{mapId:string;point:string;files:number;bytes:number;createdUtc:string;sharedTransferIncluded:false;databaseConsistencyCertified:false;evidence:"VERIFIED_STOPPED_LOCAL_INSTALLATION_FILES"}>("backup.fullLocalCreate",{mapId,confirm:true}),
   backupFullLocalStage:(mapId:string,point:string)=>request<{mapId:string;point:string;relativeFolder:string;files:number;bytes:number;productionRestoreAllowed:false;evidence:"VERIFIED_NEW_LOCAL_RESTORE_FOLDER_NO_LIVE_REPLACEMENT"}>("backup.fullLocalStage",{mapId,point,confirm:true}),

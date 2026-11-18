@@ -611,6 +611,7 @@ public sealed class ObsidianWindow : Form
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
                             "backup.create" or "backup.restorePreview" or "backup.restore" or
                             "backup.fullLocalCreate" or "backup.fullLocalHistory" or "backup.fullLocalStage" or
+                "backup.retentionPreview" or "backup.retentionProtect" or "backup.retentionQuarantine" or "backup.retentionReturn" or
                             "backup.scheduleStatus" or "backup.scheduleCreate" or
                             "backup.scheduleDisable" or "backup.originalBatchPreview" or
                             "backup.originalBatchCreate" or "backup.originalBatchStatus" or

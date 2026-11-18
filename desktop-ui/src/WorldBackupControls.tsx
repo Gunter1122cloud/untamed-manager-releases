@@ -52,6 +52,54 @@ function retainWorldReceipt(mapId:string,receipt:WorldBackupCreated|WorldBackupR
   recentWorldReceipts.set(mapId,receipt);
 }
 
+function ManagedRetention({map}:{map:PublicMap}){
+  const [keep,setKeep]=useState(3);
+  const [plan,setPlan]=useState<Awaited<ReturnType<typeof managerBridge.backupRetentionPreview>>|null>(null);
+  const [confirm,setConfirm]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [notice,setNotice]=useState("");
+  const flight=useRef(false);
+  const valid=Number.isInteger(keep)&&keep>=1&&keep<=500;
+  const reload=async()=>{
+    const result=await managerBridge.backupRetentionPreview(map.id,keep);
+    if(result.mapId.toLowerCase()!==map.id.toLowerCase()||result.keepLatest!==keep||
+       result.evidence!=="VERIFIED_MANAGED_BACKUP_RETENTION_PREVIEW")throw new Error("UM-BACKUP-RETENTION-RECEIPT");
+    setPlan(result);
+  };
+  const run=async(kind?:"Protect"|"Quarantine"|"Return",point?:string,protect?:boolean)=>{
+    if(flight.current||!valid||kind&&(!confirm||!point||plan?.keepLatest!==keep))return;
+    flight.current=true;setBusy(true);setConfirm(false);setNotice("");
+    let committed=false;
+    try{
+      if(kind&&point){
+        const result=await managerBridge.backupRetentionAction(map.id,keep,kind,point,protect);
+        if(result.mapId.toLowerCase()!==map.id.toLowerCase()||result.point!==point||
+           !result.completed||result.evidence!=="MANAGED_BACKUP_CATALOG_ONLY")throw new Error("UM-BACKUP-RETENTION-RECEIPT");
+        committed=true;setNotice("A mentéskatalógus művelete elkészült.");
+      }
+      await reload();
+    }catch(e){setPlan(null);setNotice(committed?"A művelet elkészült, de a katalógus frissítése sikertelen.":"A retenciós művelet nem igazolható: "+(e instanceof Error?e.message:"ismeretlen hiba"));}
+    finally{flight.current=false;setBusy(false);}
+  };
+  return <section className="uk-world-backup-confirm" aria-label="Helyi mentések megőrzése">
+    <div><b>Helyi mentések megőrzése és karanténja</b>
+      <p>A legutóbbi ép mentések, védett és hibás pontok megmaradnak. Az áthelyezés külön helyi karanténba történik; nem végleges törlés és nem éles restore.</p>
+      <label>Megőrzendő legutóbbi ép pontok száma <input type="number" min={1} max={500} value={keep} disabled={busy}
+        onChange={e=>{setKeep(Number(e.target.value));setPlan(null);setConfirm(false);}}/></label>
+      <button className="secondary" type="button" disabled={busy||!valid} onClick={()=>void run()}>Megőrzési előnézet</button>
+      {plan&&<><label><input type="checkbox" checked={confirm} disabled={busy} onChange={e=>setConfirm(e.target.checked)}/> Jóváhagyom a következő kijelölt katalógusműveletet.</label>
+      {plan.points.map(p=><div key={p.point} className="settings-actions">
+        <span>{p.point} · {p.protected?"Védett":p.verified?(p.eligible?"Karanténjelölt":"Megőrzendő"):"Nem igazolt"}</span>
+        <button type="button" className="secondary" disabled={busy||!confirm||!p.verified} onClick={()=>void run("Protect",p.point,!p.protected)}>{p.protected?"Védelem feloldása":"Védelem"}</button>
+        <button type="button" className="secondary" disabled={busy||!confirm||!p.eligible} onClick={()=>void run("Quarantine",p.point)}>Karanténba</button>
+      </div>)}
+      {plan.quarantine.map(p=><div key={p.point} className="settings-actions"><span>{p.point} · {p.status}</span>
+        <button type="button" className="secondary" disabled={busy||!confirm||p.status!=="verified-quarantine"} onClick={()=>void run("Return",p.point)}>Vissza a mentéskatalógusba</button></div>)}</>}
+      {notice&&<p role="status">{notice}</p>}
+    </div>
+  </section>;
+}
+
 function FullLocalBackup({map}:{map:PublicMap}){
   const [points,setPoints]=useState<Array<{point:string;files:number;bytes:number;createdUtc:string}>>([]);
   const [busy,setBusy]=useState(false);
@@ -389,6 +437,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
           onClick={()=>{void preview();}}><Save size={15}/> Világmentés készítése</button>
       </div>
       {current&&<FullLocalBackup key={current.id} map={current}/>}
+      {current&&!current.observedReadOnlyImported&&<ManagedRetention key={current.id} map={current}/>}
       {originalLocalFive.length>=5&&<section className="uk-world-backup-confirm"
         aria-label="Eredeti Store-v1 ötmapos helyi mentés">
         <div>

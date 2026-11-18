@@ -314,6 +314,7 @@ public sealed class DesktopWorldBackupBridge
             if(method is not ("backup.history" or "backup.preview" or
                 "backup.create" or "backup.restorePreview" or "backup.restore" or
                 "backup.fullLocalCreate" or "backup.fullLocalHistory" or "backup.fullLocalStage" or
+                "backup.retentionPreview" or "backup.retentionProtect" or "backup.retentionQuarantine" or "backup.retentionReturn" or
                 "backup.scheduleStatus" or "backup.scheduleCreate" or
                 "backup.scheduleDisable" or
                 "backup.originalBatchPreview" or "backup.originalBatchCreate" or
@@ -555,6 +556,59 @@ public sealed class DesktopWorldBackupBridge
                         automaticRestoreAllowed=false,
                         automaticServerStopAllowed=false,
                         evidence="PERSISTED_OPT_IN_STOPPED_NONSTORE_WORLD_BACKUPS"
+                    });
+                }
+                if(method is "backup.retentionPreview" or "backup.retentionProtect" or "backup.retentionQuarantine" or "backup.retentionReturn")
+                {
+                    if(!root.TryGetProperty("mapId",out var mid)||mid.ValueKind!=JsonValueKind.String||
+                       !Guid.TryParse(mid.GetString(),out var mapId)||mapId==Guid.Empty)
+                        return Fail(id,"UM-BACKUP-INVALID-MAP");
+                    var map=Owned(mapId);
+                    if(map.ObservedReadOnlyImported)return Fail(id,"UM-BACKUP-MAP-NOT-LOCAL");
+                    if(!root.TryGetProperty("keepLatest",out var keep)||keep.ValueKind!=JsonValueKind.Number||
+                       !keep.TryGetInt32(out int count)||count is <1 or >500)
+                        return Fail(id,"UM-BACKUP-RETENTION-COUNT");
+                    var rule=new RetentionRule(count,TimeSpan.FromDays(30),0);
+                    if(method!="backup.retentionPreview")
+                    {
+                        if(!root.TryGetProperty("confirm",out var confirmation)||confirmation.ValueKind!=JsonValueKind.True)
+                            return Fail(id,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED");
+                        if(!root.TryGetProperty("point",out var item)||item.ValueKind!=JsonValueKind.String||
+                           item.GetString() is not string point)
+                            return Fail(id,"UM-BACKUP-RETENTION-POINT");
+                        if(method=="backup.retentionReturn")
+                        {
+                            if(!System.Text.RegularExpressions.Regex.IsMatch(point,@"\A[0-9a-f]{32}\z"))
+                                return Fail(id,"UM-BACKUP-RETENTION-POINT");
+                            string transaction=Path.Combine(cluster.Store.Root,"backup-quarantine",mapId.ToString("N"),point);
+                            await Task.Run(()=>ManagedBackupRetention.RestoreToCatalog(cluster,mapId,transaction));
+                        }
+                        else
+                        {
+                            if(!System.Text.RegularExpressions.Regex.IsMatch(point,@"\A[0-9]{14}-[0-9a-f]{32}\z"))
+                                return Fail(id,"UM-BACKUP-RETENTION-POINT");
+                            string package=Path.Combine(FullCollection(map),point);
+                            if(method=="backup.retentionProtect")
+                            {
+                                if(!root.TryGetProperty("protect",out var protect)||
+                                   protect.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                                    return Fail(id,"UM-BACKUP-RETENTION-PROTECT");
+                                await Task.Run(()=>ManagedBackupRetention.Protect(cluster,mapId,package,protect.GetBoolean()));
+                            }
+                            else await Task.Run(()=>ManagedBackupRetention.Quarantine(cluster,mapId,package,rule));
+                        }
+                        // A completed movement must not be reported as failed by a subsequent
+                        // catalog refresh. The renderer refreshes separately.
+                        return Ok(id,new{mapId,point,completed=true,evidence="MANAGED_BACKUP_CATALOG_ONLY"});
+                    }
+                    var plan=await Task.Run(()=>ManagedBackupRetention.Preview(cluster,mapId,rule));
+                    var quarantine=await Task.Run(()=>ManagedBackupRetention.InspectQuarantine(cluster,mapId));
+                    return Ok(id,new{
+                        mapId,keepLatest=count,
+                        points=plan.Items.Select(x=>new{point=Path.GetFileName(x.Backup.Package),x.Eligible,
+                            x.Backup.Protected,x.Backup.Verified,x.Backup.CreatedUtc,x.Backup.Bytes,x.Reason}).ToArray(),
+                        quarantine=quarantine.Select(x=>new{point=Path.GetFileName(x.Transaction),x.Status}).ToArray(),
+                        evidence="VERIFIED_MANAGED_BACKUP_RETENTION_PREVIEW"
                     });
                 }
                 if(method is "backup.fullLocalCreate" or "backup.fullLocalHistory" or "backup.fullLocalStage")

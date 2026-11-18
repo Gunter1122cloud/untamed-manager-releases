@@ -6822,6 +6822,20 @@ try
             using(var fullReopened=new DesktopScheduledStoppedBackupSupervisor(backupHost))
                 Check(fullReopened.Snapshot().Single().LastPoint==fullCompleted.LastPoint&&
                       fullReopened.Snapshot().Single().FullLocal,"full archive receipt survives reopen");
+            var retention=await Call(scheduleBridge.HandleAsync,"backup.retentionPreview",new{mapId=localMap.Id,keepLatest=1});
+            IsOk(retention,"native retention preview includes both manual and scheduled full archives");
+            var eligible=retention.GetProperty("data").GetProperty("points").EnumerateArray().Single(x=>x.GetProperty("eligible").GetBoolean()).GetProperty("point").GetString()!;
+            var deniedRetention=await Call(scheduleBridge.HandleAsync,"backup.retentionQuarantine",new{mapId=localMap.Id,keepLatest=1,point=eligible,confirm=false});
+            Check(IsError(deniedRetention,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED"),"retention mutation needs confirmation");
+            IsOk(await Call(scheduleBridge.HandleAsync,"backup.retentionProtect",new{mapId=localMap.Id,keepLatest=1,point=eligible,protect=true,confirm=true}),"retention protects an actual full archive");
+            var protectedPreview=await Call(scheduleBridge.HandleAsync,"backup.retentionPreview",new{mapId=localMap.Id,keepLatest=1});
+            Check(!protectedPreview.GetProperty("data").GetProperty("points").EnumerateArray().Any(x=>x.GetProperty("eligible").GetBoolean()),"protected older archive is not eligible");
+            IsOk(await Call(scheduleBridge.HandleAsync,"backup.retentionProtect",new{mapId=localMap.Id,keepLatest=1,point=eligible,protect=false,confirm=true}),"explicit release of protection");
+            IsOk(await Call(scheduleBridge.HandleAsync,"backup.retentionQuarantine",new{mapId=localMap.Id,keepLatest=1,point=eligible,confirm=true}),"approved old verified point quarantined");
+            var quarantine=await Call(scheduleBridge.HandleAsync,"backup.retentionPreview",new{mapId=localMap.Id,keepLatest=1});
+            string transaction=quarantine.GetProperty("data").GetProperty("quarantine").EnumerateArray().Single(x=>x.GetProperty("status").GetString()=="verified-quarantine").GetProperty("point").GetString()!;
+            IsOk(await Call(scheduleBridge.HandleAsync,"backup.retentionReturn",new{mapId=localMap.Id,keepLatest=1,point=transaction,confirm=true}),"verified quarantine returns to catalog, not live map");
+            Check(File.ReadAllBytes(arkFile).SequenceEqual(worldBeforeBackup),"retention never modifies original world bytes");
             // Revoking an active schedule in a native stop-state callback
             // must abort the copy, not publish a late snapshot.
             int archiveCountBefore=UntamedWorldBackup.List(localMap,localProfile,50).Length;
