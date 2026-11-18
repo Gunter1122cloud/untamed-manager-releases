@@ -8,6 +8,7 @@ public static class SupervisorWorker
     {
         string Value(string key,string fallback){int i=Array.IndexOf(args,key);return i<0?fallback:i+1<args.Length?args[i+1]:throw new ArgumentException(key);}
         string profile=Value("--profile","default"),overrideRoot=Value("--root","");
+        bool watchdogOnly=args.Contains("--watchdog-only");
         var store=new ConfigStore(profile,overrideRoot.Length==0?null:overrideRoot);store.EnsureInitialized();
         using var gate=new Semaphore(1,1,"Global\\UntamedSupervisor-"+Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(store.Root).ToUpperInvariant()))));
         bool entered=false;
@@ -25,6 +26,8 @@ public static class SupervisorWorker
             var watchdogStates=new Dictionary<Guid,SupervisionState>();
             var advancedWatchdog=new WatchdogDiagnostics();
             var lastDiagnosticCodes=new Dictionary<Guid,string>();
+            var nextRcon=new Dictionary<Guid,DateTimeOffset>();
+            var priorRcon=new Dictionary<Guid,(int Pid,DateTimeOffset Start,string Status,int Failures)>();
             var previous=new Dictionary<Guid,MapObservation>();var cpu=new Dictionary<int,(DateTimeOffset time,TimeSpan cpu,DateTimeOffset start)>();
             var config=store.Read();events.Append(config.LocalHostName,null,"Information","supervisor-start");
             try
@@ -37,8 +40,14 @@ public static class SupervisorWorker
                         foreach(var map in config.LocalMaps)
                         {
                             token.ThrowIfCancellationRequested();
-                            var state=(map.Arguments+" "+map.ApiLoaderArguments).Contains("store",StringComparison.OrdinalIgnoreCase)?
-                                new ProcessCheck(false,"Store validation required",null):string.IsNullOrWhiteSpace(map.ApiLoaderPath)?inspector.Inspect(map):inspector.InspectFamily(map);
+                            ProcessCheck state;
+                            try
+                            {
+                                state=map.HistoricalStoreProtected?LegacyStoreV1ProcessObserver.Observe(map,config.LocalMaps):
+                                    string.IsNullOrWhiteSpace(map.ApiLoaderPath)&&!map.StartWithAsaApi?inspector.Inspect(map):
+                                    inspector.InspectFamily(map,config.LocalMaps);
+                            }
+                            catch(Exception){state=new ProcessCheck(false,"Local process observation unavailable",null);}
                             bool maintenance=map.Maintenance||config.ScheduledTasks.Any(x=>x.Enabled&&x.Map==map.Id&&x.Kind==ScheduledKind.Maintenance&&x.DueUtc<=now&&x.UntilUtc>now);
                             if(!watchdogStates.TryGetValue(map.Id,out var watchdog) || now-watchdog.ObservedUtc>=TimeSpan.FromSeconds(Math.Clamp(map.WatchdogIntervalSeconds,5,3600)) || watchdog.Maintenance!=maintenance)
                             {
@@ -60,16 +69,29 @@ public static class SupervisorWorker
                                 }catch{ram=null;load=null;uptime=null;}
                             }
                             string rcon="Ismeretlen – nincs hitelesített mérés";
-                            if(state.Running&&map.MonitorRcon&&map.RconPort>0)
+                            if(!maintenance&&state.Running&&state.Identity is {Pid:>0} identity&&map.MonitorRcon&&
+                               map.RconHost=="127.0.0.1"&&map.RconPort is >=1024 and <=65535)
                             {
-                                try
+                                bool same=priorRcon.TryGetValue(map.Id,out var oldRcon)&&
+                                    oldRcon.Pid==identity.Pid&&oldRcon.Start==identity.StartedUtc;
+                                if(same&&nextRcon.TryGetValue(map.Id,out var dueRcon)&&now<dueRcon)
+                                    rcon=oldRcon.Status;
+                                else
                                 {
-                                    using var deadline=CancellationTokenSource.CreateLinkedTokenSource(token);deadline.CancelAfter(TimeSpan.FromSeconds(2));
-                                    string response=await RconProtocol.Execute(map.RconHost,map.RconPort,SecureStore.Unprotect(map.RconPasswordProtected),"ListPlayers",deadline.Token);
-                                    rcon=response.StartsWith("RCON parancs elküldve",StringComparison.Ordinal)?"Nincs ellenőrzött válasz":"Hitelesített válasz; játékosszám nem igazolt";
-                                }catch(UnauthorizedAccessException){rcon="RCON hitelesítési hiba";}
-                                catch{rcon="RCON nem elérhető vagy időtúllépés";}
+                                    try
+                                    {
+                                        using var deadline=CancellationTokenSource.CreateLinkedTokenSource(token);deadline.CancelAfter(TimeSpan.FromSeconds(2));
+                                        string response=await RconProtocol.Execute(map.RconHost,map.RconPort,SecureStore.Unprotect(map.RconPasswordProtected),"ListPlayers",deadline.Token);
+                                        rcon=response.StartsWith("RCON parancs elküldve",StringComparison.Ordinal)?"Nincs ellenőrzött válasz":"Hitelesített válasz; játékosszám nem igazolt";
+                                    }catch(UnauthorizedAccessException){rcon="RCON hitelesítési hiba";}
+                                    catch(OperationCanceledException) when(token.IsCancellationRequested){throw;}
+                                    catch{rcon="RCON nem elérhető vagy időtúllépés";}
+                                    int failures=rcon.StartsWith("Hitelesített válasz",StringComparison.Ordinal)?0:Math.Min(5,(same?oldRcon.Failures:0)+1);
+                                    priorRcon[map.Id]=(identity.Pid,identity.StartedUtc,rcon,failures);
+                                    nextRcon[map.Id]=now.AddSeconds(Math.Min(300,30*Math.Pow(2,failures)+Random.Shared.Next(0,6)));
+                                }
                             }
+                            else {priorRcon.Remove(map.Id);nextRcon.Remove(map.Id);}
                             // Watchdog 2.0 observes independent failure categories.
                             // RCON failure alone never proves that a running game is frozen.
                             RconSignal rconSignal=rcon=="RCON hitelesítési hiba"?
@@ -142,6 +164,8 @@ public static class SupervisorWorker
                             try{if(config.TelemetryHistoryEnabled)telemetry.Observe(observation,now);}catch{events.Append(config.LocalHostName,map.Id,"Warning","telemetry-write-rejected");}
                             previous[map.Id]=observation;observations.Add(observation);
                         }
+                        if(!watchdogOnly)
+                        {
                         int receiptCount=scheduler.Receipts.Length;
                         await scheduler.RunDue(config.ScheduledTasks,config.LocalMaps.Select(x=>x.Id).ToHashSet(),now,task=>
                         {
@@ -198,6 +222,7 @@ public static class SupervisorWorker
                         {
                             events.Append(config.LocalHostName,null,"Warning",
                                 "recurring-readonly-evaluation-failed");
+                        }
                         }
                         channel.Write(new(config.LocalHostId,Environment.ProcessId,started,Environment.ProcessPath!,DateTimeOffset.UtcNow,observations.ToArray()));
                         // Compatibility heartbeat for existing consumers; GUI trusts only the authenticated channel.

@@ -107,6 +107,7 @@ export type OperationsMap = {
   memoryMiB:number|null; memoryVerified:boolean; maintenance:boolean;
   storeProtected:boolean; gamePort:number; queryPort:number; rconConfigured:boolean;
   rconPort:number|null; autoStartConfigured:boolean; lifecycleActionsVerified:false;
+  watchdogStatus?:string|null;watchdogObservedUtc?:string|null;
   evidence:string;
 };
 export type OperationsSchedule = {
@@ -122,6 +123,7 @@ export type OperationsSnapshot = {
   hostName:string; observedUtc:string; maps:OperationsMap[];
   schedules:OperationsSchedule[]; schedulingIsReadOnly:true;
   scheduleReceipts?:OperationsReceipt[];supervisorState?:string;
+  watchdogActive?:boolean;watchdogObservedUtc?:string|null;
   totalMaps:number;pageOffset:number;pageLimit:number;
   nextOffset:number|null;snapshotKey:string;
   remoteCommandsAllowed:false; evidence:string;
@@ -1710,7 +1712,7 @@ export type ConfiguredMods = {
 };
 
 type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
-  "operations.scheduleCreate" | "operations.scheduleDisable" |
+  "operations.scheduleCreate" | "operations.scheduleDisable" | "operations.watchdogStart" |
   "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" |
   "schedule.nativeReviewPreview" | "schedule.nativeReviewApply" |
   "schedule.nativeResume" |
@@ -1909,6 +1911,7 @@ export const managerBridge = {
     request<LanPhysicalStoreProbe>("lan.physicalStoreProbe"),
   lanHistoricalSaveProbe: () =>
     request<LanHistoricalSaveProbe>("lan.historicalSaveProbe"),
+  operationsWatchdogStart:()=>request<{pid:number;requested:true;evidence:"LOCAL_WATCHDOG_PROCESS_REQUESTED"}>("operations.watchdogStart",{confirm:true}),
   operationsSnapshot: () => request<OperationsSnapshot>("operations.snapshot"),
   operationsSnapshotAll: async ():Promise<OperationsSnapshot> => {
     // Gather every bounded native page. A registry change between RPCs

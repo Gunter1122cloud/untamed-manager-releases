@@ -51,9 +51,15 @@ public sealed class DesktopOperationsCenterBridge
             id = requestId.ToString("D");
             string? method = methodValue.GetString();
             if(method is not ("operations.snapshot" or "operations.map" or
-                "operations.scheduleCreate" or "operations.scheduleDisable"))
+                "operations.scheduleCreate" or "operations.scheduleDisable" or "operations.watchdogStart"))
                 return Task.FromResult(Fail(id,"UM-METHOD-DENIED"));
 
+            if(method=="operations.watchdogStart")
+            {
+                if(!Confirm(request))return Task.FromResult(Fail(id,"UM-OPS-CONFIRMATION-REQUIRED"));
+                var pid=DesktopStandaloneWatchdog.Start(cluster);
+                return Task.FromResult(Ok(id,new{pid,requested=true,evidence="LOCAL_WATCHDOG_PROCESS_REQUESTED"}));
+            }
             if(method=="operations.scheduleCreate")
             {
                 // Operator must explicitly approve this local Manager-config
@@ -150,7 +156,8 @@ public sealed class DesktopOperationsCenterBridge
             var now=DateTimeOffset.UtcNow;
             // No state mutation on telemetry reads. Process identity remains
             // independently verified for every locally registered map.
-            var maps=page.Select(m=>Describe(m,now)).ToArray();
+            var watchdog=DesktopStandaloneWatchdog.Read(cluster);
+            var maps=page.Select(m=>Describe(m,now,watchdog?.Maps.SingleOrDefault(x=>x.Map==m.Id))).ToArray();
             // Read the persisted due cursor, not a moving estimate relative
             // to each screen refresh. If journal access fails, expose the
             // distinction explicitly and keep all server operations blocked.
@@ -205,6 +212,7 @@ public sealed class DesktopOperationsCenterBridge
                 totalMaps,pageOffset=offset,pageLimit=limit,
                 nextOffset,snapshotKey,
                 scheduleReceipts=receipts,supervisorState,
+                watchdogActive=watchdog!=null,watchdogObservedUtc=watchdog?.ObservedUtc,
                 schedulingIsReadOnly=true,
                 remoteCommandsAllowed=false,
                 evidence="LOCAL_OS_PROCESS_AND_SAVED_SCHEDULE_READ_ONLY"
@@ -220,7 +228,7 @@ public sealed class DesktopOperationsCenterBridge
         obj.TryGetProperty("confirm",out var value) &&
         value.ValueKind==JsonValueKind.True;
 
-    private object Describe(LocalMap map,DateTimeOffset now)
+    private object Describe(LocalMap map,DateTimeOffset now,MapObservation? watchdog)
     {
         bool storeProtected=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map);
         ProcessCheck state;
@@ -275,6 +283,7 @@ public sealed class DesktopOperationsCenterBridge
             autoStartConfigured=map.AutoStart,
             lifecycleActionsVerified=false,
             observationOnly=true,
+            watchdogStatus=watchdog?.Watchdog,watchdogObservedUtc=watchdog?.ObservedUtc,
             evidence=map.HistoricalStoreProtected?
                 "HISTORICAL_STORE_V1_PROCESS_OBSERVATION_NO_LIFECYCLE_RIGHTS":
                 "EXACT_LOCAL_PROCESS_IDENTITY_NO_NETWORK_OR_FILE_WRITE"

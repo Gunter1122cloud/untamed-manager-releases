@@ -158,6 +158,19 @@ jobs:
           if ((Get-Item desktop/publish/UntamedUpdater.exe).Length -lt 1000000) {
             throw "Updater is not a self-contained single-file executable"
           }
+      - name: Publish independent local watchdog executable
+        shell: pwsh
+        run: |
+          dotnet publish wpf/Supervisor/UntamedSupervisor.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o desktop/supervisor-publish
+          if ($LASTEXITCODE -ne 0) { throw "Watchdog build failed" }
+          $supervisor = "desktop/supervisor-publish/UntamedSupervisor.exe"
+          if (!(Test-Path $supervisor)) { throw "Watchdog missing" }
+          Copy-Item $supervisor desktop/publish/UntamedSupervisor.exe -Force
+          $root = Join-Path $env:RUNNER_TEMP "Obsidian-watchdog-isolated"
+          & $supervisor --root $root --watchdog-only --once
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path (Join-Path $root "supervision/status.signed.json"))) {
+            throw "Independent watchdog isolated startup did not publish a signed heartbeat"
+          }
       - name: Test versioned N-host offline backup and TEMP restore Core
         shell: pwsh
         run: |

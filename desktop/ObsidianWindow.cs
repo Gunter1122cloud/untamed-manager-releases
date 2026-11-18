@@ -593,7 +593,7 @@ public sealed class ObsidianWindow : Form
                             "servers.lifecycleRecoveryPreview" or
                             "servers.lifecycleRecoveryApply";
                         operationsRoute = name is "operations.snapshot" or "operations.map" or
-                            "operations.scheduleCreate" or "operations.scheduleDisable";
+                            "operations.scheduleCreate" or "operations.scheduleDisable" or "operations.watchdogStart";
                         nativeScheduleRoute = name is "schedule.nativeStatus" or
                             "schedule.nativeSet" or "schedule.nativeDisable" or
                             "schedule.nativeOverview" or "schedule.nativeReviewPreview" or

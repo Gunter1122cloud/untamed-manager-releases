@@ -33,6 +33,7 @@ function OperationCard({map,onOpen,onRefresh}:{
       <div><dt>Game / Query</dt><dd>{map.gamePort||"—"} / {map.queryPort||"—"}</dd></div>
       <div><dt>RCON TCP</dt><dd>{map.rconConfigured&&map.rconPort?map.rconPort:"Nincs konfigurálva"}</dd></div>
       <div><dt>Indítva</dt><dd>{localDate(map.startedUtc)}</dd></div>
+      <div><dt>Önálló watchdog</dt><dd>{map.watchdogStatus??"Nincs friss megfigyelés"}</dd></div>
     </dl>
     {(map.storeProtected||map.maintenance)&&<div className="ops-tags">
       {map.storeProtected&&<span><LockKeyhole size={13}/> Store-v1 védelem</span>}
@@ -55,6 +56,8 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
   const [nativeOverview,setNativeOverview]=useState<NativeAsaScheduleOverview|null>(null);
   const [nativeUnreadable,setNativeUnreadable]=useState(false);
   const [busy,setBusy]=useState(false);
+  const [watchdogBusy,setWatchdogBusy]=useState(false);
+  const [watchdogNotice,setWatchdogNotice]=useState("");
   const [error,setError]=useState("");
   const [filter,setFilter]=useState<"all"|"running"|"attention">("all");
   const [pageIndex,setPageIndex]=useState(0);
@@ -155,6 +158,17 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
         onClick={()=>{void reload();}}><RefreshCw size={16} className={busy?"spin":""}/>
         Frissítés</button>
     </div>
+    {!selectedMapId&&snapshot&&<section className="premium-panel">
+      <h2>Önálló helyi watchdog</h2>
+      <p>{snapshot.watchdogActive?"Aktív, hitelesített állapot: "+localDate(snapshot.watchdogObservedUtc??null):"Nincs friss, hitelesített watchdog-jel."} A külön folyamat a Manager bezárása után is megfigyel; nem indít vagy állít le mapot. Az ablakában Ctrl+C-vel állítható le.</p>
+      <button type="button" className="secondary" disabled={watchdogBusy||snapshot.watchdogActive} onClick={async()=>{
+        setWatchdogBusy(true);setWatchdogNotice("");
+        try{await managerBridge.operationsWatchdogStart();setWatchdogNotice("A folyamat indítása kérve. Frissítsd az állapotot a hitelesített jel megjelenéséhez.");}
+        catch{setWatchdogNotice("A külön watchdog indítása nem igazolható.");}
+        finally{setWatchdogBusy(false);}
+      }}>Önálló watchdog indítása</button>
+      {watchdogNotice&&<p role="status">{watchdogNotice}</p>}
+    </section>}
     {error&&<div role="alert" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
     {nativeUnreadable&&<div role="status" className="warning-inline">
       <AlertTriangle size={16}/> A natív ASA ütemező összesítése nem olvasható. A folyamatállapot külön továbbra is ellenőrizhető.
