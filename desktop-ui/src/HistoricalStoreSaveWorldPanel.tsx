@@ -1,3 +1,4 @@
+import {useMapEvidenceRefresh} from "./useMapEvidenceRefresh";
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,RefreshCw,Save,Shield} from "lucide-react";
 import {managerBridge,type HistoricalSaveWorldPreview,
@@ -14,8 +15,8 @@ function canonicalSaveId(value:string|null|undefined):string|null{
 }
 
 /** Real, explicitly approved original ACTIVE/DONE SaveWorld. Never DoExit. */
-export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
-  mapId:string;running:boolean;onSaved:()=>Promise<void>
+export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved,refreshRevision=0}:{
+  mapId:string;running:boolean;onSaved:()=>Promise<void>;refreshRevision?:number
 }){
   const [recovery,setRecovery]=useState<HistoricalGracefulStopRecovery|null>(null);
   const [durableSave,setDurableSave]=useState<HistoricalSaveEvidenceStatus|null>(null);
@@ -196,7 +197,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
     const handle=window.setInterval(()=>{void poll();},1700);
     return ()=>{active=false;window.clearInterval(handle);};
   },[jobId,mapId,onSaved]);
-  const refreshDurable=async()=>{
+  const refreshDurable=async(automatic=false)=>{
     // Read-only evidence refresh after the operator has inspected the
     // local journal externally. Never retry SaveWorld or clear a receipt.
     if(busy||(jobId&&job?.state!=="completed"&&
@@ -204,7 +205,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       return;
     const requested=mapId,revision=epoch.current;
     setBusy(true);setPreview(null);
-    setError("");setNotice("");
+    setError("");if(!automatic)setNotice("");
     try{
       const [evidence,review]=await Promise.all([
         managerBridge.historicalSaveWorldEvidence(requested),
@@ -238,7 +239,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       const manuallyReviewed=(job?.state==="needsOperator"||
           job?.state==="reviewed")&&evidence.phase==="reviewed"&&
         evidence.operationId===jobId;
-      if(jobId&&!review.blocked&&!evidence.unreadable&&
+      if(!automatic&&jobId&&!review.blocked&&!evidence.unreadable&&
          (completedVerified||manuallyReviewed||noDispatchVerified)){
         setJobId("");setJob(null);finished.current=false;
       }
@@ -253,7 +254,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       else if(review.blocked)
         setError("A helyi műveleti napló még függő állapotban van. "+
           "Külön operátori ellenőrzés szükséges; nem küldtünk új SaveWorld parancsot.");
-      else
+      else if(!automatic)
         setNotice("A helyi Store-v1 naplók újraellenőrizve, új SaveWorld nem indult. "+
           "Az ASA állapotának és az eredeti Store-forrásnak az új művelet előtt "+
           "ismét külön igazoltnak kell lennie.");
@@ -266,6 +267,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       }
     }finally{if(belongs(requested,revision))setBusy(false);}
   };
+  useMapEvidenceRefresh(refreshRevision,busy||!!jobId&&job?.state!=="completed"&&job?.state!=="notDispatched"&&job?.state!=="needsOperator"&&job?.state!=="reviewed",()=>refreshDurable(true));
   const inspectLateEvidence=async()=>{
     if(busy||!running||!durableChecked||!durableSave||
        !["prepared","needsOperator","reviewed"].includes(durableSave.phase)||
@@ -470,7 +472,10 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       setNotice("A korábbi SaveWorld kimenetele továbbra is ISMERETLEN. "+
         "A helyi mentésbizonylat és a műveleti napló változatlan előzménye "+
         "auditáltan archiválva; nem küldtünk új parancsot. "+
-        "A következő SaveWorld vagy Stop új előellenőrzést és külön jóváhagyást igényel.");
+        "A következő SaveWorld vagy Stop gomb új natív előellenőrzést végez.");
+      try{await onSaved();}catch{
+        if(belongs(requested,revision))setError("A naplórendezés megtörtént, de a közös nézet frissítése sikertelen. Új RCON nem indult.");
+      }
     }catch{
       if(belongs(requested,revision))
         setError("A Store-v1 naplófelülvizsgálat eredménye nem igazolható. "+

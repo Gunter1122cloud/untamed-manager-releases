@@ -1,3 +1,4 @@
+import {useMapEvidenceRefresh} from "./useMapEvidenceRefresh";
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,RefreshCw,Shield,Square,LockKeyhole} from "lucide-react";
 import {managerBridge,type HistoricalGracefulStopStatus,
@@ -5,12 +6,12 @@ import {managerBridge,type HistoricalGracefulStopStatus,
 
 /**
  * Original ACTIVE/DONE Store shutdown is intentional and one-shot:
- * real SaveWorld, new ASA SaveComplete log and stable .ark, then DoExit,
+ * real SaveWorld, full log+world or limited stable world metadata, then DoExit,
  * then Windows confirms old PID exited. This never fabricates durable
  * fsync, game-client rejoin, tribe/inventory travel or shared restore.
  */
-export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
-  mapId:string;running:boolean;onStopped:()=>Promise<void>
+export function HistoricalGracefulStopPanel({mapId,running,onStopped,refreshRevision=0}:{
+  mapId:string;running:boolean;onStopped:()=>Promise<void>;refreshRevision?:number
 }){
   const [job,setJob]=useState<HistoricalGracefulStopStatus|null>(null);
   const [jobId,setJobId]=useState("");
@@ -72,9 +73,13 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
         setJob(result);
         if(result.state==="completed"&&!notified.current){
           notified.current=true;
-          setNotice("A régi ASA-folyamat szabályosan kilépett. Az új SaveWorld "+
-            "napló- és világfájl-bizonyíték rendelkezésre áll; "+
-            "a végső DoExit fsync és játékbeli karakterutazás még külön vizsgálandó.");
+          const evidence=result.preExitSaveLogAndWorldObserved&&!result.preExitWorldMetadataObserved
+            ?"Helyi SaveComplete napló és stabil .ark: megfigyelve."
+            :result.preExitWorldMetadataObserved&&!result.preExitSaveLogAndWorldObserved?
+              "Korlátozott helyi bizonyíték: a saját .ark frissült és stabil, ASA SaveComplete napló NEM igazolt; a közvetlen okság ismeretlen."
+              :"A mentési bizonyíték szintje nem egyértelmű.";
+          setNotice("A régi ASA-folyamat szabályosan kilépett. "+evidence+
+            " A végső DoExit fsync és játékbeli karakterutazás még külön vizsgálandó.");
           try{
             setRecovery(await managerBridge.historicalGracefulStopRecovery(mapId));
           }catch{/* Keep original job receipt; never infer unlock from a failed read. */}
@@ -99,13 +104,13 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
     },1800);
     return ()=>{alive=false;window.clearInterval(interval);};
   },[jobId,onStopped]);
-  const refreshRecovery=async()=>{
+  const refreshRecovery=async(automatic=false)=>{
     // Read-only: neither this button nor a past Stop job authorizes any
     // new SaveWorld/DoExit, process stop or journal transition.
     if(busy||(jobId&&job?.state!=="completed"&&job?.state!=="needsOperator"))
       return;
     const requested=mapId;
-    setBusy(true);setError("");setNotice("");
+    setBusy(true);setError("");if(!automatic)setNotice("");
     try{
       const result=await managerBridge.historicalGracefulStopRecovery(requested);
       if(!belongs(requested))return;
@@ -124,11 +129,11 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
         setError("A Store-v1 műveleti napló még függő állapotban van. "+
           "Külön operátori ellenőrzés szükséges, új RCON-parancsot nem küldtünk.");
       else{
-        if(jobId&&job?.state==="completed"){
-          setJobId("");setJob(null);notified.current=false;
+        if(jobId&&job?.state==="completed"&&!result.inMemoryRunning&&(!automatic||!running)){
+          setJobId("");if(!automatic)setJob(null);notified.current=false;
         }
-        setNotice("A helyi Stop-napló újraellenőrizve, parancs nem indult. "+
-          "Új művelethez új, külön PID/RCON/Store-forrás jóváhagyás szükséges.");
+        if(!automatic)setNotice("A helyi Stop-napló újraellenőrizve, parancs nem indult. "+
+          "A következő kattintás új natív PID/RCON/Store-forrás ellenőrzést végez.");
       }
     }catch{
       if(belongs(requested)){
@@ -138,6 +143,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
       }
     }finally{if(belongs(requested))setBusy(false);}
   };
+  useMapEvidenceRefresh(refreshRevision,busy||!!jobId&&job?.state!=="completed"&&job?.state!=="needsOperator",()=>refreshRecovery(true));
   const inspect=async()=>{
     if(actionInFlight.current||busy||jobId||!running||!recoveryChecked||
        !recovery||recovery.blocked||recovery.inMemoryRunning||error)return;
@@ -186,7 +192,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
       <p className="muted small">Hatókör: kizárólag a kiválasztott map ({mapId}).
         Ez SaveWorld és szabályos DoExit, nem Kill vagy konverzió.
         Valódi RCON SaveWorld csak a saját ASA-folyamatnak,
-        új „World Save Complete” naplóbejegyzés és stabil világfájl ellenőrzése,
+        helyi SaveComplete-napló és stabil világfájl vagy korlátozott stabil világfájl-metaadat ellenőrzése,
         majd szabályos DoExit és Windows PID-kilépés. Nincs Kill, automatikus
         újraindítás, Store-konverzió vagy shared lock törlése.</p>
       <div className="settings-actions">
@@ -231,7 +237,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
       </div>}
       {job?.state==="completed"&&<div className="success-inline">
         <CheckCircle2 size={17}/> ASA leállítva ·
-        {job.preExitSaveLogAndWorldObserved?" mentésjelzés megfigyelve":" mentésjelzés nincs igazolva"}
+        {job.preExitSaveLogAndWorldObserved&&!job.preExitWorldMetadataObserved?" mentésjelzés megfigyelve":job.preExitWorldMetadataObserved&&!job.preExitSaveLogAndWorldObserved?" korlátozott világfájl-bizonyíték; SaveComplete nem igazolt":" mentésjelzés nincs igazolva"}
       </div>}
       {notice&&<div className="success-inline" role="status">
         <CheckCircle2 size={17}/>{notice}</div>}
