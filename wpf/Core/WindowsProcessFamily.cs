@@ -64,17 +64,17 @@ public sealed partial class WindowsProcessInspector
                 using var process=Process.GetProcessById(Convert.ToInt32(row["ProcessId"]));
                 observed.Add(new(process.Id,Convert.ToInt32(row["ParentProcessId"]),new DateTimeOffset(process.StartTime.ToUniversalTime()),path,loaderArgs?map.ApiLoaderArguments:map.Arguments));
             }
-            foreach(var child in deferredChildren)
+            foreach(var deferredChild in deferredChildren)
             {
-                var parents=observed.Where(p=>p.Pid==child.ParentPid&&p.Pid!=child.Pid&&
-                    p.StartedUtc<=child.StartedUtc&&p.ExecutablePath.Equals(loader,StringComparison.OrdinalIgnoreCase)&&
+                var parents=observed.Where(p=>p.Pid==deferredChild.ParentPid&&p.Pid!=deferredChild.Pid&&
+                    p.StartedUtc<=deferredChild.StartedUtc&&p.ExecutablePath.Equals(loader,StringComparison.OrdinalIgnoreCase)&&
                     p.Arguments==map.ApiLoaderArguments).ToArray();
                 bool persisted=parents.Length==0&&
-                    ProcessFamily.IsPersistedSurvivor(child,map.LastProcess,map.LastLoader,
+                    ProcessFamily.IsPersistedSurvivor(deferredChild,map.LastProcess,map.LastLoader,
                         server,map.Arguments,loader,map.ApiLoaderArguments);
                 if(map.Arguments!=map.ApiLoaderArguments||(parents.Length!=1&&!persisted))
                 {uncertain=true;continue;}
-                observed.Add(child);
+                observed.Add(deferredChild);
             }
             if(uncertain)return new(false,"Incomplete loader/server observation",null);
             var loaders=observed.Where(x=>x.ExecutablePath.Equals(loader,StringComparison.OrdinalIgnoreCase)&&x.Arguments==map.ApiLoaderArguments).ToArray();
