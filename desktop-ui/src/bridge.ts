@@ -1747,7 +1747,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.gracefulStopCurrent" | "servers.gracefulStopReview" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" |
   "servers.restartReviewPreview" | "servers.restartReviewApply" |
   "servers.freshReadiness" | "servers.lifecycleJournal" |
-  "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.selectExecutable" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
+  "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.selectExecutable" | "steam.prepareExecutable" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "servers.apiModeStatus" |
   "servers.apiModePreview" | "servers.apiModeApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
@@ -1832,6 +1832,7 @@ const pending = new Map<string, {
 const webview = window.chrome?.webview;
 
 function timeoutFor(method: WireRequest["method"]): number {
+  if (method === "steam.prepareExecutable") return 6 * 60_000; // bounded Valve toolkit download
   if (method === "updates.prepare") return 10 * 60_000; // verified GitHub installer download
   if (method === "store.inspectArchive" || method === "store.compareArchives" ||
       method === "store.inspectCopy" || method === "historical.localParity" ||
@@ -2016,6 +2017,7 @@ export const managerBridge = {
     request<StoppedSteamDiagnostics>("steam.stoppedDiagnostics",{mapId}),
   steamStoppedPreview: (mapId:string) =>
     request<StoppedSteamPreview>("steam.stoppedPreview",{mapId}),
+  steamPrepareExecutable: () => request<{cancelled:boolean;configured:boolean;updateStarted:false;serverStopped:false}>("steam.prepareExecutable"),
   steamSelectExecutable: () => request<{cancelled:boolean;configured:boolean;updateStarted:false;serverStopped:false}>("steam.selectExecutable"),
   steamPublishedBuild: (mapId:string) =>
     request<SteamPublishedBuild>("steam.publishedBuild",{mapId}),

@@ -3336,6 +3336,7 @@ test.beforeEach(async ({ page }) => {
           throw new Error("UM-STEAM-SCHEDULE-MANUAL-ONLY");
         case "steam.scheduleDisable":
           throw new Error("UM-SCHEDULED-STEAM-MISSING");
+        case "steam.prepareExecutable":
         case "steam.selectExecutable": {
           steamExecutableConfigured=true;
           return {cancelled:false,configured:true,updateStarted:false,serverStopped:false};
@@ -7158,7 +7159,7 @@ test("missing SteamCMD path is diagnosed and configured without dispatching an A
   await panel.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
   await expect(panel.getByRole("region",{name:"SteamCMD natív előfeltétel diagnosztika"})).toContainText("Nincs SteamCMD beállítva");
   await expect(panel.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toHaveCount(0);
-  await panel.getByRole("button",{name:"SteamCMD program kiválasztása"}).click();
+  await panel.getByRole("button",{name:"SteamCMD előkészítése (Valve)"}).click();
   await expect(panel).toContainText("SteamCMD elérési útja mentve");
   await panel.getByRole("button",{name:"Elérhető ASA verzió ellenőrzése"}).click();
   await expect(panel.getByRole("region",{name:"ASA Steam build összehasonlítása"})).toContainText("123457");

@@ -125,7 +125,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     private object Snapshot(Job job)
     {
         lock(sync)return new{
-            jobId=job.Id,kind=job.Kind,state=job.State,step=job.Step,
+            jobId=job.Id,mapId=job.MapId,kind=job.Kind,state=job.State,step=job.Step,
             changedUtc=job.ChangedUtc,
             confirmedStopped=job.ConfirmedStopped,
             preExitSaveLogAndWorldObserved=job.PreExitSaveObserved,

@@ -33,6 +33,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     private readonly Func<LocalMap,IProgress<SteamMaintenanceStage>,Task<SteamStoppedMapUpdater.Receipt>> runner;
     private readonly Func<LocalMap,CancellationToken,Task<AsaSteamBuildCheck>> publishedBuild;
     private readonly Func<string?> pickSteamCmd;
+    private readonly Func<CancellationToken,Task<string>> prepareSteamCmd;
     // Each local map has its own approval; SteamCMD execution stays serialized.
     private readonly System.Collections.Generic.Dictionary<Guid,Preview> pendingByMap=new();
     private readonly System.Collections.Generic.Dictionary<Guid,Job> jobsById=new();
@@ -44,10 +45,12 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         Func<LocalMap,SteamUpdatePreview>? plan=null,
         Func<LocalMap,IProgress<SteamMaintenanceStage>,Task<SteamStoppedMapUpdater.Receipt>>? execute=null,
         Func<LocalMap,CancellationToken,Task<AsaSteamBuildCheck>>? inspectPublished=null,
-        Func<string?>? selectSteamCmd=null)
+        Func<string?>? selectSteamCmd=null,
+        Func<CancellationToken,Task<string>>? prepareOfficialSteamCmd=null)
     {
         cluster=owner??throw new ArgumentNullException(nameof(owner));
         pickSteamCmd=selectSteamCmd??PickSteamCmd;
+        prepareSteamCmd=prepareOfficialSteamCmd??PrepareOfficialSteamCmdAsync;
         planner=plan??(map=>SteamUpdateDryRun.Plan(
             cluster.Config.SteamCmdExecutable,map.InstallationPath,
             cluster.Config.LocalMaps.ToArray(),
@@ -65,6 +68,15 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         publishedBuild=inspectPublished??((map,token)=>
             AsaSteamBuildCatalog.CheckAsync(cluster.Config.SteamCmdExecutable,
                 map.InstallationPath,"public",TimeSpan.FromSeconds(90),token));
+    }
+    private static Task<string> PrepareOfficialSteamCmdAsync(CancellationToken ct)
+    {
+        // Same managed tool path and bounded Valve HTTPS / validated ZIP
+        // implementation as the fresh-install wizard, without app_update.
+        string target=Path.Combine(Environment.GetFolderPath(
+            Environment.SpecialFolder.LocalApplicationData),
+            "UntamedManager","Tools","SteamCMD","steamcmd.exe");
+        return SteamFreshInstall.PrepareSteamCmdAsync(target,true,cancellationToken:ct);
     }
     private static string? PickSteamCmd()
     {
@@ -163,12 +175,12 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
             string? method=field.GetString();
             if(method is not ("steam.stoppedDiagnostics" or "steam.stoppedPreview" or
                 "steam.stoppedApply" or "steam.stoppedStatus" or "steam.stoppedCurrent" or
-                "steam.publishedBuild" or "steam.selectExecutable"))
+                "steam.publishedBuild" or "steam.selectExecutable" or "steam.prepareExecutable"))
                 return Fail(id,"UM-METHOD-DENIED");
             await mutex.WaitAsync();
             try
             {
-                if(method=="steam.selectExecutable")
+                if(method is "steam.selectExecutable" or "steam.prepareExecutable")
                 {
                     if(job!=null)
                     {
@@ -177,7 +189,22 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     }
                     if(HasBlockedJournal())return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
                     // The renderer supplies no execute path; the operator selects an existing local file.
-                    string? selected=pickSteamCmd();
+                    string? selected;
+                    if(method=="steam.prepareExecutable")
+                    {
+                        // Existing valid settings remain unchanged. Otherwise
+                        // prepare only the Manager-owned SteamCMD tool; never
+                        // download or execute an ASA app_update.
+                        if(SteamCmdError(cluster.Config.SteamCmdExecutable)==null)
+                            selected=cluster.Config.SteamCmdExecutable;
+                        else
+                        {
+                            using var deadline=new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                            try{selected=await prepareSteamCmd(deadline.Token);}
+                            catch(Exception){return Fail(id,"UM-STEAMCMD-PREPARE-FAILED");}
+                        }
+                    }
+                    else selected=pickSteamCmd();
                     if(selected==null)return Ok(id,new{cancelled=true,configured=false,updateStarted=false,serverStopped=false});
                     string? problem=SteamCmdError(selected);
                     if(problem!=null)return Fail(id,problem);

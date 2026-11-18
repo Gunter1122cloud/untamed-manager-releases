@@ -6,6 +6,7 @@ import {ScheduledStoppedSteamSettings} from "./ScheduledStoppedSteamSettings";
 const steamReason=(code?:string|null)=>code==="UM-STEAMCMD-NOT-CONFIGURED"?"Nincs SteamCMD beállítva. Válaszd ki a steamcmd.exe fájlt.":
   code==="UM-STEAMCMD-NOT-FOUND"?"A beállított steamcmd.exe nem található.":
   code==="UM-STEAMCMD-INVALID"?"Érvénytelen vagy nem olvasható helyi SteamCMD-programútvonal.":
+  code==="UM-STEAMCMD-PREPARE-FAILED"?"A hivatalos SteamCMD előkészítése sikertelen. Ellenőrizd a kapcsolatot és a helyi Tools könyvtárat, vagy válassz meglevő steamcmd.exe fájlt.":
   code==="UM-STEAM-ASA-BINARY-INVALID"?"A kiválasztott map ASA szerverbinárisa nem igazolható.":null;
 
 export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapId?:string}) {
@@ -146,12 +147,12 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
 
   const blocked=busy||!!jobId||otherMapUpdating||reconnecting||reconnectFailed||
     Boolean(journal?.needsOperatorReview);
-  const selectSteam=async()=>{
+  const selectSteam=async(prepare=false)=>{
     if(!mapId||blocked)return;
     const requested=mapId,epoch=mapEpoch.current;
     setBusy(true);setError("");setSteamNotice("");
     try{
-      const result=await managerBridge.steamSelectExecutable();
+      const result=await (prepare?managerBridge.steamPrepareExecutable():managerBridge.steamSelectExecutable());
       if(!belongs(requested,epoch))return;
       if(result.updateStarted!==false||result.serverStopped!==false||(!result.cancelled&&!result.configured))
         throw new Error("UM-STEAMCMD-SETTINGS-RECEIPT-INVALID");
@@ -235,7 +236,11 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
     <header className="premium-panel-heading">
       <h2><HardDrive size={19}/> Valódi SteamCMD-frissítés – leállított mapok</h2>
     </header>
-    <button type="button" className="secondary" disabled={!mapId||blocked} onClick={()=>{void selectSteam();}}>SteamCMD program kiválasztása</button>
+    <div className="map-overview-actions">
+      <button type="button" className="secondary" disabled={!mapId||blocked} onClick={()=>{void selectSteam(true);}}>SteamCMD előkészítése (Valve)</button>
+      <button type="button" className="secondary" disabled={!mapId||blocked} onClick={()=>{void selectSteam();}}>SteamCMD program kiválasztása</button>
+    </div>
+    <p className="muted small">Csak a helyi SteamCMD eszközt készíti elő, nem telepít és nem frissít ASA mapot.</p>
     {steamNotice&&<p role="status" className="success-inline">{steamNotice}</p>}
     {reconnecting&&<p role="status" className="muted small">Korábbi kézi SteamCMD-feladat ellenőrzése…</p>}
     {otherMapUpdating&&<p role="status" className="warning-inline">

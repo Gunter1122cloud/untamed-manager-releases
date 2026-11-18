@@ -600,7 +600,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         using var doc=JsonDocument.Parse(raw);
         var result=doc.RootElement;
         if(!result.GetProperty("ok").GetBoolean())
-            throw new InvalidOperationException("UM-ASA-SCHEDULE-ENGINE-REJECTED");
+            throw new InvalidOperationException(result.TryGetProperty("error",out var error)&&error.ValueKind==JsonValueKind.String?
+                NativeLifecycleFailureCode.From(new InvalidOperationException(error.GetString())):"UM-ASA-SCHEDULE-ENGINE-REJECTED");
         return result.GetProperty("data").Clone();
     }
     private static string Message(string method,object fields)
@@ -641,7 +642,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         {
             await Task.Delay(TimeSpan.FromSeconds(2),ct);
             var result=Decode(await handle(Message(prefix+"Status",new{jobId=id})));
-            if(result.GetProperty("jobId").GetGuid()!=id)
+            if(result.GetProperty("jobId").GetGuid()!=id||result.GetProperty("mapId").GetGuid()!=job.MapId)
                 throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-JOB-MISMATCH");
             string? state=result.GetProperty("state").GetString();
             if(state is "needsOperator" or "notDispatched" or "reviewed")
@@ -865,7 +866,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     status="interrupted-needs-operator";
                     throw;
                 }
-                catch(Exception) {status="failed-needs-operator-no-retry";}
+                catch(Exception ex) {status="failed-needs-operator-no-retry";evidence=NativeLifecycleFailureCode.From(ex);}
                 finally
                 {
                     try
