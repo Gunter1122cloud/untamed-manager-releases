@@ -1806,7 +1806,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   peerAction?:"upsert"|"remove";
   mapId?: string; useApi?:boolean; term?: string; page?: number; credential?: string;
-  categories?:string[];warningsOnly?:boolean;eosId?:string;reviewHours?:number;
+  categories?:string[];warningsOnly?:boolean;eosId?:string;reviewHours?:number;reason?:string;
   offset?:number;limit?:number;snapshotKey?:string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode | ModCopyMode;
   position?: number; sourceMapId?:string;targets?:string[]; expectedPeerHostId?:string;
