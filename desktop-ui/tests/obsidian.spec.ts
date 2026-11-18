@@ -472,6 +472,12 @@ test.beforeEach(async ({ page }) => {
     const historicalRconToken="00000000-0000-4000-8000-000000001699";
     const historicalStartToken="00000000-0000-4000-8000-000000001698";
     let historicalActiveStarted=false;
+    let historicalStartApplyCount=0;
+    let historicalStartReplyLost=false;
+    (window as typeof window & {__UNTAMED_HIST_START_APPLY_COUNT__?:()=>number})
+      .__UNTAMED_HIST_START_APPLY_COUNT__=()=>historicalStartApplyCount;
+    (window as typeof window & {__UNTAMED_HIST_START_REPLY_LOST__?:()=>void})
+      .__UNTAMED_HIST_START_REPLY_LOST__=()=>{historicalStartReplyLost=true;};
     let historicalPeerDoneInvalid=false;
     let failOneHistoricalStartStatus=false;
     (window as typeof window & {
@@ -481,6 +487,12 @@ test.beforeEach(async ({ page }) => {
     };
     let historicalApiEnabled=false;
     let historicalApiPreviewRequested:boolean|null=null;
+    let historicalModeApplyCount=0;
+    let historicalModeReplyLost=false;
+    (window as typeof window & {__UNTAMED_HIST_MODE_APPLY_COUNT__?:()=>number})
+      .__UNTAMED_HIST_MODE_APPLY_COUNT__=()=>historicalModeApplyCount;
+    (window as typeof window & {__UNTAMED_HIST_MODE_REPLY_LOST__?:()=>void})
+      .__UNTAMED_HIST_MODE_REPLY_LOST__=()=>{historicalModeReplyLost=true;};
     const historicalApiToken="00000000-0000-4000-8000-000000009914";
     (window as typeof window & {__UNTAMED_ORIGINAL_PEER_DONE_INVALID__?:()=>void})
       .__UNTAMED_ORIGINAL_PEER_DONE_INVALID__=()=>{
@@ -566,6 +578,12 @@ test.beforeEach(async ({ page }) => {
     let originalSaveReattached=false;
     let originalSaveHold=false;
     let originalSaveEvidenceTampered=false;
+    let originalSaveMetadataOnly=false;
+    let originalSaveNoRconDispatch=false;
+    (window as typeof window & {__UNTAMED_SAVE_NO_DISPATCH__?:()=>void})
+      .__UNTAMED_SAVE_NO_DISPATCH__=()=>{originalSaveNoRconDispatch=true;};
+    (window as typeof window & {__UNTAMED_SAVE_METADATA_ONLY__?:()=>void})
+      .__UNTAMED_SAVE_METADATA_ONLY__=()=>{originalSaveMetadataOnly=true;};
     let originalSaveUnreadable=false;
     (window as typeof window & {
       __UNTAMED_SAVE_UNREADABLE_RECEIPT__?:()=>void;
@@ -579,6 +597,13 @@ test.beforeEach(async ({ page }) => {
     let originalSaveRecoveryFixture=false;
     let originalSaveRecoveryRunning=false;
     let originalSaveReviewed=false;
+    // Synthetic second Manager updates a receipt after this UI has mounted.
+    let lateReceiptRevision=false,lateReceiptRace=false,lateReceiptReads=0;
+    const lateReplacementId="00000000-0000-4000-8000-000000009989";
+    (window as typeof window & {__UNTAMED_SAVE_LATE_REPLACED__?:()=>void})
+      .__UNTAMED_SAVE_LATE_REPLACED__=()=>{lateReceiptRevision=true;};
+    (window as typeof window & {__UNTAMED_SAVE_LATE_RACING__?:()=>void})
+      .__UNTAMED_SAVE_LATE_RACING__=()=>{lateReceiptRace=true;lateReceiptReads=0;};
     (window as typeof window & {__UNTAMED_SAVE_REVIEW_FIXTURE__?:()=>void})
       .__UNTAMED_SAVE_REVIEW_FIXTURE__=()=>{
         originalSaveRecoveryFixture=true;
@@ -1384,6 +1409,8 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-STORE-LOADER-MODE-APPROVAL");
           historicalApiEnabled=historicalApiPreviewRequested;
           historicalApiPreviewRequested=null;
+          historicalModeApplyCount++;
+          if(historicalModeReplyLost)throw new Error("UM-SYNTHETIC-MODE-REPLY-LOST");
           return {mapId:two,mapName:"Astraeos",useApi:historicalApiEnabled,
             mode:historicalApiEnabled?"asaApiLoader":"directAsa",
             serverStarted:false,originalStoreTouched:false,
@@ -1397,6 +1424,8 @@ test.beforeEach(async ({ page }) => {
           return {
             token:historicalStartToken,mapId:two,mapName:"Astraeos",
             gamePort:7847,queryPort:27025,rconPort:37145,
+            launchMode:historicalApiEnabled?"asaApiLoader":"directAsa",
+            apiCacheState:"UM-API-CACHE-NO-LOCAL-KEY",apiCacheRuntimeCertified:false,
             originalTwoPeersVerified:false,originalPeerCheckRequiredForLocalStart:false,
             conversionAllowed:false,automaticRetryAllowed:false,
             serverStarted:false,readyCertified:false,
@@ -1406,18 +1435,25 @@ test.beforeEach(async ({ page }) => {
         }
         case "historical.activeStartApply": {
           if(!historicalRconAttached||historicalActiveStarted||
-             m.token!==historicalStartToken||m.confirm!==true||
-             m.typedApproval!=="STORE-V1 ACTIVE START")
+             m.token!==historicalStartToken)
             throw new Error("Original Store approval denied");
           historicalActiveStarted=true;
+          historicalStartApplyCount++;
           state.local.maps[1].running=true;state.local.maps[1].status="Fut";
+          if(historicalStartReplyLost)throw new Error("UM-SYNTHETIC-START-REPLY-LOST");
           return {
             mapId:two,mapName:"Astraeos",pid:42101,
             createdUtc:"2026-11-07T14:00:00Z",startRequested:true,
+            launchMode:historicalApiEnabled?"asaApiLoader":"directAsa",
+            processRole:historicalApiEnabled?"loaderParent":"asaServer",
+            loaderPid:historicalApiEnabled?42101:null,
+            serverPid:historicalApiEnabled?null:42101,
             readyCertified:false,originalStoreMetadataChanged:false,
             conversionPerformed:false,gameClientRejoinVerified:false,
             automaticRetryAllowed:false,
-            evidence:"ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED"
+            evidence:historicalApiEnabled?
+              "ORIGINAL_STORE_V1_LOADER_PARENT_SPAWNED_CHILD_UNVERIFIED":
+              "ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED"
           };
         }
         case "historical.adminPreview": {
@@ -1527,8 +1563,7 @@ test.beforeEach(async ({ page }) => {
             evidence:"ORIGINAL_STORE_V1_RESTART_TWO_STAGE_PREFLIGHT"};
         }
         case "historical.restartApply": {
-          if(m.token!==originalRestartToken||m.confirm!==true||
-             m.typedApproval!=="STORE-V1 SAVEWORLD DOEXIT START"||
+          if(m.token!==originalRestartToken||
              !originalRestartApproved||originalRestartQueued)
             throw new Error("Original Store Restart approval mismatch");
           originalRestartQueued=true;
@@ -1575,7 +1610,8 @@ test.beforeEach(async ({ page }) => {
             (originalSaveRecoveryFixture&&!originalSaveReviewed),
           requiresOperator:originalSaveUnreadable||oldStopNeedsOperator||
             (originalSaveRecoveryFixture&&!originalSaveReviewed),
-          saveEvidencePhase:originalSaveUnreadable?"unreadable":"none",
+          saveEvidencePhase:originalSaveUnreadable?"unreadable":
+            originalSaveNoRconDispatch?"notDispatched":"none",
           saveEvidenceUnreadable:originalSaveUnreadable,
           saveEvidenceErrorCode:originalSaveUnreadable?
             "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
@@ -1605,12 +1641,12 @@ test.beforeEach(async ({ page }) => {
         case "historical.saveWorldApply": {
           if(originalSaveLeaseBusy)
             throw new Error("UM-ORIGINAL-STOP-INSTALLATION-BUSY");
-          if(m.token!==originalSaveToken||m.confirm!==true||
-             m.typedApproval!=="STORE-V1 SAVEWORLD"||originalSaveQueued||
+          if(m.token!==originalSaveToken||originalSaveQueued||
              !originalSavePending||!historicalActiveStarted||oldStopNeedsOperator)
             throw new Error("Original Store SaveWorld approval denied");
           originalSavePending=false;
-          originalSaveQueued=true;originalSaveDispatches++;
+          originalSaveQueued=true;
+          if(!originalSaveNoRconDispatch)originalSaveDispatches++;
           return {jobId:originalSaveJob,started:true,
             automaticRetry:false,forceKill:false,storeTouched:false,
             evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_ONLY_JOB_QUEUED"};
@@ -1621,23 +1657,55 @@ test.beforeEach(async ({ page }) => {
           const complete=originalSaveQueued&&!(originalSaveReattached&&originalSaveHold);
           return {
             mapId:originalSaveWrongEvidenceMap?one:two,
-            phase:originalSaveUnreadable?"unreadable":originalSaveRecoveryFixture?
+            phase:originalSaveUnreadable?"unreadable":originalSaveNoRconDispatch?
+              "notDispatched":originalSaveRecoveryFixture?
               (originalSaveReviewed?"reviewed":"needsOperator"):
-              originalSaveQueued?(complete?"completed":"prepared"):"none",
+              originalSaveQueued?(complete?
+                originalSaveMetadataOnly?"metadataObserved":"completed":"prepared"):"none",
             unreadable:originalSaveUnreadable,
             errorCode:originalSaveUnreadable?
               "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
             operationId:originalSaveUnreadable?null:
-              originalSaveRecoveryFixture?originalSaveJob:
+              originalSaveRecoveryFixture?(lateReceiptRace?
+                (++lateReceiptReads%2===0?lateReplacementId:originalSaveJob):
+                (lateReceiptRevision?lateReplacementId:originalSaveJob)):
               originalSaveQueued?originalSaveJob:null,
+            beganUtc:"2026-11-08T18:33:00Z",
             pid:originalSaveQueued?42101:null,
             pidStartedUtc:originalSaveQueued?"2026-11-08T18:00:00Z":null,
-            saveObservedUtc:complete?"2026-11-08T18:35:00Z":null,
-            localSaveCompleteObserved:complete&&!originalSaveUnreadable,
+            saveObservedUtc:complete&&!originalSaveNoRconDispatch?
+              "2026-11-08T18:35:00Z":null,
+            localSaveCompleteObserved:complete&&!originalSaveNoRconDispatch&&
+              !originalSaveUnreadable&&
+              !originalSaveMetadataOnly,
+            localWorldMetadataObserved:complete&&!originalSaveNoRconDispatch&&
+              !originalSaveUnreadable&&
+              originalSaveMetadataOnly,
             bothHostsSaveCompleteCertified:false,sharedStoreWriterCertified:false,
             gameClientRejoinVerified:false,productionRestoreAllowed:false,
             fsyncCertified:false,sourceStateCertifiedForCurrentWriter:false,
-            evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM"
+            evidence:originalSaveMetadataOnly?
+              "MANAGER_LOCAL_WORLD_METADATA_ONLY_NO_SHARED_STORE_QUORUM":
+              "MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM"
+          };
+        }
+        case "historical.saveWorldLateEvidence": {
+          if(m.mapId!==two||!originalSaveRecoveryFixture)
+            throw new Error("UM-ASA-SAVE-LATE-RECEIPT-MISSING");
+          return {
+            mapId:two,
+            // N-format/uppercase must match the native D-format GUID.
+            operationId:(lateReceiptRevision?lateReplacementId:originalSaveJob)
+              .replaceAll("-","").toUpperCase(),
+            receiptPhase:"needsOperator",
+            receiptBeganUtc:"2026-11-08T18:33:00Z",
+            stage:"WORLD_METADATA_LATER_CAUSALITY_UNKNOWN",
+            worldFilePresent:true,worldMetadataNewerThanAttempt:true,
+            worldBytes:60833792,worldWriteUtc:"2026-11-17T16:27:02.914628Z",
+            asaLogPresent:true,asaLogNewerThanAttempt:false,
+            completionCertified:false,rconSent:false,grantsOperation:false,
+            oldSaveWorldRetried:false,
+            evidence:"ORIGINAL_ASA_LATE_METADATA_READ_ONLY_NO_CAUSAL_SAVE_PROOF"
           };
         }
         case "historical.saveWorldReviewPreview": {
@@ -1650,15 +1718,14 @@ test.beforeEach(async ({ page }) => {
             runningOwned:originalSaveRecoveryRunning,
             previousOutcomeStillUnknown:true,pairedRestartReview:false,
             preservesOriginalReceipt:true,originalStoreFilesWritten:false,automaticRetry:false,
-            requiresTypedApproval:true,
+            requiresTypedApproval:false,
             evidence:originalSaveRecoveryRunning?
               "OPERATOR_REVIEW_RUNNING_OWNED_ASA_SAVE_UNKNOWN":
               "OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"};
         }
         case "historical.saveWorldReviewApply": {
           if(!originalSaveRecoveryFixture||originalSaveReviewed||
-             m.token!=="00000000-0000-4000-8000-000000001694"||
-             !m.confirm||m.confirmation!=="REVIEW STORE SAVE")
+             m.token!=="00000000-0000-4000-8000-000000001694")
             throw new Error("Store Save review approval required");
           originalSaveReviewed=true;
           return {mapId:two,phase:"reviewed",reviewed:true,
@@ -1678,11 +1745,12 @@ test.beforeEach(async ({ page }) => {
           return {
             jobId:originalSaveWrongStatusJob?"00000000-0000-4000-8000-000000001695":originalSaveJob,
             kind:"SaveWorldOnly",
-            state:held?"running":"completed",
+            state:held?"running":originalSaveNoRconDispatch?"notDispatched":"completed",
             step:held?"Natív mentési művelet megfigyelése":
+              originalSaveNoRconDispatch?"SaveWorld NEM lett kiküldve":
               "Store-v1 SaveWorld igazolva; az ASA tovább fut",
             changedUtc:"2026-11-08T18:35:00Z",
-            confirmedStopped:false,preExitSaveLogAndWorldObserved:!held,
+            confirmedStopped:false,preExitSaveLogAndWorldObserved:!held&&!originalSaveMetadataOnly,
             finalDoExitSaveCertified:false,gameClientRejoinVerified:false,
             automaticRetry:false,forceKill:false,storeTouched:false,
             evidence:"ORIGINAL_STORE_V1_SAVEWORLD_ONLY_NO_DOEXIT_STATE"};
@@ -1702,8 +1770,7 @@ test.beforeEach(async ({ page }) => {
           };
         }
         case "historical.gracefulStopApply": {
-          if(m.token!==originalStopToken||m.confirm!==true||
-             m.typedApproval!=="STORE-V1 SAVEWORLD DOEXIT"||originalStopQueued||
+          if(m.token!==originalStopToken||originalStopQueued||
              !historicalActiveStarted)
             throw new Error("Original Store Stop approval invalid");
           originalStopQueued=true;
@@ -3121,9 +3188,8 @@ test.beforeEach(async ({ page }) => {
             evidence:"EXACT_LOCAL_ASA_PID_OS_IDENTITY_RCON_KILL_PREFLIGHT"};
         }
         case "servers.ownedKillApply": {
-          if(!m.confirm||m.typedApproval!=="KILL LOCAL ASA"||
-             m.token!=="00000000-0000-4000-8000-000000009222")
-            throw new Error("UM-KILL-TYPED-APPROVAL-REQUIRED");
+          if(m.token!=="00000000-0000-4000-8000-000000009222")
+            throw new Error("UM-KILL-ACTION-TOKEN-INVALID");
           state.local.maps[0].running=false;
           state.local.maps[0].status="Leállítva";
           return {mapId:one,pid:44117,confirmedStopped:true,
@@ -4603,7 +4669,7 @@ test("adopting an observed live map opens actual lifecycle UI without navigating
   await takeover.getByRole("button",{name:"Vezérlés átvétele – natív ellenőrzéssel"}).click();
   await expect(page.getByRole("region",{name:"Megfigyelési map adatlapja"})).toHaveCount(0);
   await expect(page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"})).toBeVisible();
-  await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeEnabled();
+  await expect(page.getByRole("button",{name:"Szerver szabályos leállítása"})).toBeEnabled();
   await expect(page.getByRole("region",{name:"Valódi ASA normál újraindítása"})).toBeVisible();
 });
 
@@ -5273,19 +5339,10 @@ test("P0 every local map has a real per-map ASA API checkbox in Plugin Center",a
   await expect(option).toBeEnabled();
   await expect(option).not.toBeChecked();
   await option.click();
-  const review=group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"});
-  await expect(option).not.toBeChecked();
-  await expect(review).toContainText("Astraeos");
-  await review.getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(option).toBeChecked();
+  await expect(group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})).toHaveCount(0);
   await expect(group).toContainText("AsaApiLoader.exe");
   await option.click();
-  await group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
-    .getByRole("button",{name:"Mégse"}).click();
-  await expect(option).toBeChecked();
-  await option.click();
-  await group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
-    .getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(option).not.toBeChecked();
 });
 
@@ -5303,10 +5360,9 @@ test("P0 historical and new Store maps use existing native Loader selection, nev
   const option=group.getByRole("checkbox",{name:"Indítás ASA API-val"});
   await expect(option).toBeEnabled();
   await option.click();
-  await expect(option).not.toBeChecked();
-  await group.getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(option).toBeChecked();
-  await expect(group).toContainText("Nem indult szerver");
+  await expect(group.getByRole("button",{name:"Indítási mód jóváhagyása"})).toHaveCount(0);
+  await expect(group).toContainText(/nem indult szerver/i);
 });
 
 test("P0 original Store-v1 ASA API switch is usable before RCON attachment",async({page})=>{
@@ -5324,10 +5380,8 @@ test("P0 original Store-v1 ASA API switch is usable before RCON attachment",asyn
   await expect(checkbox).toBeVisible();
   await expect(checkbox).toBeEnabled();
   await checkbox.click();
-  await expect(checkbox).not.toBeChecked();
-  await panel.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
-    .getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(checkbox).toBeChecked();
+  await expect(panel.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})).toHaveCount(0);
   await expect(panel).toContainText("AsaApiLoader.exe");
 });
 
@@ -5345,9 +5399,8 @@ test("P0 new Store ASA API checkbox uses original native Store loader approval",
   const option=group.getByRole("checkbox",{name:"Indítás ASA API-val"});
   await expect(option).toBeEnabled();
   await option.click();
-  await group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
-    .getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(option).toBeChecked();
+  await expect(group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})).toHaveCount(0);
   await expect(group).toContainText("AsaApiLoader.exe");
 });
 
@@ -5600,14 +5653,14 @@ test("RCON settings use the selected local map port and never retain another map
   await expect(page.getByRole("textbox",{name:"RCON beállítás jelszó"})).toHaveValue("");
 });
 
-test("map detail maintenance setting persists with approval and blocks running maps",async({page})=>{
+test("one-click map maintenance persists with no extra approval and blocks running maps",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Map karbantartási beállítása"});
   await expect(panel.getByText("Kikapcsolva")).toBeVisible();
   const enable=panel.getByRole("button",{name:"Karbantartási mód bekapcsolása"});
-  await expect(enable).toBeDisabled();
-  await panel.getByRole("checkbox",{name:/Jóváhagyom ennek az egy helyi mapnak/}).check();
+  await expect(enable).toBeEnabled();
+  await expect(panel.getByRole("checkbox")).toHaveCount(0);
   await enable.click();
   await expect(panel.getByText("Bekapcsolva",{exact:true})).toBeVisible();
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
@@ -5872,17 +5925,41 @@ test("original Store mode can be selected before RCON without unlocking actual A
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
   await expect(panel).toBeVisible();
-  const start=panel.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
+  const start=panel.getByRole("button",{name:/Eredeti Store-v1 (ASA|API Loader) indítása/});
   await expect(start).toBeDisabled();
   const mode=panel.getByRole("button",{name:"ASA API Loader mód választása"});
   await expect(mode).toBeEnabled();
   await mode.click();
-  const consent=panel.getByRole("region",{name:"Eredeti Store-v1 indítási mód módosítása"});
-  await expect(consent).toBeVisible();
-  await consent.getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
+  await expect(panel.getByRole("region",{name:"Eredeti Store-v1 indítási mód módosítása"}))
+    .toHaveCount(0);
   await expect(panel).toContainText("Az ASA API Loader indítási mód mentve");
+  const modeCount=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HIST_MODE_APPLY_COUNT__?:()=>number
+  }).__UNTAMED_HIST_MODE_APPLY_COUNT__?.());
+  expect(modeCount).toBe(1);
   await expect(start).toBeDisabled();
   await expect(panel).toContainText("Előbb add meg az eredeti RCON-t");
+});
+
+test("historical API mode unknown Apply reply blocks a second mode action",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HIST_MODE_REPLY_LOST__?:()=>void
+  }).__UNTAMED_HIST_MODE_REPLY_LOST__?.());
+  await panel.getByRole("button",{name:"ASA API Loader mód választása"}).click();
+  await expect(panel.getByRole("alert")).toContainText("módváltás kimenetele nem igazolható");
+  await expect(panel.getByRole("button",{name:/ASA API Loader mód választása|Közvetlen ASA mód választása/})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:/Eredeti Store-v1 (ASA|API Loader) indítása/})).toBeDisabled();
+  const count=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HIST_MODE_APPLY_COUNT__?:()=>number
+  }).__UNTAMED_HIST_MODE_APPLY_COUNT__?.());
+  expect(count).toBe(1);
 });
 
 test("2966 invalid DONE peer error is visible without starting any ASA process",async({page})=>{
@@ -5893,7 +5970,7 @@ test("2966 invalid DONE peer error is visible without starting any ASA process",
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const historic=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
-  const preflight=historic.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
+  const preflight=historic.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
   await expect(preflight).toBeEnabled();
   await preflight.click();
   await expect(historic.getByRole("alert")).toContainText("UM-STORE-LIVE-PEER-DONE-INVALID");
@@ -5912,7 +5989,7 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const historic=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
   await expect(historic).toBeVisible();
-  await expect(historic.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"})).toBeDisabled();
+  await expect(historic.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"})).toBeDisabled();
   await expect(page.getByRole("button",{name:"Friss ASA indítása"})).toHaveCount(0);
   await page.getByRole("button",{name:"Meglévő RCON csatlakoztatása"}).click();
   const rcon=page.getByRole("region",{name:"Történeti Store-v1 RCON csatlakoztatás"});
@@ -5926,24 +6003,22 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   await page.getByRole("tab",{name:"Áttekintés"}).click();
   // Profile change refreshes map detail; the native Start probe re-queries
   // original manager profile, two peers and exact ASA process state.
-  const preflight=historic.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
-  await expect(preflight).toBeEnabled();
-  await preflight.click();
-  const approval=historic.getByRole("region",{name:"Eredeti Store-v1 ASA indítás jóváhagyása"});
-  await expect(approval).toBeVisible();
-  await expect(approval).toContainText("a másik host régi ACTIVE/DONE jelölője nélkül");
-  await expect(approval).not.toContainText("Mindkét eredeti Store peer ACTIVE/DONE állapota igazolt");
-  const spawn=approval.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
-  await expect(approval.locator('input[id="historical-start-phrase"]')).toHaveCount(0);
-  await expect(spawn).toBeEnabled();
-  await spawn.click();
+  const start=historic.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
+  await expect(start).toBeEnabled();
+  await start.click();
+  await expect(historic.getByRole("region",{name:"Eredeti Store-v1 ASA indítás jóváhagyása"}))
+    .toHaveCount(0);
+  const dispatchCount=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HIST_START_APPLY_COUNT__?:()=>number
+  }).__UNTAMED_HIST_START_APPLY_COUNT__?.());
+  expect(dispatchCount).toBe(1);
   await expect(historic.getByText(/valódi Windows ASA PID: 42101/)).toBeVisible();
   await expect(historic.getByText(/Indítás utáni Store-v1 ASA\/RCON ellenőrzés/)).toBeVisible();
   await expect(historic.getByText(/RCON-vezérlése elérhető és hitelesítve/))
     .toBeVisible({timeout:15000});
   await expect(historic.getByText(/Indítás utáni Store-v1 ASA\/RCON ellenőrzés/)).toHaveCount(0);
   await expect(historic.getByText(/Nincs automatikus Start\/Restart/)).toBeVisible();
-  await expect(spawn).toHaveCount(0);
+  await expect(start).toBeDisabled();
 });
 
 test("Store-v1 Start native success is not reported as a failed Start after read-only status failure",async({page})=>{
@@ -5954,18 +6029,38 @@ test("Store-v1 Start native success is not reported as a failed Start after read
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
-  const check=panel.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
-  await expect(check).toBeEnabled();
-  await check.click();
-  const approval=panel.getByRole("region",{name:"Eredeti Store-v1 ASA indítás jóváhagyása"});
-
+  const start=panel.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
+  await expect(start).toBeEnabled();
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?:()=>void
   }).__UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?.());
-  await approval.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"}).click();
+  await start.click();
   await expect(panel).toContainText("valódi Windows ASA PID: 42101");
   await expect(panel).toContainText("ASA indítási visszaigazolása megvan");
   await expect(panel).not.toContainText("Az indítás eredménye nem igazolható");
+});
+
+test("historical Store Start lost Apply reply blocks retry even after read-only refresh",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_API_MODE_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_API_MODE_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HIST_START_REPLY_LOST__?:()=>void
+  }).__UNTAMED_HIST_START_REPLY_LOST__?.());
+  const start=panel.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
+  await start.click();
+  await expect(panel.getByRole("alert")).toContainText("már elindulhatott");
+  await expect(start).toBeDisabled();
+  await panel.getByRole("button",{name:"API/Loader állapot frissítése (csak olvasás)"}).click();
+  await expect(start).toBeDisabled();
+  const count=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HIST_START_APPLY_COUNT__?:()=>number
+  }).__UNTAMED_HIST_START_APPLY_COUNT__?.());
+  expect(count).toBe(1);
 });
 
 test("new empty Store-map uses existing cluster membership, one-shot approval and distinct non-korábbi kezelőalkalmazás UI",async({page})=>{
@@ -6028,13 +6123,11 @@ test("new Store API Loader mode needs separate approval and permits direct opt-o
   const mode=page.getByRole("region",{name:"Új Store-map ASA API indítási módja"});
   await expect(mode).toBeVisible();
   await expect(mode).toContainText("Közvetlen ArkAscendedServer");
+  await expect(mode.getByRole("region",{name:"Új Store-map ASA API módváltási előnézete"})).toHaveCount(0);
   await mode.getByRole("button",{name:"ASA API Loader választása"}).click();
-  await expect(mode.getByRole("region",{name:"Új Store-map ASA API módváltási előnézete"})).toContainText("Nem történik");
-  await mode.getByRole("button",{name:"Módváltás jóváhagyása"}).click();
   await expect(mode).toContainText("ASA API Loader indítási mód mentve");
   await expect(mode).toContainText("UM-API-CACHE-NO-LOCAL-KEY");
   await mode.getByRole("button",{name:"Váltás közvetlen ASA indításra"}).click();
-  await mode.getByRole("button",{name:"Módváltás jóváhagyása"}).click();
   await expect(mode).toContainText("Közvetlen ASA indítási mód mentve");
   await expect(mode).toContainText("Közvetlen ArkAscendedServer");
   await expect(page.getByRole("button",{name:/Eredeti Store-v1 API Loader indítása/})).toHaveCount(0);
@@ -6210,7 +6303,7 @@ test("Store-v1 SaveWorld refuses a native preview bound to another map",async({p
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
-  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
+  await panel.getByRole("button",{name:"SaveWorld mentés indítása"}).click();
   await expect(panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"})).toHaveCount(0);
   await expect(panel).toContainText("kiválasztott Store-v1 map PID/RCON-ja");
   expect(await page.evaluate(()=>(window as typeof window & {
@@ -6230,9 +6323,8 @@ test("Store-v1 SaveWorld rejects another job's completed status without declarin
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
-  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
-  const preview=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
-  await preview.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
+  await panel.getByRole("button",{name:"SaveWorld mentés indítása"}).click();
+
   await expect(panel).toContainText("státusza vagy feladatazonossága nem igazolható");
   await expect(panel).not.toContainText("Helyi SaveComplete napló tartósan igazolt");
   expect(await page.evaluate(()=>(window as typeof window & {
@@ -6254,7 +6346,7 @@ test("Store-v1 SaveWorld rejects another map's durable evidence without sending 
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Tartós napló nem ellenőrizhető");
-  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number
   }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
@@ -6269,22 +6361,15 @@ test("original Store-v1 SaveWorld-only runs the real native map action without s
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await expect(panel).toBeVisible();
-  const inspect=panel.getByRole("button",{name:"Mentés előellenőrzése"});
-  await expect(inspect).toBeEnabled();
-  await inspect.click();
-  const approve=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
-  await expect(approve).toContainText("PID 42101");
-  await expect(approve).toContainText("RCON 37145");
-  await expect(approve).toContainText("nem szükséges a távoli korábbi kezelőalkalmazás peer-jelölő");
-  const save=approve.getByRole("button",{name:"SaveWorld végrehajtása"});
-  await expect(approve.getByRole("textbox",{name:"Store-v1 mentés jóváhagyó szöveg"})).toHaveCount(0);
+  const save=panel.getByRole("button",{name:"SaveWorld mentés indítása"});
   await expect(save).toBeEnabled();
+  await expect(panel).toContainText("Nem Stop, DoExit, Store-konverzió vagy restore");
   await save.click();
   await expect(panel.getByText(/A szerver tovább fut; fsync és játékbeli karakterutazás/)).toBeVisible();
   await expect(panel).toContainText("ASA tovább fut");
   await expect(page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"})).toBeVisible();
   await expect(page.getByRole("heading",{name:"Astraeos",exact:true})).toBeVisible();
-  await expect(save).toHaveCount(0);
+  await expect(save).toBeDisabled();
 });
 
 test("Store SaveComplete UI distinguishes durable local log evidence from live cross-host writer certification",async({page})=>{
@@ -6298,13 +6383,71 @@ test("Store SaveComplete UI distinguishes durable local log evidence from live c
   const evidence=panel.getByTestId("store-durable-save-evidence");
   await expect(evidence).toContainText("Nincs igazolt helyi SaveComplete napló");
   await expect(evidence).toContainText("Production restore továbbra is tiltott");
-  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
-  const approval=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
-  await approval.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
+  await panel.getByRole("button",{name:"SaveWorld mentés indítása"}).click();
+
   await expect(evidence).toContainText("Korábbi helyi ASA naplójelzés + stabil világfájl rögzítve");
   await expect(panel).toContainText("Helyi SaveComplete napló tartósan igazolt");
   await expect(evidence).not.toContainText("Két gép SaveComplete igazolva");
   await expect(evidence).toContainText("nem igazolja a jelenlegi Store-írójogot");
+});
+
+test("pre-dispatch SaveWorld rejection is recoverable without sending RCON",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_NO_DISPATCH__?:()=>void;
+  }).__UNTAMED_SAVE_NO_DISPATCH__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await panel.getByRole("button",{name:"SaveWorld mentés indítása"}).click();
+  await expect(panel).toContainText("SaveWorld NEM ment ki");
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("SaveWorld nem lett kiküldve");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
+  await panel.getByRole("button",{
+    name:"Store-v1 mentési napló újraellenőrzése"
+  }).click();
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
+    .toBeEnabled();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
+});
+
+test("SaveWorld stable .ark without ASA log reports restricted evidence and no replay",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_METADATA_ONLY__?:()=>void;
+  }).__UNTAMED_SAVE_METADATA_ONLY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await panel.getByRole("button",{name:"SaveWorld mentés indítása"}).click();
+  await expect(panel).toContainText("Korlátozott helyi bizonyíték");
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Saját .ark frissült és stabil; ASA SaveComplete NEM igazolt");
+  await expect(panel).not.toContainText("Helyi SaveComplete napló tartósan igazolt");
+  await expect(panel).toContainText("Production restore továbbra is tiltott");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(1);
+  await panel.getByRole("button",{
+    name:"Store-v1 mentési napló újraellenőrzése"
+  }).click();
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
+    .toBeEnabled();
+  // Read-only refresh must never re-send the old SaveWorld.
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(1);
 });
 
 test("Store-v1 SaveWorld explains competing installation lease and sends no RCON",async({page})=>{
@@ -6318,19 +6461,18 @@ test("Store-v1 SaveWorld explains competing installation lease and sends no RCON
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
-  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
-  const approval=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
-  await approval.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
+  await panel.getByRole("button",{name:"SaveWorld mentés indítása"}).click();
+
   await expect(panel).toContainText("Másik natív művelet már zárolja");
   await expect(panel).toContainText("nem küldtünk RCON-parancsot");
-  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"}))
-    .toHaveCount(0);
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
+    .toBeDisabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
   }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
 });
 
-test("completed Store-v1 SaveWorld permits a fresh separately approved preview after durable read-only refresh",async({page})=>{
+test("completed Store-v1 SaveWorld permits a new one-click action after read-only refresh",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
@@ -6338,9 +6480,8 @@ test("completed Store-v1 SaveWorld permits a fresh separately approved preview a
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
-  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
-  const first=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
-  await first.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
+  await panel.getByRole("button",{name:"SaveWorld mentés indítása"}).click();
+
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Korábbi helyi ASA naplójelzés + stabil világfájl rögzítve");
   const refresh=panel.getByRole("button",{
@@ -6348,12 +6489,9 @@ test("completed Store-v1 SaveWorld permits a fresh separately approved preview a
   });
   await expect(refresh).toBeEnabled();
   await refresh.click();
-  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
     .toBeEnabled();
-  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
-  await expect(panel.getByRole("region",{
-    name:"Store-v1 SaveWorld jóváhagyása"
-  })).toBeVisible();
+  // Read-only refresh never starts a second native SaveWorld by itself.
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
   }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(1);
@@ -6373,8 +6511,8 @@ test("corrupt native SaveComplete receipt fails closed without a SaveWorld butto
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Tartós napló nem ellenőrizhető");
-  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
-  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"})).toHaveCount(0);
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
 });
 
 test("Store-v1 SaveWorld reattaches to exactly the original native job without redispatch after React remount",async({page})=>{
@@ -6391,9 +6529,9 @@ test("Store-v1 SaveWorld reattaches to exactly the original native job without r
   const stop=page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"});
   await expect(save.getByText(/visszacsatlakozva; nincs új RCON-küldés/)).toBeVisible();
   await expect(stop.getByText(/Másik Store-v1 művelet fut/)).toBeVisible();
-  await expect(stop.getByRole("button",{name:"Eredeti SaveWorld\/DoExit előellenőrzése"}))
+  await expect(stop.getByRole("button",{name:"SaveWorld + szabályos DoExit indítása"}))
     .toBeDisabled();
-  await expect(save.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
+  await expect(save.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
   const dispatches=await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
   }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.());
@@ -6420,20 +6558,61 @@ test("Store-v1 interrupted SaveWorld can be explicitly reviewed when stopped wit
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Függőben / bizonytalan");
-  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
-  await panel.getByRole("button",{name:"Korábbi SaveWorld operátori ellenőrzése"}).click();
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
+  await panel.getByRole("button",{name:"Napló rendezése (korábbi SaveWorld, RCON nélkül)"}).click();
   const review=panel.getByRole("region",{name:"Korábbi Store-v1 mentés felülvizsgálata"});
-  const accept=review.getByRole("button",{name:"Korábbi mentési napló felülvizsgálatának jóváhagyása"});
-  await expect(review.getByRole("textbox",{
-    name:"Store-v1 mentés felülvizsgálati megerősítése"
-  })).toHaveCount(0);
-  await expect(accept).toBeEnabled();
-  await accept.click();
   await expect(panel).toContainText("A korábbi SaveWorld kimenetele továbbra is ISMERETLEN");
   await expect(panel).toContainText("nem küldtünk új parancsot.");
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Operátori felülvizsgálat megtörtént");
-  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"})).toHaveCount(0);
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
+});
+
+test("late SaveWorld evidence rebinds a replaced receipt in one UI instance, no RCON",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_REVIEW_RUNNING_FIXTURE__?:()=>void;
+  }).__UNTAMED_SAVE_REVIEW_RUNNING_FIXTURE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Függőben / bizonytalan");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_LATE_REPLACED__?:()=>void;
+  }).__UNTAMED_SAVE_LATE_REPLACED__?.());
+  await panel.getByRole("button",{
+    name:"Késői mentésnyomok ellenőrzése (RCON nélkül)"
+  }).click();
+  await expect(panel).toContainText("Fájlbizonyíték: WORLD_METADATA_LATER_CAUSALITY_UNKNOWN");
+  await expect(panel).toContainText("60833792 bájt");
+  await expect(panel).not.toContainText("NONCAUSAL-RECEIPT");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
+});
+
+test("late SaveWorld evidence rejects a racing second Manager receipt and never redispatches",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_REVIEW_RUNNING_FIXTURE__?:()=>void;
+  }).__UNTAMED_SAVE_REVIEW_RUNNING_FIXTURE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Függőben / bizonytalan");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_LATE_RACING__?:()=>void;
+  }).__UNTAMED_SAVE_LATE_RACING__?.());
+  await panel.getByRole("button",{
+    name:"Késői mentésnyomok ellenőrzése (RCON nélkül)"
+  }).click();
+  await expect(panel).toContainText("UM-ASA-SAVE-LATE-RECEIPT-CHANGED");
+  await expect(panel).not.toContainText("Fájlbizonyíték:");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
 });
 
 test("P0 running Store-v1 SaveWorld: owner-pinned unknown receipt can be reviewed without new RCON or Stop",async({page})=>{
@@ -6446,14 +6625,10 @@ test("P0 running Store-v1 SaveWorld: owner-pinned unknown receipt can be reviewe
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await expect(panel.getByTestId("store-durable-save-evidence"))
     .toContainText("Függőben / bizonytalan");
-  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
     .toBeDisabled();
-  await panel.getByRole("button",{name:"Korábbi SaveWorld operátori ellenőrzése"})
-    .click();
-  const review=panel.getByRole("region",{name:"Korábbi Store-v1 mentés felülvizsgálata"});
-  await expect(review).toContainText("A régi saját ASA PID és RCON-tulajdon igazolt");
-  await review.getByRole("button",{
-    name:"Korábbi mentési napló felülvizsgálatának jóváhagyása"
+  await panel.getByRole("button",{
+    name:"Napló rendezése (korábbi SaveWorld, RCON nélkül)"
   }).click();
   await expect(panel).toContainText(
     "A korábbi SaveWorld kimenetele továbbra is ISMERETLEN");
@@ -6462,8 +6637,10 @@ test("P0 running Store-v1 SaveWorld: owner-pinned unknown receipt can be reviewe
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
   }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
-  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"}))
-    .toHaveCount(0);
+  // Operator reviewed the unknown previous SaveWorld, but did not send a new
+  // command. A new, separately clicked native preflight is now available.
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
+    .toBeEnabled();
 });
 
 test("unreadable original Store SaveWorld is visible on Save and Restart without any RCON retry",async({page})=>{
@@ -6482,16 +6659,16 @@ test("unreadable original Store SaveWorld is visible on Save and Restart without
   const stopPanel=page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"});
   await expect(stopPanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
   await expect(stopPanel.getByRole("button",{
-    name:"Eredeti SaveWorld/DoExit előellenőrzése"
+    name:"SaveWorld + szabályos DoExit indítása"
   })).toBeDisabled();
   await expect(savePanel.getByTestId("store-durable-save-evidence"))
     .toContainText("Tartós napló nem ellenőrizhető");
   await expect(savePanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
-  await expect(savePanel.getByRole("button",{name:"Mentés előellenőrzése"}))
+  await expect(savePanel.getByRole("button",{name:"SaveWorld mentés indítása"}))
     .toBeDisabled();
   await expect(restartPanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
   await expect(restartPanel.getByRole("button",{
-    name:"Store-v1 újraindítás előellenőrzése"
+    name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"
   })).toBeDisabled();
   await restartPanel.getByRole("button",{name:"Store-v1 napló újraellenőrzése"}).click();
   await expect(restartPanel).toContainText("UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE");
@@ -6503,17 +6680,17 @@ test("unreadable original Store SaveWorld is visible on Save and Restart without
   }).click();
   await expect(savePanel.getByTestId("store-durable-save-evidence"))
     .toContainText("Nincs igazolt helyi SaveComplete napló");
-  await expect(savePanel.getByRole("button",{name:"Mentés előellenőrzése"}))
+  await expect(savePanel.getByRole("button",{name:"SaveWorld mentés indítása"}))
     .toBeEnabled();
   await restartPanel.getByRole("button",{name:"Store-v1 napló újraellenőrzése"}).click();
   await expect(restartPanel.getByRole("button",{
-    name:"Store-v1 újraindítás előellenőrzése"
+    name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"
   })).toBeEnabled();
   await stopPanel.getByRole("button",{
     name:"Store-v1 leállítási napló újraellenőrzése"
   }).click();
   await expect(stopPanel.getByRole("button",{
-    name:"Eredeti SaveWorld/DoExit előellenőrzése"
+    name:"SaveWorld + szabályos DoExit indítása"
   })).toBeEnabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
@@ -6536,11 +6713,11 @@ test("original Store-v1 SaveWorld-only refuses unresolved durable journal withou
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   await expect(panel.getByText(/Befejezetlen Store-v1 műveleti napló/)).toBeVisible();
-  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
-  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"})).toHaveCount(0);
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"})).toBeDisabled();
 });
 
-test("original Store-v1 manual Restart requires exact two-stage approval and displays new PID without claiming gameplay readiness",async({page})=>{
+test("historical Store-v1 one-click Restart retains PID and game-readiness boundaries",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
@@ -6548,15 +6725,13 @@ test("original Store-v1 manual Restart requires exact two-stage approval and dis
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"});
-  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"}))
     .toBeEnabled();
-  await panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}).click();
-  const approval=panel.getByRole("region",{name:"Store-v1 újraindítás jóváhagyása"});
-  await expect(approval).toContainText("régi PID 42101");
-  const apply=approval.getByRole("button",{name:"Store-v1 Restart végrehajtása"});
-  await expect(approval.getByRole("textbox",{name:"Store-v1 újraindítás jóváhagyó szöveg"})).toHaveCount(0);
-  await expect(apply).toBeEnabled();
-  await apply.click();
+  const restart=panel.getByRole("button",{
+    name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"
+  });
+  await expect(restart).toBeEnabled();
+  await restart.click();
   await expect(panel.getByText(/Új eredeti ASA PID: 42102/)).toBeVisible();
   await expect(panel.getByText(/Régi PID 42101 → új PID 42102/)).toBeVisible();
   await expect(panel).toContainText("játékbeli csatlakozás és karakterutazás");
@@ -6564,7 +6739,7 @@ test("original Store-v1 manual Restart requires exact two-stage approval and dis
     __UNTAMED_RESTART_SENDS__?:()=>number
   }).__UNTAMED_RESTART_SENDS__?.());
   expect(sent).toBe(1);
-  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"}))
     .toBeDisabled();
 });
 
@@ -6580,13 +6755,13 @@ test("historical Store-v1 Restart explains unfinished SaveWorld receipt and perm
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"});
   await expect(panel.getByText(/Függő Store-v1 SaveWorld-bizonylat/)).toBeVisible();
-  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"}))
     .toBeDisabled();
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_RESTART_CLEAR_PENDING_SAVE__?:()=>void;
   }).__UNTAMED_RESTART_CLEAR_PENDING_SAVE__?.());
   await panel.getByRole("button",{name:"Store-v1 napló újraellenőrzése"}).click();
-  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"}))
     .toBeEnabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_RESTART_SENDS__?:()=>number;
@@ -6604,18 +6779,16 @@ test("original Store-v1 Restart fails closed after synthetic Stop-to-Start crash
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"});
-  await panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}).click();
-  const approval=panel.getByRole("region",{name:"Store-v1 újraindítás jóváhagyása"});
-  await approval.getByRole("button",{name:"Store-v1 Restart végrehajtása"}).click();
+  await panel.getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"}).click();
   await expect(panel.getByText(/A Store-v1 Restart megszakadt/)).toBeVisible();
-  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"}))
     .toBeDisabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_RESTART_SENDS__?:()=>number
   }).__UNTAMED_RESTART_SENDS__?.())).toBe(1);
 });
 
-test("original Store-v1 real SaveWorld then DoExit requires exact typed approval, shows durable result and no Kill",async({page})=>{
+test("historical Store-v1 one-click SaveWorld and DoExit shows durable result without Kill",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
@@ -6624,16 +6797,13 @@ test("original Store-v1 real SaveWorld then DoExit requires exact typed approval
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const panel=page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"});
   await expect(panel).toBeVisible();
-  await panel.getByRole("button",{name:"Eredeti SaveWorld/DoExit előellenőrzése"}).click();
-  const approval=panel.getByRole("region",{name:"Eredeti Store-v1 leállítás jóváhagyása"});
-  await expect(approval).toBeVisible();
-  const apply=approval.getByRole("button",{name:"SaveWorld és szabályos DoExit"});
-  await expect(approval.getByRole("textbox",{name:"Pontos jóváhagyó szöveg"})).toHaveCount(0);
-  await expect(apply).toBeEnabled();
-  await apply.click();
+  const stop=panel.getByRole("button",{name:"SaveWorld + szabályos DoExit indítása"});
+  await expect(stop).toBeEnabled();
+  await stop.click();
+  await expect(stop).toBeDisabled();
   await expect(panel.getByText(/A régi ASA-folyamat szabályosan kilépett/)).toBeVisible();
   await expect(panel.getByText(/mentésjelzés megfigyelve/)).toBeVisible();
-  await expect(panel.getByRole("button",{name:"Eredeti SaveWorld/DoExit előellenőrzése"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:"SaveWorld + szabályos DoExit indítása"})).toBeDisabled();
   await expect(panel.getByRole("button",{name:/Kill|Erőltetett|Újraindítás/})).toHaveCount(0);
 });
 
@@ -6652,10 +6822,10 @@ test("old original Store Stop NEEDS_OPERATOR journal survives UI remount and dis
   await expect(journal).toBeVisible();
   await expect(journal.getByText(/Korábbi műveleti napló/)).toBeVisible();
   await expect(journal.getByText(/Kézi ellenőrzés szükséges/)).toBeVisible();
-  await expect(panel.getByRole("button",{name:"Eredeti SaveWorld/DoExit előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"SaveWorld + szabályos DoExit indítása"}))
     .toBeDisabled();
-  await expect(panel.getByRole("button",{name:"SaveWorld és szabályos DoExit"}))
-    .toHaveCount(0);
+  await expect(panel.getByRole("button",{name:"SaveWorld + szabályos DoExit indítása"}))
+    .toBeDisabled();
 });
 
 test("real admin RCON UI requires two-stage approval and exact typed phrase for destructive actions",async({page})=>{
@@ -6788,7 +6958,7 @@ test("CurseForge official Galaxy browses categories, projects, versions, and pre
   await page.screenshot({path:"test-results/curseforge-galaxy-1600.png",fullPage:true});
 });
 
-test("map header always shows four real lifecycle actions and Kill requires native typed approval",async({page})=>{
+test("map header has one-click map-bound lifecycle actions with Kill data-loss scope",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"The Island részletei"}).click();
   const bar=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
@@ -6797,16 +6967,9 @@ test("map header always shows four real lifecycle actions and Kill requires nati
   await expect(bar.getByRole("button",{name:"Indítás",exact:true})).toBeDisabled();
   await expect(bar.getByRole("button",{name:"Kill",exact:true})).toBeEnabled();
   await bar.getByRole("button",{name:"Kill",exact:true}).click();
-  const approval=bar.getByRole("region",{name:"Kill jóváhagyása"});
-  await expect(approval).toContainText("nem küld SaveWorld parancsot");
-  const apply=approval.getByRole("button",{name:"Művelet végrehajtása"});
-  await expect(apply).toBeDisabled();
-  await expect(approval.getByRole("textbox",{
-    name:"Életciklus művelet jóváhagyó szövege"
-  })).toHaveCount(0);
-  await approval.getByRole("checkbox").check();
-  await expect(apply).toBeEnabled();
-  await apply.click();
+  await expect(bar).toContainText("nem küld SaveWorldot");
+  await expect(bar.getByRole("region",{name:"Kill jóváhagyása"})).toHaveCount(0);
+  await expect(bar.getByRole("checkbox")).toHaveCount(0);
   await expect(bar).toContainText("bizonyított helyi ASA PID megszűnt");
   await expect(bar.getByRole("button",{name:"Indítás",exact:true})).toBeEnabled();
 });
@@ -6818,9 +6981,7 @@ test("ASA Stop job remains linked to the correct map across navigation without r
   await page.getByRole("button",{name:"The Island részletei"}).click();
   const bar=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
   await bar.getByRole("button",{name:"Leállítás",exact:true}).click();
-  const approval=bar.getByRole("region",{name:"Leállítás jóváhagyása"});
-  await approval.getByRole("checkbox").check();
-  await approval.getByRole("button",{name:"Művelet végrehajtása"}).click();
+
   await expect(bar).toContainText("folyamatban");
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").first().click();
@@ -6833,19 +6994,20 @@ test("ASA Stop job remains linked to the correct map across navigation without r
   await expect(resumed).toContainText("művelet befejeződött",{timeout:15000});
 });
 
-test("ASA Kill approval cannot carry over to another map",async({page})=>{
+test("single-click ASA Kill cannot affect another map or leave a pending approval",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"The Island részletei"}).click();
   const bar=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
   await bar.getByRole("button",{name:"Kill",exact:true}).click();
-  await expect(bar.getByRole("region",{name:"Kill jóváhagyása"})).toBeVisible();
+  await expect(bar).toContainText("bizonyított helyi ASA PID megszűnt");
+  await expect(bar.getByRole("region",{name:"Kill jóváhagyása"})).toHaveCount(0);
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await expect(page.getByRole("region",{name:"Kill jóváhagyása"})).toHaveCount(0);
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   await expect(page.getByRole("region",{name:"Kill jóváhagyása"})).toHaveCount(0);
-  await expect(page.getByRole("button",{name:"Kill",exact:true})).toBeEnabled();
+  await expect(page.getByRole("button",{name:"Kill",exact:true})).toBeDisabled();
 });
 test("original korábbi kezelőalkalmazás Store maps retain four buttons but disable destructive Kill",async({page})=>{
   await page.addInitScript(()=>{(window as any).__UNTAMED_PROTECT_TEST_MAP__?.();});
@@ -7187,7 +7349,10 @@ test("first setup follows one RCON bootstrap route and returns to native Start w
   await expect(page.getByRole("button",{name:"Vissza az ASA Start előnézethez"})).toBeVisible();
   await page.getByRole("button",{name:"Vissza az ASA Start előnézethez"}).click();
   await expect(page.getByRole("region",{name:"Valódi ASA első indítása"})).toBeVisible();
-  await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true})).toHaveCount(0);
+  // The one-click Start control exists after RCON bootstrap, but neither
+  // returning to its panel nor saving the RCON INI dispatched a Start.
+  await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true})).toHaveCount(1);
+  await expect(page.getByText(/ASA szerverfolyamat indítva, PID:/)).toHaveCount(0);
   await expect(page.getByRole("button",{name:"Első RCON beállítása"})).toHaveCount(0);
 });
 
@@ -7242,7 +7407,8 @@ test("RCON native commit receipt survives a failed subsequent status refresh wit
   expect(applyCount).toBe(1);
   await page.getByRole("button",{name:"Vissza az ASA Start előnézethez"}).click();
   await expect(page.getByRole("region",{name:"Valódi ASA első indítása"})).toBeVisible();
-  await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true})).toHaveCount(1);
+  await expect(page.getByText(/ASA szerverfolyamat indítva, PID:/)).toHaveCount(0);
 });
 
 test("original local Store-v1 five-map source proof is explicit and never enables launch",async({page})=>{
@@ -8161,14 +8327,14 @@ test("fresh ASA Start never accepts preview or spawned-process receipt for anoth
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   const startPanel=page.getByRole("region",{name:"Valódi ASA első indítása"});
-  await startPanel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
+  await startPanel.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(startPanel.getByRole("region",{
     name:"Valódi ASA indítás jóváhagyása"
   })).toHaveCount(0);
-  await expect(startPanel).toContainText("Indítás nem engedélyezett");
+  await expect(startPanel).toContainText("ASA Start előellenőrzés elutasítva");
   await expect(startPanel.getByRole("button",{
     name:"ASA szerver indítása",exact:true
-  })).toHaveCount(0);
+  })).toBeEnabled();
 });
 
 test("fresh ASA Start cannot present another map's PID as a successful launch",async({page})=>{
@@ -8176,15 +8342,13 @@ test("fresh ASA Start cannot present another map's PID as a successful launch",a
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   const panel=page.getByRole("region",{name:"Valódi ASA első indítása"});
-  await panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_FRESH_WRONG_RECEIPT_MAP__?:()=>void;
   }).__UNTAMED_FRESH_WRONG_RECEIPT_MAP__?.());
   await panel.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(panel).toContainText("UM-FRESH-START-RECEIPT-INVALID");
   await expect(panel).toContainText("A korábbi ASA Start kimenetele nem igazolt");
-  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   await expect(panel.locator(".success-inline").filter({hasText:"PID: 45678"}))
     .toHaveCount(0);
@@ -8217,8 +8381,7 @@ test("delayed native ASA Start preview cannot reopen approval after map navigati
       if(pending)original(pending);
     };
   });
-  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"}))
+  await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"}))
     .toHaveCount(0);
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
@@ -8229,22 +8392,19 @@ test("delayed native ASA Start preview cannot reopen approval after map navigati
   }).releaseFreshStartPreview?.());
   await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"}))
     .toHaveCount(0);
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeEnabled();
   await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true}))
-    .toHaveCount(0);
+    .toBeEnabled();
 });
 
-test("fresh ASA map starts a real local process only after explicit approval",async({page})=>{
+test("fresh ASA map starts a real local process with one-click native preflight",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await expect(page.getByRole("region",{name:"Valódi ASA első indítása"})).toBeVisible();
-  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toBeVisible();
+  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
   const start=page.getByRole("button",{name:"ASA szerver indítása",exact:true});
-  await expect(start).toBeDisabled();
-  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await expect(start).toBeEnabled();
   await start.click();
   // Surface the actual visible native-bridge error when a UI regression
@@ -8255,7 +8415,7 @@ test("fresh ASA map starts a real local process only after explicit approval",as
   // The native process receipt completes the mutating one-shot action.
   // A slow dashboard refresh must NOT block a read-only readiness query or
   // re-enable a second Start while that PID is still being observed.
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   const manualReadiness=page.getByRole("button",{
     name:"ASA / RCON készenlét ellenőrzése"
@@ -8277,16 +8437,12 @@ test("fresh ASA Loader start requires matching parent PID without asserting chil
   }).__UNTAMED_FRESH_USE_LOADER__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
-  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"}))
-    .toContainText("ASA API Loader szülőfolyamat");
-  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(page.getByText(/ASA API Loader szülőfolyamat indítva, PID: 45678/))
     .toBeVisible();
   await expect(page.getByText(/ASA gyermekfolyamat és RCON még nem igazolt/))
     .toBeVisible();
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
 });
 
@@ -8297,16 +8453,14 @@ test("fresh ASA Start rejects contradictory native process role and blocks blind
   }).__UNTAMED_FRESH_BAD_PROCESS_ROLE__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
-  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(page.getByText(/UM-FRESH-START-RECEIPT-INVALID/)).toBeVisible();
   await expect(page.getByText(/A korábbi ASA Start kimenetele nem igazolt/))
     .toBeVisible();
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   await page.getByRole("button",{name:"Állapotfrissítés"}).click();
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   await expect(page.locator(".success-inline").filter({hasText:"PID: 45678"}))
     .toHaveCount(0);
@@ -8324,13 +8478,11 @@ test("fresh ASA API Loader PID mismatch fails closed without claiming launched c
   });
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
-  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(page.getByText(/UM-FRESH-START-RECEIPT-INVALID/)).toBeVisible();
   await expect(page.getByText(/A korábbi ASA Start kimenetele nem igazolt/))
     .toBeVisible();
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   await expect(page.locator(".success-inline").filter({hasText:"PID: 45678"}))
     .toHaveCount(0);
@@ -8341,22 +8493,20 @@ test("confirmed fresh ASA Start stays pinned across map navigation until manual 
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   let panel=page.getByRole("region",{name:"Valódi ASA első indítása"});
-  await panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await panel.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(panel.getByText(/ASA szerverfolyamat indítva, PID: 45678/))
     .toBeVisible();
-  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   panel=page.getByRole("region",{name:"Valódi ASA első indítása"});
-  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   // Merely revisiting the same already-running process may not clear the
   // successful one-shot Start receipt.
   await panel.getByRole("button",{name:"Állapotfrissítés"}).click();
-  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeDisabled();
   // Only a deliberately requested, physical confirmedStopped recheck clears
   // the client guard. Native Start preflight still decides eligibility.
@@ -8364,7 +8514,7 @@ test("confirmed fresh ASA Start stays pinned across map navigation until manual 
     __UNTAMED_FRESH_SIMULATE_STOPPED__?:()=>void;
   }).__UNTAMED_FRESH_SIMULATE_STOPPED__?.());
   await panel.getByRole("button",{name:"Állapotfrissítés"}).click();
-  await expect(panel.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeEnabled();
 });
 
@@ -8372,8 +8522,6 @@ test("fresh ASA start automatically observes RCON without retrying a failed read
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
-  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(page.getByText(/Indítás utáni ASA\/RCON-készenlét ellenőrzése/))
     .toBeVisible();
@@ -8398,9 +8546,6 @@ test("changed ASA binary after preview surfaces exact reapproval without auto-st
   }).__UNTAMED_FRESH_START_CHANGED__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
-  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
-  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toBeVisible();
-  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
   await expect(page.getByText(/ASA EXE\/Loader bináris vagy az INI megváltozott/))
     .toBeVisible();
@@ -8417,11 +8562,9 @@ test("fresh Stop refuses a different job status without reporting server exit",a
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
-  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
   await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
   await expect(panel).toContainText("UM-ASA-STOP-STATUS-INVALID");
-  await expect(panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Szerver szabályos leállítása"}))
     .toBeDisabled();
   await expect(panel.locator(".success-inline").filter({hasText:"ASA-folyamat kilépett"}))
     .toHaveCount(0);
@@ -8435,8 +8578,6 @@ test("fresh Stop requires confirmed process exit before saying completed",async(
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
-  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
   await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
   await expect(panel).toContainText("UM-ASA-STOP-STATUS-INVALID");
   await expect(panel.locator(".success-inline").filter({hasText:"ASA-folyamat kilépett"}))
@@ -8451,12 +8592,10 @@ test("fresh Restart rejects a completed receipt from another native job",async({
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
-  await panel.getByRole("button",{name:"Újraindítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását/).click();
   await panel.getByRole("button",{name:"Szerver újraindítása"}).click();
   await expect(panel).toContainText("UM-ASA-RESTART-STATUS-INVALID");
   await expect(panel).not.toContainText("44117 → 44118");
-  await expect(panel.getByRole("button",{name:"Újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Szerver újraindítása"}))
     .toBeDisabled();
 });
 
@@ -8468,8 +8607,6 @@ test("fresh Restart cannot claim success without an observed new PID",async({pag
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
-  await panel.getByRole("button",{name:"Újraindítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását/).click();
   await panel.getByRole("button",{name:"Szerver újraindítása"}).click();
   await expect(panel).toContainText("UM-ASA-RESTART-STATUS-INVALID");
   await expect(panel.locator(".success-inline")).toHaveCount(0);
@@ -8487,13 +8624,11 @@ test("durable interrupted Stop survives native Manager memory loss and requires 
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   let panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
-  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
   await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
   await expect(panel.getByRole("region",{
     name:"Megszakadt Stop-napló felülvizsgálata"
   })).toBeVisible();
-  await expect(panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Szerver szabályos leállítása"}))
     .toBeDisabled();
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").first().click();
@@ -8503,7 +8638,7 @@ test("durable interrupted Stop survives native Manager memory loss and requires 
   await expect(review.getByRole("textbox",{name:/Jóváhagyó szöveg/})).toHaveCount(0);
   await review.getByRole("button",{name:"Igazoltan leállított Stop-napló felülvizsgálata"}).click();
   await expect(panel).toContainText("UM-ASA-STOP-REVIEW-UNVERIFIED");
-  await expect(panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Szerver szabályos leállítása"}))
     .toBeDisabled();
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_STOP_REVIEW_OS_STOPPED__?:()=>void;
@@ -8527,11 +8662,9 @@ test("fresh Stop NeedsOperator keeps the second Stop blocked, including after na
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
-  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
   await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
   await expect(panel).toContainText("UM-ASA-STOP-NEEDS-OPERATOR");
-  await expect(panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Szerver szabályos leállítása"}))
     .toBeDisabled();
   await expect(panel.locator(".success-inline")).toHaveCount(0);
   expect(await page.evaluate(()=>(window as typeof window & {
@@ -8541,25 +8674,22 @@ test("fresh Stop NeedsOperator keeps the second Stop blocked, including after na
   await page.locator(".premium-map-line.is-local").first().click();
   const reopened=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
   await expect(reopened).toContainText("UM-ASA-STOP-NEEDS-OPERATOR");
-  await expect(reopened.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+  await expect(reopened.getByRole("button",{name:"Szerver szabályos leállítása"}))
     .toBeDisabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number;
   }).__UNTAMED_LOCAL_STOP_APPLIES__?.())).toBe(1);
 });
 
-test("ASA normal Stop requires approval and never force-kills or claims SaveComplete",async({page})=>{
+test("one-click normal Stop never force-kills or claims SaveComplete",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   await expect(page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"})).toBeVisible();
-  await page.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
-  await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toBeVisible();
-  await expect(page.getByText(/SaveWorld → új, stabil \.ark megfigyelése \(SaveComplete naplósor, ha létezik\) → DoExit → PID-ellenőrzés/)).toBeVisible();
-  const confirm=page.getByRole("button",{name:"Szerver szabályos leállítása"});
-  await expect(confirm).toBeDisabled();
-  await page.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
-  await confirm.click();
+  const stop=page.getByRole("button",{name:"Szerver szabályos leállítása"});
+  await expect(stop).toBeEnabled();
+  await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toHaveCount(0);
+  await stop.click();
   await expect(page.locator(".success-inline").filter({hasText:"ASA-folyamat kilépett"})).toBeVisible({timeout:12000});
   await expect(page.locator(".success-inline").filter({hasText:"SaveWorld/DoExit lemezmentése nincs igazolva"})).toBeVisible();
   await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toHaveCount(0);
@@ -8573,15 +8703,13 @@ test("fresh Stop reattaches the exact in-memory job after map navigation without
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
-  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
   await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
   await expect(panel).toContainText("Leállítás: running");
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const resumed=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
   await expect(resumed).toContainText("Leállítás: running");
-  await expect(resumed.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeDisabled();
+  await expect(resumed.getByRole("button",{name:"Szerver szabályos leállítása"})).toBeDisabled();
   const before=await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number
   }).__UNTAMED_LOCAL_STOP_APPLIES__?.());
@@ -8607,7 +8735,7 @@ test("fresh Restart blocks unreviewed durable native journal despite a stale das
   const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
   await expect(panel.getByRole("region",{name:"Megszakadt helyi Restart rendezése"}))
     .toBeVisible();
-  await expect(panel.getByRole("button",{name:"Újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Szerver újraindítása"}))
     .toBeDisabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_LOCAL_RESTART_APPLIES__?:()=>number;
@@ -8623,7 +8751,7 @@ test("fresh Restart denies foreign map journal during native reconciliation",asy
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
   await expect(panel).toContainText("UM-ASA-RESTART-CURRENT-MAP-MISMATCH");
-  await expect(panel.getByRole("button",{name:"Újraindítás előellenőrzése"}))
+  await expect(panel.getByRole("button",{name:"Szerver újraindítása"}))
     .toBeDisabled();
   await expect(panel.getByRole("region",{name:"Megszakadt helyi Restart rendezése"}))
     .toHaveCount(0);
@@ -8637,15 +8765,13 @@ test("fresh Restart reattaches a running native job without restarting it twice"
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
-  await panel.getByRole("button",{name:"Újraindítás előellenőrzése"}).click();
-  await panel.getByText(/Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását/).click();
   await panel.getByRole("button",{name:"Szerver újraindítása"}).click();
   await expect(panel).toContainText("Újraindítás: running");
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   const resumed=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
   await expect(resumed).toContainText("Újraindítás: running");
-  await expect(resumed.getByRole("button",{name:"Újraindítás előellenőrzése"})).toBeDisabled();
+  await expect(resumed.getByRole("button",{name:"Szerver újraindítása"})).toBeDisabled();
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_RELEASE_LOCAL_RESTART__?:()=>void
   }).__UNTAMED_RELEASE_LOCAL_RESTART__?.());
@@ -8667,25 +8793,22 @@ test("interrupted lifecycle journal disables fresh ASA Start and Stop in map Ove
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   await expect(page.getByText(/Félbeszakadt helyi ASA-művelet/)).toBeVisible();
-  await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Szerver szabályos leállítása"})).toBeDisabled();
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await expect(page.getByText(/Félbeszakadt helyi ASA-művelet/)).toBeVisible();
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"})).toBeDisabled();
 });
 
-test("real ASA manual Restart waits for approval and reports old and new PIDs",async({page})=>{
+test("one-click normal Restart preserves old and new PID evidence",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   await expect(page.getByRole("region",{name:"Valódi ASA normál újraindítása"})).toBeVisible();
-  await page.getByRole("button",{name:"Újraindítás előellenőrzése"}).click();
-  await expect(page.getByRole("region",{name:"ASA újraindítás jóváhagyása"})).toBeVisible();
-  const start=page.getByRole("button",{name:"Szerver újraindítása",exact:true});
-  await expect(start).toBeDisabled();
-  await page.getByText(/Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását/).click();
-  await expect(start).toBeEnabled();
-  await start.click();
+  const restart=page.getByRole("button",{name:"Szerver újraindítása",exact:true});
+  await expect(restart).toBeEnabled();
+  await expect(page.getByRole("region",{name:"ASA újraindítás jóváhagyása"})).toHaveCount(0);
+  await restart.click();
   await expect(page.locator(".success-inline").filter({hasText:"44117 → 44118"}))
     .toBeVisible({timeout:12000});
   await expect(page.getByText(/nem végez kényszerített Kill-t/)).toBeVisible();
@@ -8700,8 +8823,8 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   await expect(page.getByText(/manuális ASA újraindítás megszakadt/)).toBeVisible();
-  await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeDisabled();
-  await expect(page.getByRole("button",{name:"Újraindítás előellenőrzése"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Szerver szabályos leállítása"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Szerver újraindítása"})).toBeDisabled();
   const recovery=page.getByRole("region",{name:"Megszakadt helyi Restart rendezése"});
   await expect(recovery).toBeVisible();
   await expect(recovery).toContainText("Régi PID: 44117");
@@ -8716,9 +8839,9 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   // The old PID may remain VISIBLE as historical audit metadata in the
   // journal details. What matters is that the blocker is cleared and a
   // brand-new independently approved Restart is enabled.
-  await expect(page.getByRole("button",{name:"Újraindítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"Szerver újraindítása"}))
     .toBeEnabled();
-  await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"Szerver szabályos leállítása"}))
     .toBeEnabled();
   const reviewCount=await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_FRESH_RESTART_REVIEWS__?:()=>number
@@ -8730,7 +8853,7 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   // A journal for the FIRST installation must never leave a DIFFERENT
   // independent local map disabled after native audit. Actual Start still
   // has its separate OS/INI/Store preflight on click.
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+  await expect(page.getByRole("button",{name:"ASA szerver indítása"}))
     .toBeEnabled();
 });
 

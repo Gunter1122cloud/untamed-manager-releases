@@ -143,10 +143,24 @@ internal static class HistoricalAsaApiModeTests
             new{mapId=restartable.Id,useApi=true});
         Check(modePreview.GetProperty("ok").GetBoolean(),
             "uncommitted Loader selection previews without mutating source");
-        var firstUnconfirmedStart=await Call(previewBridge,"historical.activeStartApply",
-            new{token=startToken,confirm=false,typedApproval="STORE-V1 ACTIVE START"});
-        Check(firstUnconfirmedStart.GetProperty("error").GetString()==
-              "UM-STORE-ACTIVE-EXPLICIT-APPROVAL",
+        // Start now runs in ONE click: calling Apply, even with confirm=false,
+        // would actually attempt to start ASA. Never use a mutating dispatch
+        // to inspect a preflight token. Inspect the test-only native pending
+        // map instead; this synthetic test MUST NOT launch a process.
+        var pendingField=typeof(DesktopHistoricalActiveStartBridge).GetField(
+            "startApprovalsByMap",System.Reflection.BindingFlags.NonPublic|
+            System.Reflection.BindingFlags.Instance)??throw new InvalidOperationException(
+            "Original Start ticket inventory not available for isolated regression");
+        bool HasExactPendingStart()
+        {
+            var tickets=pendingField.GetValue(previewBridge) as
+                System.Collections.IDictionary;
+            if(tickets==null||!tickets.Contains(restartable.Id))return false;
+            var ticket=tickets[restartable.Id];
+            return ticket?.GetType().GetProperty("Token")?.GetValue(ticket) is Guid t&&
+                t.ToString("D").Equals(startToken,StringComparison.OrdinalIgnoreCase);
+        }
+        Check(HasExactPendingStart(),
             "Loader mode preview did not revoke original Start approval");
         var modeToken=modePreview.GetProperty("data").GetProperty("token").GetString()!;
         // Refuse a stale mode transition after preview. The Start ticket
@@ -158,10 +172,7 @@ internal static class HistoricalAsaApiModeTests
               rejectedMode.GetProperty("error").GetString()==
                 "UM-STORE-LOADER-MODE-STATE-CHANGED",
             "stale Loader-mode approval is rejected before profile mutation");
-        var retainedStart=await Call(previewBridge,"historical.activeStartApply",
-            new{token=startToken,confirm=false,typedApproval="STORE-V1 ACTIVE START"});
-        Check(retainedStart.GetProperty("error").GetString()==
-                "UM-STORE-ACTIVE-EXPLICIT-APPROVAL",
+        Check(HasExactPendingStart(),
             "rejected Loader mode apply preserves unchanged approved Start ticket");
         allowModeCommit=true;
         var newMode=await Call(previewBridge,"historical.loaderModePreview",

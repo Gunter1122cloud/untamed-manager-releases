@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from "react";
-import {AlertTriangle,CheckCircle2,RefreshCw,RotateCcw,Shield} from "lucide-react";
-import {managerBridge,type FreshAsaRestartPreview,type FreshAsaRestartStatus,
+import {AlertTriangle,CheckCircle2,RotateCcw,Shield} from "lucide-react";
+import {managerBridge,type FreshAsaRestartStatus,
   type AsaRestartJournalStatus} from "./bridge";
 
 const latestRestart=new Map<string,string>();
@@ -9,9 +9,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
   mapId:string;running:boolean;journalBlocked:boolean;
   onRestarted:()=>Promise<void>
 }){
-  const [preview,setPreview]=useState<FreshAsaRestartPreview|null>(null);
   const [busy,setBusy]=useState(false);
-  const [approved,setApproved]=useState(false);
   const [jobId,setJobId]=useState<string|null>(null);
   const [status,setStatus]=useState<FreshAsaRestartStatus|null>(null);
   const [message,setMessage]=useState(()=>latestRestart.get(mapId)??"");
@@ -20,6 +18,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
   const [durable,setDurable]=useState<AsaRestartJournalStatus|null>(null);
   const [auditConfirmed,setAuditConfirmed]=useState(false);
   const reviewInFlight=useRef(false);
+  const mutationInFlight=useRef(false);
   const currentMap=useRef(mapId);
   currentMap.current=mapId;
   const mounted=useRef(false);
@@ -31,7 +30,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
   const belongs=(requested:string)=>mounted.current&&currentMap.current===requested;
   useEffect(()=>{
     ++actionRevision.current;
-    setPreview(null);setApproved(false);setError("");setBusy(false);
+    setError("");setBusy(false);
     setJobId(null);setStatus(null);
     setNeedsLocalReview(false);setDurable(null);setAuditConfirmed(false);
     setMessage(latestRestart.get(mapId)??"");
@@ -117,30 +116,24 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
   },[jobId,mapId,onRestarted]);
 
   const pendingJournalReview=durable?.needsOperatorReview===true&&!auditConfirmed;
-  const check=async()=>{
-    if(!mapId||!running||busy||jobId||journalBlocked||
+  const run=async()=>{
+    if(mutationInFlight.current||!mapId||!running||busy||jobId||journalBlocked||
        needsLocalReview||pendingJournalReview||reconciling||reconcileFailed)return;
+    mutationInFlight.current=true;
     const requested=mapId;
-    setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
+    setBusy(true);setError("");setMessage("");
+    let applyAttempted=false;
     try{
       const proof=await managerBridge.freshAsaRestartPreview(requested);
       if(!belongs(requested))return;
-      if(proof.mapId.toLowerCase()!==requested.toLowerCase())
-        throw new Error("UM-ASA-RESTART-PREVIEW-MAP-MISMATCH");
-      setPreview(proof);
-    }catch{
-      if(belongs(requested))setError("Az újraindítás előellenőrzése sikertelen. A helyi ASA PID/RCON, telepítés, INI vagy műveleti napló nem egyezik.");
-    }finally{if(belongs(requested))setBusy(false);}
-  };
-  const run=async()=>{
-    if(!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
-       !approved||busy||jobId||journalBlocked||needsLocalReview||
-       pendingJournalReview||reconciling||reconcileFailed)return;
-    const token=preview.token,requested=mapId;
-    ++actionRevision.current;
-    setBusy(true);setPreview(null);setApproved(false);setError("");
-    try{
-      const job=await managerBridge.freshAsaRestartApply(token);
+      if(proof.mapId.toLowerCase()!==requested.toLowerCase()||!proof.token||
+         !Number.isSafeInteger(proof.currentPid)||proof.currentPid<=0||
+         !proof.saveWorldBeforeExit||!proof.verifiesOldProcessExit||
+         proof.autoRetry||proof.killPerformed||proof.storeTouched)
+        throw new Error("UM-ASA-RESTART-PREVIEW-MAP-OR-SCOPE-MISMATCH");
+      ++actionRevision.current;
+      applyAttempted=true;
+      const job=await managerBridge.freshAsaRestartApply(proof.token);
       if(!belongs(requested))return;
       if(!job.started||typeof job.jobId!=="string"||
          !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(job.jobId)||
@@ -148,20 +141,26 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
          job.storeTouched!==false||job.evidence!=="REAL_LOCAL_ASA_RESTART_JOB_QUEUED")
         throw new Error("UM-ASA-RESTART-APPLY-RECEIPT-INVALID");
       setJobId(job.jobId);
-      setStatus({
-        jobId:job.jobId,state:"queued",stage:"preflight",
-        oldPid:preview.currentPid,newPid:0,changedUtc:new Date().toISOString(),
+      setStatus({jobId:job.jobId,state:"queued",stage:"preflight",
+        oldPid:proof.currentPid,newPid:0,changedUtc:new Date().toISOString(),
         saveCompleteProven:false,readinessCertified:false,
         preExitSaveEvidenceObserved:false,finalDoExitSaveCertified:false,
         gameClientRejoinVerified:false,
-        killPerformed:false,storeTouched:false,autoRetry:false
-      });
-    }catch{
+        killPerformed:false,storeTouched:false,autoRetry:false});
+    }catch(e){
       if(belongs(requested)){
-        setReconcileFailed(true);
-        setError("Az egyszeri Restart jóváhagyás eredménye nem igazolt; a natív Stop/Start már elindulhatott. Ne ismételd meg, ellenőrizd a műveletet.");
+        if(applyAttempted)setReconcileFailed(true);
+        setError(applyAttempted?
+          "UM-ASA-RESTART-APPLY-UNKNOWN: A Stop/Start már elindulhatott. "+
+            "Ne ismételd meg, ellenőrizd a natív műveleti naplót.":
+          "A kiválasztott map Restart előellenőrzése elutasítva ("+
+            (e instanceof Error?e.message:"UM-ASA-RESTART-PREFLIGHT-FAILED")+
+            "). Nem ment ki SaveWorld, DoExit vagy Start.");
       }
-    }finally{if(belongs(requested))setBusy(false);}
+    }finally{
+      mutationInFlight.current=false;
+      if(belongs(requested))setBusy(false);
+    }
   };
 
   // A stale Restart-v1 is recoverable only if its ORIGINAL ASA process is
@@ -233,9 +232,10 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
       <h2><RotateCcw size={19}/> ASA normál újraindítása</h2>
     </header>
     <p>A C# Manager a régi szerveren új, stabil .ark mentési bizonyítékot figyel, naplójelzéssel, ha az ASA naplózza. DoExit és a régi PID megszűnése után egyszer indítja el az új folyamatot. ASA API módban a Loader gyermekének és az RCON tulajdonosának ellenőrzése is szükséges. Csak saját, helyi normál vagy újonnan regisztrált Store-mapokhoz; a történeti korábbi Manager Store-mapok külön védett műveleteket használnak.</p>
-    <button type="button" className="secondary"
+    <p className="muted small">Kizárólag a kiválasztott map ({mapId}): SaveWorld → DoExit → régi PID megszűnésének natív igazolása → új indítás. Nincs Kill vagy automatikus ismétlés.</p>
+    <button type="button" className="primary"
       disabled={!running||busy||!!jobId||journalBlocked||needsLocalReview||pendingJournalReview||reconciling||reconcileFailed}
-      onClick={()=>{void check();}}><RefreshCw size={16}/> Újraindítás előellenőrzése</button>
+      onClick={()=>{void run();}}><RotateCcw size={16}/> Szerver újraindítása</button>
     {reconciling&&<p role="status">Korábbi Restart-feladat ellenőrzése…</p>}
     {reconcileFailed&&<button type="button" className="secondary"
       onClick={()=>setReconcileNonce(n=>n+1)}>Restart állapot újraellenőrzése</button>}
@@ -252,19 +252,6 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
       </button>
       <p className="muted small">Nincs régi parancs újraküldése, automatikus újraindítás
         vagy sikeresnek minősített korábbi Restart.</p>
-    </div>}
-    {preview&&<div className="historical-preview" role="region" aria-label="ASA újraindítás jóváhagyása">
-      <h3>{preview.mapName} – jelenlegi PID: {preview.currentPid}</h3>
-      <p>A rendszer mentési parancsot küld és szabályosan kilépteti a szervert. A folyamatkilépés nem független SaveComplete-bizonyíték.</p>
-      <label className="historical-approval">
-        <input type="checkbox" checked={approved}
-          onChange={e=>setApproved(e.target.checked)} disabled={busy}/>
-        Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását.
-      </label>
-      <button type="button" className="primary" disabled={!approved||busy||journalBlocked||needsLocalReview||pendingJournalReview||reconciling||reconcileFailed}
-        onClick={()=>{void run();}}>Szerver újraindítása</button>
-      <button type="button" className="secondary" disabled={busy}
-        onClick={()=>setPreview(null)}>Mégsem</button>
     </div>}
     {status&&<div className="warning-inline" role="status"><Shield size={17}/>
       <span>Újraindítás: {status.state} · {status.stage}</span>

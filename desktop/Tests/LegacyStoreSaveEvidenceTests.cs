@@ -112,6 +112,77 @@ internal static class LegacyStoreSaveEvidenceTests
             .Phase=="completed",
             "isolated journal fixture can explicitly restore verified prior bytes");
 
+        // An explicitly pre-dispatch rejected SaveWorld closes its prepared
+        // intent without inventing SaveComplete or blocking a new manually
+        // requested attempt. It must preserve the original receipt archive.
+        var notSentMap=Guid.NewGuid();
+        var notSentOperation=Guid.NewGuid();
+        LegacyStoreV1SaveEvidenceJournal.Begin(root,notSentOperation,
+            notSentMap,pid,started,sourceSha);
+        Check(Rejects(()=>LegacyStoreV1SaveEvidenceJournal.MarkNotDispatched(
+                root,Guid.NewGuid(),notSentMap,pid,started,sourceSha))&&
+              Rejects(()=>LegacyStoreV1SaveEvidenceJournal.MarkNotDispatched(
+                root,notSentOperation,notSentMap,pid+1,started,sourceSha)),
+            "no-dispatch cancellation cannot target another operation or PID");
+        var notSent=LegacyStoreV1SaveEvidenceJournal.MarkNotDispatched(
+            root,notSentOperation,notSentMap,pid,started,sourceSha);
+        Check(notSent.Phase=="notDispatched"&&
+              !notSent.LocalSaveCompleteObserved&&
+              !notSent.LocalWorldMetadataObserved&&
+              !notSent.ProductionRestoreAllowed,
+            "no-RCON cancellation never certifies a world save");
+        string notSentPath=Path.Combine(root,"historical-save-evidence-v1",
+            notSentMap.ToString("N")+".json");
+        byte[] beforeRetry=File.ReadAllBytes(notSentPath);
+        LegacyStoreV1SaveEvidenceJournal.Begin(root,Guid.NewGuid(),
+            notSentMap,pid,started,sourceSha);
+        string cancelledArchive=Path.Combine(root,"historical-save-evidence-v1",
+            "history",notSentMap.ToString("N")+"-"+
+            notSentOperation.ToString("N")+"-notDispatched.json");
+        Check(File.Exists(cancelledArchive)&&
+              File.ReadAllBytes(cancelledArchive).SequenceEqual(beforeRetry),
+            "explicit no-dispatch receipt remains archived before next separate attempt");
+
+        // A real ASA may update its .ark without the two exact optional
+        // log lines. Publish a weaker, separately sealed local metadata
+        // witness while keeping SaveComplete/fsync/restore explicitly false.
+        var metadataMap=Guid.NewGuid();
+        var metadataOperation=Guid.NewGuid();
+        LegacyStoreV1SaveEvidenceJournal.Begin(root,metadataOperation,
+            metadataMap,pid,started,sourceSha);
+        Check(Rejects(()=>LegacyStoreV1SaveEvidenceJournal.CompleteWorldMetadata(
+                root,metadataOperation,metadataMap,pid,started,sourceSha,
+                DateTimeOffset.UtcNow,false,false))&&
+              Rejects(()=>LegacyStoreV1SaveEvidenceJournal.CompleteWorldMetadata(
+                root,metadataOperation,metadataMap,pid,started,sourceSha,
+                DateTimeOffset.UtcNow,true,true)),
+            "restricted metadata receipt requires witness and refuses DoExit");
+        var limited=LegacyStoreV1SaveEvidenceJournal.CompleteWorldMetadata(
+            root,metadataOperation,metadataMap,pid,started,sourceSha,
+            DateTimeOffset.UtcNow,true,false);
+        Check(limited.Phase=="metadataObserved"&&
+              limited.LocalWorldMetadataObserved&&
+              !limited.LocalSaveCompleteObserved&&!limited.ProductionRestoreAllowed&&
+              !limited.BothHostsSaveCompleteCertified&&
+              !limited.SharedStoreWriterCertified,
+            "restricted file witness never certifies SaveComplete or Store writer");
+        string limitedFile=Path.Combine(root,"historical-save-evidence-v1",
+            metadataMap.ToString("N")+".json");
+        byte[] preservedLimited=File.ReadAllBytes(limitedFile);
+        Check(LegacyStoreV1SaveEvidenceJournal.Inspect(root,metadataMap)?
+            .LocalWorldMetadataObserved==true,
+            "restricted metadata witness is readable from its sealed journal");
+        var nextLimited=Guid.NewGuid();
+        LegacyStoreV1SaveEvidenceJournal.Begin(root,nextLimited,
+            metadataMap,pid,started,sourceSha);
+        string limitedArchive=Path.Combine(root,"historical-save-evidence-v1",
+            "history",metadataMap.ToString("N")+"-"+
+            metadataOperation.ToString("N")+"-metadataObserved.json");
+        Check(File.Exists(limitedArchive)&&
+              File.ReadAllBytes(limitedArchive).SequenceEqual(preservedLimited)&&
+              LegacyStoreV1SaveEvidenceJournal.Inspect(root,metadataMap)?.Phase=="prepared",
+            "another separately requested SaveWorld archives the restricted witness byte-identically");
+
         var next=Guid.NewGuid();
         LegacyStoreV1SaveEvidenceJournal.Begin(root,next,id,pid,started,sourceSha);
         string completedHistory=Path.Combine(root,"historical-save-evidence-v1",

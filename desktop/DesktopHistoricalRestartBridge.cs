@@ -293,12 +293,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                 if(approved==null||
                    DateTimeOffset.UtcNow-approved.Created>TimeSpan.FromMinutes(3))
                     return Fail(id,"UM-ORIGINAL-RESTART-TOKEN-EXPIRED");
-                if(!request.TryGetProperty("confirm",out var confirm)||
-                   confirm.ValueKind!=JsonValueKind.True||
-                   !request.TryGetProperty("typedApproval",out var phrase)||
-                   phrase.ValueKind!=JsonValueKind.String||
-                   phrase.GetString()!="STORE-V1 SAVEWORLD DOEXIT START")
-                    return Fail(id,"UM-ORIGINAL-RESTART-TYPED-APPROVAL");
+                // The exact Restart action and short-lived one-use native token
+                // replace typed confirmation; verify owner and lease below.
                 approvalsByMap.Remove(approved.MapId);
                 var original=Owned(approved.MapId);
                 if(original==null||!original.HistoricalStoreProtected||

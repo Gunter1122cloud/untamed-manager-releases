@@ -584,7 +584,7 @@ export type FreshAsaReadiness = {
 export type OwnedAsaKillPreview = {
   token:string;mapId:string;mapName:string;pid:number;
   saveWorldPerformed:false;processOnly:true;serverDataLossPossible:true;
-  originalStoreTouched:false;remoteHostTouched:false;requiresTypedApproval:true;
+  originalStoreTouched:false;remoteHostTouched:false;requiresTypedApproval:false;
   evidence:"EXACT_LOCAL_ASA_PID_OS_IDENTITY_RCON_KILL_PREFLIGHT";
 };
 export type OwnedAsaKillReceipt = {
@@ -1239,7 +1239,7 @@ export type HistoricalSaveWorldQueued={
   evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_ONLY_JOB_QUEUED";
 };
 export type HistoricalSaveEvidenceStatus={
-  mapId:string;phase:"none"|"prepared"|"completed"|"needsOperator"|"reviewed"|"unreadable";
+  mapId:string;phase:"none"|"prepared"|"completed"|"metadataObserved"|"notDispatched"|"needsOperator"|"reviewed"|"unreadable";
   diagnosis?:{
     state:"missing"|"interrupted"|"unsafe"|"inaccessible"|"corrupt"|"otherMap"|
       "ioUnavailable"|"valid";
@@ -1247,15 +1247,17 @@ export type HistoricalSaveEvidenceStatus={
     originalBytesPreserved:true;
   };
   unreadable?:boolean;errorCode?:string|null;
-  operationId:string|null;pid:number|null;pidStartedUtc:string|null;
+  operationId:string|null;beganUtc:string|null;pid:number|null;pidStartedUtc:string|null;
   saveObservedUtc:string|null;localSaveCompleteObserved:boolean;
+  localWorldMetadataObserved:boolean;
   bothHostsSaveCompleteCertified:false;sharedStoreWriterCertified:false;
   gameClientRejoinVerified:false;productionRestoreAllowed:false;
   fsyncCertified:false;sourceStateCertifiedForCurrentWriter:false;
-  evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM";
+  evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM"|
+    "MANAGER_LOCAL_WORLD_METADATA_ONLY_NO_SHARED_STORE_QUORUM";
 };
 export type HistoricalLateSaveEvidence={
-  mapId:string;operationId:string;stage:
+  mapId:string;operationId:string;receiptPhase:string;receiptBeganUtc:string;stage:
     "WORLD_METADATA_LATER_CAUSALITY_UNKNOWN"|
     "WORLD_NOT_NEWER_THAN_ORIGINAL_RECEIPT"|
     "WORLD_FILE_UNAVAILABLE";
@@ -1279,7 +1281,7 @@ export type HistoricalSaveReviewPreview={
   runningOwned:boolean;previousOutcomeStillUnknown:true;
   pairedRestartReview:boolean;
   preservesOriginalReceipt:true;originalStoreFilesWritten:false;
-  automaticRetry:false;requiresTypedApproval:true;
+  automaticRetry:false;requiresTypedApproval:false;
   evidence:"OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"|
     "OPERATOR_REVIEW_RUNNING_OWNED_ASA_SAVE_UNKNOWN";
 };
@@ -1304,7 +1306,7 @@ export type HistoricalGracefulStopRecovery = {
     "CancelledBeforeMutation"|"NeedsOperator"|"OperatorReviewed";
   operationKind:string;updatedUtc:string|null;
   blocked:boolean;requiresOperator:boolean;
-  saveEvidencePhase?:"none"|"prepared"|"completed"|"needsOperator"|"reviewed"|"unreadable";
+  saveEvidencePhase?:"none"|"prepared"|"completed"|"metadataObserved"|"notDispatched"|"needsOperator"|"reviewed"|"unreadable";
   saveEvidenceUnreadable?:boolean;saveEvidenceErrorCode?:string|null;
   inMemoryRunning:boolean;jobId:string|null;
   activeJobKind:"Stop"|"SaveWorldOnly"|null;
@@ -1313,7 +1315,7 @@ export type HistoricalGracefulStopRecovery = {
   evidence:"ORIGINAL_STORE_V1_DURABLE_LOCAL_OPERATION_RECOVERY_READ_ONLY";
 };
 export type HistoricalGracefulStopStatus = {
-  jobId:string;kind:"Stop"|"SaveWorldOnly";state:"queued"|"running"|"completed"|"needsOperator"|"reviewed";
+  jobId:string;kind:"Stop"|"SaveWorldOnly";state:"queued"|"running"|"completed"|"notDispatched"|"needsOperator"|"reviewed";
   step:string;changedUtc:string;confirmedStopped:boolean;
   preExitSaveLogAndWorldObserved:boolean;
   preExitWorldMetadataObserved?:boolean;
@@ -1974,10 +1976,8 @@ export const managerBridge = {
     }),
   ownedAsaKillPreview: (mapId:string) =>
     request<OwnedAsaKillPreview>("servers.ownedKillPreview",{mapId}),
-  ownedAsaKillApply: (token:string,typedApproval:string) =>
-    request<OwnedAsaKillReceipt>("servers.ownedKillApply",{
-      token,typedApproval,confirm:true
-    }),
+  ownedAsaKillApply: (token:string) =>
+    request<OwnedAsaKillReceipt>("servers.ownedKillApply",{token}),
   freshAsaStopPreview: (mapId:string) =>
     request<FreshAsaStopPreview>("servers.gracefulStopPreview",{mapId}),
   freshAsaStopApply: (token:string) =>
@@ -2308,28 +2308,22 @@ export const managerBridge = {
     request<HistoricalRestartRecovery>("historical.restartRecovery",{mapId}),
   historicalRestartPreview: (mapId:string) =>
     request<HistoricalRestartPreview>("historical.restartPreview",{mapId}),
-  historicalRestartApply: (token:string,typedApproval:string) =>
-    request<HistoricalRestartQueued>("historical.restartApply",{
-      token,typedApproval,confirm:true
-    }),
+  historicalRestartApply: (token:string) =>
+    request<HistoricalRestartQueued>("historical.restartApply",{token}),
   historicalRestartStatus: (jobId:string) =>
     request<HistoricalRestartStatus>("historical.restartStatus",{jobId}),
   historicalGracefulStopRecovery: (mapId:string) =>
     request<HistoricalGracefulStopRecovery>("historical.gracefulStopRecovery",{mapId}),
   historicalGracefulStopPreview: (mapId:string) =>
     request<HistoricalGracefulStopPreview>("historical.gracefulStopPreview",{mapId}),
-  historicalGracefulStopApply: (token:string,typedApproval:string) =>
-    request<HistoricalGracefulStopQueued>("historical.gracefulStopApply",{
-      token,typedApproval,confirm:true
-    }),
+  historicalGracefulStopApply: (token:string) =>
+    request<HistoricalGracefulStopQueued>("historical.gracefulStopApply",{token}),
   historicalGracefulStopStatus: (jobId:string) =>
     request<HistoricalGracefulStopStatus>("historical.gracefulStopStatus",{jobId}),
   historicalSaveWorldPreview: (mapId:string) =>
     request<HistoricalSaveWorldPreview>("historical.saveWorldPreview",{mapId}),
-  historicalSaveWorldApply: (token:string,typedApproval:string) =>
-    request<HistoricalSaveWorldQueued>("historical.saveWorldApply",{
-      token,typedApproval,confirm:true
-    }),
+  historicalSaveWorldApply: (token:string) =>
+    request<HistoricalSaveWorldQueued>("historical.saveWorldApply",{token}),
   historicalSaveWorldStatus: (jobId:string) =>
     request<HistoricalGracefulStopStatus>("historical.saveWorldStatus",{jobId}),
   historicalSaveWorldEvidence: (mapId:string) =>
@@ -2342,10 +2336,8 @@ export const managerBridge = {
     request<HistoricalLateSaveEvidence>("historical.saveWorldLateEvidence",{mapId}),
   historicalSaveWorldReviewPreview: (mapId:string) =>
     request<HistoricalSaveReviewPreview>("historical.saveWorldReviewPreview",{mapId}),
-  historicalSaveWorldReviewApply: (token:string,confirmation:string) =>
-    request<HistoricalSaveReviewReceipt>("historical.saveWorldReviewApply",{
-      token,confirmation,confirm:true
-    }),
+  historicalSaveWorldReviewApply: (token:string) =>
+    request<HistoricalSaveReviewReceipt>("historical.saveWorldReviewApply",{token}),
   historicalRconLiveStatus: (mapId:string) =>
     request<HistoricalRconLiveStatus>("historical.rconLiveStatus",{mapId}),
   historicalRconPlayers: (mapId:string) =>
@@ -2386,10 +2378,8 @@ export const managerBridge = {
     request<HistoricalActiveStartStatus>("historical.activeStartStatus",{mapId}),
   historicalActiveStartPreview: (mapId:string) =>
     request<HistoricalActiveStartPreview>("historical.activeStartPreview",{mapId}),
-  historicalActiveStartApply: (token:string,typedApproval:string) =>
-    request<HistoricalActiveStartReceipt>("historical.activeStartApply",{
-      token,typedApproval,confirm:true
-    }),
+  historicalActiveStartApply: (token:string) =>
+    request<HistoricalActiveStartReceipt>("historical.activeStartApply",{token}),
   historicalRconStatus: (mapId:string) =>
     request<HistoricalRconStatus>("historical.rconStatus",{mapId}),
   historicalRconPreview: (mapId:string,rconPort:number,password:string) =>

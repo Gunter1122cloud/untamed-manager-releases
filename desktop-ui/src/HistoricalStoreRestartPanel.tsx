@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,RefreshCw,Shield,RotateCw} from "lucide-react";
-import {managerBridge,type HistoricalRestartPreview,
-  type HistoricalRestartStatus,type HistoricalRestartRecovery} from "./bridge";
+import {managerBridge,type HistoricalRestartStatus,
+  type HistoricalRestartRecovery} from "./bridge";
 
 /** Native original ACTIVE Store-v1 Restart; no WebView arguments or RCON bytes. */
 export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
@@ -9,20 +9,20 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
 }){
   const [recovery,setRecovery]=useState<HistoricalRestartRecovery|null>(null);
   const [checked,setChecked]=useState(false);
-  const [preview,setPreview]=useState<HistoricalRestartPreview|null>(null);
   const [busy,setBusy]=useState(false);
   const [jobId,setJobId]=useState("");
   const [job,setJob]=useState<HistoricalRestartStatus|null>(null);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const finished=useRef(false);
+  const actionInFlight=useRef(false);
   const currentMap=useRef(mapId);
   currentMap.current=mapId;
   const belongs=(requested:string)=>currentMap.current===requested;
   useEffect(()=>{
     let alive=true;
     finished.current=false;setChecked(false);setRecovery(null);
-    setPreview(null);setBusy(false);setJobId("");setJob(null);
+    setBusy(false);setJobId("");setJob(null);
     setError("");setNotice("");
     managerBridge.historicalRestartRecovery(mapId).then(result=>{
       if(!alive||!belongs(mapId))return;
@@ -96,7 +96,7 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
     if(busy)return;
     const requested=mapId;
     setBusy(true);setChecked(false);setError("");setNotice("");
-    setPreview(null);
+    
     try{
       const result=await managerBridge.historicalRestartRecovery(requested);
       if(!belongs(requested))return;
@@ -131,41 +131,48 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
     }finally{if(belongs(requested))setBusy(false);}
   };
   const inspect=async()=>{
-    if(busy||!running||!checked||!recovery||recovery.blocked||
-       recovery.inMemoryRunning||jobId)return;
+    if(actionInFlight.current||busy||!running||!checked||!recovery||
+       recovery.blocked||recovery.inMemoryRunning||jobId||error)return;
+    actionInFlight.current=true;
     const requested=mapId;
-    setBusy(true);setError("");setNotice("");setPreview(null);
+    setBusy(true);setError("");setNotice("");
+    let applyAttempted=false;
     try{
-      const result=await managerBridge.historicalRestartPreview(requested);
+      const proof=await managerBridge.historicalRestartPreview(requested);
       if(!belongs(requested))return;
-      if(result.mapId.toLowerCase()!==requested.toLowerCase())
+      if(!proof.token||proof.mapId.toLowerCase()!==requested.toLowerCase()||
+         !proof.usesSaveWorld||!proof.usesDoExit||!proof.launchesOriginalActive||
+         proof.originalStoreTouched||proof.conversionAllowed)
         throw new Error("UM-STORE-RESTART-PREVIEW-MAP-MISMATCH");
-      setPreview(result);
-    }catch{
-      if(belongs(requested))setError("A helyi Store-v1 ASA PID/RCON, indítási konfiguráció vagy műveleti napló nem igazolható. Nem küldtünk RCON-parancsot.");
-    }finally{if(belongs(requested))setBusy(false);}
-  };
-  const apply=async()=>{
-    if(busy||!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
-       busy)return;
-    const requested=mapId,token=preview.token;
-    setPreview(null);setBusy(true);setError("");setNotice("");
-    try{
-      const result=await managerBridge.historicalRestartApply(
-        token,"STORE-V1 SAVEWORLD DOEXIT START");
+      applyAttempted=true;
+      const result=await managerBridge.historicalRestartApply(proof.token);
       if(!belongs(requested))return;
-      if(!result.jobId)throw new Error("UM-STORE-RESTART-JOB-MISSING");
+      if(!result.jobId||!result.started||result.forceKill||
+         result.storeTouched||result.automaticRetry)
+        throw new Error("UM-STORE-RESTART-JOB-RECEIPT-MISMATCH");
       setJobId(result.jobId);
-      setNotice("Store-v1 Restart elindult. SaveWorld/DoExit mentésigazolás és régi PID-kilépés nélkül nem indít új ASA-t.");
-    }catch{
-      if(belongs(requested))setError("A Restart eredménye nem igazolt; a háttérfeladat már elindulhatott. Ne indítsd újra, ellenőrizd a naplót.");
-    }finally{if(belongs(requested))setBusy(false);}
+      setNotice("Store-v1 Restart elindult a kiválasztott mapon. "+
+        "Új ASA csak igazolt régi PID-kilépés után indulhat.");
+    }catch(e){
+      if(belongs(requested)){
+        const code=e instanceof Error?e.message:"";
+        setError(!applyAttempted?
+          "A natív Restart előellenőrzés elutasította a mapot ("+
+            (/^UM-[A-Z0-9-]+$/.test(code)?code:"UM-STORE-RESTART-PREFLIGHT")+"). Nincs RCON.":
+          "A Restart kimenetele bizonytalan ("+
+            (/^UM-[A-Z0-9-]+$/.test(code)?code:"UM-STORE-RESTART-APPLY-UNKNOWN")+"). "+
+            "Ne indíts új műveletet; a tartós naplót ellenőrizni kell.");
+      }
+    }finally{
+      actionInFlight.current=false;
+      if(belongs(requested))setBusy(false);
+    }
   };
   return <section className="glass panel historical-store-restart"
     aria-label="Eredeti Store-v1 manuális újraindítás">
     <div className="panel-head">
       <h2><RotateCw size={18}/> Eredeti Store-v1 · Restart</h2>
-      <span className="mod-tag amber"><Shield size={13}/> Egyszeri manuális jóváhagyás</span>
+      <span className="mod-tag amber"><Shield size={13}/> Natív egyszeri művelet</span>
     </div>
     <div className="panel-inner">
       <p className="muted small">SaveWorld → új ASA mentésnapló és stabil .ark →
@@ -177,11 +184,14 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
         onClick={()=>{void refreshRecovery();}}>
         <RefreshCw size={16}/> Store-v1 napló újraellenőrzése
       </button>
-      <button type="button" className="secondary"
+      <p className="muted small">Hatókör: kizárólag a kiválasztott map ({mapId}).
+        A gomb SaveWorld, szabályos DoExit, igazolt régi PID-kilépés,
+        majd ugyanennek a mapnak új indítását kéri; nem Kill vagy konverzió.</p>
+      <button type="button" className="primary"
         disabled={busy||!running||!checked||!recovery||recovery.blocked||
-          recovery.inMemoryRunning||!!jobId||!!preview||!!error}
+          recovery.inMemoryRunning||!!jobId||!!error}
         onClick={()=>{void inspect();}}>
-        <Shield size={16}/> Store-v1 újraindítás előellenőrzése
+        <RotateCw size={16}/> Store-v1 Restart indítása (SaveWorld + DoExit + Start)
       </button>
       {recovery?.blocked&&<div className="warning-inline" role="status">
         <AlertTriangle size={17}/>
@@ -197,23 +207,6 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
               Előbb a SaveWorld panelen ellenőrizd; nincs automatikus folytatás.</>
           : <>Tartós újraindítási vagy másik műveleti napló:
               {recovery.phase} · automatikus folytatás tiltva.</>}
-      </div>}
-      {preview&&<div className="warning-inline" role="region"
-        aria-label="Store-v1 újraindítás jóváhagyása">
-        <AlertTriangle size={18}/>
-        <div>
-          <b>{preview.mapName} · régi PID {preview.pid} · RCON {preview.rconPort} · {preview.launchMode==="asaApiLoader"?"ASA API Loader":"Közvetlen ASA"}</b>
-          <p>Ez valódi leállítás, majd új ASA-indítás. Az indítás
-              új ellenőrzése meghiúsulhat, ekkor kézi beavatkozás
-              szükséges. A műveletet külön gombnyomással hagyod jóvá.</p>
-          <div className="settings-actions">
-            <button type="button" className="primary"
-              disabled={busy}
-              onClick={()=>{void apply();}}><RotateCw size={16}/> Store-v1 Restart végrehajtása</button>
-            <button type="button" className="secondary" disabled={busy}
-              onClick={()=>{setPreview(null);}}>Mégse</button>
-          </div>
-        </div>
       </div>}
       {job&&<div className="details-line" role="status">
         <span><RefreshCw size={15}/> {job.state==="running"?"Folyamatban":

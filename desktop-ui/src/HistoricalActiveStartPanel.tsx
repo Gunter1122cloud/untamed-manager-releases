@@ -1,20 +1,29 @@
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,Play,Shield} from "lucide-react";
 import {managerBridge,type HistoricalActiveStartPreview,
-  type HistoricalActiveStartStatus,type HistoricalLoaderModePreview} from "./bridge";
+  type HistoricalActiveStartStatus} from "./bridge";
 
 /**
  * Starts a preserved historical Store-v1 ASA map with native source,
- * INI/port/process checks and explicit typed approval. A pinned Obsidian
+ * INI/port/process checks and native one-use approval. A pinned Obsidian
  * source does not depend on another host's obsolete korábbi kezelőalkalmazás ACTIVE/DONE marker.
  * No WebView-supplied launch arguments or original paths.
  */
+// Native replies may be lost after Process.Start. An uncertain launch must
+// never become an automatic second Start after a React view remount.
+const acceptedHistoricalStarts=new Set<string>();
+const uncertainHistoricalStarts=new Set<string>();
+const uncertainHistoricalModes=new Set<string>();
+
 export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
   mapId:string;rconAttached:boolean;onStarted:()=>Promise<void>
 }){
   const [state,setState]=useState<HistoricalActiveStartStatus|null>(null);
-  const [preview,setPreview]=useState<HistoricalActiveStartPreview|null>(null);
-  const [modePreview,setModePreview]=useState<HistoricalLoaderModePreview|null>(null);
+  const startInFlight=useRef(false);
+  const [startAccepted,setStartAccepted]=useState(()=>acceptedHistoricalStarts.has(mapId));
+  const [startUncertain,setStartUncertain]=useState(()=>uncertainHistoricalStarts.has(mapId));
+  const modeInFlight=useRef(false);
+  const [modeUncertain,setModeUncertain]=useState(()=>uncertainHistoricalModes.has(mapId));
   const [busy,setBusy]=useState(false);
   const [checkingControl,setCheckingControl]=useState(false);
   const controlGeneration=useRef(0);
@@ -30,7 +39,9 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
     controlGeneration.current++;
     const generation=++actionGeneration.current;
     setCheckingControl(false);setBusy(false);
-    setState(null);setPreview(null);setModePreview(null);
+    setState(null);setModeUncertain(uncertainHistoricalModes.has(mapId));
+    setStartAccepted(acceptedHistoricalStarts.has(mapId));
+    setStartUncertain(uncertainHistoricalStarts.has(mapId));
     setError("");setNotice("");
     managerBridge.historicalActiveStartStatus(mapId).then(v=>{
       if(active&&belongs(mapId,generation)&&v.mapId.toLowerCase()===mapId.toLowerCase())
@@ -41,58 +52,75 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
   },[mapId,rconAttached]);
   // Read-only refresh: never starts/stops the ASA or sends RCON bytes.
   const refreshRuntimeEvidence=async()=>{
-    if(busy)return;
+    if(busy||startInFlight.current)return;
     const requested=mapId,generation=actionGeneration.current;
     setBusy(true);
     try{
       const fresh=await managerBridge.historicalActiveStartStatus(requested);
-      if(belongs(requested,generation)&&
-         fresh.mapId.toLowerCase()===requested.toLowerCase())
+      if(!fresh||fresh.mapId.toLowerCase()!==requested.toLowerCase())
+        throw new Error("UM-STORE-START-STATUS-OTHER-MAP");
+      if(belongs(requested,generation)){
         setState(fresh);
+        if(fresh.confirmedStopped&&!fresh.running&&!fresh.loaderPid){
+          acceptedHistoricalStarts.delete(requested);
+          uncertainHistoricalStarts.delete(requested);
+          uncertainHistoricalModes.delete(requested);
+          setStartAccepted(false);setStartUncertain(false);
+          setModeUncertain(false);
+        }
+      }
     }catch{
       if(belongs(requested,generation))
         setError("Az ASA API / Loader állapot csak olvasó vizsgálata nem sikerült; szervervezérlés nem történt.");
     }finally{if(belongs(requested,generation))setBusy(false);}
   };
   const changeMode=async(useApi=state?.requestedMode!=="asaApiLoader")=>{
-    if(!state?.confirmedStopped||busy||preview||modePreview)return;
+    if(!state?.confirmedStopped||busy||startInFlight.current||
+       modeInFlight.current||startAccepted||startUncertain||modeUncertain)return;
+    modeInFlight.current=true;
     const requested=mapId,generation=actionGeneration.current;
+    let applied=false;
     setBusy(true);setError("");setNotice("");
     try{
-      const result=await managerBridge.historicalLoaderModePreview(requested,useApi);
+      const proof=await managerBridge.historicalLoaderModePreview(requested,useApi);
       if(!belongs(requested,generation))return;
-      if(result.mapId.toLowerCase()!==requested.toLowerCase())
-        throw new Error("UM-STORE-MODE-PREVIEW-OTHER-MAP");
-      setModePreview(result);
-    }catch{
-      if(belongs(requested,generation))setError("A helyi ASA/Loader-folyamat, indítási mód vagy műveleti napló nem igazolt. A módválasztáshoz még nem kell RCON.");
-    }finally{if(belongs(requested,generation))setBusy(false);}
-  };
-  const applyMode=async()=>{
-    if(!modePreview||busy)return;
-    if(modePreview.mapId.toLowerCase()!==mapId.toLowerCase())return;
-    const token=modePreview.token,requested=mapId,generation=actionGeneration.current;
-    setModePreview(null);setBusy(true);setError("");setNotice("");
-    try{
-      const receipt=await managerBridge.historicalLoaderModeApply(token);
+      if(!proof||!proof.token||proof.mapId.toLowerCase()!==requested.toLowerCase()||
+         proof.useApi!==useApi||proof.startsServer!==false||
+         proof.changesStore!==false||proof.requiresStoppedProcess!==true)
+        throw new Error("UM-STORE-MODE-PREVIEW-INVALID");
+      applied=true;
+      const receipt=await managerBridge.historicalLoaderModeApply(proof.token);
+      if(!receipt||receipt.mapId.toLowerCase()!==requested.toLowerCase()||
+         receipt.useApi!==useApi||receipt.mode!==(useApi?"asaApiLoader":"directAsa")||
+         receipt.serverStarted!==false||receipt.originalStoreTouched!==false)
+        throw new Error("UM-STORE-MODE-RECEIPT-INVALID");
       if(!belongs(requested,generation))return;
-      if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||receipt.serverStarted||
-         receipt.originalStoreTouched)throw new Error("UM-STORE-MODE-RECEIPT");
-      setPreview(null);
-      setNotice(receipt.mode==="asaApiLoader"?
-        "Az ASA API Loader indítási mód mentve; ASA-szerver nem indult.":
+      setNotice(useApi?"Az ASA API Loader indítási mód mentve; ASA-szerver nem indult.":
         "A közvetlen ASA indítási mód mentve; ASA-szerver nem indult.");
       try{
         const status=await managerBridge.historicalActiveStartStatus(requested);
+        if(!status||status.mapId.toLowerCase()!==requested.toLowerCase())
+          throw new Error("UM-STORE-MODE-STATUS-OTHER-MAP");
         if(belongs(requested,generation))setState(status);
       }catch{
-        if(belongs(requested,generation))setError("A módválasztás mentve, de a képernyő frissítése nem sikerült. Nem indítottunk ASA-szervert.");
+        if(belongs(requested,generation))
+          setError("A módváltás igazolt, de az állapotfrissítés sikertelen. ASA nem indult.");
       }
     }catch{
-      if(belongs(requested,generation))setError("A módváltás eredménye nem igazolt. Nem indítunk automatikusan ASA-t.");
-    }finally{if(belongs(requested,generation))setBusy(false);}
+      if(applied){
+        uncertainHistoricalModes.add(requested);
+        if(belongs(requested,generation)){
+          setModeUncertain(true);
+          setError("A módváltás kimenetele nem igazolható. Nincs ismétlés vagy Start a helyi folyamat kézi ellenőrzéséig.");
+        }
+      }else if(belongs(requested,generation))
+        setError("A helyi ASA/Loader indítási mód előellenőrzése elutasítva. ASA nem indult.");
+    }finally{
+      modeInFlight.current=false;
+      if(belongs(requested,generation))setBusy(false);
+    }
   };
-  // The original Store map's RCON handoff is separate from Process.Start.
+    // The original Store map's RCON handoff is separate from Process.Start.
   // Its native bridge verifies original source, current ASA PID and the
   // Windows-owned TCP listener before every read-only ListPlayers query.
   const verifyExistingControl=async(targetMapId:string)=>{
@@ -126,16 +154,23 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
   };
 
   const inspect=async()=>{
-    if(busy||state?.running||!state?.rconConfigured||
-       state?.launchModeApprovalRequired)return;
+    if(startInFlight.current||busy||state?.running||
+       !state?.confirmedStopped||!state?.rconConfigured||
+       state?.launchModeApprovalRequired||startAccepted||startUncertain||modeUncertain)return;
+    startInFlight.current=true;
     const requested=mapId,generation=actionGeneration.current;
-    setBusy(true);setError("");setNotice("");setPreview(null);
+    setBusy(true);setError("");setNotice("");
     try{
       const result=await managerBridge.historicalActiveStartPreview(requested);
       if(!belongs(requested,generation))return;
       if(result.mapId.toLowerCase()!==requested.toLowerCase())
         throw new Error("UM-STORE-START-PREVIEW-MAP-MISMATCH");
-      setPreview(result);
+      if(!result.token||result.conversionAllowed!==false||
+         result.automaticRetryAllowed!==false||result.serverStarted!==false||
+         result.readyCertified!==false||
+         result.evidence!=="ORIGINAL_ACTIVE_STORE_NATIVE_START_PREFLIGHT")
+        throw new Error("UM-STORE-START-PREVIEW-INVALID");
+      await start(result);
     }catch(e){
       if(!belongs(requested,generation))return;
       const code=e instanceof Error?e.message:"";
@@ -172,22 +207,32 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
       setError(errors[code]??(code.startsWith("UM-STORE-")?
         code+" · A natív előellenőrzés elutasította az indítást; ASA nem indult.":
         "A Store-v1 map indítási előellenőrzése nem sikerült. Ellenőrizd a helyi naplót és folyamatállapotot; ASA nem indult."));
-    }finally{if(belongs(requested,generation))setBusy(false);}
+    }finally{
+      startInFlight.current=false;
+      if(belongs(requested,generation))setBusy(false);
+    }
   };
-  const start=async()=>{
-    if(!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
-       busy)return;
-    const token=preview.token,requested=mapId,generation=actionGeneration.current;
-    setPreview(null);setBusy(true);
+  const start=async(proof:HistoricalActiveStartPreview)=>{
+    if(!proof||proof.mapId.toLowerCase()!==mapId.toLowerCase())return;
+    const token=proof.token,requested=mapId,generation=actionGeneration.current;
+    setBusy(true);
     setError("");setNotice("");
     try{
-      const receipt=await managerBridge.historicalActiveStartApply(
-        token,"STORE-V1 ACTIVE START");
-      if(!belongs(requested,generation))return;
+      const receipt=await managerBridge.historicalActiveStartApply(token);
       if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||
-         !receipt.startRequested||receipt.originalStoreMetadataChanged||
-         receipt.conversionPerformed)
+         receipt.startRequested!==true||receipt.originalStoreMetadataChanged!==false||
+         receipt.conversionPerformed!==false||receipt.readyCertified!==false||
+         receipt.automaticRetryAllowed!==false||
+         !Number.isSafeInteger(receipt.pid)||receipt.pid<=0||
+         receipt.launchMode!==proof.launchMode||
+         (receipt.processRole==="loaderParent"?
+           receipt.loaderPid!==receipt.pid||receipt.serverPid!==null:
+           receipt.processRole!=="asaServer"||receipt.serverPid!==receipt.pid||receipt.loaderPid!==null))
         throw new Error("UM-STORE-START-RECEIPT-INVALID");
+      acceptedHistoricalStarts.add(requested);
+      uncertainHistoricalStarts.delete(requested);
+      if(!belongs(requested,generation))return;
+      setStartAccepted(true);setStartUncertain(false);
       setNotice(receipt.processRole==="loaderParent"?
         receipt.mapName+" · ASA API Loader PID: "+receipt.loaderPid+
         ". Az ASA gyermek PID és RCON készenlét még ellenőrzendő.":
@@ -206,7 +251,9 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
       }
       if(belongs(requested,generation))void verifyExistingControl(requested);
     }catch(e){
+      uncertainHistoricalStarts.add(requested);
       if(!belongs(requested,generation))return;
+      setStartUncertain(true);
       const code=e instanceof Error?e.message:"";
       const details:Record<string,string>={
         "UM-STORE-ACTIVE-MAP-CHANGED":"A map jóváhagyott profilja változott. Indíts új előellenőrzést.",
@@ -214,9 +261,10 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         "UM-STORE-ACTIVE-PROCESS-UNVERIFIED":"A Start utáni Windows folyamat nem igazolható. Ellenőrizd a tényleges PID-et és a tartós műveleti naplót; ne próbáld vakon újraindítani.",
         "UM-STORE-ACTIVE-APPROVAL-EXPIRED":"A jóváhagyás lejárt vagy már felhasználtad. Friss előellenőrzés kell."
       };
-      setError(details[code]??"Az indítás eredménye nem igazolható, "+
-        "vagy az eredeti állapot megváltozott. Nincs automatikus újrapróbálás. "+
-        "Ellenőrizd a Windows PID-et és a Store-műveleti naplót.");
+      setError((details[code]??"Az indítás eredménye nem igazolható, "+
+        "vagy az eredeti állapot megváltozott.")+
+        " A szerver már elindulhatott. Nincs automatikus újrapróbálás; "+
+        "az állapotfrissítés és a helyi Windows PID/Store-napló ellenőrzése szükséges.");
     }finally{if(belongs(requested,generation))setBusy(false);}
   };
   return <section className="glass panel historical-active-start"
@@ -274,75 +322,40 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
             <Shield size={16}/> API/Loader állapot frissítése (csak olvasás)
           </button>
         </div>}
+      {state?.requestedMode!=="asaApiLoader"&&<button type="button"
+        className="secondary" disabled={busy} onClick={()=>{void refreshRuntimeEvidence();}}>
+        <Shield size={16}/> API/Loader állapot frissítése (csak olvasás)
+      </button>}
       <div className="settings-actions">
         <button type="button" className="secondary"
-          disabled={busy||!state?.confirmedStopped||!!preview||!!modePreview} onClick={()=>{void changeMode();}}>
+          disabled={busy||!state?.confirmedStopped||startAccepted||startUncertain||modeUncertain} onClick={()=>{void changeMode();}}>
           <Shield size={16}/> {state?.requestedMode==="asaApiLoader"?
             "Közvetlen ASA mód választása":"ASA API Loader mód választása"}
         </button>
         {state?.launchModeApprovalRequired&&
           state.requestedMode==="directAsa"&&
           <button type="button" className="secondary"
-            disabled={busy||!state.confirmedStopped||!!preview||!!modePreview} onClick={()=>{void changeMode(false);}}>
+            disabled={busy||!state.confirmedStopped||startAccepted||startUncertain||modeUncertain} onClick={()=>{void changeMode(false);}}>
             <Shield size={16}/> Közvetlen ASA mód kifejezett jóváhagyása
           </button>}
       </div>
-      {modePreview&&<div className="warning-inline" role="region"
-        aria-label="Eredeti Store-v1 indítási mód módosítása">
-        <Shield size={17}/>
-        <div>
-          <b>{modePreview.useApi?"ASA API Loader":"Közvetlen ASA"} indítás</b>
-          <p>Csak a helyi Manager maponkénti indítási kapcsolója módosul.
-            Nem indul szerver, nem változik Store-session, cluster-lock vagy
-            karakteradat. A következő Start külön előellenőrzést igényel.</p>
-          <div className="settings-actions">
-            <button type="button" className="primary" disabled={busy}
-              onClick={()=>{void applyMode();}}>Indítási mód jóváhagyása</button>
-            <button type="button" className="secondary" disabled={busy}
-              onClick={()=>setModePreview(null)}>Mégse</button>
-          </div>
-        </div>
-      </div>}
       <div className="details-line"><span>Meglévő RCON</span>
         <b>{state?.rconConfigured?"Managerhez kapcsolva":"Előbb add meg az eredeti RCON-t"}</b></div>
       <div className="settings-actions">
-        <button className="secondary" type="button"
-          onClick={()=>{void inspect();}} disabled={busy||!!preview||
-            !state||state.running||!state.rconConfigured||
-            state.launchModeApprovalRequired}>
-          <Shield size={16}/> Eredeti Store-v1 indítás előellenőrzése
+        <button className="primary" type="button"
+          onClick={()=>{void inspect();}}
+          disabled={busy||modeUncertain||!state||state.running||
+            !state.confirmedStopped||!state.rconConfigured||
+            state.launchModeApprovalRequired||startAccepted||startUncertain||modeUncertain}>
+          <Play size={16}/> {state?.requestedMode==="asaApiLoader"?
+            "Eredeti Store-v1 API Loader indítása":"Eredeti Store-v1 ASA indítása"}
         </button>
       </div>
-      {preview&&<div className="warning-inline" role="region"
-        aria-label="Eredeti Store-v1 ASA indítás jóváhagyása">
-        <Shield size={17}/>
-        <div>
-          <b>{preview.mapName} · Game {preview.gamePort} · Query {preview.queryPort}</b>
-          <p>{preview.originalPeerCheckRequiredForLocalStart?
-              "A régi, még át nem vett eredeti profil két peerének ACTIVE/DONE állapota igazolt.":
-              "Az Obsidianban jóváhagyott helyi Store-profil indítható a másik host régi ACTIVE/DONE jelölője nélkül; a távoli elérés és a karakterutazás ettől még nem igazolt."}
-            {" "}A Manager a {preview.launchMode==="asaApiLoader"?
-              "helyi ASA API Loadert indítja; a gyermek ASA PID-et külön kell igazolni":
-              "helyi ASA EXE-t indítja"}.
-            Nem konvertál, nem hoz létre új sessiont vagy shared lockot.</p>
-          {preview.launchMode==="asaApiLoader"&&<p className="muted small">
-            Hivatalos API cache: {preview.apiCacheState}. A cache-kulcs és a
-            jelenlegi ASA EXE hashének egyezése még nem bizonyít API-modulbetöltést;
-            cache-hiánynál a hivatalos API saját cache-letöltése és
-            ellenőrzése szükséges.
-          </p>}
-          <p>Az ellenőrzött indítás külön gombnyomással hagyható jóvá.
-            Nincs automatikus indítás vagy ismétlés.</p>
-          <div className="settings-actions">
-            <button type="button" className="primary" disabled={busy} onClick={()=>{void start();}}>
-              <Play size={16}/> {preview.launchMode==="asaApiLoader"?
-                "Eredeti Store-v1 API Loader indítása":"Eredeti Store-v1 ASA indítása"}
-            </button>
-            <button type="button" className="secondary" disabled={busy}
-              onClick={()=>{setPreview(null);}}>Mégse</button>
-          </div>
-        </div>
-      </div>}
+      {(startUncertain||modeUncertain)&&<p role="status" className="muted small">
+        A korábbi Start kimenetele bizonytalan. A csak olvasó API/Loader állapot
+        frissítése után, igazoltan leállított folyamat esetén engedélyezhető
+        egy új, külön felhasználói Start. Nincs automatikus ismétlés.
+      </p>}
       {checkingControl&&<p role="status" className="muted small">Indítás utáni Store-v1 ASA/RCON ellenőrzés (csak olvasás, legfeljebb 10 perc). Nincs új Start vagy Store-írás.</p>}
       {notice&&<div className="success-inline" role="status">
         <CheckCircle2 size={17}/>{notice}</div>}

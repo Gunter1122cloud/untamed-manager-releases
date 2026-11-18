@@ -266,12 +266,21 @@ internal static class LegacyStoreV1GracefulStop
         };
     }
 
+    // Constructed ONLY before MarkMutationStarted and before the RCON
+    // SaveWorld write path. An uncertain or attempted dispatch must not use it.
+    internal sealed class SaveWorldNotDispatchedException : InvalidOperationException
+    {
+        internal SaveWorldNotDispatchedException(string code) : base(code) { }
+    }
+
     // Separate, real SaveWorld operation on an existing ACTIVE/DONE Store map.
     // It uses the SAME owner/source/port guards and installation journal as
     // StopAsync, but deliberately sends NO DoExit and never touches Store data.
     internal sealed record SaveOnlyReceipt(Guid MapId,int Pid,
         bool SaveCompleteObserved,DateTimeOffset ObservedUtc,string Evidence)
     {
+        // Weaker .ark metadata witness, never the same as SaveComplete.
+        public bool WorldMetadataObserved {get;init;}
         public bool DoExitSent=>false;
         public bool FsyncCertified=>false;
         public bool GameClientRejoinVerified=>false;
@@ -325,15 +334,15 @@ internal static class LegacyStoreV1GracefulStop
         // Test execution seams bypass filesystem observations but never
         // assert that a real ASA save occurred.
         if(execute==null && SaveOnlyStartupBlocker(locked) is { } readinessError)
-            throw new InvalidOperationException(readinessError);
+            throw new SaveWorldNotDispatchedException(readinessError);
         // Witness must exist before ANY mutating RCON byte. A missing log or
         // world witness does not strand the durable journal after no send.
         var witness=execute==null?
             AsaWorldSaveEvidence.Begin(locked.Map,locked.Process)
-                ??throw new InvalidOperationException("UM-ORIGINAL-SAVE-WITNESS-MISSING"):
+                ??throw new SaveWorldNotDispatchedException("UM-ORIGINAL-SAVE-WITNESS-MISSING"):
             null;
         lease.MarkMutationStarted(); // Crash/uncertain dispatch => NeedsOperator
-        bool observed;
+        bool observed,worldMetadataObserved=false;
         if(execute!=null)
             observed=await execute(locked.Map,locked.Process,Verify,ct).WaitAsync(ct);
         else
@@ -345,19 +354,25 @@ internal static class LegacyStoreV1GracefulStop
                 password,Verify,ct);
             var result=await AsaWorldSaveEvidence.WaitAsync(witness!,()=>{
                 try{Verify();return true;}catch{return false;}
-            },TimeSpan.FromSeconds(90),ct);
+            },TimeSpan.FromSeconds(90),ct,allowWorldMetadata:true);
             observed=result.CompletionObserved;
-            if(!observed)
+            worldMetadataObserved=!observed&&result.WorldMetadataObserved;
+            if(!observed&&!worldMetadataObserved)
                 stage?.Invoke("A mentés kimenetele bizonytalan: "+result.Stage+
                     "; nincs igazolt SaveComplete, nincs automatikus újraküldés");
         }
-        if(!observed)
+        if(!observed&&!worldMetadataObserved)
             throw new InvalidOperationException("UM-ORIGINAL-SAVE-COMPLETION-NOT-OBSERVED");
         Verify();
-        stage?.Invoke("Új ASA SaveComplete log és stabil .ark ellenőrizve; a map tovább fut");
+        stage?.Invoke(observed?
+            "Új ASA SaveComplete log és stabil .ark ellenőrizve; a map tovább fut":
+            "Saját .ark fájl frissült és stabil; ASA SaveComplete nem igazolt. "+
+            "Csak helyi fájlmetaadat-bizonyíték, nincs fsync vagy restore tanúsítás.");
         lease.Complete();
-        return new(mapId,approvedPid,true,DateTimeOffset.UtcNow,
-            "ORIGINAL_ACTIVE_STORE_SAVEWORLD_LOG_AND_STABLE_WORLD_NO_DOEXIT");
+        return new(mapId,approvedPid,observed,DateTimeOffset.UtcNow,
+            observed?"ORIGINAL_ACTIVE_STORE_SAVEWORLD_LOG_AND_STABLE_WORLD_NO_DOEXIT":
+                "ORIGINAL_ACTIVE_STORE_WORLD_METADATA_ONLY_CAUSALITY_UNKNOWN")
+        {WorldMetadataObserved=worldMetadataObserved};
     }
 
     internal static Owned PreviewForUnfinishedRestartReview(

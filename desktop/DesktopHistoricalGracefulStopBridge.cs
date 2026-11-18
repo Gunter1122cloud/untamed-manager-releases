@@ -117,6 +117,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         {
             job.State=state;job.Step=step;job.ChangedUtc=DateTimeOffset.UtcNow;
             job.PreExitSaveObserved=receipt.SaveCompleteObserved;
+            job.PreExitWorldMetadataObserved=receipt.WorldMetadataObserved;
             job.ConfirmedStopped=false;
         }
     }
@@ -413,7 +414,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         runningOwned=ownedRunning,previousOutcomeStillUnknown=true,
                         pairedRestartReview=pairedRestartId!=null,
                         preservesOriginalReceipt=true,originalStoreFilesWritten=false,
-                        automaticRetry=false,requiresTypedApproval=true,
+                        automaticRetry=false,requiresTypedApproval=false,
                         evidence=ownedRunning?
                             "OPERATOR_REVIEW_RUNNING_OWNED_ASA_SAVE_UNKNOWN":
                             "OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"
@@ -421,12 +422,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                 }
                 if(method=="historical.saveWorldReviewApply")
                 {
-                    if(!GuidValue(request,"token",out var reviewedToken)||
-                       !request.TryGetProperty("confirm",out var reviewConsent)||
-                       reviewConsent.ValueKind!=JsonValueKind.True||
-                       !request.TryGetProperty("confirmation",out var reviewedPhrase)||
-                       reviewedPhrase.ValueKind!=JsonValueKind.String||
-                       reviewedPhrase.GetString()!="REVIEW STORE SAVE")
+                    if(!GuidValue(request,"token",out var reviewedToken))
                         return Fail(id,"UM-ORIGINAL-SAVE-REVIEW-APPROVAL-REQUIRED");
                     var approvedReview=pendingReviewByMap.Values.SingleOrDefault(x=>
                         x.Token==reviewedToken);
@@ -518,6 +514,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         lateMap,receipt,Owner);
                     return Ok(id,new{
                         mapId=lateMapId,operationId=receipt.OperationId,
+                        receiptPhase=receipt.Phase,receiptBeganUtc=receipt.BeganUtc,
                         stage=late.Stage,
                         worldFilePresent=late.WorldFilePresent,
                         worldMetadataNewerThanAttempt=late.WorldMetadataNewerThanAttempt,
@@ -570,17 +567,21 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         errorCode=unreadable?
                             "UM-ORIGINAL-SAVE-JOURNAL-UNREADABLE":null,
                         operationId=evidence?.OperationId,
+                        beganUtc=evidence?.BeganUtc,
                         pid=evidence?.Pid,
                         pidStartedUtc=evidence?.PidStartedUtc,
                         saveObservedUtc=evidence?.SaveObservedUtc,
                         localSaveCompleteObserved=evidence?.LocalSaveCompleteObserved==true,
+                        localWorldMetadataObserved=evidence?.LocalWorldMetadataObserved==true,
                         bothHostsSaveCompleteCertified=false,
                         sharedStoreWriterCertified=false,
                         gameClientRejoinVerified=false,
                         productionRestoreAllowed=false,
                         fsyncCertified=false,
                         sourceStateCertifiedForCurrentWriter=false,
-                        evidence="MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM"
+                        evidence=evidence?.LocalWorldMetadataObserved==true?
+                            "MANAGER_LOCAL_WORLD_METADATA_ONLY_NO_SHARED_STORE_QUORUM":
+                            "MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM"
                     });
                 }
                 if(method=="historical.gracefulStopRecovery")
@@ -672,13 +673,8 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                 bool wantsSaveOnly=method=="historical.saveWorldApply";
                 if(wantsSaveOnly!=(approved.Kind=="SaveWorldOnly"))
                     return Fail(id,"UM-ORIGINAL-STOP-OPERATION-MISMATCH");
-                if(!request.TryGetProperty("confirm",out var confirmed)||
-                   confirmed.ValueKind!=JsonValueKind.True||
-                   !request.TryGetProperty("typedApproval",out var text)||
-                   text.ValueKind!=JsonValueKind.String||
-                   text.GetString()!=(wantsSaveOnly?
-                       "STORE-V1 SAVEWORLD":"STORE-V1 SAVEWORLD DOEXIT"))
-                    return Fail(id,"UM-ORIGINAL-STOP-TYPED-CONFIRMATION");
+                // A named map-action click authorizes this one-use token; the
+                // PID/source/port/lease rechecks below remain mandatory.
                 approvalsByMap.Remove(approved.MapId);
                 var map=Owned(approved.MapId);
                 if(map==null||!map.HistoricalStoreProtected||
@@ -749,16 +745,25 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                                 approved.StartedUtc,approved.SourceSha,
                                 stage=>Update(job,"running",stage));
                             if(receipt.MapId!=map.Id||receipt.Pid!=approved.Pid||
-                               !receipt.SaveCompleteObserved||receipt.DoExitSent)
+                               receipt.SaveCompleteObserved==receipt.WorldMetadataObserved||
+                               receipt.DoExitSent)
                                 throw new InvalidDataException("UM-ORIGINAL-SAVE-RECEIPT-MISMATCH");
-                            // Persist the same owned-PID SaveComplete witness
-                            // before reporting success to React.
-                            LegacyStoreV1SaveEvidenceJournal.Complete(
-                                cluster.Store.Root,job.Id,map.Id,approved.Pid,
-                                approved.StartedUtc,approved.SourceSha,
-                                receipt.ObservedUtc,receipt.SaveCompleteObserved,
-                                receipt.DoExitSent);
-                            UpdateSave(job,"completed","Store-v1 SaveWorld igazolva; az ASA tovább fut",receipt);
+                            // SaveComplete and local .ark metadata are different
+                            // durable outcomes. Never upgrade a file witness
+                            // into certified SaveComplete, fsync or restore.
+                            if(receipt.SaveCompleteObserved)
+                                LegacyStoreV1SaveEvidenceJournal.Complete(
+                                    cluster.Store.Root,job.Id,map.Id,approved.Pid,
+                                    approved.StartedUtc,approved.SourceSha,
+                                    receipt.ObservedUtc,true,false);
+                            else
+                                LegacyStoreV1SaveEvidenceJournal.CompleteWorldMetadata(
+                                    cluster.Store.Root,job.Id,map.Id,approved.Pid,
+                                    approved.StartedUtc,approved.SourceSha,
+                                    receipt.ObservedUtc,true,false);
+                            UpdateSave(job,"completed",receipt.SaveCompleteObserved?
+                                "ASA SaveComplete log + stabil .ark helyileg igazolt; a szerver fut":
+                                "Saját .ark frissült és stabil; SaveComplete nem igazolt; a szerver fut",receipt);
                         }
                         else
                         {
@@ -769,6 +774,29 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                                !receipt.ConfirmedStopped||!receipt.UsedDoExit)
                                 throw new InvalidDataException("UM-ORIGINAL-STOP-RECEIPT-MISMATCH");
                             Update(job,"completed","A régi ASA-folyamat kilépett",receipt);
+                        }
+                    }
+                    catch(LegacyStoreV1GracefulStop.SaveWorldNotDispatchedException ex)
+                        when(approved.Kind=="SaveWorldOnly")
+                    {
+                        // The typed exception is raised only BEFORE the native
+                        // SaveWorld RCON mutation boundary. Do not strand the
+                        // durable receipt in NeedsOperator when no send occurred.
+                        // If either local journal cannot be committed, fail closed.
+                        try
+                        {
+                            LegacyStoreV1SaveEvidenceJournal.MarkNotDispatched(
+                                cluster.Store.Root,job.Id,map.Id,approved.Pid,
+                                approved.StartedUtc,approved.SourceSha);
+                            Update(job,"notDispatched","SaveWorld NEM lett kiküldve: "+
+                                ex.Message+". Natív előfeltétel javítása és új "+
+                                "külön indítás szükséges.");
+                        }
+                        catch
+                        {
+                            Update(job,"needsOperator",
+                                "UM-ORIGINAL-SAVE-NO-DISPATCH-RECEIPT-UNVERIFIED: "+
+                                "helyi napló nem lezárható; nincs automatikus újraküldés.");
                         }
                     }
                     catch(Exception ex)

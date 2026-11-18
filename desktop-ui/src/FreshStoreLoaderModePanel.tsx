@@ -1,7 +1,6 @@
-import {useEffect,useState} from "react";
+import {useEffect,useRef,useState} from "react";
 import {Shield,RefreshCw,AlertTriangle,CheckCircle2} from "lucide-react";
-import {managerBridge,type FreshStoreLoaderModePreview,
-  type FreshStoreLoaderModeStatus} from "./bridge";
+import {managerBridge,type FreshStoreLoaderModeStatus} from "./bridge";
 
 /**
  * Only for a locally owned, NEW enrolled Store map. Never render for
@@ -11,51 +10,103 @@ export function FreshStoreLoaderModePanel({mapId,onConfigured}:{
   mapId:string;onConfigured:()=>Promise<void>
 }){
   const [status,setStatus]=useState<FreshStoreLoaderModeStatus|null>(null);
-  const [preview,setPreview]=useState<FreshStoreLoaderModePreview|null>(null);
   const [busy,setBusy]=useState(false);
+  const [reconcileRequired,setReconcileRequired]=useState(false);
+  const inFlight=useRef(false);
+  const selectedMap=useRef(mapId);selectedMap.current=mapId;
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   useEffect(()=>{
     let active=true;
-    setStatus(null);setPreview(null);setError("");setNotice("");
+    setStatus(null);setError("");setNotice("");setReconcileRequired(false);
     managerBridge.freshStoreLoaderModeStatus(mapId).then(next=>{
-      if(active)setStatus(next);
+      if(active&&next.mapId.toLowerCase()===mapId.toLowerCase()&&
+         !next.serverStarted&&!next.originalStoreTouched)setStatus(next);
+      else if(active)setError("UM-STORE-API-MODE-STATUS-MAP-MISMATCH");
     }).catch(()=>{
       if(active)setError("A helyi Store-map indítási módja nem ellenőrizhető.");
     });
     return ()=>{active=false;};
   },[mapId]);
-  const change=async()=>{
-    if(!status?.canChangeMode||busy)return;
-    setBusy(true);setError("");setNotice("");setPreview(null);
+  const refresh=async()=>{
+    if(busy||inFlight.current)return;
+    const requested=mapId;
+    setBusy(true);setError("");
     try{
-      setPreview(await managerBridge.freshStoreLoaderModePreview(
-        mapId,!status.useApi));
+      const observed=await managerBridge.freshStoreLoaderModeStatus(requested);
+      if(selectedMap.current!==requested)return;
+      if(observed.mapId.toLowerCase()!==requested.toLowerCase()||
+         observed.serverStarted||observed.originalStoreTouched)
+        throw new Error("UM-STORE-API-MODE-STATUS-MAP-MISMATCH");
+      setStatus(observed);setReconcileRequired(false);
+      setNotice("Az indítási mód friss natív, csak olvasásos ellenőrzése elkészült.");
     }catch{
-      setError("A Loader módváltás előfeltétele nem igazolt. Ellenőrizd az API Core "+
-        "telepítését, a map leállított állapotát és a clusterazonosságot.");
-    }finally{setBusy(false);}
+      if(selectedMap.current===requested)
+        setError("A módváltás natív állapota nem olvasható. Újabb módosítás nem indul.");
+    }finally{if(selectedMap.current===requested)setBusy(false);}
   };
-  const apply=async()=>{
-    if(!preview||busy)return;
+  const change=async()=>{
+    if(!status?.canChangeMode||busy||reconcileRequired||inFlight.current)return;
+    inFlight.current=true;
+    const requested=mapId,next=!status.useApi;
     setBusy(true);setError("");setNotice("");
-    const token=preview.token;
-    setPreview(null);
+    let applied=false;
     try{
-      const receipt=await managerBridge.freshStoreLoaderModeApply(token);
-      setNotice(receipt.mode==="asaApiLoader"?
-        "ASA API Loader indítási mód mentve. A map nem indult el.":
+      // One named click: fresh native preview and immediately consumed
+      // map-scoped one-use token. No separate UI approval or server launch.
+      const proof=await managerBridge.freshStoreLoaderModePreview(requested,next);
+      if(selectedMap.current!==requested)return;
+      if(!proof.token||proof.mapId.toLowerCase()!==requested.toLowerCase()||
+         proof.useApi!==next||proof.mode!==(next?"asaApiLoader":"directAsa")||
+         proof.startsServer||proof.changesStore||!proof.requiresStoppedProcess)
+        throw new Error("UM-STORE-API-MODE-PREVIEW-MISMATCH");
+      applied=true;
+      const receipt=await managerBridge.freshStoreLoaderModeApply(proof.token);
+      if(selectedMap.current!==requested)return;
+      if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||
+         receipt.useApi!==next||receipt.mode!==proof.mode||
+         receipt.serverStarted||receipt.originalStoreTouched||
+         !receipt.requiresManualStart)
+        throw new Error("UM-STORE-API-MODE-RECEIPT-MISMATCH");
+      // Preserve the freshly checked cache status even before a subsequent
+      // read-only status refresh completes. A MODE switch does NOT install Core.
+      setStatus(previous=>previous?{...previous,useApi:next,
+        mode:receipt.mode,cacheState:proof.cacheState}:previous);
+      try{
+        const verified=await managerBridge.freshStoreLoaderModeStatus(requested);
+        if(selectedMap.current!==requested)return;
+        if(verified.mapId.toLowerCase()===requested.toLowerCase()&&
+           verified.useApi===next&&verified.mode===receipt.mode&&
+           !verified.serverStarted&&!verified.originalStoreTouched)
+          setStatus(verified);
+      }catch{
+        // The signed native Apply receipt remains valid even if a later
+        // read-only status query fails. Do NOT submit the change again.
+      }
+      setNotice(next?"ASA API Loader indítási mód mentve. A map nem indult el.":
         "Közvetlen ASA indítási mód mentve. A map nem indult el.");
-      setStatus(await managerBridge.freshStoreLoaderModeStatus(mapId));
       try{await onConfigured();}
-      catch{setError("A profil mentve, de a nézet frissítése nem sikerült. Ne ismételd a műveletet.");}
-    }catch{
-      setError("A jóváhagyás eredménye nem igazolható. Nincs automatikus ismétlés vagy indítás.");
-    }finally{setBusy(false);}
+      catch{if(selectedMap.current===requested)setError(
+        "A profil mentve, de a nézet frissítése nem sikerült. Ne ismételd a műveletet.");}
+    }catch(e){
+      if(selectedMap.current===requested){
+        if(applied)setReconcileRequired(true);
+        setError(applied?
+          "Az indítási mód módosításának kimenetele bizonytalan ("+
+            (e instanceof Error?e.message:"UM-STORE-API-MODE-APPLY-UNKNOWN")+"). "+
+            "Ne ismételd meg; ellenőrizd a natív státuszt.":
+          "A Loader módváltás natív előellenőrzése elutasítva ("+
+            (e instanceof Error?e.message:"UM-STORE-API-MODE-PREFLIGHT")+"). "+
+            "A mapot le kell állítani, és ellenőrizni az API Core fájlokat.");
+      }
+    }finally{
+      inFlight.current=false;
+      if(selectedMap.current===requested)setBusy(false);
+    }
   };
   return <section className="glass panel" aria-label="Új Store-map ASA API indítási módja">
     <div className="panel-head"><h2><Shield size={18}/> ASA API – új Store-map</h2>
-      <span className="mod-tag amber">Maponként, külön jóváhagyással</span></div>
+      <span className="mod-tag amber">Maponkénti, egyszeri beállítás</span></div>
     <div className="panel-inner">
       <div className="details-line"><span>Beállított indítás</span>
         <b>{status?.mode==="asaApiLoader"?"ASA API Loader":
@@ -75,31 +126,16 @@ export function FreshStoreLoaderModePanel({mapId,onConfigured}:{
       </p>
       <div className="settings-actions">
         <button type="button" className="secondary"
-          disabled={!status?.canChangeMode||busy||!!preview}
+          disabled={!status?.canChangeMode||busy||reconcileRequired}
           onClick={()=>{void change();}}>
           <RefreshCw size={16}/>
           {status?.useApi?"Váltás közvetlen ASA indításra":"ASA API Loader választása"}
         </button>
       </div>
-      {preview&&<div className="warning-inline" role="region"
-        aria-label="Új Store-map ASA API módváltási előnézete">
-        <Shield size={17}/>
-        <div>
-          <b>{preview.useApi?"ASA API Loader":"Közvetlen ASA"} mód</b>
-          <p>Csak a helyi Manager profilja változik, teljesen leállított mapnál.
-            A következő Start külön jóváhagyást igényel. Nem történik
-            szerverindítás, Store-konverzió vagy cache-fájl módosítás.</p>
-          {preview.useApi&&<p className="muted small">
-            Cache-állapot: {preview.cacheState}. Az API futásidejű kompatibilitása még nem igazolt.
-          </p>}
-          <div className="settings-actions">
-            <button type="button" className="primary" disabled={busy}
-              onClick={()=>{void apply();}}>Módváltás jóváhagyása</button>
-            <button type="button" className="secondary" disabled={busy}
-              onClick={()=>setPreview(null)}>Mégse</button>
-          </div>
-        </div>
-      </div>}
+      {reconcileRequired&&<button type="button" className="secondary"
+        disabled={busy} onClick={()=>{void refresh();}}>
+        <RefreshCw size={16}/> Indítási mód natív újraellenőrzése
+      </button>}
       {notice&&<div role="status" className="success-inline">
         <CheckCircle2 size={16}/>{notice}</div>}
       {error&&<div role="alert" className="error-inline">
