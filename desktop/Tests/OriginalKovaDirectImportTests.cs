@@ -126,6 +126,24 @@ internal static class OriginalKovaDirectImportTests
             string extraExe=Path.Combine(extraRoot,"ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
             Directory.CreateDirectory(Path.GetDirectoryName(extraExe)!);
             File.WriteAllBytes(extraExe,new byte[]{0x4d,0x5a,0,0});
+            // Local disk evidence is explicitly weaker than UE mount/readiness.
+            string modPayload=Path.Combine(extraRoot,"ShooterGame","Binaries","Win64","ShooterGame","Mods","83374","123456789_111","MapFixture");
+            Directory.CreateDirectory(modPayload);
+            string mapManifest=Path.Combine(modPayload,"Manifest_UFSFiles_Win64.txt");
+            File.WriteAllText(mapManifest,"MapFixture/Content/Asa_N_Chill_Hub.umap\t2026-01-01\n");
+            string mapContainer=Path.Combine(modPayload,"MapFixture.utoc");
+            File.WriteAllBytes(mapContainer,new byte[]{1});
+            var partialContent=SupplementalMapContentProbe.Inspect(extraRoot,"Asa_N_Chill_Hub",new[]{"123456789","987654321"});
+            Check(partialContent.LevelManifestProjects.Length==0&&partialContent.UnverifiedProjects.Length==2,
+                "manifest alone or incomplete IoStore pair does not prove a map payload");
+            File.WriteAllBytes(Path.Combine(modPayload,"MapFixture.ucas"),new byte[]{2});
+            var contentProof=SupplementalMapContentProbe.Inspect(extraRoot,"Asa_N_Chill_Hub",new[]{"123456789","987654321"});
+            Check(contentProof.State=="level-manifest-and-payload-found"&&contentProof.LevelManifestProjects.SequenceEqual(new[]{"123456789"})&&
+                contentProof.UnverifiedProjects.SequenceEqual(new[]{"987654321"})&&contentProof.Fingerprint!=partialContent.Fingerprint,
+                "local exact level manifest plus package pair is detected without downloading or asserting runtime readiness");
+            var wrongLevel=SupplementalMapContentProbe.Inspect(extraRoot,"Future_WP",new[]{"123456789"});
+            Check(wrongLevel.LevelManifestProjects.Length==0&&wrongLevel.State=="level-content-unverified",
+                "same mod package cannot prove a different level");
             var currentMembers=members.Concat(new[]{
                 new{id=extraId,map="Asa_N_Chill_Hub",root=extraRoot}
             }).ToArray();
@@ -354,6 +372,30 @@ internal static class OriginalKovaDirectImportTests
                         ModStateController.Read(map).Passive.SequenceEqual(new[]{"123456789"}),
                         "reopened Event resolves a local lifecycle source fingerprint with exact enabled/passive mods");
                 }
+                // Seventh and eighth source entries may represent a future
+                // official level and a distinct installation of an existing level.
+                string seventh=Guid.NewGuid().ToString("D"), eighth=Guid.NewGuid().ToString("D");
+                string seventhRoot=Path.Combine(baseRoot,"synthetic-future-asa"), eighthRoot=Path.Combine(baseRoot,"synthetic-second-event");
+                var furtherMembers=currentMembers.Concat(new[]{
+                    new{id=seventh,map="FutureOfficial_WP",root=seventhRoot},
+                    new{id=eighth,map="Asa_N_Chill_Hub",root=eighthRoot}
+                }).ToArray();
+                var furtherStates=currentStore.ToDictionary(x=>x.Key,x=>x.Value);
+                furtherStates[extraId]=currentStore[extraId] with{sharedSession=session};
+                furtherStates[seventh]=currentStore[extraId] with{sharedSession=session,root=seventhRoot,map="FutureOfficial_WP",backupId=Guid.NewGuid().ToString("D")};
+                furtherStates[eighth]=currentStore[extraId] with{sharedSession=session,root=eighthRoot,backupId=Guid.NewGuid().ToString("D")};
+                var furtherLaunch=launchRows.Concat(new[]{eventLaunch,
+                    new{id=seventh,root=seventhRoot,launch=new{map="FutureOfficial_WP",gamePort=7907,queryPort=27207,mods=Array.Empty<string>(),passiveMods=Array.Empty<string>()}},
+                    new{id=eighth,root=eighthRoot,launch=new{map="Asa_N_Chill_Hub",gamePort=7917,queryPort=27217,mods=new[]{"123456789"},passiveMods=Array.Empty<string>()}}
+                }).ToArray();
+                File.WriteAllText(cfile,JsonSerializer.Serialize(new{id=VaultProtocol.ClusterId,mode="shared",path=originalCluster.path,members=furtherMembers}));
+                File.WriteAllText(sfile,JsonSerializer.Serialize(new{schema=1,maps=furtherStates}));
+                File.WriteAllText(launchProfilePath,JsonSerializer.Serialize(new{version=1,rows=furtherLaunch}));
+                var future=LegacyStoreV1OriginalImport.Inspect(local);
+                Check(future.Maps.Select(x=>x.MapId.ToString("D")).SequenceEqual(ids)&&future.AdditionalMaps.Length==3&&
+                    LegacyStoreV1PinnedSource.RequireSupplemental(future,Guid.Parse(seventh)).MapKey=="FutureOfficial_WP"&&
+                    LegacyStoreV1PinnedSource.RequireSupplemental(future,Guid.Parse(eighth)).OriginalInstallationRoot==eighthRoot,
+                    "seventh future level and eighth separate same-level source preserve original owner GUIDs");
                 SetExpanded();
                 // Even if an expanded current cluster is represented in a
                 // fresh matching lock, only its explicitly selected five
