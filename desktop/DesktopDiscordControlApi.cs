@@ -479,6 +479,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             eventStream.Record(row.RequestId,row.Maps,row.Action,"discord",row.Actor,"claimed","in-progress","DISCORD_DURABLE_CLAIM",row.Utc);
             try
             {
+                using var operationOrigin=DiscordOperationEvents.EnterOrigin("discord",row.RequestId,row.Actor,row.Maps,row.Action);
                 if(frozen()||closing.IsCancellationRequested)throw new InvalidOperationException("UM-DC-HANDOFF");
                 Guid mapId=p.Maps[0];var map=Owned(mapId);
                 string apply=p.ApplyRoute;Guid? nativeToken=p.NativeToken;
