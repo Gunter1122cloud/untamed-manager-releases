@@ -39,6 +39,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
     }
     private readonly ClusterService cluster;
+    private readonly bool isolatedExecution;
     private readonly Func<IReadOnlyList<LocalMap>,IProgress<SteamQueueProgress>,bool,
         Task<IReadOnlyList<SteamStoppedMapUpdater.Receipt>>> runBatch;
     private readonly Func<LocalMap,SteamUpdatePreview> plan;
@@ -58,6 +59,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
         Func<LocalMap,bool,ProcessCheck>? isolatedOriginalObserver=null)
     {
         cluster=owner??throw new ArgumentNullException(nameof(owner));
+        isolatedExecution=isolatedRunner!=null;
         // Production always uses the exact native stopped-family guard; an
         // injected process fixture is not a route exposed to WebView2.
         observeOriginal=isolatedOriginalObserver??((map,underOwnOperation)=>
@@ -372,6 +374,11 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                        !string.Equals(x.Build,saved.Maps[i].Build,
                            StringComparison.Ordinal)).Any())
                     return Fail(id,"UM-STEAM-BATCH-CHANGED");
+                if(!isolatedExecution)
+                {
+                    try{SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();}
+                    catch(IOException e){return Fail(id,e.Message is "UM-STEAM-EXTERNAL-PROCESS-BUSY" or "UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED"?e.Message:"UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED");}
+                }
                 if(direct)acceptedDirectRequests.Add(requestId);
                 var task=new Job{Total=rechecked.Maps.Length};
                 job=task;
