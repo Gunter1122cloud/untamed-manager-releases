@@ -666,7 +666,7 @@ export type StoppedSteamDiagnostics = {
     pid:number|null;loaderPid:number|null;reason:string}>;
   overlaps:Array<{mapName:string;installRoot:string}>;
   steamCmdFound:boolean;steamCmdConfigured:boolean;
-  steamCmdError?:string|null;asaBinaryRegistered?:boolean;
+  steamCmdError?:string|null;externalSteamError?:string|null;asaBinaryRegistered?:boolean;
   availableBytes:number;requiredBytes:number;
   journalBlocked:boolean;historicalBlocked:boolean;safeInstallation:boolean;
   canPreview:boolean;
