@@ -3286,6 +3286,7 @@ test.beforeEach(async ({ page }) => {
           journalTotal:steamBatchStarted?1:null,
           needsOperatorReview:false,automaticRetry:false,remoteWritesAllowed:false
         };
+        case "steam.batchStart":
         case "steam.batchPreview": {
           if(!Array.isArray(m.mapIds)||m.mapIds.length<1||
              m.mapIds.length>25||new Set(m.mapIds).size!==m.mapIds.length)
@@ -3294,6 +3295,11 @@ test.beforeEach(async ({ page }) => {
             state.local.maps.find(x=>x.id===id&&!x.running&&
               !x.maintenance&&!x.observedReadOnlyImported));
           if(local.some((x:any)=>!x))throw new Error("UM-STEAM-BATCH-PROTECTED-OR-REMOTE");
+          if(m.method==="steam.batchStart"){
+            if(steamBatchStarted)throw new Error("UM-STEAM-BATCH-BUSY-OR-JOURNAL");
+            steamBatchStarted=true;steamBatchApplyCount++;
+            return {jobId:"00000000-0000-4000-8000-000000008881",started:true,serverStopRequested:false,remoteHostTouched:false,storeWriterTouched:false,automaticRetry:false,evidence:"EXPLICIT_LOCAL_STOPPED_SERIAL_STEAM_BATCH_STARTED"};
+          }
           return {token:"00000000-0000-4000-8000-000000008880",
             requestedMaps:local.length,installations:local.length,
             details:local.map((x:any)=>({
@@ -7159,20 +7165,14 @@ test("cluster bulk SteamCMD queues only explicitly approved stopped local map be
     .fill("Local Map 60");
   await expect(targets.getByRole("checkbox")).toHaveCount(1);
   await targets.getByRole("checkbox").check();
-  await panel.getByRole("button",{name:/map natív frissítési előellenőrzése/}).click();
-  const consent=panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"});
-  await expect(consent).toContainText("Local Map 60");
-  const apply=consent.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"});
-  await expect(consent.getByRole("textbox",{
-    name:"Soros SteamCMD jóváhagyó szöveg"
-  })).toHaveCount(0);
-  await expect(apply).toBeEnabled();
-  await apply.click();
+  await expect(panel).toContainText("Kijelölt mapok: Local Map 60");
+  await expect(panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"})).toHaveCount(0);
+  await panel.getByRole("button",{name:"1 kijelölt map frissítése"}).click();
   await expect(panel).toContainText("SteamCMD: completed");
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_STEAM_BATCH_APPLIES__?:()=>number
   }).__UNTAMED_STEAM_BATCH_APPLIES__?.())).toBe(1);
-  await expect(consent).toHaveCount(0);
+  await expect(panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"})).toHaveCount(0);
 });
 
 test("missing SteamCMD path is diagnosed and configured without dispatching an ASA update",async({page})=>{
@@ -8076,25 +8076,21 @@ test("native serial SteamCMD batch reattaches after navigation and transient los
   const panel=page.getByRole("region",{name:"Helyi mapok soros SteamCMD frissítése"});
   const targets=panel.getByRole("group",{name:"Soros SteamCMD célmapok"});
   await targets.getByRole("checkbox").check();
-  await panel.getByRole("button",{name:/map natív frissítési előellenőrzése/}).click();
-  const consent=panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"});
-  await expect(consent.getByRole("textbox",{
-    name:"Soros SteamCMD jóváhagyó szöveg"
-  })).toHaveCount(0);
-  await consent.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"}).click();
+  await expect(panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"})).toHaveCount(0);
+  await panel.getByRole("button",{name:"1 kijelölt map frissítése"}).click();
   await expect(panel).toContainText("SteamCMD: running");
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_FAIL_STEAM_BATCH_STATUS__?:()=>void
   }).__UNTAMED_FAIL_STEAM_BATCH_STATUS__?.());
   await expect(panel).toContainText("állapota átmenetileg nem ellenőrizhető",{timeout:15000});
-  await expect(panel.getByRole("button",{name:/map natív frissítési előellenőrzése/})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:/kijelölt map frissítése/})).toBeDisabled();
   await page.getByRole("navigation",{name:"Fő navigáció"})
     .getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("navigation",{name:"Fő navigáció"})
     .getByRole("button",{name:"Cluster",exact:true}).click();
   const resumed=page.getByRole("region",{name:"Helyi mapok soros SteamCMD frissítése"});
   await expect(resumed).toContainText("SteamCMD: running");
-  await expect(resumed.getByRole("button",{name:/map natív frissítési előellenőrzése/})).toBeDisabled();
+  await expect(resumed.getByRole("button",{name:/kijelölt map frissítése/})).toBeDisabled();
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_RELEASE_STEAM_BATCH__?:()=>void
   }).__UNTAMED_RELEASE_STEAM_BATCH__?.());
@@ -8116,17 +8112,12 @@ test("stopped original Store-v1 ASA map participates in explicitly approved seri
   const targets=panel.getByRole("group",{name:"Soros SteamCMD célmapok"});
   await expect(targets).toContainText("Astraeos");
   await targets.getByRole("checkbox").check();
-  await panel.getByRole("button",{name:/map natív frissítési előellenőrzése/}).click();
-  const proof=panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"});
-  await expect(proof).toContainText("Astraeos");
-  await expect(proof.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"})).toBeEnabled();
+  await expect(panel).toContainText("Kijelölt mapok: Astraeos");
+  await expect(panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"})).toHaveCount(0);
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_STEAM_BATCH_APPLIES__?:()=>number
   }).__UNTAMED_STEAM_BATCH_APPLIES__?.())).toBe(0);
-  await expect(proof.getByRole("textbox",{
-    name:"Soros SteamCMD jóváhagyó szöveg"
-  })).toHaveCount(0);
-  await proof.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"}).click();
+  await panel.getByRole("button",{name:"1 kijelölt map frissítése"}).click();
   await expect(panel).toContainText("SteamCMD: completed");
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_STEAM_BATCH_APPLIES__?:()=>number
