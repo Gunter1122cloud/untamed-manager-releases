@@ -20,7 +20,7 @@ internal sealed class DiscordOperationEvents
         string Result,string Evidence,DateTimeOffset? ScheduledUtc=null,Guid? NativeJobId=null);
     internal sealed record Page(int Version,string HostId,Guid? Epoch,long OldestSequence,long LatestSequence,
         string State,bool Gap,bool More,string? NextCursor,Event[] Events);
-    private sealed record Journal(Guid Epoch,long Latest,List<Event> Events);
+    private sealed record Journal(Guid Epoch,string HostId,long Latest,List<Event> Events);
     private sealed record Origin(string Name,Guid? Id,string? Actor,Guid[]? Maps,string? Action,bool Suppress);
     private static readonly AsyncLocal<Origin?> Current=new();
     private sealed class Scope(Origin? previous):IDisposable
@@ -95,7 +95,7 @@ internal sealed class DiscordOperationEvents
         using var stream=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.Read);
         if(stream.Length is <2 or >MaxBytes)throw new InvalidDataException("UM-DC-EVENTS-CORRUPT");
         var journal=JsonSerializer.Deserialize<Journal>(stream,Json)??throw new InvalidDataException("UM-DC-EVENTS-CORRUPT");
-        if(journal.Epoch==Guid.Empty||journal.Latest<0||journal.Events==null||journal.Events.Count>Retain||
+        if(journal.Epoch==Guid.Empty||journal.HostId!=hostId||journal.Latest<0||journal.Events==null||journal.Events.Count>Retain||
            journal.Events.Where((e,i)=>e==null||e.Sequence!=journal.Latest-journal.Events.Count+i+1||e.OperationId==Guid.Empty||
                e.EventId!=journal.Epoch.ToString("N")+":"+e.Sequence||!Valid(e)).Any())
             throw new InvalidDataException("UM-DC-EVENTS-CORRUPT");
@@ -131,7 +131,7 @@ internal sealed class DiscordOperationEvents
         try
         {
             Locked(()=>{
-                var current=Load()??new Journal(Guid.NewGuid(),0,new());
+                var current=Load()??new Journal(Guid.NewGuid(),hostId,0,new());
                 // An acknowledgement returning after a completed async worker is not a new phase.
                 if(current.Events.Any(x=>x.OperationId==id&&x.Phase=="terminal"))return true;
                 if(current.Events.Any(x=>x.OperationId==id&&x.Phase==phase&&x.Result==result&&x.Evidence==evidence))return true;
@@ -141,6 +141,7 @@ internal sealed class DiscordOperationEvents
                 if(!Valid(e))throw new InvalidDataException("UM-DC-EVENTS-FIELDS");
                 current.Events.Add(e);
                 if(current.Events.Count>Retain)current.Events.RemoveAt(0);
+                Directory.CreateDirectory(Path.GetDirectoryName(file)!);
                 Save(current with{Latest=next});
                 return true;
             });
