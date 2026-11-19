@@ -1049,6 +1049,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     if(stillApproved&&Eligible(map)&&Fingerprint(map)==observed.Fingerprint)
                     {
                         ScheduleEvent(claimId,observed,"started","in-progress","NATIVE_PREFLIGHT_PASSED");
+                        using var origin=DiscordOperationEvents.EnterOrigin("scheduler",claimId,maps:new[]{map.Id},action:observed.Kind,suppress:true);
                         evidence=map.HistoricalStoreProtected?
                             await RunHistoricalAsync(observed,claimId,token):await runner(map.Id,observed.Kind,token);
                         status="executed-no-fsync-or-client-certification";
