@@ -147,6 +147,17 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
 
   const blocked=busy||!!jobId||otherMapUpdating||reconnecting||reconnectFailed||
     Boolean(journal?.needsOperatorReview);
+  // Discover the installation scope automatically, without dispatching an update.
+  // The explicit refresh button remains useful after an external SteamCMD job.
+  useEffect(()=>{
+    if(!mapId||reconnecting||reconnectFailed||otherMapUpdating||jobId)return;
+    let active=true;
+    managerBridge.steamStoppedDiagnostics(mapId).then(report=>{
+      if(active&&report.mapId.toLowerCase()===mapId.toLowerCase()&&
+         report.noProcessAutoStop===true&&report.remoteWrites===false)setDiagnostics(report);
+    }).catch(()=>{/* explicit read-only refresh reports diagnostics failure */});
+    return ()=>{active=false;};
+  },[mapId,reconnecting,reconnectFailed,otherMapUpdating,jobId]);
   const selectSteam=async(prepare=false)=>{
     if(!mapId||blocked)return;
     const requested=mapId,epoch=mapEpoch.current;
