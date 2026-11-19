@@ -66,10 +66,12 @@ internal sealed class DiscordOperationEvents
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private static readonly Regex Code=new(@"\A[A-Za-z0-9_-]{1,240}\z",RegexOptions.CultureInvariant);
     private readonly string file,gapFile,mutex,hostId;
+    private readonly int retention;
     internal DiscordOperationEvents(ClusterService cluster):this(cluster.Store.Root,cluster.Config.LocalHostId){}
-    internal DiscordOperationEvents(string root,string hostId)
+    internal DiscordOperationEvents(string root,string hostId,int retention=Retain)
     {
-        this.hostId=hostId;
+        if(retention is <1 or >Retain)throw new ArgumentOutOfRangeException(nameof(retention));
+        this.retention=retention;this.hostId=hostId;
         file=Path.Combine(root,"discord-operation-events-v1.json");
         gapFile=file+".gap";
         mutex=@"Global\Untamed-DiscordEvents-"+Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(root).ToUpperInvariant())));
@@ -95,7 +97,7 @@ internal sealed class DiscordOperationEvents
         using var stream=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.Read);
         if(stream.Length is <2 or >MaxBytes)throw new InvalidDataException("UM-DC-EVENTS-CORRUPT");
         var journal=JsonSerializer.Deserialize<Journal>(stream,Json)??throw new InvalidDataException("UM-DC-EVENTS-CORRUPT");
-        if(journal.Epoch==Guid.Empty||journal.HostId!=hostId||journal.Latest<0||journal.Events==null||journal.Events.Count>Retain||
+        if(journal.Epoch==Guid.Empty||journal.HostId!=hostId||journal.Latest<0||journal.Events==null||journal.Events.Count>retention||
            journal.Events.Where((e,i)=>e==null||e.Sequence!=journal.Latest-journal.Events.Count+i+1||e.OperationId==Guid.Empty||
                e.EventId!=journal.Epoch.ToString("N")+":"+e.Sequence||!Valid(e)).Any())
             throw new InvalidDataException("UM-DC-EVENTS-CORRUPT");
@@ -140,7 +142,7 @@ internal sealed class DiscordOperationEvents
                     utc,phase,result,string.IsNullOrEmpty(evidence)?"NO_ADDITIONAL_EVIDENCE":Code.IsMatch(evidence)?evidence:"EVIDENCE_NOT_EXPORTABLE",scheduled,nativeJob);
                 if(!Valid(e))throw new InvalidDataException("UM-DC-EVENTS-FIELDS");
                 current.Events.Add(e);
-                if(current.Events.Count>Retain)current.Events.RemoveAt(0);
+                if(current.Events.Count>retention)current.Events.RemoveAt(0);
                 Directory.CreateDirectory(Path.GetDirectoryName(file)!);
                 Save(current with{Latest=next});
                 return true;
@@ -158,7 +160,7 @@ internal sealed class DiscordOperationEvents
         return Locked(()=>{
             bool gap=MemoryGaps.ContainsKey(file)||File.Exists(gapFile);
             var journal=Load();
-            if(journal==null)return new Page(1,hostId,null,0,0,cursor is null or "empty"?"notInitialized":"journalChanged",gap||cursor is not (null or "empty"),false,cursor is null or "empty"?"empty":null,Array.Empty<Event>());
+            if(journal==null)return new Page(1,hostId,null,0,0,cursor is null or "empty" or "begin"?"notInitialized":"journalChanged",gap||cursor is not (null or "empty" or "begin"),false,cursor is null or "empty" or "begin"?"empty":null,Array.Empty<Event>());
             long oldest=journal.Events.Count==0?journal.Latest+1:journal.Events[0].Sequence;
             string Make(long n)=>journal.Epoch.ToString("N")+":"+n;
             // Null means baseline at the current high-water mark. No old
