@@ -9,7 +9,7 @@ namespace UntamedManager.Core;
 public enum SteamMaintenanceStage
 {
     Preflight, NotifyPlayers, SaveWorld, Backup, StopVerified,
-    SteamCmd, VerifyBuild, Restart, Readiness, Completed
+    SteamCmd, VerifyBuild, Restart, Readiness, Completed, VerifyProtectedFiles
 }
 public sealed record SteamMaintenanceEvidence(Guid MapId,string OldBuild,
     string NewBuild,string BackupDigest,bool ProtectedFilesIntact,
