@@ -732,8 +732,11 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         intent.Complete();
                     }
                 }
+                var events=new DiscordOperationEvents.NativeRun(cluster,job.Id,new[]{map.Id},approved.Kind=="SaveWorldOnly"?"SaveWorld":"Stop");
+                events.Emit("claimed","in-progress","NATIVE_JOB_ACCEPTED");
                 lock(sync)jobsByMap[map.Id]=job;
                 _=Task.Run(async()=>{
+                    events.Emit("started","in-progress","NATIVE_EXECUTION_STARTED");
                     Update(job,"running",approved.Kind=="SaveWorldOnly"?
                         "Eredeti Store-v1 SaveWorld és mentésigazolás":
                         "Eredeti SaveWorld → log+világfájl → DoExit");
@@ -764,6 +767,8 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                             UpdateSave(job,"completed",receipt.SaveCompleteObserved?
                                 "ASA SaveComplete log + stabil .ark helyileg igazolt; a szerver fut":
                                 "Saját .ark frissült és stabil; SaveComplete nem igazolt; a szerver fut",receipt);
+                            events.Emit("save-result",receipt.SaveCompleteObserved?"verified-local":"limited",receipt.SaveCompleteObserved?"LOCAL_SAVE_LOG_WORLD":"LOCAL_WORLD_METADATA_LOG_UNVERIFIED");
+                            events.Emit("terminal","limited",receipt.SaveCompleteObserved?"LOCAL_SAVE_LOG_WORLD":"LOCAL_WORLD_METADATA_LOG_UNVERIFIED");
                         }
                         else
                         {
@@ -774,6 +779,9 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                                !receipt.ConfirmedStopped||!receipt.UsedDoExit)
                                 throw new InvalidDataException("UM-ORIGINAL-STOP-RECEIPT-MISMATCH");
                             Update(job,"completed","A régi ASA-folyamat kilépett",receipt);
+                            events.Emit("save-result",receipt.PreExitSaveLogAndWorldObserved?"verified-local":"limited",receipt.PreExitSaveLogAndWorldObserved?"LOCAL_SAVE_LOG_WORLD":receipt.PreExitWorldMetadataObserved?"LOCAL_WORLD_METADATA_LOG_UNVERIFIED":"SAVE_EVIDENCE_UNVERIFIED");
+                            events.Emit("stop-result","verified-local","OLD_PROCESS_STOPPED");
+                            events.Emit("terminal","limited","GRACEFUL_STOP_FINAL_SAVE_UNVERIFIED");
                         }
                     }
                     catch(LegacyStoreV1GracefulStop.SaveWorldNotDispatchedException ex)
@@ -791,12 +799,14 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                             Update(job,"notDispatched","SaveWorld NEM lett kiküldve: "+
                                 ex.Message+". Natív előfeltétel javítása és új "+
                                 "külön indítás szükséges.");
+                            events.Emit("terminal","rejected","SAVE_NOT_DISPATCHED");
                         }
                         catch
                         {
                             Update(job,"needsOperator",
                                 "UM-ORIGINAL-SAVE-NO-DISPATCH-RECEIPT-UNVERIFIED: "+
                                 "helyi napló nem lezárható; nincs automatikus újraküldés.");
+                            events.Emit("terminal","uncertain","SAVE_NO_DISPATCH_RECEIPT_UNVERIFIED");
                         }
                     }
                     catch(Exception ex)
@@ -818,6 +828,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                             "Store-v1 RCON művelet megszakadt ["+
                             NativeLifecycleFailureCode.From(ex)+
                             "]; PID és napló kézi ellenőrzése szükséges");
+                        events.Emit("terminal","uncertain",NativeLifecycleFailureCode.From(ex));
                     }
                 });
                 return Ok(id,new{
