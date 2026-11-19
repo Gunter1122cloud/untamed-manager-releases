@@ -124,6 +124,10 @@ export class OperationFeed {
    const id=key(host.id,e.operationId);
    let run=state.runs[id];
    if(run&&e.sequence>0&&run.sequence>=e.sequence)return;
+   // Recovered terminal receipts retain their original timestamp and run ID.
+   // Do not reopen a completed run or generate a duplicate current alert.
+   if(run&&run.finishedUtc&&e.historical&&terminal(e))return;
+   backfill=backfill||e.historical===true;
    run=run??{hostId:host.id,hostName:host.name,operationId:e.operationId,mapIds:e.mapIds,mapNames:e.mapIds.map((id,i)=>e.mapNames?.[i]??host.mapNames?.[id]??"Ismeretlen map"),
       operation:e.operation,origin:e.origin,actorId:e.actorId,startedUtc:null,finishedUtc:null,sequence:0,phases:{},historical:backfill,scheduledUtc:e.scheduledUtc??null};
    if(e.sequence>0)run.sequence=e.sequence;
