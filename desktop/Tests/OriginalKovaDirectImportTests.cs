@@ -120,6 +120,12 @@ internal static class OriginalKovaDirectImportTests
         {
             string extraId=Guid.NewGuid().ToString("D");
             string extraRoot=Path.Combine(baseRoot,"synthetic-eventmap");
+            // Supply the same exact Windows layout as the original five.
+            // Runtime fingerprint requires an actual local executable path,
+            // even for this isolated, deliberately non-runnable fixture.
+            string extraExe=Path.Combine(extraRoot,"ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(extraExe)!);
+            File.WriteAllBytes(extraExe,new byte[]{0x4d,0x5a,0,0});
             var currentMembers=members.Concat(new[]{
                 new{id=extraId,map="Asa_N_Chill_Hub",root=extraRoot}
             }).ToArray();
