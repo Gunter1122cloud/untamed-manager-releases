@@ -17,6 +17,11 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
 {
     private sealed record Preview(Guid Token,Guid MapId,string Root,string Build,
         string Steam,DateTimeOffset Created);
+
+    private sealed class InlineProgress<T>(Action<T> report):IProgress<T>
+    {
+        public void Report(T value)=>report(value);
+    }
     private sealed class Job
     {
         public Guid Id=Guid.NewGuid();
@@ -483,7 +488,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                 _=Task.Run(async()=>
                 {
                     Stage(task,"running","preflight");
-                    var progress=new Progress<SteamMaintenanceStage>(
+                    var progress=new InlineProgress<SteamMaintenanceStage>(
                         value=>Stage(task,"running",value.ToString()));
                     try
                     {
@@ -492,11 +497,11 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                             throw new InvalidDataException("UM-STEAM-RECEIPT-INVALID");
                         Stage(task,"completed","verified",verified);
                     }
-                    catch(Exception)
+                    catch(Exception ex)
                     {
                         lock(sync)
                         {
-                            task.ErrorCode="UM-STEAM-UPDATE-FAILED";
+                            task.ErrorCode=ex.Message is "UM-STEAM-EXTERNAL-PROCESS-BUSY" or "UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED" or "UM-STEAM-INSTALLED-BUILD-INVALID" or "UM-STEAM-INSTALLED-BUILD-CHANGED"?ex.Message:"UM-STEAM-UPDATE-FAILED";
                             Stage(task,"needsOperator",task.Stage);
                         }
                     }
