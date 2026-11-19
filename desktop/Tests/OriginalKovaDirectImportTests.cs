@@ -252,6 +252,9 @@ internal static class OriginalKovaDirectImportTests
                     Check(!mismatch.GetProperty("ok").GetBoolean()&&
                         mismatch.GetProperty("error").GetString()=="UM-STORE-EXTRA-SESSION-MISMATCH",
                         "real native supplemental preview reports mismatched session without network or process mutation");
+                    var directMismatch=await Call(expandedBridge,"historical.supplementalStart",new{mapId=extraId,stoppedUseApi=true});
+                    Check(!directMismatch.GetProperty("ok").GetBoolean()&&directMismatch.GetProperty("error").GetString()=="UM-STORE-EXTRA-SESSION-MISMATCH"&&expandedManager.Config.LocalMaps.Count==5,
+                        "one-click extra registration retains the exact shared-session guard and has no failure-side profile write");
                     var clusterPreview=await Call(expandedBridge,
                         "historical.originalClusterPreview");
                     Check(clusterPreview.GetProperty("ok").GetBoolean()&&
@@ -363,6 +366,12 @@ internal static class OriginalKovaDirectImportTests
                         LegacyStoreV1PinnedSource.HasApprovedLocalSource(reopened.Store.Root,map)&&
                         reopened.Registry.Snapshot().ClusterRegistry.MapAssignments.Any(x=>x.MapId==map.Id),
                         "restart retains audited Event registration and exact original GUID");
+                    using(var replayBridge=new DesktopHistoricalStoreImportBridge(reopened,localLegacyDataDirectory:local))
+                    {
+                        var directReplay=await Call(replayBridge,"historical.supplementalStart",new{mapId=map.Id,stoppedUseApi=false});
+                        Check(directReplay.GetProperty("ok").GetBoolean()&&directReplay.GetProperty("data").GetProperty("alreadyRegistered").GetBoolean()&&reopened.Config.LocalMaps.Count==6,
+                            "replayed one-click registration returns existing audited GUID without adding a second map");
+                    }
                     // Runtime source proof must resolve the registered supplemental pin,
                     // not fall back to the five-map peer writer selection or a remote share.
                     var fingerprint=LegacyStoreV1PinnedSource.RuntimeFingerprint(
