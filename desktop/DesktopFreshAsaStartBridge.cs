@@ -280,11 +280,15 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                        permit.BinariesFingerprint ||
                    AsaSteamBuildCatalog.InstalledBuild(current.InstallationPath)!=permit.Build)
                     return Error(id,"UM-FRESH-START-CHANGED");
+                using var events=new DiscordOperationEvents.NativeRun(cluster,Guid.NewGuid(),new[]{current.Id},"Start");
+                events.Emit("started","in-progress","NATIVE_LAUNCH_ATTEMPT");
                 var identity=launch(current.Id,true);
                 if(identity.Pid<=0 || identity.StartedUtc==default)
                     return Error(id,"UM-FRESH-START-UNVERIFIED-PROCESS");
                 if(nativeLauncher&&permit.UseApi)
                     FreshStoreApiPairObserver.Begin(cluster,current.Id,identity,closing.Token);
+                events.Emit("new-process",permit.UseApi?"limited":"verified-local",permit.UseApi?"LOADER_ONLY_OBSERVED":"NEW_PID_OBSERVED");
+                events.Emit("terminal","limited","START_PROCESS_ONLY_READINESS_UNVERIFIED");
                 return Ok(id,new{
                     mapId=current.Id,mapName=current.Name,pid=identity.Pid,
                     createdUtc=identity.StartedUtc,
