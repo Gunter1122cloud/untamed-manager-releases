@@ -226,6 +226,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 nextRunId=invalid?(Guid?)null:rows.LastOrDefault()?.RunId??after,
                 more=!invalid&&offset+rows.Length<history.Count,
                 runs=rows.Select(x=>new {x.RunId,x.MapId,x.Kind,x.ScheduledUtc,x.ClaimedUtc,x.FinishedUtc,
+                    currentMapName=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==x.MapId)?.Name,
                     status=SafeCode(x.Status),evidence=SafeCode(x.Evidence)})};
         });
     }
