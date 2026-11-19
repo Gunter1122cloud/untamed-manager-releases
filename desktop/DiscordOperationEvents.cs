@@ -93,7 +93,7 @@ internal sealed class DiscordOperationEvents
                 var current=Load()??new Journal(Guid.NewGuid(),0,new());
                 var next=checked(current.Latest+1);
                 var e=new Event(next,current.Epoch.ToString("N")+":"+next,id,maps,operation,origin,actor,
-                    utc,phase,result,string.IsNullOrEmpty(evidence)?"NO_ADDITIONAL_EVIDENCE":evidence,scheduled,nativeJob);
+                    utc,phase,result,string.IsNullOrEmpty(evidence)?"NO_ADDITIONAL_EVIDENCE":Code.IsMatch(evidence)?evidence:"EVIDENCE_NOT_EXPORTABLE",scheduled,nativeJob);
                 if(!Valid(e))throw new InvalidDataException("UM-DC-EVENTS-FIELDS");
                 current.Events.Add(e);
                 if(current.Events.Count>Retain)current.Events.RemoveAt(0);
@@ -113,13 +113,18 @@ internal sealed class DiscordOperationEvents
         return Locked(()=>{
             bool gap=MemoryGaps.ContainsKey(file)||File.Exists(gapFile);
             var journal=Load();
-            if(journal==null)return new Page(1,hostId,null,0,0,cursor==null?"notInitialized":"journalChanged",gap||cursor!=null,false,null,Array.Empty<Event>());
+            if(journal==null)return new Page(1,hostId,null,0,0,cursor is null or "empty"?"notInitialized":"journalChanged",gap||cursor is not (null or "empty"),false,cursor is null or "empty"?"empty":null,Array.Empty<Event>());
             long oldest=journal.Events.Count==0?journal.Latest+1:journal.Events[0].Sequence;
             string Make(long n)=>journal.Epoch.ToString("N")+":"+n;
             // Null means baseline at the current high-water mark. No old
             // events are represented as new alerts. "begin" explicitly opts in.
             long after=journal.Latest;
             if(cursor=="begin")after=oldest-1;
+            else if(cursor=="empty")
+            {
+                if(oldest>1)return new Page(1,hostId,journal.Epoch,oldest,journal.Latest,"cursorInvalid",true,false,null,Array.Empty<Event>());
+                after=0;
+            }
             else if(cursor!=null)
             {
                 var parts=cursor.Split(':');
