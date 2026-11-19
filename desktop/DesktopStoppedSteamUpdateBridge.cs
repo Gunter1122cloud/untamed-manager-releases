@@ -24,6 +24,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         public string State="queued",Stage="preflight";
         public string OldBuild="",NewBuild="";
         public bool ProtectedFilesIntact;
+        public string? ErrorCode;
         public DateTimeOffset Changed=DateTimeOffset.UtcNow;
     }
     private readonly ClusterService cluster;
@@ -38,6 +39,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     private readonly System.Collections.Generic.Dictionary<Guid,Preview> pendingByMap=new();
     private readonly System.Collections.Generic.Dictionary<Guid,Job> jobsById=new();
     private Job? job;
+    private readonly System.Collections.Generic.HashSet<Guid> acceptedDirectRequests=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private const long Reserve=10L*1024*1024*1024;
 
@@ -153,7 +155,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         lock(sync)return new{
             jobId=item.Id,mapId=item.MapId,state=item.State,stage=item.Stage,
             changedUtc=item.Changed,oldBuild=item.OldBuild,newBuild=item.NewBuild,
-            protectedFilesIntact=item.ProtectedFilesIntact,
+            protectedFilesIntact=item.ProtectedFilesIntact,errorCode=item.ErrorCode,
             restartPerformed=false,storeTouched=false
         };
     }
@@ -174,7 +176,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
             id=requestId.ToString("D");
             string? method=field.GetString();
             if(method is not ("steam.stoppedDiagnostics" or "steam.stoppedPreview" or
-                "steam.stoppedApply" or "steam.stoppedStatus" or "steam.stoppedCurrent" or
+                "steam.stoppedApply" or "steam.stoppedStart" or "steam.stoppedStatus" or "steam.stoppedCurrent" or
                 "steam.publishedBuild" or "steam.selectExecutable" or "steam.prepareExecutable"))
                 return Fail(id,"UM-METHOD-DENIED");
             await mutex.WaitAsync();
@@ -268,6 +270,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     bool safeInstallation=Stopped(owned);
                     return Ok(id,new{
                         mapId=owned.Id,mapName=owned.Name,installRoot=root,
+                        installedBuild=AsaSteamBuildCatalog.InstalledBuild(root),
                         processes,overlaps,steamCmdError,
                         asaBinaryRegistered=AsaReadyProbe.IsRegisteredServerBinary(owned),
                         steamCmdFound=steamFound,steamCmdConfigured=
@@ -315,7 +318,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         availableBuild=report.AvailableBuild,
                         state=report.State.ToString(),
                         checkedUtc=report.CheckedUtc,
-                        explanation=report.Explanation,
+                        explanation=report.Explanation,diagnosticCode=report.DiagnosticCode,
                         updateAvailable=report.State==AsaSteamBuildState.UpdateAvailable,
                         downloadStarted=false,serverStopped=false,
                         storeWriterTouched=false,remoteHostTouched=false,
@@ -380,7 +383,11 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                             return Fail(id,"UM-STEAM-UPDATE-IN-PROGRESS");
                     }
                 }
-                if(method=="steam.stoppedPreview")
+                bool direct=method=="steam.stoppedStart";
+                Preview? saved=null;
+                if(direct&&(acceptedDirectRequests.Contains(requestId)||acceptedDirectRequests.Count>=4096))
+                    return Fail(id,"UM-STEAM-DIRECT-REQUEST-CONSUMED");
+                if(method=="steam.stoppedPreview"||direct)
                 {
                     if(!GuidField(data,"mapId",out var mapId))
                         return Fail(id,"UM-STEAM-MAP");
@@ -400,6 +407,20 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         return Fail(id,"UM-STEAM-PREFLIGHT-FAILED");
                     var proposed=new Preview(Guid.NewGuid(),owned.Id,owned.InstallationPath,
                         plan.InstalledBuild,steam.ExecutablePath,DateTimeOffset.UtcNow);
+                    if(direct)
+                    {
+                        // A single explicit native request creates and consumes its own scoped preflight.
+                        // Shared installation scope must have been displayed by the read-only diagnostics.
+                        if(plan.Maps.Length>1&&(!data.TryGetProperty("affectedMaps",out var affected)||
+                           affected.ValueKind!=JsonValueKind.Array||
+                           !affected.EnumerateArray().All(x=>x.ValueKind==JsonValueKind.String)||
+                           !affected.EnumerateArray().Select(x=>x.GetString()).OrderBy(x=>x,StringComparer.Ordinal)
+                               .SequenceEqual(plan.Maps.OrderBy(x=>x,StringComparer.Ordinal))))
+                            return Fail(id,"UM-STEAM-SHARED-SCOPE-CHANGED");
+                        saved=proposed;
+                    }
+                    else
+                    {
                     pendingByMap[owned.Id]=proposed;
                     return Ok(id,new{
                         token=proposed.Token,mapName=owned.Name,mapId=owned.Id,
@@ -408,15 +429,21 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         availableBytes=plan.AvailableBytes,
                         evidence="REAL_LOCAL_STOPPED_STEAM_PREFLIGHT_NO_WRITE"
                     });
+                    }
                 }
+                else
+                {
                 if(!GuidField(data,"token",out var approval))
                     return Fail(id,"UM-STEAM-TOKEN-EXPIRED");
-                var saved=pendingByMap.Values.SingleOrDefault(p=>p.Token==approval);
+                saved=pendingByMap.Values.SingleOrDefault(p=>p.Token==approval);
                 if(saved==null||DateTimeOffset.UtcNow-saved.Created>TimeSpan.FromMinutes(5))
                     return Fail(id,"UM-STEAM-TOKEN-EXPIRED");
                 if(!data.TryGetProperty("confirm",out var confirm)||
                    confirm.ValueKind!=JsonValueKind.True)
                     return Fail(id,"UM-STEAM-CONFIRMATION-REQUIRED");
+                }
+                if(saved==null||DateTimeOffset.UtcNow-saved.Created>TimeSpan.FromMinutes(5))
+                    return Fail(id,"UM-STEAM-TOKEN-EXPIRED");
                 // One-shot approval is consumed for its own map only.
                 pendingByMap.Remove(saved.MapId);
                 if(HasBlockedJournal())
@@ -429,6 +456,17 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                        StringComparison.OrdinalIgnoreCase)||
                    AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath)!=saved.Build)
                     return Fail(id,"UM-STEAM-PREFLIGHT-CHANGED");
+                var fresh=planner(map);
+                if(!fresh.DryRunAllowed||fresh.InstalledBuild!=saved.Build||
+                   !string.Equals(Path.GetFullPath(fresh.InstallRoot),Path.GetFullPath(saved.Root),StringComparison.OrdinalIgnoreCase))
+                    return Fail(id,"UM-STEAM-PREFLIGHT-CHANGED");
+                if(direct&&fresh.Maps.Length>1&&(!data.TryGetProperty("affectedMaps",out var freshScope)||
+                   freshScope.ValueKind!=JsonValueKind.Array||
+                   !freshScope.EnumerateArray().All(x=>x.ValueKind==JsonValueKind.String)||
+                   !freshScope.EnumerateArray().Select(x=>x.GetString()).OrderBy(x=>x,StringComparer.Ordinal)
+                       .SequenceEqual(fresh.Maps.OrderBy(x=>x,StringComparer.Ordinal))))
+                    return Fail(id,"UM-STEAM-SHARED-SCOPE-CHANGED");
+                if(direct)acceptedDirectRequests.Add(requestId);
                 var task=new Job{MapId=map.Id};
                 lock(sync)
                 {
@@ -456,7 +494,11 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     }
                     catch(Exception)
                     {
-                        Stage(task,"needsOperator","update failed, inspect Core journal");
+                        lock(sync)
+                        {
+                            task.ErrorCode="UM-STEAM-UPDATE-FAILED";
+                            Stage(task,"needsOperator",task.Stage);
+                        }
                     }
                 });
                 return Ok(id,new{jobId=task.Id,started=true,
