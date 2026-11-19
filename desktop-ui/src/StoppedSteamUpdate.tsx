@@ -3,7 +3,10 @@ import {AlertTriangle,CheckCircle2,HardDrive,RefreshCw,Shield} from "lucide-reac
 import {managerBridge,type PublicMap,type StoppedSteamStatus,type DurableSteamQueue,type StoppedSteamDiagnostics,type SteamPublishedBuild} from "./bridge";
 import {ScheduledStoppedSteamSettings} from "./ScheduledStoppedSteamSettings";
 
-const steamReason=(code?:string|null)=>code==="UM-STEAMCMD-NOT-CONFIGURED"?"Nincs SteamCMD beállítva. Válaszd ki a steamcmd.exe fájlt.":
+const steamReason=(code?:string|null)=>code==="UM-STEAM-EXTERNAL-PROCESS-BUSY"?"Másik SteamCMD fut ezen a gépen. Várd meg, amíg befejeződik, majd ellenőrizd újra.":
+  code==="UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED"?"A helyi SteamCMD folyamatok nem ellenőrizhetők. Ellenőrizd a Feladatkezelőt és a Windows jogosultságokat.":
+  code==="UM-STEAM-SHARED-SCOPE-CHANGED"?"A közös telepítés maplistája megváltozott. Olvasd újra a helyi állapotot.":
+  code==="UM-STEAMCMD-NOT-CONFIGURED"?"Nincs SteamCMD beállítva. Válaszd ki a steamcmd.exe fájlt.":
   code==="UM-STEAMCMD-NOT-FOUND"?"A beállított steamcmd.exe nem található.":
   code==="UM-STEAMCMD-INVALID"?"Érvénytelen vagy nem olvasható helyi SteamCMD-programútvonal.":
   code==="UM-STEAMCMD-PREPARE-FAILED"?"A hivatalos SteamCMD előkészítése sikertelen. Ellenőrizd a kapcsolatot és a helyi Tools könyvtárat, vagy válassz meglevő steamcmd.exe fájlt.":
@@ -204,7 +207,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
         throw new Error("UM-STEAM-DIAGNOSTICS-OTHER-MAP");
       setDiagnostics(report);
       if(!report.canPreview){
-        setError(steamReason(report.steamCmdError)??(report.asaBinaryRegistered===false?steamReason("UM-STEAM-ASA-BINARY-INVALID")!:"A frissítési előfeltételek nem teljesülnek. A diagnosztika jelzi a blokkoló mapot, SteamCMD-t, tárhelyet vagy naplót."));
+        setError(steamReason(report.externalSteamError??report.steamCmdError)??(report.asaBinaryRegistered===false?steamReason("UM-STEAM-ASA-BINARY-INVALID")!:"A frissítési előfeltételek nem teljesülnek. A diagnosztika jelzi a blokkoló mapot, SteamCMD-t, tárhelyet vagy naplót."));
         return;
       }
 
@@ -231,8 +234,10 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
         protectedFilesIntact:false,restartPerformed:false,storeTouched:false
       });
       setJobId(started.jobId);
-    }catch{
+    }catch(e){
       if(belongs(requested,epoch)){
+        const reason=steamReason(e instanceof Error?e.message:"");
+        if(reason){setDiagnostics(null);setError(reason);return;}
         setReconnectFailed(true);
         setError("A SteamCMD frissítés indításának eredménye nem igazolható. A natív frissítő már elindulhatott; ne ismételd meg. Ellenőrizd a feladatot.");
       }
@@ -302,6 +307,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
         Közös telepítés tulajdonjoga: {diagnostics.safeInstallation?
           "ellenőrzött, a helyi, leállított telepítés mapjai":
           "nem igazolható – a közös telepítés vagy a Store-védelem blokkol"}.</p>
+      {diagnostics.externalSteamError&&<p role="alert">{steamReason(diagnostics.externalSteamError)} ({diagnostics.externalSteamError})</p>}
       {diagnostics.processes.map(p=><p key={p.mapName}>
         {p.mapName}: {p.confirmedStopped&&!p.running?"Leállítás igazolva":"NEM igazoltan leállítva"}
         {p.pid!=null?" · ASA PID "+p.pid:""}
