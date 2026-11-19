@@ -39,7 +39,7 @@ public sealed class ObsidianWindow : Form
     internal static bool IsHistoricalStoreMethod(string? method)=>method is
         "historical.localStatus" or "historical.localParity" or
         "historical.list" or "historical.preview" or "historical.register" or
-        "historical.supplementalPreview" or "historical.supplementalRegister" or
+        "historical.supplementalPreview" or "historical.supplementalRegister" or "historical.supplementalStart" or
         "historical.originalList" or "historical.originalPreview" or
         "historical.originalRegister" or
         "historical.originalBatchPreview" or "historical.originalBatchRegister" or
