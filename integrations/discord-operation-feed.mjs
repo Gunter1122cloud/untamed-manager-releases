@@ -9,6 +9,7 @@ const phases={claimed:"Feladat lefoglalva",started:"Végrehajtás megkezdődött
  "new-process":"Új folyamat megfigyelve",readiness:"Játékosfogadási készültség","wipe-dispatch":"Dinówipe küldése",
  "wipe-result":"Dinówipe eredménye",receipt:"Natív bizonylat",terminal:"Lezárás"};
 const operations={Restart:"Újraindítás",SaveWorld:"Világmentés",WildWipe:"Dinówipe",
+ Start:"Indítás",Stop:"Leállítás",Backup:"Biztonsági mentés",Restore:"Visszaállítás",Update:"Frissítés",
  restart:"Újraindítás",start:"Indítás",stop:"Leállítás",save:"Világmentés",saveWorld:"Világmentés",
  wipe:"Dinówipe",backup:"Biztonsági mentés",restore:"Visszaállítás",update:"Frissítés",steamUpdate:"Frissítés"};
 const evidence={
@@ -34,7 +35,26 @@ function severity(e){
  return terminal(e)?"green":"blue";
 }
 const colors={blue:0x3498db,green:0x2ecc71,yellow:0xf1c40f,red:0xe74c3c};
-const description=e=>evidence[e.evidence]??(clean(e.result)+" · "+clean(e.evidence));
+const resultText=r=>/failed|error|rejected|blocked|denied/i.test(r)?"Hiba vagy elutasítás":
+ /uncertain|interrupted/i.test(r)?"Bizonytalan, kézi ellenőrzés szükséges":
+ /skipped|missed/i.test(r)?"Nem hajtódott végre":
+ /limited|no-fsync/i.test(r)?"Korlátozott natív bizonyíték":
+ r==="verified-local"?"Helyi natív bizonyíték igazolva":r==="in-progress"?"Folyamatban":"Natív eredmény";
+Object.assign(evidence,{
+ NATIVE_PREFLIGHT_PASSED:"A natív előellenőrzés sikeres, a végrehajtás megkezdődött.",
+ NATIVE_JOB_ACCEPTED:"A natív munkásfeladat elfogadva; eredménye még nem igazolt.",
+ RESTART_NEW_PID_READINESS_UNVERIFIED:"Új ASA-folyamat megfigyelve. Játékosfogadási készültség még nem igazolt.",
+ START_PROCESS_ONLY_READINESS_UNVERIFIED:"Az indítás folyamatbizonylata megvan; a játékosfogadás még nem igazolt.",
+ GRACEFUL_STOP_FINAL_SAVE_UNVERIFIED:"Szabályos leállítás megfigyelve; végső DoExit-mentés és restore külön nem igazolt.",
+ SAVEWORLD_DISPATCHED_DISK_COMPLETION_UNVERIFIED:"SaveWorld elküldve; a lemezmentés befejezése nem igazolt.",
+ STEAM_BUILD_AND_PROTECTED_FILES_VERIFIED:"Telepített build és védett fájlok helyi ellenőrzése sikeres.",
+ BACKUP_BYTES_AND_HASHES_VERIFIED:"Mentett fájlok és hash-ek helyileg igazolva; játékbeli restore nem tanúsított.",
+ RESTORE_BYTES_HASHES_VERIFIED_GAME_LOAD_UNVERIFIED:"Visszaállított bájtok és hash-ek igazolva; játékbeli betöltés külön nem igazolt.",
+ "UM-SCHEDULE-WIPE-NOT-READY":"Az új ASA készültsége nem igazolt; a wipe nem indítható.",
+ "UM-SCHEDULE-WIPE-PID-CHANGED":"Az új ASA PID azonossága megváltozott; a wipe megállt.",
+ "UM-SCHEDULE-WIPE-RECEIPT":"A wipe küldési bizonylata nem igazolható; ne ismételd automatikusan."
+});
+const description=e=>evidence[e.evidence]??(resultText(e.result)+" ("+clean(e.evidence)+").");
 const stamp=v=>v&&Number.isFinite(Date.parse(v))?"<t:"+Math.floor(Date.parse(v)/1000)+":F>":"Nem ismert";
 function validatePage(page,host,old){
  if(page?.version!==1||page.hostId!==host.id||!Array.isArray(page.events)||
@@ -93,6 +113,7 @@ export class OperationFeed {
    let old=this.state.hosts[host.id];
    const page=await this.request(host,"events",{cursor:old?.cursor??null,limit:50});
    validatePage(page,host,old);
+   if(old?.cursor===page.nextCursor&&!page.events.length&&!old.lastError)return page.more;
    const next=structuredClone(this.state);
    next.hosts[host.id]={...old,cursor:page.nextCursor,observedUtc:new Date(this.clock()).toISOString(),lastError:null};
    for(const event of page.events)this.ingest(next,host,event,false);
