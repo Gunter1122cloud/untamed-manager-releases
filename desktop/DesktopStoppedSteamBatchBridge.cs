@@ -334,10 +334,13 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                            StringComparison.Ordinal)).Any())
                     return Fail(id,"UM-STEAM-BATCH-CHANGED");
                 var task=new Job{Total=rechecked.Maps.Length};
+                var events=new DiscordOperationEvents.NativeRun(cluster,task.Id,rechecked.Maps.Select(x=>x.Id).ToArray(),"Update");
+                events.Emit("claimed","in-progress","NATIVE_STEAM_BATCH_ACCEPTED");
                 job=task;
                 _=Task.Run(async()=>
                 {
                     Stage(task,"running","preflight");
+                    events.Emit("started","in-progress","NATIVE_STEAM_BATCH_EXECUTION_STARTED");
                     var progress=new Progress<SteamQueueProgress>(item=>
                         Stage(task,"running",item.Stage,
                             item.Position,item.MapName));
@@ -352,10 +355,12 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                                 "UM-STEAM-BATCH-RECEIPTS-INVALID");
                         lock(sync)task.CompletedInstallations=receipt.Count;
                         Stage(task,"completed","verified");
+                        events.Emit("terminal","verified-local","STEAM_BATCH_BUILDS_AND_PROTECTED_FILES_VERIFIED");
                     }
                     catch(Exception)
                     {
                         Stage(task,"needsOperator","Check native queue and backups");
+                        events.Emit("terminal","uncertain","STEAM_BATCH_NATIVE_QUEUE_REVIEW");
                     }
                 });
                 return Ok(id,new{
