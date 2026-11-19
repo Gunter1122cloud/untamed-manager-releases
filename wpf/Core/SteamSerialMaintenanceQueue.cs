@@ -17,7 +17,10 @@ public enum SteamQueuePhase
 public sealed record SteamQueueSnapshot(Guid QueueId,SteamQueuePhase Phase,
     string HostId,int NextIndex,Guid[] MapIds,Guid? ActiveMap,
     DateTimeOffset ChangedUtc,string Summary);
-public sealed record SteamQueueProgress(int Position,int Total,string MapName,string Stage);
+public sealed record SteamQueueProgress(int Position,int Total,string MapName,string Stage)
+{
+    public SteamStoppedMapUpdater.Receipt? VerifiedReceipt {get;init;}
+}
 
 /// <summary>
 /// A machine-local, cross-profile named semaphore and durable operation journal.
