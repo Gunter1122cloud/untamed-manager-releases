@@ -39,7 +39,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
     private readonly Dictionary<Guid,OriginalPrepared> pendingOriginal=new();
     private sealed record SupplementalPlan(LocalMap Map,string Source,string FourSha,
         string LaunchSha,string Fingerprint,long RegistryRevision,bool Running,string ClusterId,
-        string TransferRoot,string InventoryHash);
+        string TransferRoot,string InventoryHash,SupplementalMapContentProbe.Evidence Content);
     private sealed record SupplementalApproval(Guid Token,Guid MapId,bool StoppedUseApi,
         string Fingerprint,DateTimeOffset ExpiresUtc);
     private readonly Dictionary<Guid,SupplementalApproval> supplementalApprovals=new();
@@ -731,7 +731,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         mods=plan.Map.HistoricalEnabledMods,passiveMods=plan.Map.HistoricalPassiveMods,
                         running=plan.Running,useApi=plan.Map.StartWithAsaApi,clusterId=plan.ClusterId,
                         alreadyRegistered=false,addsClusterMembership=true,changesOriginalFive=false,
-                        modContentInstallationVerified=false,serverProcessTouched=false});
+                        modContentInstallationVerified=false,modContentState=plan.Content.State,
+                        presentModProjects=plan.Content.PresentProjects,unverifiedModProjects=plan.Content.UnverifiedProjects,
+                        levelManifestProjects=plan.Content.LevelManifestProjects,serverProcessTouched=false});
                 }
                 if(method=="historical.supplementalRegister")
                 {
@@ -1618,6 +1620,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             try{_=AsaApiLaunchPolicy.Resolve(copy);}
             catch(Exception){throw new InvalidDataException("UM-STORE-EXTRA-API-INSTALLATION-UNVERIFIED");}
         }
+        var content=SupplementalMapContentProbe.Inspect(root,map.HistoricalMapKey,map.HistoricalEnabledMods);
         var after=LegacyStoreV1OriginalImport.Inspect(sourcePath);
         if(after.FourFilesSha256!=source.FourFilesSha256||after.LaunchProfileSha256!=source.LaunchProfileSha256||
            SupplementalInventoryHash(LocalRunningAsaDiscovery.ReadSamples())!=inventory)
@@ -1625,11 +1628,11 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         string fingerprint=SupplementalHash(JsonSerializer.Serialize(new{
             id,source.FourFilesSha256,source.LaunchProfileSha256,registry.Revision,
             root,transferId,shared.SourceStateSha256,inventory,iniSha=Convert.ToHexString(SHA256.HashData(ini)),
-            launch=launch.Arguments,map.Name,map.RconPort,map.StartWithAsaApi,
+            launch=launch.Arguments,map.Name,map.RconPort,map.StartWithAsaApi,contentFingerprint=content.Fingerprint,
             commands=children.Concat(parents).OrderBy(p=>p.Pid).Select(p=>p.CommandLine)}));
         return new(map,sourcePath,source.FourFilesSha256,source.LaunchProfileSha256,
             fingerprint,registry.Revision,running,originalCluster.RuntimeClusterId,
-            originalCluster.TransferRoot,inventory);
+            originalCluster.TransferRoot,inventory,content);
     }
 
     private static string MapName(string key)=>key switch
