@@ -107,3 +107,20 @@ test("explicit historical terminal backfill retains original timestamps, never s
  assert.ok(m.embeds[0].fields.find(x=>x.name==="Indulás").value==="Nem ismert");
  assert.equal(feed.state.hosts[a.id].historyCursor,a.history[0].runId);
 });
+
+test("recovered native terminal retains original finish without current alerts or a duplicate embed",async t=>{
+ const l=await lab(t),[a]=l.hosts;const feed=l.make();await feed.tick();
+ const run=randomUUID(),map=randomUUID();
+ l.evt(a,run,"started","in-progress","NATIVE_PREFLIGHT_PASSED",map);
+ await feed.tick();assert.equal(l.sinks.get("admin").sent,1);assert.equal(l.sinks.get("alert").sent,1);
+ l.evt(a,run,"terminal","executed-no-fsync-or-client-certification","LOCAL_WORLD_METADATA_LOG_UNVERIFIED_RESTART_READY_WIPE_SENT_EFFECT_UNVERIFIED",map);
+ a.rows.at(-1).historical=true;
+ const finished=a.rows.at(-1).eventUtc;
+ await feed.tick();assert.equal(l.sinks.get("admin").sent,1);assert.equal(l.sinks.get("alert").sent,1);
+ assert.equal(Object.values(feed.state.runs)[0].finishedUtc,finished);
+ assert.ok([...l.sinks.get("admin").rows.values()][0].embeds[0].description.includes("Utólagos átvétel"));
+ l.evt(a,run,"terminal","executed-no-fsync-or-client-certification","LOCAL_WORLD_METADATA_LOG_UNVERIFIED_RESTART_READY_WIPE_SENT_EFFECT_UNVERIFIED",map);
+ a.rows.at(-1).historical=true;
+ await feed.tick();assert.equal(l.sinks.get("admin").sent,1);assert.equal(l.sinks.get("alert").sent,1);
+ assert.equal(Object.values(feed.state.runs)[0].finishedUtc,finished);
+});
