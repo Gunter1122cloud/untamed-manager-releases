@@ -795,6 +795,7 @@ public sealed class ObsidianWindow : Form
                 if (requireGlobalGate) await _bridgeGate.WaitAsync();
                 try
                 {
+                    using var operationOrigin=DiscordOperationEvents.EnterOrigin("manager");
                     string response = _updateHandoff&&requireGlobalGate
                         ? NativeErrorResponse(incoming,"UM-UPDATE-MANAGER-HANDOFF")
                         : IsManualOnlyDeniedPluginMethod(methodName)
