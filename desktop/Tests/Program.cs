@@ -1755,8 +1755,8 @@ try
             Check(savedHistory.Length==1&&savedHistory[0].RunId!=Guid.Empty&&
                   savedHistory[0].Kind=="SaveWorld"&&
                   savedHistory[0].Status=="executed-no-fsync-or-client-certification"&&
-                  savedHistory[0].FinishedUtc.HasValue,
-                "native SaveWorld preserves a completed run in the durable execution history");
+                  savedHistory[0].FinishedUtc.HasValue&&!savedHistory[0].TerminalPublicationPending,
+                "native SaveWorld preserves a completed run and durable event acknowledgement");
             await supervisor.TickOnceAsync(due.AddMinutes(1));
             Check(sent==1,"claimed native SaveWorld slot is never replayed");
             Check(supervisor.History(m1.Id).Length==1,
@@ -1819,6 +1819,17 @@ try
                   x.Status=="manager-start-skipped-no-replay"&&
                   x.FinishedUtc.HasValue),
                 "missed startup slots remain visibly audited without executing RCON");
+            var missedHistory=recovered.History(m1.Id).Single(x=>x.Status=="manager-start-skipped-no-replay");
+            Check(missedHistory.TerminalPublicationPending,"native skipped slot retains publication obligation before ledger reconciliation");
+            recovered.ReconcileEventTerminals();
+            var events=new DiscordOperationEvents(scheduleCluster);
+            var repaired=events.Read("begin",100).Events.Single(x=>x.OperationId==missedHistory.RunId);
+            Check(repaired.Historical&&repaired.Phase=="terminal"&&repaired.EventUtc==missedHistory.FinishedUtc&&sent==beforeMissed&&
+                  !recovered.History(m1.Id).Single(x=>x.RunId==missedHistory.RunId).TerminalPublicationPending,
+                "scheduler reconciliation publishes exact persisted finish time without fabricated phases or command replay");
+            recovered.ReconcileEventTerminals();
+            Check(events.Read("begin",100).Events.Count(x=>x.OperationId==missedHistory.RunId)==1,
+                "scheduler terminal reconciliation is idempotent");
             var denyRemote=await Call(recovered.HandleAsync,"schedule.nativeSet",
                 new{mapId=Guid.NewGuid(),kind="Restart",frequency="Daily",
                     intervalMinutes=0,minuteOfDay=240,daysMask=127,confirm=true});
