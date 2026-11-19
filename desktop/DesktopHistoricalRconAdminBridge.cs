@@ -250,6 +250,8 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                 if(string.IsNullOrEmpty(password))
                     throw new InvalidDataException("UM-ORIGINAL-ADMIN-RCON-SECRET-MISSING");
                 using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(12));
+                using var events=approved.Action=="wildWipe"?new DiscordOperationEvents.NativeRun(cluster,Guid.NewGuid(),new[]{locked.Map.Id},"WildWipe"):null;
+                events?.Emit("started","in-progress","WIPE_DISPATCH_ATTEMPT");
                 lease.MarkMutationStarted();
                 string output=await send("127.0.0.1",locked.Map.RconPort,
                     password,approved.Command,Recheck,deadline.Token);
@@ -257,6 +259,8 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                 if(output==null||output.Length>32768)
                     throw new InvalidDataException("UM-ORIGINAL-ADMIN-REPLY-UNVERIFIED");
                 lease.Complete();
+                events?.Emit("wipe-result","limited","WIPE_SENT_EFFECT_UNVERIFIED");
+                events?.Emit("terminal","limited","WIPE_SENT_EFFECT_UNVERIFIED");
                 return Ok(id,new{
                     mapId=locked.Map.Id,mapName=locked.Map.Name,
                     action=approved.Action,command=approved.Command,
