@@ -35,7 +35,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
         public string ActiveMap="";
         public int CompletedInstallations;
         public string? ErrorCode;
-        public readonly List<object> Results=new();
+        public readonly Dictionary<Guid,object> Results=new();
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
     }
     private readonly ClusterService cluster;
@@ -113,7 +113,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
             position=item.Position,total=item.Total,
             activeMapName=item.ActiveMap,
             completedInstallations=item.CompletedInstallations,errorCode=item.ErrorCode,
-            results=item.Results.ToArray(),
+            results=item.Results.Values.ToArray(),
             changedUtc=item.ChangedUtc,
             serverStopRequested=false,remoteHostTouched=false,
             storeWriterTouched=false,automaticRetry=false
@@ -378,9 +378,22 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                 _=Task.Run(async()=>
                 {
                     Stage(task,"running","preflight");
-                    var progress=new InlineProgress<SteamQueueProgress>(item=>
-                        Stage(task,"running",item.Stage,
-                            item.Position,item.MapName));
+                    void RetainReceipt(SteamStoppedMapUpdater.Receipt item)
+                    {
+                        var owner=rechecked.Maps.Single(m=>m.Id==item.MapId);
+                        if(!item.ProtectedFilesIntact||!string.Equals(Path.GetFullPath(owner.InstallationPath),Path.GetFullPath(item.InstallRoot),StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidDataException("UM-STEAM-BATCH-RECEIPTS-INVALID");
+                        lock(sync)
+                        {
+                            task.Results[item.MapId]=new{mapId=item.MapId,mapName=owner.Name,
+                                oldBuild=item.OldBuild,newBuild=item.NewBuild,protectedFilesIntact=item.ProtectedFilesIntact};
+                            task.CompletedInstallations=task.Results.Count;
+                        }
+                    }
+                    var progress=new InlineProgress<SteamQueueProgress>(item=>{
+                        if(item.VerifiedReceipt!=null)RetainReceipt(item.VerifiedReceipt);
+                        Stage(task,"running",item.Stage,item.Position,item.MapName);
+                    });
                     try
                     {
                         var receipt=await runBatch(rechecked.Maps,progress,saved.UseCache);
@@ -390,13 +403,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                                rechecked.Maps.Select(m=>m.Id)))
                             throw new InvalidDataException(
                                 "UM-STEAM-BATCH-RECEIPTS-INVALID");
-                        lock(sync)
-                        {
-                            task.CompletedInstallations=receipt.Count;
-                            foreach(var item in receipt)
-                                task.Results.Add(new{mapId=item.MapId,mapName=rechecked.Maps.Single(m=>m.Id==item.MapId).Name,
-                                    oldBuild=item.OldBuild,newBuild=item.NewBuild,protectedFilesIntact=item.ProtectedFilesIntact});
-                        }
+                        foreach(var item in receipt)RetainReceipt(item);
                         Stage(task,"completed","verified");
                     }
                     catch(Exception ex)
