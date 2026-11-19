@@ -381,6 +381,7 @@ public static class SteamStoppedMapUpdater
             }
         }
         progress?.Report(SteamMaintenanceStage.Preflight);
+        if(fakeExecutable==null)DemandNoConcurrentSteamCmd();
         VerifyStopped();
         var plan=SteamUpdateDryRun.Plan(steamExecutable,root,
             cluster.Config.LocalMaps.ToArray(),ObserveStopped,reserve);
@@ -432,6 +433,7 @@ public static class SteamStoppedMapUpdater
                 if(oldBuild!=plan.InstalledBuild)
                     throw new InvalidDataException("Steam build changed after preflight");
                 token.ThrowIfCancellationRequested();
+                if(fakeExecutable==null)DemandNoConcurrentSteamCmd();
                 operation.MarkMutationStarted();
                 progress?.Report(SteamMaintenanceStage.SteamCmd);
                 if(payload!=null)SteamSharedPayloadCache.Seed(payload,root,VerifyStopped,token);
@@ -480,6 +482,21 @@ public static class SteamStoppedMapUpdater
         !synthetic&&attempt is >=0 and <2&&exitCode!=0&&
         SteamFreshInstall.IsTransientMissingSteamConfiguration(output);
 
+    // Cooperative Obsidian operations already hold the machine-local queue.
+    // An external manager does not participate in that lock. If another
+    // SteamCMD is visible and its ownership is unknown, refuse to race it.
+    internal static void DemandNoConcurrentSteamCmd()
+    {
+        Process[] candidates;
+        try{candidates=Process.GetProcessesByName("steamcmd");}
+        catch(Exception){throw new IOException("UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED");}
+        try
+        {
+            if(candidates.Length!=0)throw new IOException("UM-STEAM-EXTERNAL-PROCESS-BUSY");
+        }
+        finally{foreach(var item in candidates)item.Dispose();}
+    }
+
     private static async Task RunSteamAsync(string exe,string install,
         TimeSpan timeout,bool synthetic,Action verifyStopped,CancellationToken ct)
     {
@@ -492,6 +509,7 @@ public static class SteamStoppedMapUpdater
         // local Steam maintenance lease and never starts/stops an ASA server.
         if(!synthetic)
         {
+            DemandNoConcurrentSteamCmd();
             verifyStopped();
             await SteamFreshInstall.BootstrapSteamCmdAsync(exe,null,deadline.Token);
             verifyStopped();
@@ -518,6 +536,7 @@ public static class SteamStoppedMapUpdater
             // ASA/Loader process family and its shared-install siblings are
             // independently verified STOPPED again.
             verifyStopped();
+            if(!synthetic)DemandNoConcurrentSteamCmd();
             var psi=new ProcessStartInfo(exe)
             {
                 UseShellExecute=false,CreateNoWindow=true,
