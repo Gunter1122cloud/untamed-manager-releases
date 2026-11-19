@@ -31,7 +31,7 @@ internal sealed class DiscordOperationEvents
     {
         var previous=Current.Value;Current.Value=new(name,id,actor,maps,action,suppress);return new Scope(previous);
     }
-    internal sealed class NativeRun
+    internal sealed class NativeRun : IDisposable
     {
         private readonly DiscordOperationEvents stream;
         private readonly Guid id,native;
@@ -46,6 +46,11 @@ internal sealed class DiscordOperationEvents
             var source=Current.Value;id=source?.Id??native;
             this.maps=source?.Maps??maps;this.operation=source?.Action??operation;
             origin=source?.Name??"unknown";actor=source?.Actor;suppress=source?.Suppress==true;
+        }
+        public void Dispose()
+        {
+            lock(emitted)
+                if(emitted.Contains("started")&&!emitted.Contains("terminal"))Emit("terminal","uncertain","NATIVE_EXECUTION_OUTCOME_UNVERIFIED");
         }
         internal void Emit(string phase,string result,string evidence)
         {
