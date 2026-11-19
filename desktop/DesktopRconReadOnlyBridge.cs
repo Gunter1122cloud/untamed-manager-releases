@@ -239,6 +239,8 @@ public sealed class DesktopRconReadOnlyBridge
                     // automatically sent again after Manager restart.
                     lease.MarkMutationStarted();
                 }
+                using var events=method=="rcon.saveWorld"?new DiscordOperationEvents.NativeRun(cluster,Guid.NewGuid(),new[]{map.Id},"SaveWorld"):null;
+                events?.Emit("started","in-progress","SAVEWORLD_DISPATCH_ATTEMPT");
                 string answer=await send("127.0.0.1",map.RconPort,password,command,
                     VerifyOwned,timeout.Token);
                 var after=cluster.Check(map);
@@ -267,6 +269,7 @@ public sealed class DesktopRconReadOnlyBridge
                         pendingSaves[map.Id]=new SaveCheck(Guid.NewGuid(),map.Id,
                             identity.Pid,identity.StartedUtc,bookmark,
                             DateTimeOffset.UtcNow.AddMinutes(5));
+                    events?.Emit("terminal","limited","SAVEWORLD_DISPATCHED_DISK_COMPLETION_UNVERIFIED");
                     return Ok(id,new {
                         watchId=pendingSaves.TryGetValue(map.Id,out var checkSaved)
                             ?checkSaved.Token:(Guid?)null,
