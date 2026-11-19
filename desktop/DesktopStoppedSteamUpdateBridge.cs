@@ -430,6 +430,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                    AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath)!=saved.Build)
                     return Fail(id,"UM-STEAM-PREFLIGHT-CHANGED");
                 var task=new Job{MapId=map.Id};
+                var events=new DiscordOperationEvents.NativeRun(cluster,task.Id,new[]{map.Id},"Update");
+                events.Emit("claimed","in-progress","NATIVE_STEAM_JOB_ACCEPTED");
                 lock(sync)
                 {
                     job=task;
@@ -445,18 +447,23 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                 _=Task.Run(async()=>
                 {
                     Stage(task,"running","preflight");
-                    var progress=new Progress<SteamMaintenanceStage>(
-                        value=>Stage(task,"running",value.ToString()));
+                    events.Emit("started","in-progress","NATIVE_STEAM_EXECUTION_STARTED");
+                    var progress=new Progress<SteamMaintenanceStage>(value=>{
+                        Stage(task,"running",value.ToString());
+                        events.Emit("steam-"+value.ToString(),"in-progress","NATIVE_STAGE_OBSERVED");
+                    });
                     try
                     {
                         var verified=await runner(map,progress);
                         if(verified.MapId!=map.Id||!verified.ProtectedFilesIntact)
                             throw new InvalidDataException("UM-STEAM-RECEIPT-INVALID");
                         Stage(task,"completed","verified",verified);
+                        events.Emit("terminal","verified-local","STEAM_BUILD_AND_PROTECTED_FILES_VERIFIED");
                     }
                     catch(Exception)
                     {
                         Stage(task,"needsOperator","update failed, inspect Core journal");
+                        events.Emit("terminal","uncertain","STEAM_UPDATE_FAILED_NATIVE_JOURNAL_REVIEW");
                     }
                 });
                 return Ok(id,new{jobId=task.Id,started=true,
