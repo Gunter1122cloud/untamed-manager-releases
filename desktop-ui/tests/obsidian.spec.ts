@@ -3358,6 +3358,12 @@ test.beforeEach(async ({ page }) => {
           reserveBytes:10737418240,availableBytes:53687091200,
           evidence:"REAL_LOCAL_STOPPED_STEAM_PREFLIGHT_NO_WRITE"
         };
+        case "steam.stoppedStart":
+          if(m.mapId!==two||!Array.isArray(m.affectedMaps)||!m.affectedMaps.includes("Astraeos"))throw new Error("Wrong native scope");
+          steamUpdateStarted=true;singleSteamApplies++;
+          return {jobId:"00000000-0000-4000-8000-000000007777",started:true,
+            restartPerformed:false,remoteHostTouched:false,
+            evidence:"REAL_LOCAL_STOPPED_STEAM_UPDATE_STARTED"};
         case "steam.stoppedApply":
           if(!m.confirm)throw new Error("Approval required");
           steamUpdateStarted=true;singleSteamApplies++;
@@ -5218,13 +5224,13 @@ test("Steam installation preflight and redacted log center are read-only and fil
   await expect(page.getByText("2797", {exact:true})).toHaveCount(0);
   await expect(page.getByText("7797", {exact:true})).toBeVisible();
   await expect(page.getByText("Kézi előellenőrzés")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Frissítés előellenőrzése" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Helyi állapot és telepített build újraellenőrzése" })).toHaveCount(0);
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await page.getByRole("tab",{name:"Frissítés"}).click();
   await expect(page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"})).toBeVisible();
   await expect(page.getByRole("combobox",{name:"SteamCMD frissítés map"})).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Frissítés előellenőrzése" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Helyi állapot és telepített build újraellenőrzése" })).toBeVisible();
   await page.screenshot({path:"test-results/steam-preflight-1366.png",fullPage:true});
 
   await page.getByRole("button", { name: "Naplók" }).click();
@@ -6152,10 +6158,10 @@ test("enrolled empty Store map exposes manual stopped-only SteamCMD diagnostics 
   const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
   await expect(panel).toBeVisible();
   await expect(page.getByText(/Új Store-map: csak az egyedül birtokolt/)).toBeVisible();
-  await expect(panel.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeEnabled();
-  await panel.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
-  await expect(panel.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toBeVisible();
-  await expect(panel.getByRole("button",{name:"Valódi frissítés indítása"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"})).toBeEnabled();
+  await panel.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"}).click();
+  await expect(panel.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toHaveCount(0);
+  await expect(panel.getByRole("button",{name:"Astraeos frissítése",exact:true})).toBeEnabled();
   await expect(panel).not.toContainText("automatikus újraindítás");
 });
 
@@ -7101,22 +7107,21 @@ test("manual single-map SteamCMD job reattaches through status loss and map page
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await page.getByRole("tab",{name:"Frissítés"}).click();
   const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
-  await panel.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
-  const consent=panel.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"});
-  await consent.getByRole("checkbox").check();
-  await consent.getByRole("button",{name:"Valódi frissítés indítása"}).click();
+  await panel.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"}).click();
+  await expect(panel.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toHaveCount(0);
+  await panel.getByRole("button",{name:"Astraeos frissítése",exact:true}).click();
   await expect(panel).toContainText("Frissítés: running");
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_SINGLE_STEAM_STATUS_FAIL__?:()=>void
   }).__UNTAMED_SINGLE_STEAM_STATUS_FAIL__?.());
   await expect(panel).toContainText("állapota átmenetileg nem ellenőrizhető",{timeout:15000});
-  await expect(panel.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"})).toBeDisabled();
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await page.getByRole("tab",{name:"Frissítés"}).click();
   const resumed=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
   await expect(resumed).toContainText("Frissítés: running");
-  await expect(resumed.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+  await expect(resumed.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"})).toBeDisabled();
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_RELEASE_SINGLE_STEAM__?:()=>void
   }).__UNTAMED_RELEASE_SINGLE_STEAM__?.());
@@ -7131,7 +7136,7 @@ test("stopped SteamCMD update displays exact local process and reserve evidence"
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await page.getByRole("tab",{name:"Frissítés"}).click();
-  await page.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  await page.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"}).click();
   const diagnostics=page.getByRole("region",{name:"SteamCMD natív előfeltétel diagnosztika"});
   await expect(diagnostics).toContainText("Astraeos");
   await expect(diagnostics).toContainText("Leállítás igazolva");
@@ -7179,7 +7184,7 @@ test("missing SteamCMD path is diagnosed and configured without dispatching an A
   const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
   await panel.getByRole("button",{name:"Elérhető ASA verzió ellenőrzése"}).click();
   await expect(panel).toContainText("Nincs SteamCMD beállítva");
-  await panel.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  await panel.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"}).click();
   await expect(panel.getByRole("region",{name:"SteamCMD natív előfeltétel diagnosztika"})).toContainText("Nincs SteamCMD beállítva");
   await expect(panel.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toHaveCount(0);
   await panel.getByRole("button",{name:"SteamCMD előkészítése (Valve)"}).click();
@@ -7841,7 +7846,7 @@ test("P0 original Store-v1 map exposes a real native stopped SteamCMD update but
   const steam=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
   await expect(steam).toBeVisible();
   await expect(steam).toContainText("Astraeos");
-  await expect(steam.getByRole("button",{name:"Frissítés előellenőrzése"}))
+  await expect(steam.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"}))
     .toBeVisible();
   await expect(page.getByText("Történeti Store-v1 map: automatikus vagy kézi SteamCMD-frissítést ezen az útvonalon nem engedélyezünk."))
     .toHaveCount(0);
@@ -8312,14 +8317,11 @@ test("real stopped-map SteamCMD update is opt-in and reports verified outcome",a
   await page.getByRole("button",{name:"Frissítés ellenőrzése"}).click();
   await expect(page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"})).toBeVisible();
   await expect(page.getByRole("combobox",{name:"SteamCMD frissítés map"})).toHaveCount(0);
-  await page.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  await page.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"}).click();
   await expect(page.getByRole("region",{name:"SteamCMD natív előfeltétel diagnosztika"}))
     .toContainText("ellenőrzött, a helyi, leállított telepítés mapjai");
-  await expect(page.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toBeVisible();
-  await expect(page.getByText(/Astraeos – jelenlegi build: 123456/)).toBeVisible();
-  const start=page.getByRole("button",{name:"Valódi frissítés indítása"});
-  await expect(start).toBeDisabled();
-  await page.getByText(/Megerősítem, hogy a kiválasztott/).click();
+  await expect(page.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toHaveCount(0);
+  const start=page.getByRole("button",{name:"Astraeos frissítése",exact:true});
   await expect(start).toBeEnabled();
   await start.click();
   await expect(page.getByText(/Build 123456 → 123457/)).toBeVisible({timeout:15000});
@@ -8351,21 +8353,20 @@ test("another map's SteamCMD job releases its global lock after completion witho
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await page.getByRole("tab",{name:"Frissítés"}).click();
   const source=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
-  await source.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
-  const consent=source.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"});
-  await consent.getByRole("checkbox").check();
-  await consent.getByRole("button",{name:"Valódi frissítés indítása"}).click();
+  await source.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"}).click();
+  await expect(source.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toHaveCount(0);
+  await source.getByRole("button",{name:"Astraeos frissítése",exact:true}).click();
   await expect(source).toContainText("Frissítés: running");
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   await page.getByRole("tab",{name:"Frissítés"}).click();
   const other=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
   await expect(other).toContainText("Másik helyi map SteamCMD-frissítése folyamatban van");
-  await expect(other.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+  await expect(other.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"})).toBeDisabled();
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_RELEASE_SINGLE_STEAM__?:()=>void
   }).__UNTAMED_RELEASE_SINGLE_STEAM__?.());
-  await expect(other.getByRole("button",{name:"Frissítés előellenőrzése"}))
+  await expect(other.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"}))
     .toBeEnabled({timeout:15000});
   await expect(other).not.toContainText("Frissítés: completed");
   expect(await page.evaluate(()=>(window as typeof window & {
@@ -8380,7 +8381,7 @@ test("one ASA map never displays or restarts a different map's SteamCMD job",asy
   await page.getByRole("tab",{name:"Frissítés"}).click();
   const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
   await expect(panel).toContainText("Másik helyi map SteamCMD-frissítése folyamatban van");
-  await expect(panel.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"})).toBeDisabled();
   await expect(panel).not.toContainText("Frissítés: completed");
 });
 
@@ -8406,7 +8407,7 @@ test("interrupted SteamCMD queue survives UI restart and blocks accidental retry
   await page.getByRole("tab",{name:"Frissítés"}).click();
   await expect(page.getByText(/Helyi SteamCMD-napló: NeedsOperator/)).toBeVisible();
   await expect(page.getByText(/kézi ellenőrzés szükséges/)).toBeVisible();
-  await expect(page.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"})).toBeDisabled();
 });
 
 test("fresh ASA Start never accepts preview or spawned-process receipt for another map",async({page})=>{
