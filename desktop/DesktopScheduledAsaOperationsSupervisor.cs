@@ -716,12 +716,29 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         Guid id=begun.GetProperty("jobId").GetGuid();
         ScheduleEvent(runId,job,"native-dispatched","in-progress","NATIVE_JOB_ACCEPTED",id);
         var limit=DateTimeOffset.UtcNow.AddMinutes(16);
+        bool savePublished=false,stopPublished=false,newPidPublished=false;
         while(DateTimeOffset.UtcNow<limit)
         {
             await Task.Delay(TimeSpan.FromSeconds(2),ct);
             var result=Decode(await handle(Message(prefix+"Status",new{jobId=id})));
             if(result.GetProperty("jobId").GetGuid()!=id||result.GetProperty("mapId").GetGuid()!=job.MapId)
                 throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-JOB-MISMATCH");
+            // These fields are native structured evidence, not parsed stage
+            // prose or a reconstructed terminal summary. Publish at the
+            // first poll where each proof exists; time = observation time.
+            bool Has(string name)=>result.TryGetProperty(name,out var v)&&v.ValueKind==JsonValueKind.True;
+            bool observedLog=Has("preExitSaveLogAndWorldObserved"),observedMeta=Has("preExitWorldMetadataObserved");
+            if(!savePublished&&observedLog!=observedMeta)
+            {
+                ScheduleEvent(runId,job,"save-result",observedLog?"verified-local":"limited",
+                    observedLog?"LOCAL_SAVE_LOG_WORLD":"LOCAL_WORLD_METADATA_LOG_UNVERIFIED",id);
+                savePublished=true;
+            }
+            if(!save&&!stopPublished&&Has("oldProcessStopped")&&result.TryGetProperty("oldPid",out var previous)&&previous.TryGetInt32(out int previousPid)&&previousPid==oldPid)
+            {ScheduleEvent(runId,job,"stop-result","verified-local","OLD_PROCESS_STOPPED",id);stopPublished=true;}
+            if(!save&&stopPublished&&!newPidPublished&&result.TryGetProperty("newPid",out var process)&&process.TryGetInt32(out int freshPid)&&freshPid>0&&freshPid!=oldPid&&
+               result.TryGetProperty("newStartedUtc",out var startedField)&&startedField.ValueKind==JsonValueKind.String&&startedField.TryGetDateTimeOffset(out _))
+            {ScheduleEvent(runId,job,"new-process","verified-local","NEW_PID_OBSERVED",id);newPidPublished=true;}
             string? state=result.GetProperty("state").GetString();
             if(state is "needsOperator" or "notDispatched" or "reviewed")
                 throw new InvalidOperationException("UM-SCHEDULE-HISTORICAL-NEEDS-REVIEW");
@@ -730,7 +747,6 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             bool meta=result.GetProperty("preExitWorldMetadataObserved").GetBoolean();
             if(log==meta)throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-SAVE-EVIDENCE");
             string evidence=log?"LOCAL_SAVE_LOG_WORLD":"LOCAL_WORLD_METADATA_LOG_UNVERIFIED";
-            ScheduleEvent(runId,job,"save-result",log?"verified-local":"limited",evidence,id);
             if(save)
             {
                 if(result.GetProperty("kind").GetString()!="SaveWorldOnly"||
@@ -743,8 +759,6 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                !result.GetProperty("oldProcessStopped").GetBoolean()||
                result.GetProperty("oldPid").GetInt32()!=oldPid||pid<=0||pid==oldPid)
                 throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-RESTART-RECEIPT");
-            ScheduleEvent(runId,job,"stop-result","verified-local","OLD_PROCESS_STOPPED",id);
-            ScheduleEvent(runId,job,"new-process","verified-local","NEW_PID_OBSERVED",id);
             if(!job.PostRestartWipe)return evidence+"_RESTART_NEW_PID";
             DateTimeOffset started=result.GetProperty("newStartedUtc").GetDateTimeOffset();
             // Bind the wipe to the exact new PID/start time. Wait on freshly
