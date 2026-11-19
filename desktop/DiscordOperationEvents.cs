@@ -17,7 +17,7 @@ internal sealed class DiscordOperationEvents
 {
     internal sealed record Event(long Sequence,string EventId,Guid OperationId,Guid[] MapIds,
         string Operation,string Origin,string? ActorId,DateTimeOffset EventUtc,string Phase,
-        string Result,string Evidence,DateTimeOffset? ScheduledUtc=null,Guid? NativeJobId=null,string?[]? MapNames=null);
+        string Result,string Evidence,DateTimeOffset? ScheduledUtc=null,Guid? NativeJobId=null,string?[]? MapNames=null,bool Historical=false);
     internal sealed record Page(int Version,string HostId,Guid? Epoch,long OldestSequence,long LatestSequence,
         string State,bool Gap,bool More,string? NextCursor,Event[] Events);
     private sealed record Journal(Guid Epoch,string HostId,long Latest,List<Event> Events);
@@ -130,12 +130,12 @@ internal sealed class DiscordOperationEvents
     // A failed publication poisons completeness explicitly. If even the gap
     // marker cannot be saved, the process-local flag remains visible.
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string,bool> MemoryGaps=new();
-    internal void Record(Guid id,Guid[] maps,string operation,string origin,string? actor,
-        string phase,string result,string evidence,DateTimeOffset utc,DateTimeOffset? scheduled=null,Guid? nativeJob=null)
+    internal bool Record(Guid id,Guid[] maps,string operation,string origin,string? actor,
+        string phase,string result,string evidence,DateTimeOffset utc,DateTimeOffset? scheduled=null,Guid? nativeJob=null,bool historical=false)
     {
         try
         {
-            Locked(()=>{
+            return Locked(()=>{
                 var current=Load()??new Journal(Guid.NewGuid(),hostId,0,new());
                 // An acknowledgement returning after a completed async worker is not a new phase.
                 if(current.Events.Any(x=>x.OperationId==id&&x.Phase=="terminal"))return true;
@@ -143,7 +143,7 @@ internal sealed class DiscordOperationEvents
                 var next=checked(current.Latest+1);
                 string? SafeName(Guid map){try{var value=mapName?.Invoke(map);return value!=null&&value.Length<=96&&!value.Any(char.IsControl)?value:null;}catch{return null;}}
                 var e=new Event(next,current.Epoch.ToString("N")+":"+next,id,maps,operation,origin,actor,
-                    utc,phase,result,string.IsNullOrEmpty(evidence)?"NO_ADDITIONAL_EVIDENCE":Code.IsMatch(evidence)?evidence:"EVIDENCE_NOT_EXPORTABLE",scheduled,nativeJob,maps.Select(SafeName).ToArray());
+                    utc,phase,result,string.IsNullOrEmpty(evidence)?"NO_ADDITIONAL_EVIDENCE":Code.IsMatch(evidence)?evidence:"EVIDENCE_NOT_EXPORTABLE",scheduled,nativeJob,maps.Select(SafeName).ToArray(),historical);
                 if(!Valid(e))throw new InvalidDataException("UM-DC-EVENTS-FIELDS");
                 current.Events.Add(e);
                 if(current.Events.Count>retention)current.Events.RemoveAt(0);
@@ -155,8 +155,14 @@ internal sealed class DiscordOperationEvents
         catch
         {
             MemoryGaps[file]=true;
-            try{Locked(()=>{using var f=new FileStream(gapFile,FileMode.Create,FileAccess.Write,FileShare.Read,4096,FileOptions.WriteThrough);f.WriteByte(1);f.Flush(true);return true;});}catch{}
+            MarkGap();
+            return false;
         }
+    }
+    internal void MarkGap()
+    {
+        MemoryGaps[file]=true;
+        try{Locked(()=>{Directory.CreateDirectory(Path.GetDirectoryName(file)!);using var f=new FileStream(gapFile,FileMode.Create,FileAccess.Write,FileShare.Read,4096,FileOptions.WriteThrough);f.WriteByte(1);f.Flush(true);return true;});}catch{}
     }
     internal Page Read(string? cursor,int limit)
     {
