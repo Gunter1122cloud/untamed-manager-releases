@@ -707,7 +707,8 @@ export type StoppedSteamBatchPreview = {
 export type StoppedSteamBatchJob = {
   jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
   stage:string;position:number;total:number;activeMapName:string;
-  completedInstallations:number;changedUtc:string;
+  completedInstallations:number;changedUtc:string;errorCode?:string|null;
+  results?:Array<{mapId:string;mapName:string;oldBuild:string;newBuild:string;protectedFilesIntact:boolean}>;
   serverStopRequested:false;remoteHostTouched:false;
   storeWriterTouched:false;automaticRetry:false;
 };
@@ -1774,7 +1775,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.gracefulStopCurrent" | "servers.gracefulStopReview" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" |
   "servers.restartReviewPreview" | "servers.restartReviewApply" |
   "servers.freshReadiness" | "servers.lifecycleJournal" |
-  "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStart" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.selectExecutable" | "steam.prepareExecutable" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
+  "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStart" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.selectExecutable" | "steam.prepareExecutable" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStart" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "servers.apiModeStatus" |
   "servers.apiModePreview" | "servers.apiModeApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
@@ -1839,7 +1840,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   rconPort?:number; password?:string; createIni?:boolean;
   beforeA?: string; beforeB?: string; afterA?: string; afterB?: string;
   sourceMap?: string;destinationMap?: string; profileId?: string;
-  hostId?:string;hostName?:string;mapIds?:string[];
+  hostId?:string;hostName?:string;mapIds?:string[];affectedMaps?:string[];
   clusterId?:string;transferDirectory?:string;transferRoot?:string;
   backupDirectory?:string; fullLocal?:boolean; keepLatest?:number; protect?:boolean };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
@@ -2081,6 +2082,8 @@ export const managerBridge = {
     request<StoppedSteamBatchCurrent>("steam.batchCurrent"),
   steamBatchPreview: (mapIds:string[],useSharedPayloadCache=false) =>
     request<StoppedSteamBatchPreview>("steam.batchPreview",{mapIds,useSharedPayloadCache}),
+  steamBatchStart: (mapIds:string[],useSharedPayloadCache=false) =>
+    request<{jobId:string;started:true;serverStopRequested:false;remoteHostTouched:false;storeWriterTouched:false;automaticRetry:false;evidence:string}>("steam.batchStart",{mapIds,useSharedPayloadCache}),
   steamBatchApply: (token:string,typedApproval:string) =>
     request<{jobId:string;started:true;serverStopRequested:false;
       remoteHostTouched:false;storeWriterTouched:false;
