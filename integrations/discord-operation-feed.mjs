@@ -124,7 +124,7 @@ export class OperationFeed {
    const id=key(host.id,e.operationId);
    let run=state.runs[id];
    if(run&&e.sequence>0&&run.sequence>=e.sequence)return;
-   run=run??{hostId:host.id,hostName:host.name,operationId:e.operationId,mapIds:e.mapIds,mapNames:e.mapIds.map(id=>host.mapNames?.[id]??id),
+   run=run??{hostId:host.id,hostName:host.name,operationId:e.operationId,mapIds:e.mapIds,mapNames:e.mapIds.map((id,i)=>e.mapNames?.[i]??host.mapNames?.[id]??"Ismeretlen map"),
       operation:e.operation,origin:e.origin,actorId:e.actorId,startedUtc:null,finishedUtc:null,sequence:0,phases:{},historical:backfill,scheduledUtc:e.scheduledUtc??null};
    if(e.sequence>0)run.sequence=e.sequence;
    run.latest=e;run.phases[e.phase]=e;
@@ -242,7 +242,7 @@ export class OperationFeed {
        for(const row of page.runs){
          const existing=next.runs[key(host.id,row.runId)];
          if(existing&&(!row.finishedUtc||existing.finishedUtc))continue;
-         const e={operationId:row.runId,mapIds:[row.mapId],operation:row.kind,origin:"scheduler",sequence:0,
+         const e={operationId:row.runId,mapIds:[row.mapId],mapNames:[row.currentMapName],operation:row.kind,origin:"scheduler",sequence:0,
            eventUtc:row.finishedUtc??row.claimedUtc,scheduledUtc:row.scheduledUtc,historical:true,phase:row.finishedUtc?"terminal":"claimed",result:row.status,evidence:row.evidence};
          this.ingest(next,host,e,true);
          const run=next.runs[key(host.id,row.runId)];
