@@ -60,7 +60,9 @@ async function atomic(file,state){
  let fd;
  try{
    fd=await fs.open(tmp,"wx",0o600);
-   await fd.writeFile(JSON.stringify(state));await fd.sync();await fd.close();fd=null;
+   const bytes=JSON.stringify(state);
+   if(Buffer.byteLength(bytes)>64*1024*1024)throw Error("EVENT_STATE_LIMIT_REVIEW_REQUIRED");
+   await fd.writeFile(bytes);await fd.sync();await fd.close();fd=null;
    await fs.rename(tmp,file);
  }finally{if(fd)await fd.close();await fs.rm(tmp,{force:true});}
 }
@@ -72,7 +74,7 @@ export class OperationFeed {
  }
  async load(){
    if(this.state)return;
-   try{this.state=JSON.parse(await fs.readFile(this.file,"utf8"));}
+   try{if((await fs.stat(this.file)).size>64*1024*1024)throw Error("EVENT_STATE_LIMIT_REVIEW_REQUIRED");this.state=JSON.parse(await fs.readFile(this.file,"utf8"));}
    catch(e){if(e.code!=="ENOENT")throw e;this.state={schema:1,hosts:{},runs:{},outbox:{}};}
    if(this.state.schema!==1||!this.state.hosts||!this.state.runs||!this.state.outbox)throw Error("EVENT_STATE_CORRUPT");
  }
@@ -85,7 +87,7 @@ export class OperationFeed {
    const page=await this.request(host,"events",{cursor:old?.cursor??null,limit:50});
    validatePage(page,host,old);
    const next=structuredClone(this.state);
-   next.hosts[host.id]={cursor:page.nextCursor,observedUtc:new Date(this.clock()).toISOString()};
+   next.hosts[host.id]={...old,cursor:page.nextCursor,observedUtc:new Date(this.clock()).toISOString()};
    for(const event of page.events)this.ingest(next,host,event,false);
    await this.commit(next);
    return page.more;
@@ -115,7 +117,7 @@ export class OperationFeed {
    queue("admin",this.channels.admin);
    if(/backup|restore/i.test(e.operation))queue("backup",this.channels.backup);
    if(/update|steam/i.test(e.operation))queue("update",this.channels.update);
-   if(!backfill&&["started","claimed"].includes(e.phase))queue("alert-start",this.channels.alert);
+   if(!backfill&&e.phase==="started")queue("alert-start",this.channels.alert);
    if(!backfill&&terminal(e))queue("alert-end",this.channels.alert);
  }
  payload(item){
@@ -228,7 +230,7 @@ export class OperationFeed {
        try{for(let i=0;i<4;i++)if(!await this.poll(h))break;}
        catch(e){this.onProblem(h.id,clean(e.message));}
      }
-     for(const k of Object.keys(this.state.outbox).slice(0,100)){
+     for(const k of Object.keys(this.state.outbox).filter(k=>this.state.outbox[k].status!=="sent").slice(0,100)){
        try{await this.deliver(k);if(this.state.outbox[k]?.status==="uncertain")this.onProblem(k,"SEND_UNCERTAIN_REVIEW_REQUIRED");}
        catch(e){this.onProblem(k,clean(e.message));}
      }
