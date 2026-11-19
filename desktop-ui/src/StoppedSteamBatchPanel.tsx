@@ -127,6 +127,13 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
     }catch(e){
       // A one-shot approval might already have launched SteamCMD on the
       // Windows host when its response was interrupted. Reconcile first.
+      const code=e instanceof Error?e.message:"";
+      if(code==="UM-STEAM-BATCH-SELECT-ALL-SHARED-MAPS"){
+        setError("Közös telepítési gyökér: jelöld ki az összes érintett helyi mapot ("+code+").");return;
+      }
+      if(code==="UM-STEAM-EXTERNAL-PROCESS-BUSY"||code==="UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED"){
+        setError("Külső SteamCMD fut vagy nem ellenőrizhető. Várd meg a befejezését, majd ellenőrizd a Feladatkezelőt ("+code+").");return;
+      }
       setReconnectFailed(true);
       setError("A soros SteamCMD indítás eredménye nem igazolt ("+
         (e instanceof Error?e.message:"UM-STEAM-BATCH-FAILED")+
