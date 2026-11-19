@@ -209,6 +209,27 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             throw new InvalidDataException("UM-ASA-SCHEDULE-HISTORY-INVALID");
         return state;
     }
+    // Read-only retained history for explicit historical backfill. A missing
+    // cursor is not silently reinterpreted as a new baseline. No phases
+    // or event timestamps are reconstructed from the terminal evidence.
+    internal object LegacyOperationHistory(Guid? after,int limit)
+    {
+        if(limit is <1 or >100)throw new InvalidDataException("UM-DC-EVENTS-LIMIT");
+        return Locked(()=>{
+            var history=Read().History;
+            int offset=after.HasValue?history.FindIndex(x=>x.RunId==after.Value)+1:0;
+            bool invalid=after.HasValue&&offset==0;
+            var rows=invalid?Array.Empty<ScheduledAsaExecution>():history.Skip(offset).Take(limit).ToArray();
+            string SafeCode(string text)=>System.Text.RegularExpressions.Regex.IsMatch(text??"",@"\A[A-Za-z0-9_-]{1,240}\z")?text:"EVIDENCE_NOT_EXPORTABLE";
+            return new {version=1,hostId=cluster.Config.LocalHostId,origin="scheduler",historical=true,
+                state=invalid?"cursorInvalid":"ok",gap=invalid,retentionMayBeTruncated=history.Count==MaxHistory,
+                nextRunId=invalid?(Guid?)null:rows.LastOrDefault()?.RunId??after,
+                more=!invalid&&offset+rows.Length<history.Count,
+                runs=rows.Select(x=>new {x.RunId,x.MapId,x.Kind,x.ScheduledUtc,x.ClaimedUtc,x.FinishedUtc,
+                    status=SafeCode(x.Status),evidence=SafeCode(x.Evidence)})};
+        });
+    }
+
     private static void AddHistory(State state,ScheduledAsaExecution entry)
     {
         state.History.Add(entry);
