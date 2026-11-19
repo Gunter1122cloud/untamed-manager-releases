@@ -21,6 +21,42 @@ internal sealed class DiscordOperationEvents
     internal sealed record Page(int Version,string HostId,Guid? Epoch,long OldestSequence,long LatestSequence,
         string State,bool Gap,bool More,string? NextCursor,Event[] Events);
     private sealed record Journal(Guid Epoch,long Latest,List<Event> Events);
+    private sealed record Origin(string Name,Guid? Id,string? Actor,Guid[]? Maps,string? Action,bool Suppress);
+    private static readonly AsyncLocal<Origin?> Current=new();
+    private sealed class Scope(Origin? previous):IDisposable
+    {
+        public void Dispose()=>Current.Value=previous;
+    }
+    internal static IDisposable EnterOrigin(string name,Guid? id=null,string? actor=null,Guid[]? maps=null,string? action=null,bool suppress=false)
+    {
+        var previous=Current.Value;Current.Value=new(name,id,actor,maps,action,suppress);return new Scope(previous);
+    }
+    internal sealed class NativeRun
+    {
+        private readonly DiscordOperationEvents stream;
+        private readonly Guid id,native;
+        private readonly Guid[] maps;
+        private readonly string operation,origin;
+        private readonly string? actor;
+        private readonly bool suppress;
+        private readonly HashSet<string> emitted=new(StringComparer.Ordinal);
+        internal NativeRun(ClusterService cluster,Guid native,Guid[] maps,string operation)
+        {
+            stream=new(cluster);this.native=native;
+            var source=Current.Value;id=source?.Id??native;
+            this.maps=source?.Maps??maps;this.operation=source?.Action??operation;
+            origin=source?.Name??"unknown";actor=source?.Actor;suppress=source?.Suppress==true;
+        }
+        internal void Emit(string phase,string result,string evidence)
+        {
+            if(suppress)return;
+            lock(emitted)
+            {
+                if(!emitted.Add(phase))return;
+                stream.Record(id,maps,operation,origin,actor,phase,result,evidence,DateTimeOffset.UtcNow,nativeJob:native);
+            }
+        }
+    }
     private const int Retain=4096,MaxBytes=8_000_000;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private static readonly Regex Code=new(@"\A[A-Za-z0-9_-]{1,240}\z",RegexOptions.CultureInvariant);
@@ -91,6 +127,9 @@ internal sealed class DiscordOperationEvents
         {
             Locked(()=>{
                 var current=Load()??new Journal(Guid.NewGuid(),0,new());
+                // An acknowledgement returning after a completed async worker is not a new phase.
+                if(current.Events.Any(x=>x.OperationId==id&&x.Phase=="terminal"))return true;
+                if(current.Events.Any(x=>x.OperationId==id&&x.Phase==phase&&x.Result==result&&x.Evidence==evidence))return true;
                 var next=checked(current.Latest+1);
                 var e=new Event(next,current.Epoch.ToString("N")+":"+next,id,maps,operation,origin,actor,
                     utc,phase,result,string.IsNullOrEmpty(evidence)?"NO_ADDITIONAL_EVIDENCE":Code.IsMatch(evidence)?evidence:"EVIDENCE_NOT_EXPORTABLE",scheduled,nativeJob);
