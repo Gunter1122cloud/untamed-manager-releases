@@ -8396,8 +8396,9 @@ test("interrupted SteamCMD queue survives UI restart and blocks accidental retry
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await page.getByRole("tab",{name:"Frissítés"}).click();
-  await expect(page.getByText(/Helyi SteamCMD-napló: NeedsOperator/)).toBeVisible();
-  await expect(page.getByText(/kézi ellenőrzés szükséges/)).toBeVisible();
+  const journal=page.getByText(/Helyi SteamCMD-napló: NeedsOperator/);
+  await expect(journal).toBeVisible();
+  await expect(journal).toContainText("kézi ellenőrzés szükséges");
   await expect(page.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"})).toBeDisabled();
 });
 
