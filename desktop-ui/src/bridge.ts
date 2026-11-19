@@ -1785,7 +1785,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "servers.initialApply" | "servers.apiModeStatus" |
   "servers.apiModePreview" | "servers.apiModeApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
-  "historical.supplementalPreview" | "historical.supplementalRegister" |
+  "historical.supplementalPreview" | "historical.supplementalRegister" | "historical.supplementalStart" |
   "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
   "historical.originalBatchPreview" | "historical.originalBatchRegister" |
   "historical.sourcePinPreview" | "historical.sourcePinApply" |
@@ -2464,6 +2464,7 @@ export const managerBridge = {
   historicalLocalParity: (archive:string) => request<HistoricalLocalStoreParity>("historical.localParity",{archive}),
   historicalOriginalList: () => request<OriginalKovaLocalMapList>("historical.originalList"),
   historicalSupplementalPreview:(mapId:string,stoppedUseApi:boolean)=>request<SupplementalStorePreview>("historical.supplementalPreview",{mapId,stoppedUseApi}),
+  historicalSupplementalStart:(mapId:string,stoppedUseApi:boolean)=>request<{mapId:string;mapName:string;registered:true;alreadyRegistered:boolean;running?:boolean;processInventoryUnchanged?:boolean;processCommandIssued:false;scheduleChanged:false;modContentState?:string;unverifiedModProjects?:string[]}>("historical.supplementalStart",{mapId,stoppedUseApi}),
   historicalSupplementalRegister:(token:string)=>request<{mapId:string;mapName:string;registered:true;running:boolean;processInventoryUnchanged:boolean;processCommandIssued:false;scheduleChanged:false}>("historical.supplementalRegister",{token,confirm:true}),
   historicalRuntimeSettingsStatus: (mapId:string) =>
     request<{mapId:string;mapName:string;gamePort:number;queryPort:number;
