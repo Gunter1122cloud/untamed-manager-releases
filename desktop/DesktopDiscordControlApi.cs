@@ -361,7 +361,8 @@ internal sealed class DesktopDiscordControlApi : IDisposable
                 var observed=discovery?.Invoke();
                 return new{hostId=cluster.Config.LocalHostId,hostName=cluster.Config.LocalHostName,
                     observedUtc=DateTimeOffset.UtcNow,maps=result,
-                    capabilities=new{operationEventsVersion=1,legacyScheduleHistory=legacySchedules!=null,coverage=new[]{"scheduler-native","discord-dispatch"}},
+                    capabilities=new{operationEventsVersion=1,legacyScheduleHistory=legacySchedules!=null,completeOperationCoverage=false,
+                        coverage=new[]{"scheduler-native","discord-dispatch","manual-local-lifecycle","manual-local-wipe-save","manual-stopped-backup-restore-steam","local-batch-lifecycle-steam"}},
                     discoveryFresh=observed?.Fresh??false,
                     discoveryObservedUtc=observed?.ObservedUtc,
                     discoveredMaps=DiscoveredOnly(observed,verifiedServers)};
