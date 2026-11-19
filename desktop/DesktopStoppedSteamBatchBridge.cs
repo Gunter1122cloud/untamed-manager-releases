@@ -22,6 +22,11 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
     private sealed record Candidate(Guid MapId,string Root,string Build);
     private sealed record Pending(Guid Token,Candidate[] Maps,string SteamExe,
         DateTimeOffset CreatedUtc,bool UseCache);
+
+    private sealed class InlineProgress<T>(Action<T> report):IProgress<T>
+    {
+        public void Report(T value)=>report(value);
+    }
     private sealed class Job
     {
         public Guid Id=Guid.NewGuid();
@@ -373,7 +378,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                 _=Task.Run(async()=>
                 {
                     Stage(task,"running","preflight");
-                    var progress=new Progress<SteamQueueProgress>(item=>
+                    var progress=new InlineProgress<SteamQueueProgress>(item=>
                         Stage(task,"running",item.Stage,
                             item.Position,item.MapName));
                     try
@@ -394,11 +399,11 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                         }
                         Stage(task,"completed","verified");
                     }
-                    catch(Exception)
+                    catch(Exception ex)
                     {
                         lock(sync)
                         {
-                            task.ErrorCode="UM-STEAM-BATCH-FAILED";
+                            task.ErrorCode=ex.Message is "UM-STEAM-EXTERNAL-PROCESS-BUSY" or "UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED" or "UM-STEAM-INSTALLED-BUILD-INVALID" or "UM-STEAM-INSTALLED-BUILD-CHANGED"?ex.Message:"UM-STEAM-BATCH-FAILED";
                             Stage(task,"needsOperator",task.Stage);
                         }
                     }
