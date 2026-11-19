@@ -17,7 +17,7 @@ internal sealed class DiscordOperationEvents
 {
     internal sealed record Event(long Sequence,string EventId,Guid OperationId,Guid[] MapIds,
         string Operation,string Origin,string? ActorId,DateTimeOffset EventUtc,string Phase,
-        string Result,string Evidence,DateTimeOffset? ScheduledUtc=null,Guid? NativeJobId=null);
+        string Result,string Evidence,DateTimeOffset? ScheduledUtc=null,Guid? NativeJobId=null,string?[]? MapNames=null);
     internal sealed record Page(int Version,string HostId,Guid? Epoch,long OldestSequence,long LatestSequence,
         string State,bool Gap,bool More,string? NextCursor,Event[] Events);
     private sealed record Journal(Guid Epoch,string HostId,long Latest,List<Event> Events);
@@ -67,7 +67,9 @@ internal sealed class DiscordOperationEvents
     private static readonly Regex Code=new(@"\A[A-Za-z0-9_-]{1,240}\z",RegexOptions.CultureInvariant);
     private readonly string file,gapFile,mutex,hostId;
     private readonly int retention;
-    internal DiscordOperationEvents(ClusterService cluster):this(cluster.Store.Root,cluster.Config.LocalHostId){}
+    private readonly Func<Guid,string?>? mapName;
+    internal DiscordOperationEvents(ClusterService cluster):this(cluster.Store.Root,cluster.Config.LocalHostId)
+    {mapName=id=>cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==id)?.Name;}
     internal DiscordOperationEvents(string root,string hostId,int retention=Retain)
     {
         if(retention is <1 or >Retain)throw new ArgumentOutOfRangeException(nameof(retention));
@@ -107,7 +109,8 @@ internal sealed class DiscordOperationEvents
         e.MapIds.Distinct().Count()==e.MapIds.Length&&Code.IsMatch(e.Operation)&&
         e.Origin is "scheduler" or "discord" or "manager" or "unknown"&&
         (e.ActorId==null||(e.ActorId.Length is >=15 and <=25&&e.ActorId.All(char.IsAsciiDigit)))&&
-        Code.IsMatch(e.Phase)&&Code.IsMatch(e.Result)&&Code.IsMatch(e.Evidence);
+        Code.IsMatch(e.Phase)&&Code.IsMatch(e.Result)&&Code.IsMatch(e.Evidence)&&
+        (e.MapNames==null||(e.MapNames.Length==e.MapIds.Length&&e.MapNames.All(n=>n==null||(n.Length<=96&&!n.Any(char.IsControl)))));
     private void Save(Journal journal)
     {
         string tmp=file+"."+Guid.NewGuid().ToString("N")+".tmp";
@@ -138,8 +141,9 @@ internal sealed class DiscordOperationEvents
                 if(current.Events.Any(x=>x.OperationId==id&&x.Phase=="terminal"))return true;
                 if(current.Events.Any(x=>x.OperationId==id&&x.Phase==phase&&x.Result==result&&x.Evidence==evidence))return true;
                 var next=checked(current.Latest+1);
+                string? SafeName(Guid map){try{var value=mapName?.Invoke(map);return value!=null&&value.Length<=96&&!value.Any(char.IsControl)?value:null;}catch{return null;}}
                 var e=new Event(next,current.Epoch.ToString("N")+":"+next,id,maps,operation,origin,actor,
-                    utc,phase,result,string.IsNullOrEmpty(evidence)?"NO_ADDITIONAL_EVIDENCE":Code.IsMatch(evidence)?evidence:"EVIDENCE_NOT_EXPORTABLE",scheduled,nativeJob);
+                    utc,phase,result,string.IsNullOrEmpty(evidence)?"NO_ADDITIONAL_EVIDENCE":Code.IsMatch(evidence)?evidence:"EVIDENCE_NOT_EXPORTABLE",scheduled,nativeJob,maps.Select(SafeName).ToArray());
                 if(!Valid(e))throw new InvalidDataException("UM-DC-EVENTS-FIELDS");
                 current.Events.Add(e);
                 if(current.Events.Count>retention)current.Events.RemoveAt(0);
