@@ -36,6 +36,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     private readonly SemaphoreSlim mutex=new(1,1);
     private readonly object sync=new();
     private readonly Func<LocalMap,SteamUpdatePreview> planner;
+    private readonly bool isolatedExecution;
     private readonly Func<LocalMap,IProgress<SteamMaintenanceStage>,Task<SteamStoppedMapUpdater.Receipt>> runner;
     private readonly Func<LocalMap,CancellationToken,Task<AsaSteamBuildCheck>> publishedBuild;
     private readonly Func<string?> pickSteamCmd;
@@ -56,6 +57,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         Func<CancellationToken,Task<string>>? prepareOfficialSteamCmd=null)
     {
         cluster=owner??throw new ArgumentNullException(nameof(owner));
+        isolatedExecution=execute!=null;
         pickSteamCmd=selectSteamCmd??PickSteamCmd;
         prepareSteamCmd=prepareOfficialSteamCmd??PrepareOfficialSteamCmdAsync;
         planner=plan??(map=>SteamUpdateDryRun.Plan(
@@ -257,6 +259,12 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     string steamExe=cluster.Config.SteamCmdExecutable;
                     string? steamCmdError=SteamCmdError(steamExe);
                     bool steamFound=steamCmdError==null;
+                    string? externalSteamError=null;
+                    if(!isolatedExecution)
+                    {
+                        try{SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();}
+                        catch(IOException e){externalSteamError=e.Message is "UM-STEAM-EXTERNAL-PROCESS-BUSY" or "UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED"?e.Message:"UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED";}
+                    }
                     long free=new DriveInfo(Path.GetPathRoot(root)!).AvailableFreeSpace;
                     bool stopped=processes.All(p=>p.confirmedStopped&&!p.running&&
                         p.pid==null&&p.loaderPid==null);
@@ -278,13 +286,13 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         installedBuild=AsaSteamBuildCatalog.InstalledBuild(root),
                         processes,overlaps,steamCmdError,
                         asaBinaryRegistered=AsaReadyProbe.IsRegisteredServerBinary(owned),
-                        steamCmdFound=steamFound,steamCmdConfigured=
+                        externalSteamError,steamCmdFound=steamFound,steamCmdConfigured=
                             !string.IsNullOrWhiteSpace(steamExe),
-                        availableBytes=free,requiredBytes=Reserve,
+                        availableBytes=free,requiredBytes=Reserve+Reserve/4,
                         journalBlocked,historicalBlocked=historical,
                         safeInstallation,
                         canPreview=AsaReadyProbe.IsRegisteredServerBinary(owned)&&stopped&&!historical&&safeInstallation&&
-                            !journalBlocked&&steamFound&&free>=Reserve&&
+                            !journalBlocked&&steamFound&&externalSteamError==null&&free>=Reserve+Reserve/4&&
                             overlaps.Length==0,
                         noProcessAutoStop=true,remoteWrites=false,
                         evidence="REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"
@@ -471,6 +479,11 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                    !freshScope.EnumerateArray().Select(x=>x.GetString()).OrderBy(x=>x,StringComparer.Ordinal)
                        .SequenceEqual(fresh.Maps.OrderBy(x=>x,StringComparer.Ordinal))))
                     return Fail(id,"UM-STEAM-SHARED-SCOPE-CHANGED");
+                if(!isolatedExecution)
+                {
+                    try{SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();}
+                    catch(IOException e){return Fail(id,e.Message is "UM-STEAM-EXTERNAL-PROCESS-BUSY" or "UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED"?e.Message:"UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED");}
+                }
                 if(direct)acceptedDirectRequests.Add(requestId);
                 var task=new Job{MapId=map.Id};
                 lock(sync)
