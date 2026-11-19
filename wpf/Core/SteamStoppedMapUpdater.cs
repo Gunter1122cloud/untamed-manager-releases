@@ -19,6 +19,10 @@ namespace UntamedManager.Core;
 /// </summary>
 public static class SteamStoppedMapUpdater
 {
+    private sealed class InlineProgress<T>(Action<T> report):IProgress<T>
+    {
+        public void Report(T value)=>report(value);
+    }
     public sealed record Receipt(Guid MapId,string InstallRoot,string OldBuild,
         string NewBuild,string BackupDirectory,DateTimeOffset VerifiedUtc,
         bool ProtectedFilesIntact);
@@ -313,10 +317,16 @@ public static class SteamStoppedMapUpdater
                     queueProgress?.Report(new SteamQueueProgress(1,selected.Length,map.Name,
                         payload.CacheHit?"cache-hit-verified":"cache-download-verified"));
                 }
+                int position=Array.IndexOf(selected,map)+1;
+                var stages=new InlineProgress<SteamMaintenanceStage>(stage=>{
+                    stageProgress?.Report(stage);
+                    queueProgress?.Report(new(position,selected.Length,map.Name,stage.ToString()));
+                });
                 var item=await RunCore(cluster,map,steamExecutable,reserve,
-                    timeout,fakeExecutable,stageProgress,true,token,
+                    timeout,fakeExecutable,stages,true,token,
                     originalStoppedObserver,originalStoppedObserverUnderLease,payload);
                 receipts.Add(item);
+                queueProgress?.Report(new SteamQueueProgress(position,selected.Length,map.Name,"verified-installation") {VerifiedReceipt=item});
             },queueProgress,ct);
         return receipts;
     }
