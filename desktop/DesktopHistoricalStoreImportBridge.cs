@@ -104,7 +104,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             if(method is not ("historical.localStatus" or "historical.localParity" or "historical.list" or "historical.preview" or
                 "historical.register" or "historical.pairedEvidence" or
                 "historical.launchEvidence" or "historical.liveGuard" or
-                "historical.supplementalPreview" or "historical.supplementalRegister" or
+                "historical.supplementalPreview" or "historical.supplementalRegister" or "historical.supplementalStart" or
                 "historical.originalList" or "historical.originalPreview" or
                 "historical.originalRegister" or "historical.originalBatchPreview" or
                 "historical.originalBatchRegister" or
@@ -735,14 +735,37 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         presentModProjects=plan.Content.PresentProjects,unverifiedModProjects=plan.Content.UnverifiedProjects,
                         levelManifestProjects=plan.Content.LevelManifestProjects,serverProcessTouched=false});
                 }
-                if(method=="historical.supplementalRegister")
+                if(method is "historical.supplementalRegister" or "historical.supplementalStart")
                 {
-                    if(!GuidField(data,"token",out var extraToken)||
-                       !BoolField(data,"confirm",out var yes)||!yes)
-                        return Fail(id,"UM-STORE-EXTRA-APPROVAL");
-                    var approval=supplementalApprovals.Values.SingleOrDefault(x=>x.Token==extraToken);
-                    if(approval==null)return Fail(id,"UM-STORE-EXTRA-PREVIEW-EXPIRED");
-                    supplementalApprovals.Remove(approval.MapId);
+                    SupplementalApproval approval;
+                    if(method=="historical.supplementalStart")
+                    {
+                        if(!GuidField(data,"mapId",out var requestedExtra)||!BoolField(data,"stoppedUseApi",out var requestedApi))
+                            return Fail(id,"UM-STORE-EXTRA-REQUEST");
+                        var existing=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==requestedExtra);
+                        if(existing!=null)
+                        {
+                            if(!existing.HistoricalSupplementalSource||
+                               !LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,existing)||
+                               !cluster.Registry.Snapshot().ClusterRegistry.MapAssignments.Any(x=>x.MapId==requestedExtra))
+                                return Fail(id,"UM-STORE-EXTRA-GUID-OR-NAME-CONFLICT");
+                            return Ok(id,new{alreadyRegistered=true,mapId=existing.Id,mapName=existing.Name,
+                                registered=true,processCommandIssued=false,scheduleChanged=false});
+                        }
+                        var initial=await Task.Run(()=>PrepareSupplemental(requestedExtra,requestedApi));
+                        approval=new(Guid.NewGuid(),requestedExtra,requestedApi,initial.Fingerprint,DateTimeOffset.UtcNow.AddMinutes(3));
+                        supplementalApprovals.Remove(requestedExtra);
+                    }
+                    else
+                    {
+                        if(!GuidField(data,"token",out var extraToken)||
+                           !BoolField(data,"confirm",out var yes)||!yes)
+                            return Fail(id,"UM-STORE-EXTRA-APPROVAL");
+                        var stored=supplementalApprovals.Values.SingleOrDefault(x=>x.Token==extraToken);
+                        if(stored==null)return Fail(id,"UM-STORE-EXTRA-PREVIEW-EXPIRED");
+                        supplementalApprovals.Remove(stored.MapId);
+                        approval=stored;
+                    }
                     if(approval.ExpiresUtc<=DateTimeOffset.UtcNow)
                         return Fail(id,"UM-STORE-EXTRA-PREVIEW-EXPIRED");
                     var result=await Task.Run(()=>{
@@ -781,7 +804,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         try{unchanged=SupplementalInventoryHash(LocalRunningAsaDiscovery.ReadSamples())==final.InventoryHash;}
                         catch(Exception){/* registration remains committed, report unknown */ }
                         return new{mapId=final.Map.Id,mapName=final.Map.Name,registered=true,
-                            running=final.Running,originalGuidPreserved=true,
+                            alreadyRegistered=false,running=final.Running,originalGuidPreserved=true,
+                            modContentState=final.Content.State,presentModProjects=final.Content.PresentProjects,
+                            unverifiedModProjects=final.Content.UnverifiedProjects,levelManifestProjects=final.Content.LevelManifestProjects,
                             processInventoryUnchanged=unchanged,processCommandIssued=false,
                             originalStoreTouched=false,scheduleChanged=false,
                             requiresLocalAcceptance=!unchanged};
@@ -1271,7 +1296,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             // A sanitized, operation-specific failure must replace the old
             // generic error. Never disclose exception text, file paths,
             // encrypted secrets or Store session bytes to the renderer.
-            if(requestedMethod is "historical.supplementalPreview" or "historical.supplementalRegister")
+            if(requestedMethod is "historical.supplementalPreview" or "historical.supplementalRegister" or "historical.supplementalStart")
                 return Fail(id,"UM-STORE-EXTRA-PREFLIGHT-FAILED");
             return Fail(id,requestedMethod switch{
                 "historical.originalLiveBatchPreview"=>
