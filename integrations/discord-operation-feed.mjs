@@ -43,6 +43,12 @@ function validatePage(page,host,old){
  if(page.gap||page.state==="cursorInvalid"||page.state==="journalChanged"||page.state==="publicationGap")
    throw Error("EVENT_JOURNAL_GAP_"+page.state);
  if(!["ok","notInitialized"].includes(page.state)||typeof page.nextCursor!=="string")throw Error("EVENT_API_UNAVAILABLE");
+ if(page.state==="notInitialized"){
+   if(page.nextCursor!=="empty"||page.events.length||page.latestSequence!==0||old?.cursor&&old.cursor!=="empty")throw Error("EVENT_JOURNAL_CHANGED");
+   return;
+ }
+ if(!page.epoch||page.nextCursor.split(":")[0]!==String(page.epoch).replaceAll("-",""))throw Error("EVENT_EPOCH_MISMATCH");
+ if(!old?.cursor&&page.events.length)throw Error("EVENT_BASELINE_MISMATCH");
  let last=old?.cursor==="empty"?0:Number(old?.cursor?.split(":")[1]??0);
  for(const e of page.events){
    if(!Number.isSafeInteger(e.sequence)||e.sequence!==last+1||
@@ -51,7 +57,8 @@ function validatePage(page,host,old){
      !Number.isFinite(Date.parse(e.eventUtc)))throw Error("EVENT_SEQUENCE_GAP_OR_INVALID");
    last=e.sequence;
  }
- if(page.events.length&&Number(page.nextCursor.split(":")[1])!==last)throw Error("EVENT_CURSOR_MISMATCH");
+ if(Number(page.nextCursor.split(":")[1])!==(old?.cursor?last:page.latestSequence))throw Error("EVENT_CURSOR_MISMATCH");
+ if(page.more!==(Number(page.nextCursor.split(":")[1])<page.latestSequence))throw Error("EVENT_HAS_MORE_MISMATCH");
  if(old?.cursor&&old.cursor!=="empty"&&page.nextCursor.split(":")[0]!==old.cursor.split(":")[0])throw Error("EVENT_EPOCH_CHANGED");
 }
 async function atomic(file,state){
@@ -87,7 +94,7 @@ export class OperationFeed {
    const page=await this.request(host,"events",{cursor:old?.cursor??null,limit:50});
    validatePage(page,host,old);
    const next=structuredClone(this.state);
-   next.hosts[host.id]={...old,cursor:page.nextCursor,observedUtc:new Date(this.clock()).toISOString()};
+   next.hosts[host.id]={...old,cursor:page.nextCursor,observedUtc:new Date(this.clock()).toISOString(),lastError:null};
    for(const event of page.events)this.ingest(next,host,event,false);
    await this.commit(next);
    return page.more;
@@ -97,10 +104,12 @@ export class OperationFeed {
    let run=state.runs[id];
    if(run&&e.sequence>0&&run.sequence>=e.sequence)return;
    run=run??{hostId:host.id,hostName:host.name,operationId:e.operationId,mapIds:e.mapIds,mapNames:e.mapIds.map(id=>host.mapNames?.[id]??id),
-      operation:e.operation,origin:e.origin,actorId:e.actorId,startedUtc:null,finishedUtc:null,sequence:0,phases:{},historical:backfill};
+      operation:e.operation,origin:e.origin,actorId:e.actorId,startedUtc:null,finishedUtc:null,sequence:0,phases:{},historical:backfill,scheduledUtc:e.scheduledUtc??null};
    if(e.sequence>0)run.sequence=e.sequence;
    run.latest=e;run.phases[e.phase]=e;
    if(e.phase==="started")run.startedUtc=e.eventUtc;
+   if(e.phase==="claimed")run.claimedUtc=e.eventUtc;
+   if(e.scheduledUtc)run.scheduledUtc=e.scheduledUtc;
    if(terminal(e))run.finishedUtc=e.eventUtc;
    state.runs[id]=run;
    // One mutable embed per operation, one independent immutable alert per
@@ -132,10 +141,12 @@ export class OperationFeed {
      {name:"Végrehajtó",value:actor,inline:true},
      {name:"Indulás",value:stamp(run.startedUtc),inline:true},{name:"Befejezés",value:stamp(alert?null:run.finishedUtc),inline:true},
      {name:"Fázis",value:phases[shown.phase]??clean(shown.phase),inline:true}];
+   if(run.scheduledUtc)fields.push({name:"Esedékesség",value:stamp(run.scheduledUtc),inline:true});
+   if(run.claimedUtc&&!run.startedUtc)fields.push({name:"Lefoglalás",value:stamp(run.claimedUtc),inline:true});
    if(!alert)for(const p of ["save-result","stop-result","new-process","readiness","wipe-result"]){
      const row=run.phases[p];if(row)fields.push({name:phases[p],value:description(row)});
    }
-   const embed={title,description:(run.historical?"Utólagos átvétel · eredeti eseményidő: "+stamp(shown.eventUtc)+"\n":"")+description(shown),
+   const embed={title,description:(run.historical||shown.historical?"Utólagos átvétel · eredeti eseményidő: "+stamp(shown.eventUtc)+"\n":"")+description(shown),
      color:colors[severity(shown)],fields,footer:{text:item.marker+" · "+run.operationId},timestamp:shown.eventUtc};
    return {embeds:[embed],allowedMentions:{parse:[]}};
  }
@@ -175,13 +186,13 @@ export class OperationFeed {
    }
    if(!message&&(item.status==="sending"||item.status==="uncertain")){
      message=await this.findMessage(channel,item);
-     if(!message){await this.updateItem(k,{status:"uncertain",problem:"SEND_UNCERTAIN_REVIEW_REQUIRED"});return;}
+     if(!message){await this.updateItem(k,{status:"uncertain",problem:"SEND_UNCERTAIN_REVIEW_REQUIRED",retryAt:this.clock()+300_000});return;}
    }
    const payload=this.payload(item);
    if(message){
      if(message.author?.id!==this.bot||!message.embeds?.some(e=>e.footer?.text?.startsWith(item.marker+" · ")))throw Error("EVENT_MESSAGE_IDENTITY_MISMATCH");
      if(!item.kind.startsWith("alert-"))await message.edit(payload);
-     await this.updateItem(k,{status:"sent",messageId:message.id,problem:null});return;
+     await this.updateItem(k,{status:"sent",messageId:message.id,problem:null,retryAt:null,checkedUtc:this.clock()});return;
    }
    await this.updateItem(k,{status:"sending",attemptUtc:new Date(this.clock()).toISOString()});
    try{
@@ -193,7 +204,7 @@ export class OperationFeed {
      const status=e.status??e.httpStatus;
      if(status===429||status===403||status===400){
        await this.updateItem(k,{status:"pending",retryAt:this.clock()+Math.max(30_000,Number(e.retry_after??0)*1000),problem:"DISCORD_HTTP_"+status});
-     }else await this.updateItem(k,{status:"uncertain",problem:"DISCORD_SEND_UNCERTAIN"});
+     }else await this.updateItem(k,{status:"uncertain",problem:"DISCORD_SEND_UNCERTAIN",retryAt:this.clock()+60_000});
      throw e;
    }
  }
@@ -208,13 +219,15 @@ export class OperationFeed {
        if(page.version!==1||page.hostId!==host.id||page.gap||page.state!=="ok"||!Array.isArray(page.runs))throw Error("EVENT_HISTORY_GAP");
        const next=structuredClone(this.state);next.hosts[host.id]??={};
        for(const row of page.runs){
-         if(next.runs[key(host.id,row.runId)])continue;
+         const existing=next.runs[key(host.id,row.runId)];
+         if(existing&&(!row.finishedUtc||existing.finishedUtc))continue;
          const e={operationId:row.runId,mapIds:[row.mapId],operation:row.kind,origin:"scheduler",sequence:0,
-           eventUtc:row.finishedUtc??row.claimedUtc,phase:row.finishedUtc?"terminal":"claimed",result:row.status,evidence:row.evidence};
+           eventUtc:row.finishedUtc??row.claimedUtc,scheduledUtc:row.scheduledUtc,historical:true,phase:row.finishedUtc?"terminal":"claimed",result:row.status,evidence:row.evidence};
          this.ingest(next,host,e,true);
          const run=next.runs[key(host.id,row.runId)];
-         run.startedUtc=null;run.claimedUtc=row.claimedUtc;
+         if(!existing)run.startedUtc=null;run.claimedUtc=row.claimedUtc;
        }
+       if(page.retentionMayBeTruncated)this.onProblem(host.id,"EVENT_HISTORY_RETENTION_MAY_BE_TRUNCATED");
        next.hosts[host.id].historyCursor=page.nextRunId;await this.commit(next);
        after=page.nextRunId;if(!page.more)break;
      }
@@ -228,11 +241,30 @@ export class OperationFeed {
      await this.load();
      for(const h of this.hosts){
        try{for(let i=0;i<4;i++)if(!await this.poll(h))break;}
-       catch(e){this.onProblem(h.id,clean(e.message));}
+       catch(e){
+         const code=clean(e.message);this.onProblem(h.id,code);
+         const next=structuredClone(this.state);next.hosts[h.id]={...next.hosts[h.id],lastError:code};
+         try{await this.commit(next);}catch(write){this.onProblem(h.id,clean(write.message));}
+       }
      }
-     for(const k of Object.keys(this.state.outbox).filter(k=>this.state.outbox[k].status!=="sent").slice(0,100)){
+     for(const k of Object.keys(this.state.outbox).filter(k=>this.state.outbox[k].status!=="sent"&&(!this.state.outbox[k].retryAt||this.state.outbox[k].retryAt<=this.clock())).slice(0,20)){
        try{await this.deliver(k);if(this.state.outbox[k]?.status==="uncertain")this.onProblem(k,"SEND_UNCERTAIN_REVIEW_REQUIRED");}
        catch(e){this.onProblem(k,clean(e.message));}
+     }
+     // Bounded audit of recently delivered mutable messages; deleted
+     // embeds are repaired, but deleted historical alerts never re-alert.
+     const due=Object.values(this.state.outbox).filter(x=>x.status==="sent"&&!x.kind.startsWith("alert-")&&x.messageId&&this.clock()-(x.checkedUtc??0)>3600_000)
+       .sort((a,b)=>(a.checkedUtc??0)-(b.checkedUtc??0)).slice(0,2);
+     for(const item of due){
+       try{
+         const channel=await this.channelFor(item.channel);
+         const message=await channel.messages.fetch(item.messageId);
+         if(message.author?.id!==this.bot||!message.embeds?.some(e=>e.footer?.text?.startsWith(item.marker+" · ")))throw Error("EVENT_MESSAGE_IDENTITY_MISMATCH");
+         await this.updateItem(item.key,{checkedUtc:this.clock()});
+       }catch(e){
+         if(e.code===10008||e.code==="10008")await this.updateItem(item.key,{status:"pending",messageId:null,generation:(item.generation??0)+1,checkedUtc:this.clock()});
+         else this.onProblem(item.key,clean(e.message));
+       }
      }
    }finally{this.busy=false;}
  }
