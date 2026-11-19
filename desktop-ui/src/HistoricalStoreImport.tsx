@@ -51,6 +51,19 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       setExtraPreview(result);
     }catch(e){setExtraError(extraFailure(e));}finally{setExtraBusy(false);}
   };
+  const extraDispatching=useRef(false);
+  const startExtra=async(id:string)=>{
+    if(extraBusy||extraDispatching.current)return;
+    extraDispatching.current=true;setExtraBusy(true);setExtraPreview(null);setExtraError("");setExtraNotice("");
+    try{
+      const result=await managerBridge.historicalSupplementalStart(id,extraApi);
+      if(result.mapId.toLowerCase()!==id.toLowerCase()||!result.registered||result.processCommandIssued||result.scheduleChanged)throw new Error("UM-STORE-EXTRA-RECEIPT-INVALID");
+      setExtraNotice(result.mapName+(result.alreadyRegistered?" már regisztrált.":result.processInventoryUnchanged?" regisztrálva; a folyamatleltár változatlan.":" regisztrálva; a folyamatleltár utóellenőrzése szükséges.")+
+        (result.modContentState&&result.modContentState!=="level-manifest-and-payload-found"?" A pontos pályatartalom betölthetősége nem igazolt.":"")+
+        (result.unverifiedModProjects?.length?" Nem igazolt modcsomagok: "+result.unverifiedModProjects.join(", ")+".":""));
+      setDirectList(await managerBridge.historicalOriginalList());await onImported();
+    }catch(e){setExtraError(extraFailure(e));}finally{extraDispatching.current=false;setExtraBusy(false);}
+  };
   const registerExtra=async()=>{
     if(extraBusy||!extraPreview||extraPreview.alreadyRegistered)return;
     const token=extraPreview.token;
@@ -834,8 +847,10 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             {m.enabledMods??"?"} aktív mod · {m.active?"aktív forrásrekord":"nem aktív forrásrekord"} ·
             {m.sessionMatches?"azonos session a forrásban":"eltérő vagy hiányzó session"} ·
             {m.launchState==="source-launch-matched"?"egyező launch-forrás":"launch-forrás nem igazolt"}{" "}
-            {!m.registered&&<button className="secondary" type="button"
-              disabled={extraBusy||directBusy||registering} onClick={()=>void reviewExtra(m.mapId)}>Átvétel ellenőrzése</button>}
+            {!m.registered&&<><button className="primary" type="button"
+              disabled={extraBusy||directBusy||registering} onClick={()=>void startExtra(m.mapId)}>{m.mapKey} regisztrálása</button>{" "}
+              <button className="secondary" type="button"
+              disabled={extraBusy||directBusy||registering} onClick={()=>void reviewExtra(m.mapId)}>Átvétel ellenőrzése</button></>}
           </p>)}
           {extraPreview&&!extraPreview.alreadyRegistered&&<div role="region" aria-label="További map átvétele">
             <b>{extraPreview.mapName}</b>
