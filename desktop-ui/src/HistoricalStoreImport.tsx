@@ -842,7 +842,11 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             <p>{extraPreview.mapKey} · {extraPreview.running?"futó":"leállított"} · {extraPreview.useApi?"ASA API":"közvetlen ASA"} · {extraPreview.clusterId}</p>
             <p>Game {extraPreview.gamePort} / Query {extraPreview.queryPort} / RCON {extraPreview.rconPort} · {extraPreview.mods.length} aktív mod</p>
             <p>Modok: {extraPreview.mods.join(", ")} · Passzív: {extraPreview.passiveMods.join(", ")||"nincs"}</p>
-            <p>Az eredeti GUID megmarad. Csak külön Manager-forráspin, profil és cluster-tagság készül; nem állít le szervert, nem ad hozzá ütemezést. A modtartalom telepítési ellenőrzése külön feladat.</p>
+            <p>Az eredeti GUID megmarad. Csak külön Manager-forráspin, profil és cluster-tagság készül; nem állít le szervert, nem ad hozzá ütemezést. A regisztráció nem bizonyítja az Unreal mapcsomag betölthetőségét.</p>
+            <p>Helyi modtartalom: {extraPreview.modContentState==="level-manifest-and-payload-found"?"A pontos pályakulcs manifestben szerepel és csomagfájl található":extraPreview.modContentState==="inventory-incomplete"?"A lemezleltár nem teljes":extraPreview.modContentState==="no-mod-projects-declared"?"Nincs deklarált modprojekt":"A pontos pálya telepített tartalma nem igazolt"}.</p>
+            {!!extraPreview.presentModProjects?.length&&<p>Helyi csomagnyom: {extraPreview.presentModProjects.join(", ")}</p>}
+            {!!extraPreview.levelManifestProjects?.length&&<p>Pályakulcsot tartalmazó modprojekt: {extraPreview.levelManifestProjects.join(", ")}</p>}
+            {!!extraPreview.unverifiedModProjects?.length&&<p className="warning-inline">Nem igazolt modcsomag: {extraPreview.unverifiedModProjects.join(", ")}. Az átvétel nem tölt le semmit.</p>}
             <button type="button" className="primary" disabled={extraBusy} onClick={()=>void registerExtra()}>Regisztrálás / Átvétel</button>
             <button type="button" className="secondary" disabled={extraBusy} onClick={()=>setExtraPreview(null)}>Mégse</button>
           </div>}
