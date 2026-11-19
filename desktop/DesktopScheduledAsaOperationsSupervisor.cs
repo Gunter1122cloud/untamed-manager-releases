@@ -27,7 +27,8 @@ public sealed record ScheduledAsaOperation(
 // after a crash an unfinished claim remains visible and is never auto-replayed.
 public sealed record ScheduledAsaExecution(
     Guid RunId,Guid MapId,string Kind,DateTimeOffset ScheduledUtc,
-    DateTimeOffset ClaimedUtc,DateTimeOffset? FinishedUtc,string Status,string Evidence);
+    DateTimeOffset ClaimedUtc,DateTimeOffset? FinishedUtc,string Status,string Evidence,
+    bool TerminalPublicationPending=false);
 
 public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
 {
@@ -231,11 +232,49 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         });
     }
 
-    private static void AddHistory(State state,ScheduledAsaExecution entry)
+    private void AddHistory(State state,ScheduledAsaExecution entry)
     {
-        state.History.Add(entry);
+        // Durable publication obligation is committed with the native claim,
+        // before the first operation dispatch. Old v1 records default false.
+        state.History.Add(entry with{TerminalPublicationPending=true});
         if(state.History.Count>MaxHistory)
-            state.History.RemoveRange(0,state.History.Count-MaxHistory);
+        {
+            int remove=state.History.Count-MaxHistory;
+            if(state.History.Take(remove).Any(x=>x.TerminalPublicationPending))
+                eventStream.MarkGap();
+            state.History.RemoveRange(0,remove);
+        }
+    }
+    private void PublishTerminal(ScheduledAsaExecution entry,bool recovered)
+    {
+        if(!entry.TerminalPublicationPending||!entry.FinishedUtc.HasValue)return;
+        if(!eventStream.Record(entry.RunId,new[]{entry.MapId},entry.Kind,"scheduler",null,
+            "terminal",entry.Status,entry.Evidence,entry.FinishedUtc.Value,entry.ScheduledUtc,
+            historical:recovered))return;
+        // A separate acknowledgement can fail; retrying publication is safe
+        // by immutable run identity. Never retry the underlying ASA action.
+        try
+        {
+            Locked(()=>{
+                var state=Read();
+                int i=state.History.FindIndex(x=>x.RunId==entry.RunId);
+                if(i>=0&&state.History[i]==entry)
+                {
+                    state.History[i]=entry with{TerminalPublicationPending=false};
+                    Write(state);
+                }
+                return true;
+            });
+        }
+        catch{/* Retain the pending bit for next reconciliation. */}
+    }
+    internal void ReconcileEventTerminals(int limit=32)
+    {
+        if(limit is <1 or >100)throw new ArgumentOutOfRangeException(nameof(limit));
+        // No bridge calls, no command re-dispatch, no synthetic phase timestamps.
+        var pending=Locked(()=>Read().History.Where(x=>x.TerminalPublicationPending&&
+            x.FinishedUtc.HasValue).Take(limit).ToArray());
+        foreach(var entry in pending)PublishTerminal(entry,true);
     }
     private void Write(State state)
     {
@@ -972,6 +1011,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         try
         {
             now=now.ToUniversalTime();
+            ReconcileEventTerminals();
             var due=Locked(()=>Read().Jobs.Where(x=>x.Enabled&&x.NextDueUtc<=now)
                 .OrderBy(x=>x.NextDueUtc).ThenBy(x=>x.MapId).ToArray());
             foreach(var observed in due)
@@ -1034,7 +1074,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 if(!dispatched)
                 {
                     var skipped=Locked(()=>Read().History.SingleOrDefault(x=>x.RunId==claimId));
-                    if(skipped!=null)eventStream.Record(skipped.RunId,new[]{skipped.MapId},skipped.Kind,"scheduler",null,"terminal",skipped.Status,skipped.Evidence,skipped.FinishedUtc??skipped.ClaimedUtc,skipped.ScheduledUtc);
+                    if(skipped!=null)PublishTerminal(skipped,false);
                     continue;
                 }
                 ScheduleEvent(claimId,observed,"claimed","in-progress","DURABLE_SLOT_CLAIMED_NO_REPLAY");
@@ -1090,8 +1130,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                             return true;
                         });
                         var persisted=Locked(()=>Read().History.SingleOrDefault(x=>x.RunId==claimId));
-                        if(persisted!=null&&persisted.FinishedUtc.HasValue)
-                            eventStream.Record(claimId,new[]{observed.MapId},observed.Kind,"scheduler",null,"terminal",persisted.Status,persisted.Evidence,persisted.FinishedUtc.Value,persisted.ScheduledUtc);
+                        if(persisted!=null)PublishTerminal(persisted,false);
                         DesktopDiscordNotifications.Record(cluster,observed.MapId,"schedule",status!="executed-no-fsync-or-client-certification");
                     }
                     catch
@@ -1141,7 +1180,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     {
         if(Volatile.Read(ref disposed)!=0)throw new ObjectDisposedException(GetType().Name);
         if(Interlocked.Exchange(ref started,1)!=0)return;
-        try {SkipMissedOnManagerStart(DateTimeOffset.UtcNow);}
+        try {SkipMissedOnManagerStart(DateTimeOffset.UtcNow);ReconcileEventTerminals();}
         catch(Exception) {Volatile.Write(ref runtimeState,"journal-recovery-needs-operator");return;}
         Volatile.Write(ref runtimeState,"active");
         loop=Task.Run(async()=>{
