@@ -1358,7 +1358,8 @@ export type SupplementalStorePreview = {alreadyRegistered:true;mapId:string;mapN
   {alreadyRegistered:false;token:string;mapId:string;mapName:string;mapKey:string;
    gamePort:number;queryPort:number;rconPort:number;mods:string[];passiveMods:string[];
    running:boolean;useApi:boolean;clusterId:string;addsClusterMembership:true;changesOriginalFive:false;
-   modContentInstallationVerified:false;serverProcessTouched:false};
+   modContentInstallationVerified:false;modContentState?:string;presentModProjects?:string[];
+   unverifiedModProjects?:string[];levelManifestProjects?:string[];serverProcessTouched:false};
 export type OriginalKovaLocalMapList = {
   sourceVerified:true;originalFourFilesUnchanged:true;
   maps:Array<{mapId:string;mapKey:string;name:string;
