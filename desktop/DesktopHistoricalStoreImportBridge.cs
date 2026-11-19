@@ -1672,6 +1672,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         "Ragnarok_WP"=>"Ragnarok",
         "Astraeos_WP"=>"Astraeos",
         "LostColony_WP"=>"Lost Colony",
+        "Asa_N_Chill_Hub"=>"Event",
         _=>LocalMapNameRules.Normalize(key)
     };
 
