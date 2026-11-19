@@ -454,6 +454,38 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     catch(InvalidDataException){denied=true;}
     Check(denied&&fetches==1,"corrupt cache entry is rejected without implicit redownload");
 }
+// Durable Discord event pagination, retention and no-replay identity.
+{
+    string eventRoot=Path.Combine(root,"discord-operation-event-fixture");
+    Directory.CreateDirectory(eventRoot);
+    var events=new DiscordOperationEvents(eventRoot,"host-A",3);
+    var firstPage=events.Read(null,2);
+    Check(firstPage.State=="notInitialized"&&firstPage.NextCursor=="empty"&&!File.Exists(Path.Combine(eventRoot,"discord-operation-events-v1.json")),
+        "Discord event baseline is purely read-only before first event");
+    Guid eventMap=Guid.NewGuid(),eventRun=Guid.NewGuid();
+    var instant=DateTimeOffset.UtcNow;
+    events.Record(eventRun,new[]{eventMap},"Restart","scheduler",null,"started","in-progress","NATIVE_PREFLIGHT_PASSED",instant);
+    events.Record(eventRun,new[]{eventMap},"Restart","scheduler",null,"save-result","limited","LOCAL_WORLD_METADATA_LOG_UNVERIFIED",instant.AddSeconds(1));
+    var partial=events.Read(firstPage.NextCursor,1);
+    Check(partial.More&&partial.Events.Single().OperationId==eventRun&&partial.Events.Single().Sequence==1,
+        "Discord event stream returns first post-empty baseline event with stable identity");
+    var reopenedEvents=new DiscordOperationEvents(eventRoot,"host-A",3);
+    var remaining=reopenedEvents.Read(partial.NextCursor,2);
+    Check(remaining.Events.Single().Phase=="save-result"&&remaining.Events.Single().EventUtc==instant.AddSeconds(1),
+        "Discord event cursor and exact observation time survive recreation");
+    reopenedEvents.Record(eventRun,new[]{eventMap},"Restart","scheduler",null,"terminal","limited","WIPE_SENT_EFFECT_UNVERIFIED",instant.AddSeconds(2));
+    reopenedEvents.Record(eventRun,new[]{eventMap},"Restart","scheduler",null,"native-dispatched","in-progress","NATIVE_JOB_ACCEPTED",instant.AddSeconds(3));
+    var finished=reopenedEvents.Read(remaining.NextCursor,2);
+    Check(finished.Events.Length==1&&finished.Events[0].Phase=="terminal"&&finished.LatestSequence==3,
+        "late native acceptance does not reopen finished operation");
+    reopenedEvents.Record(Guid.NewGuid(),new[]{eventMap},"SaveWorld","manager",null,"started","in-progress","NATIVE_EXECUTION_STARTED",instant);
+    Check(reopenedEvents.Read(firstPage.NextCursor,2).Gap&&reopenedEvents.Read("begin",3).OldestSequence==2,
+        "expired event cursor reports retention gap rather than empty success");
+    bool wrongHost=false;
+    try{_=new DiscordOperationEvents(eventRoot,"host-B",3).Read(null,2);}
+    catch(InvalidDataException){wrongHost=true;}
+    Check(wrongHost,"copied event journal cannot masquerade as a different host");
+}
 // Discord Control authorization and parsing tests (no network).
 {
     string token=new string('a',64);
@@ -576,6 +608,9 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         audit.GetProperty("mapIds")[0].GetGuid()==m.Id&&
         !audit.GetProperty("gameEffectVerified").GetBoolean(),
         "Discord receipt exposes approved actor and captured target names without claiming game effect");
+    var eventResponse=await Request("events",Guid.NewGuid(),alice,admin,new{cursor="begin",limit=50});
+    Check(eventResponse.GetProperty("ok").GetBoolean()&&eventResponse.GetProperty("data").GetProperty("events").EnumerateArray().All(e=>e.GetProperty("operationId").GetGuid()==operation)&&sends==1,
+        "Discord event read correlates original request and never invokes native mutation");
     var replay=await Request("apply",operation,alice,admin,new{token=approve,confirm=true});
     Check(!replay.GetProperty("ok").GetBoolean()&&sends==1,"Discord consumes confirmation");
     pre=await Request("preview",Guid.NewGuid(),alice,owner,new{action="start",mapIds=new[]{m.Id}});
@@ -594,6 +629,8 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     JsonElement Request(string kind,string? where=null)=>JsonSerializer.SerializeToElement(new{credential=secret,guildId=guild,channelId=where??channel,
         userId=bot,roleIds=new[]{role},sentUtc=now,kind});
     Check(DesktopDiscordControlApi.Authorize(cfg,Request("status"),now)&&DesktopDiscordControlApi.Authorize(cfg,Request("players"),now)&&DesktopDiscordControlApi.Authorize(cfg,Request("job"),now)&&
+        DesktopDiscordControlApi.Authorize(cfg,Request("events"),now)&&DesktopDiscordControlApi.Authorize(cfg,Request("scheduleHistory"),now)&&
+        !DesktopDiscordControlApi.Authorize(cfg,Request("events","723456789012345678"),now)&&
         !DesktopDiscordControlApi.Authorize(cfg,Request("preview"),now)&&!DesktopDiscordControlApi.Authorize(cfg,Request("apply"),now)&&
         !DesktopDiscordControlApi.Authorize(cfg,Request("apply","723456789012345678"),now)&&
         !DesktopDiscordControlApi.Authorize(cfg,Request("status","723456789012345678"),now),
