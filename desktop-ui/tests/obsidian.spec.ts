@@ -1887,7 +1887,7 @@ test.beforeEach(async ({ page }) => {
         case "historical.supplementalPreview":
           if(m.mapId!==eventId)throw new Error("UM-STORE-EXTRA-REQUEST");
           return {alreadyRegistered:false,token:"00000000-0000-4000-8000-000000009003",
-            mapId:eventId,mapName:"Event / Chillhub",mapKey:"Asa_N_Chill_Hub",
+            mapId:eventId,mapName:"Event",mapKey:"Asa_N_Chill_Hub",
             gamePort:7809,queryPort:27046,rconPort:37046,mods:["123456789","987654321"],passiveMods:[],
             running:true,useApi:true,clusterId:"KovaCluster",addsClusterMembership:true,changesOriginalFive:false,
             modContentInstallationVerified:false,modContentState:"level-content-unverified",presentModProjects:["123456789"],
@@ -1895,9 +1895,9 @@ test.beforeEach(async ({ page }) => {
         case "historical.supplementalStart":
           if(m.mapId!==eventId||typeof m.stoppedUseApi!=="boolean")throw new Error("UM-STORE-EXTRA-REQUEST");
           eventRegistrationCalls++;
-          if(eventRegistered)return {mapId:eventId,mapName:"Event / Chillhub",registered:true,alreadyRegistered:true,processCommandIssued:false,scheduleChanged:false};
+          if(eventRegistered)return {mapId:eventId,mapName:"Event",registered:true,alreadyRegistered:true,processCommandIssued:false,scheduleChanged:false};
           eventRegistered=true;
-          return {mapId:eventId,mapName:"Event / Chillhub",registered:true,alreadyRegistered:false,running:true,
+          return {mapId:eventId,mapName:"Event",registered:true,alreadyRegistered:false,running:true,
              processInventoryUnchanged:true,processCommandIssued:false,scheduleChanged:false,
              modContentState:"level-content-unverified",unverifiedModProjects:["987654321"]};
         case "historical.originalClusterPreview": {
@@ -7566,7 +7566,7 @@ test("supplemental Event is visible, offers read-only content evidence and regis
   await preview.getByRole("button",{name:"Mégse"}).click();
   expect(await page.evaluate(()=>(window as typeof window & {__UNTAMED_EVENT_REGISTER_CALLS__?:()=>number}).__UNTAMED_EVENT_REGISTER_CALLS__?.())).toBe(0);
   await extra.getByRole("button",{name:"Asa_N_Chill_Hub regisztrálása"}).click();
-  await expect(extra).toContainText("Event / Chillhub regisztrálva");
+  await expect(extra).toContainText("Event regisztrálva");
   await expect(extra.getByRole("button",{name:"Asa_N_Chill_Hub regisztrálása"})).toHaveCount(0);
   await expect(preview).toHaveCount(0);
   expect(await page.evaluate(()=>(window as typeof window & {__UNTAMED_EVENT_REGISTER_CALLS__?:()=>number}).__UNTAMED_EVENT_REGISTER_CALLS__?.())).toBe(1);
