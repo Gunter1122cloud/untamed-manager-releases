@@ -66,6 +66,57 @@ public static class LegacyStoreV1PinnedSource
         Capture(source,SupplementalRoot(managerProfileRoot,mapId),fourSha,launchSha);
     }
 
+    // Caller holds the Manager's config publication mutex from before the
+    // fresh proof through RegisterSupplementalHistoricalMap. Never replace
+    // a pin with any committed profile, ownership, or membership authority.
+    internal static bool ReconcileUnregisteredSupplemental(string source,ClusterService cluster,
+        Guid mapId,string fourSha,string launchSha)
+    {
+        string root=SupplementalRoot(cluster.Store.Root,mapId);
+        string existing=DirectoryFor(root);
+        if(!Directory.Exists(existing))
+        {
+            CaptureSupplemental(source,cluster.Store.Root,mapId,fourSha,launchSha);
+            return false;
+        }
+        var old=VerifyPinned(existing);
+        if(old.FourFileHash==fourSha&&old.LaunchHash==launchSha)return false;
+
+        // Read durable authority independently, NOT Store.Read() on the
+        // active instance (that would reset its optimistic-write digest).
+        var disk=new ConfigStore("supplemental-reconcile",cluster.Store.Root).Read();
+        static bool References(ManagerConfig config,Guid id)=>
+            config.LocalMaps.Any(x=>x.Id==id)||
+            config.HostRegistry.Maps.Any(x=>x.MapId==id)||
+            config.ClusterRegistry.MapAssignments.Any(x=>x.MapId==id);
+        if(disk.LocalHostId!=cluster.Config.LocalHostId||
+           References(disk,mapId)||References(cluster.Config,mapId))
+            throw new InvalidDataException("UM-STORE-EXTRA-PIN-ALREADY-OWNED");
+
+        var prior=RequireSupplemental(LegacyStoreV1OriginalImport.Inspect(existing),mapId);
+        var fresh=LegacyStoreV1OriginalImport.Inspect(source);
+        var row=RequireSupplemental(fresh,mapId);
+        if(fresh.FourFilesSha256!=fourSha||fresh.LaunchProfileSha256!=launchSha||
+           prior.MapKey!=row.MapKey||
+           !string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(prior.OriginalInstallationRoot)),
+               Path.TrimEndingDirectorySeparator(Path.GetFullPath(row.OriginalInstallationRoot)),StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("UM-STORE-EXTRA-ORPHAN-IDENTITY-CHANGED");
+        // Retain the original immutable evidence, never delete/overwrite it.
+        // Prepare and verify the replacement in a separate local folder
+        // before any rename. If interrupted after the first rename, the
+        // next approved import can capture into the now-empty canonical slot.
+        string stage=Path.Combine(root,"reconciliation-stage-"+Guid.NewGuid().ToString("N"));
+        string archive=Path.Combine(root,"orphan-archive-"+Guid.NewGuid().ToString("N"));
+        Capture(source,stage,fourSha,launchSha);
+        var prepared=DirectoryFor(stage);
+        _=VerifyPinned(prepared);
+        Directory.Move(existing,archive);
+        Directory.Move(prepared,existing);
+        _=VerifyPinned(existing);
+        Directory.Delete(stage,false);
+        return true;
+    }
+
     private static Pin VerifyPinned(string directory)
     {
         string safe=VaultReadSnapshot.LocalPath(directory,true);
