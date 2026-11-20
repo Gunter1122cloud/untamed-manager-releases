@@ -3,7 +3,7 @@ import {AlertTriangle,CheckCircle2,HardDrive,RefreshCw,Shield} from "lucide-reac
 import {managerBridge,type PublicMap,type StoppedSteamStatus,type DurableSteamQueue,type StoppedSteamDiagnostics,type SteamPublishedBuild} from "./bridge";
 import {ScheduledStoppedSteamSettings} from "./ScheduledStoppedSteamSettings";
 
-const steamReason=(code?:string|null)=>code==="UM-STEAM-EXTERNAL-PROCESS-BUSY"?"Másik SteamCMD fut ezen a gépen. Várd meg, amíg befejeződik, majd ellenőrizd újra.":
+const steamReason=(code?:string|null)=>code==="UM-STEAM-HOST-BUSY"?"Ezen a gépen másik SteamCMD művelet fut. A befejezése után ellenőrizd újra.":code==="UM-STEAM-EXTERNAL-PROCESS-BUSY"?"Másik SteamCMD fut ezen a gépen. Várd meg, amíg befejeződik, majd ellenőrizd újra.":
   code==="UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED"?"A helyi SteamCMD folyamatok nem ellenőrizhetők. Ellenőrizd a Feladatkezelőt és a Windows jogosultságokat.":
   code==="UM-STEAM-SHARED-SCOPE-CHANGED"?"A közös telepítés maplistája megváltozott. Olvasd újra a helyi állapotot.":
   code==="UM-STEAMCMD-NOT-CONFIGURED"?"Nincs SteamCMD beállítva. Válaszd ki a steamcmd.exe fájlt.":
@@ -92,7 +92,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
         setJournal(value);
         const current=value.activeJob;
         if(!current||current.state==="completed"||current.state==="needsOperator"){
-          setOtherMapUpdating(false);
+          setPublished(null);setOtherMapUpdating(false);
         }else if(!current.mapId||!current.jobId||
                  current.restartPerformed||current.storeTouched){
           throw new Error("UM-STEAM-FOREIGN-JOB-INVALID");
@@ -127,6 +127,9 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
           throw new Error("UM-STEAM-STATUS-RECEIPT-INVALID");
         setError("");setJob(status);
         if(status.state==="completed"||status.state==="needsOperator"){
+          // A previously fetched comparison is no longer valid. Keep the
+          // verified update receipt even if the read-only refresh fails.
+          setPublished(null);setDiagnostics(null);
           try{
             const value=await managerBridge.steamStoppedCurrent();
             if(active)setJournal(value);
@@ -221,7 +224,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
     if(!mapId||blocked||dispatching.current||!diagnostics?.canPreview||
        diagnostics.mapId.toLowerCase()!==mapId.toLowerCase())return;
     const requested=mapId,epoch=mapEpoch.current;
-    dispatching.current=true;setBusy(true);setError("");
+    dispatching.current=true;setBusy(true);setError("");setPublished(null);
     try{
       const started=await managerBridge.steamStoppedStart(requested,diagnostics.processes.map(p=>p.mapName));
       if(!belongs(requested,epoch))return;
