@@ -124,3 +124,24 @@ test("recovered native terminal retains original finish without current alerts o
  await feed.tick();assert.equal(l.sinks.get("admin").sent,1);assert.equal(l.sinks.get("alert").sent,1);
  assert.equal(Object.values(feed.state.runs)[0].finishedUtc,finished);
 });
+
+test("twenty or more inaccessible channel items do not starve later healthy alerts across ticks and restarts",async t=>{
+ const l=await lab(t),[a]=l.hosts;let feed=l.make();await feed.tick();
+ // Construct same host/run keys so the twenty failed items sort before a healthy run.
+ for(let i=0;i<24;i++){
+   const run="00000000-0000-4000-8000-"+String(i+1).padStart(12,"0");
+   l.evt(a,run,"terminal","limited","BACKUP_BYTES_AND_HASHES_VERIFIED",randomUUID(),"manager","Backup");
+ }
+ const healthy="ffffffff-ffff-4fff-8fff-ffffffffffff";
+ l.evt(a,healthy,"started","in-progress","NATIVE_PREFLIGHT_PASSED",randomUUID());
+ const map=l.args.channelFor;
+ l.args.channelFor=async id=>{if(id==="admin"||id==="backup")throw Error("CHANNEL_UNAVAILABLE");return map(id);};
+ feed=l.make();await feed.tick();
+ const failed=Object.values(feed.state.outbox).filter(x=>x.failureCount>0);
+ assert.ok(failed.length>0&&failed.every(x=>x.retryAt>l.args.clock()));
+ const cursor=feed.state.deliveryCursor;assert.ok(cursor);
+ for(let i=0;i<5;i++){feed=l.make();await feed.tick();}
+ const alert=Object.values(feed.state.outbox).find(x=>x.runId.endsWith(healthy)&&x.kind==="alert-start");
+ assert.equal(alert.status,"sent");assert.ok(l.sinks.get("alert").sent>0);
+ assert.ok(Object.values(feed.state.outbox).some(x=>x.failureCount===1&&x.status!=="sent"));
+});
