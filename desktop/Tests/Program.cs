@@ -4095,6 +4095,32 @@ try
         finally{release.TrySetResult(true);cluster.RemoveMap(second.Id);}
     }
 
+    // A held host update lease must refuse fresh install, tool preparation,
+    // and appinfo before a second SteamCMD child or install journal exists.
+    {
+        string deniedRoot=Path.Combine(root,"steam-host-busy-install");
+        string deniedSteam=Path.Combine(root,"steam-host-busy-tools","steamcmd.exe");
+        using(var hostLease=SteamHostLease.Acquire())
+        {
+            bool freshDenied=false,appInfoDenied=false,prepareDenied=false,secondLeaseDenied=false;
+            try{await SteamFreshInstall.InstallAsync(new SteamFreshInstallRequest(Guid.NewGuid(),
+                "The Island","Busy fixture",deniedRoot,deniedSteam,false,
+                MinimumFreeBytes:5L*1024*1024*1024),Array.Empty<LocalMap>());}
+            catch(IOException ex) when(ex.Message=="UM-STEAM-HOST-BUSY"){freshDenied=true;}
+            try{await AsaSteamBuildCatalog.CheckAsync(deniedSteam,deniedRoot);}
+            catch(IOException ex) when(ex.Message=="UM-STEAM-HOST-BUSY"){appInfoDenied=true;}
+            try{await SteamFreshInstall.PrepareSteamCmdAsync(deniedSteam,true);}
+            catch(IOException ex) when(ex.Message=="UM-STEAM-HOST-BUSY"){prepareDenied=true;}
+            try{using var other=SteamHostLease.Acquire();}
+            catch(IOException ex) when(ex.Message=="UM-STEAM-HOST-BUSY"){secondLeaseDenied=true;}
+            Check(freshDenied&&appInfoDenied&&prepareDenied&&secondLeaseDenied&&!Directory.Exists(deniedRoot)&&
+                !Directory.Exists(Path.GetDirectoryName(deniedSteam)),
+                "host lease rejects every competing Steam entry before process launch or fresh install writes");
+        }
+        using var nextLease=SteamHostLease.Acquire();
+        Check(true,"host lease is available again after first operation completes");
+    }
+
     // Pure process inventory policy: no actual SteamCMD process is spawned.
     {
         SteamStoppedMapUpdater.DemandNoForeignSteamPid(Array.Empty<int>());
