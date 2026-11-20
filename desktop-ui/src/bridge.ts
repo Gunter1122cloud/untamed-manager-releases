@@ -1354,6 +1354,12 @@ export type HistoricalPairEvidence = {
   evidence:"PAIRED_COPIES_OFFLINE_READ_ONLY_NO_WRITER_CERTIFICATION";
 };
 
+export type SupplementalStorePreview = {alreadyRegistered:true;mapId:string;mapName:string}|
+  {alreadyRegistered:false;token:string;mapId:string;mapName:string;mapKey:string;
+   gamePort:number;queryPort:number;rconPort:number;mods:string[];passiveMods:string[];
+   running:boolean;useApi:boolean;clusterId:string;addsClusterMembership:true;changesOriginalFive:false;
+   modContentInstallationVerified:false;modContentState?:string;presentModProjects?:string[];
+   unverifiedModProjects?:string[];levelManifestProjects?:string[];serverProcessTouched:false};
 export type OriginalKovaLocalMapList = {
   sourceVerified:true;originalFourFilesUnchanged:true;
   maps:Array<{mapId:string;mapKey:string;name:string;
@@ -1779,6 +1785,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "servers.initialApply" | "servers.apiModeStatus" |
   "servers.apiModePreview" | "servers.apiModeApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
+  "historical.supplementalPreview" | "historical.supplementalRegister" | "historical.supplementalStart" |
   "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
   "historical.originalBatchPreview" | "historical.originalBatchRegister" |
   "historical.sourcePinPreview" | "historical.sourcePinApply" |
@@ -1841,7 +1848,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   sourceMap?: string;destinationMap?: string; profileId?: string;
   hostId?:string;hostName?:string;mapIds?:string[];
   clusterId?:string;transferDirectory?:string;transferRoot?:string;
-  backupDirectory?:string; fullLocal?:boolean; keepLatest?:number; protect?:boolean };
+  backupDirectory?:string; fullLocal?:boolean; keepLatest?:number; protect?:boolean; stoppedUseApi?:boolean };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -2456,6 +2463,9 @@ export const managerBridge = {
   historicalLiveGuard: (mapId:string) => request<HistoricalLiveGuard>("historical.liveGuard",{mapId}),
   historicalLocalParity: (archive:string) => request<HistoricalLocalStoreParity>("historical.localParity",{archive}),
   historicalOriginalList: () => request<OriginalKovaLocalMapList>("historical.originalList"),
+  historicalSupplementalPreview:(mapId:string,stoppedUseApi:boolean)=>request<SupplementalStorePreview>("historical.supplementalPreview",{mapId,stoppedUseApi}),
+  historicalSupplementalStart:(mapId:string,stoppedUseApi:boolean)=>request<{mapId:string;mapName:string;registered:true;alreadyRegistered:boolean;running?:boolean;processInventoryUnchanged?:boolean;processCommandIssued:false;scheduleChanged:false;modContentState?:string;unverifiedModProjects?:string[]}>("historical.supplementalStart",{mapId,stoppedUseApi}),
+  historicalSupplementalRegister:(token:string)=>request<{mapId:string;mapName:string;registered:true;running:boolean;processInventoryUnchanged:boolean;processCommandIssued:false;scheduleChanged:false}>("historical.supplementalRegister",{token,confirm:true}),
   historicalRuntimeSettingsStatus: (mapId:string) =>
     request<{mapId:string;mapName:string;gamePort:number;queryPort:number;
       clusterId:string;transferRoot:string;originalSourcePinned:true;

@@ -515,6 +515,9 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         eventRow.StoreFlagPresent==true&&eventRow.RegistrationState=="store-or-cluster-ownership-required"&&
         !eventRow.Controllable&&!eventRow.StoreWriteAuthorized,
         "Event Loader supplies sanitized onboarding evidence only; never a control target");
+    Check(DesktopDiscordControlApi.DiscoveredOnly(eventState,new HashSet<(int,DateTimeOffset)>{(702,instant)}).Length==0&&
+        DesktopDiscordControlApi.DiscoveredOnly(eventState,new HashSet<(int,DateTimeOffset)>{(702,instant.AddSeconds(-1))}).Single().Pid==702,
+        "registered Event ASA and its Loader collapse into one controlled map only with exact verified process identity");
     var contradiction=eventState with{Processes=new[]{
         eventState.Processes[0],
         eventState.Processes[1] with{LaunchFacts=launchFacts with{GamePort=7808}}

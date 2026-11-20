@@ -143,7 +143,7 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
 
     // Existing ASA credentials are read in the Windows host only, never
     // sent through WebView2. The original INI is strictly read-only.
-    private static (int Port,string Password) ReadExistingOriginalRcon(LocalMap map)
+    internal static (int Port,string Password) ReadExistingOriginalRcon(LocalMap map)
     {
         string path=AsaInitialRconSettings.NewIniPath(map.InstallationPath);
         for(DirectoryInfo? cursor=new(Path.GetDirectoryName(path)!);

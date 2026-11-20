@@ -341,6 +341,8 @@ internal sealed class DesktopDiscordControlApi : IDisposable
                 result.Add(new{mapId=map.Id,mapName=map.Name,running=Yes(row,"running"),confirmedStopped=Yes(row,"confirmedStopped"),
                     pid,status=Value(row,"status"),uptimeSeconds=Value(row,"uptimeSeconds"),memoryMiB=Value(row,"memoryMiB"),cpuPercent,
                     freeBytes,totalBytes,playerCount,playerObservedUtc=playerObserved,storeV1=map.HistoricalStoreProtected,
+                    supplementalSource=map.HistoricalSupplementalSource,
+                    mapKey=map.HistoricalStoreProtected?map.HistoricalMapKey:null,
                     useApi=map.StartWithAsaApi,maintenance=map.Maintenance,
                     observedReadOnlyImported=map.ObservedReadOnlyImported,
                     // Eligibility only; a native preview must still authorize

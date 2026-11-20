@@ -120,8 +120,32 @@ internal static class OriginalKovaDirectImportTests
         {
             string extraId=Guid.NewGuid().ToString("D");
             string extraRoot=Path.Combine(baseRoot,"synthetic-eventmap");
+            // Supply the same exact Windows layout as the original five.
+            // Runtime fingerprint requires an actual local executable path,
+            // even for this isolated, deliberately non-runnable fixture.
+            string extraExe=Path.Combine(extraRoot,"ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(extraExe)!);
+            File.WriteAllBytes(extraExe,new byte[]{0x4d,0x5a,0,0});
+            // Local disk evidence is explicitly weaker than UE mount/readiness.
+            string modPayload=Path.Combine(extraRoot,"ShooterGame","Binaries","Win64","ShooterGame","Mods","83374","123456789_111","MapFixture");
+            Directory.CreateDirectory(modPayload);
+            string mapManifest=Path.Combine(modPayload,"Manifest_UFSFiles_Win64.txt");
+            File.WriteAllText(mapManifest,"MapFixture/Content/Asa_N_Chill_Hub.umap\t2026-01-01\n");
+            string mapContainer=Path.Combine(modPayload,"MapFixture.utoc");
+            File.WriteAllBytes(mapContainer,new byte[]{1});
+            var partialContent=SupplementalMapContentProbe.Inspect(extraRoot,"Asa_N_Chill_Hub",new[]{"123456789","987654321"});
+            Check(partialContent.LevelManifestProjects.Length==0&&partialContent.UnverifiedProjects.Length==2,
+                "manifest alone or incomplete IoStore pair does not prove a map payload");
+            File.WriteAllBytes(Path.Combine(modPayload,"MapFixture.ucas"),new byte[]{2});
+            var contentProof=SupplementalMapContentProbe.Inspect(extraRoot,"Asa_N_Chill_Hub",new[]{"123456789","987654321"});
+            Check(contentProof.State=="level-manifest-and-payload-found"&&contentProof.LevelManifestProjects.SequenceEqual(new[]{"123456789"})&&
+                contentProof.UnverifiedProjects.SequenceEqual(new[]{"987654321"})&&contentProof.Fingerprint!=partialContent.Fingerprint,
+                "local exact level manifest plus package pair is detected without downloading or asserting runtime readiness");
+            var wrongLevel=SupplementalMapContentProbe.Inspect(extraRoot,"Future_WP",new[]{"123456789"});
+            Check(wrongLevel.LevelManifestProjects.Length==0&&wrongLevel.State=="level-content-unverified",
+                "same mod package cannot prove a different level");
             var currentMembers=members.Concat(new[]{
-                new{id=extraId,map="Chillhub_WP",root=extraRoot}
+                new{id=extraId,map="Asa_N_Chill_Hub",root=extraRoot}
             }).ToArray();
             var currentCluster=new{
                 id=VaultProtocol.ClusterId,mode="shared",
@@ -130,7 +154,7 @@ internal static class OriginalKovaDirectImportTests
             var currentStore=states.ToDictionary(x=>x.Key,x=>x.Value);
             currentStore.Add(extraId,new{
                 phase="active",sharedSession=Guid.NewGuid().ToString("D"),
-                root=extraRoot,map="Chillhub_WP",
+                root=extraRoot,map="Asa_N_Chill_Hub",
                 backupId=Guid.NewGuid().ToString("D")
             });
             string expandedCluster=JsonSerializer.Serialize(currentCluster);
@@ -138,7 +162,7 @@ internal static class OriginalKovaDirectImportTests
             var eventLaunch=new{
                 id=extraId,root=extraRoot,
                 launch=new{
-                    map="Chillhub_WP",gamePort=7897,queryPort=27197,
+                    map="Asa_N_Chill_Hub",gamePort=7897,queryPort=27197,
                     mods=new[]{"123456789","987654321"},
                     passiveMods=new[]{"123456789"}
                 }
@@ -179,16 +203,27 @@ internal static class OriginalKovaDirectImportTests
                     expandedImport.Maps.Length==5&&
                     expandedImport.Maps.Select(x=>x.MapId.ToString("D"))
                         .SequenceEqual(ids)&&
-                    !expandedImport.Maps.Any(x=>x.MapKey=="Chillhub_WP")&&
+                    !expandedImport.Maps.Any(x=>x.MapKey=="Asa_N_Chill_Hub")&&
                     expandedImport.FourFilesSha256!=discovered.FourFilesSha256,
                     "six local entries preserve exactly five original selected Store owners without adding Chillhub");
                 var supplemental=expandedImport.AdditionalMaps.Single();
                 Check(supplemental.MapId.ToString("D")==extraId&&
-                    supplemental.MapKey=="Chillhub_WP"&&supplemental.Active&&
+                    supplemental.MapKey=="Asa_N_Chill_Hub"&&supplemental.Active&&
                     !supplemental.SessionMatches&&supplemental.GamePort==7897&&
                     supplemental.QueryPort==27197&&supplemental.EnabledMods!.Length==2&&
                     supplemental.LaunchState=="source-launch-matched",
                     "additional Event source GUID and launch facts are visible without granting historical session ownership");
+                bool refusedSession=false;
+                try{_=LegacyStoreV1PinnedSource.RequireSupplemental(expandedImport,Guid.Parse(extraId));}
+                catch(InvalidDataException e) when(e.Message=="UM-STORE-EXTRA-SESSION-MISMATCH"){refusedSession=true;}
+                Check(refusedSession,"supplemental claim cannot override a mismatched session");
+                var validExtra=expandedImport with{AdditionalMaps=new[]{supplemental with{SessionMatches=true}}};
+                var extraOwner=new LocalMap{Id=Guid.Parse(extraId),HistoricalStoreProtected=true,
+                    HistoricalSupplementalSource=true,HistoricalArchiveSha256=validExtra.FourFilesSha256,
+                    HistoricalMapKey=supplemental.MapKey,InstallationPath=supplemental.OriginalInstallationRoot};
+                LegacyStoreV1PinnedSource.RequireImmutableIdentity(extraOwner,validExtra);
+                Check(validExtra.Maps.Length==5&&LegacyStoreV1PinnedSource.RequireSupplemental(validExtra,extraOwner.Id).MapId==extraOwner.Id,
+                    "supplemental source validates separately without adding an original selected map");
                 await using(var expandedManager=new ClusterService(
                     "six-member-event-registry-test",
                     Path.Combine(baseRoot,"six-member-event-registry-profile")))
@@ -212,6 +247,14 @@ internal static class OriginalKovaDirectImportTests
                         !extra.GetProperty("selectedHistoricalOwner").GetBoolean()&&
                         !extra.GetProperty("storeWriterAuthorized").GetBoolean(),
                         "native supplemental source roster distinguishes Event from original five");
+                    var mismatch=await Call(expandedBridge,"historical.supplementalPreview",
+                        new{mapId=extraId,stoppedUseApi=true});
+                    Check(!mismatch.GetProperty("ok").GetBoolean()&&
+                        mismatch.GetProperty("error").GetString()=="UM-STORE-EXTRA-SESSION-MISMATCH",
+                        "real native supplemental preview reports mismatched session without network or process mutation");
+                    var directMismatch=await Call(expandedBridge,"historical.supplementalStart",new{mapId=extraId,stoppedUseApi=true});
+                    Check(!directMismatch.GetProperty("ok").GetBoolean()&&directMismatch.GetProperty("error").GetString()=="UM-STORE-EXTRA-SESSION-MISMATCH"&&expandedManager.Config.LocalMaps.Count==5,
+                        "one-click extra registration retains the exact shared-session guard and has no failure-side profile write");
                     var clusterPreview=await Call(expandedBridge,
                         "historical.originalClusterPreview");
                     Check(clusterPreview.GetProperty("ok").GetBoolean()&&
@@ -242,6 +285,151 @@ internal static class OriginalKovaDirectImportTests
                     stillOriginal.HistoricalArchiveSha256==
                         discovered.FourFilesSha256,
                     "explicit six-map source pin preserves immutable original five-map hash without granting event ownership");
+                // A separate Manager pin is published before the single
+                // profile+registry CAS. Simulate interruption after pin,
+                // reopen the same Manager profile, reuse the original GUID.
+                string supplementalProfile=Path.Combine(baseRoot,"supplemental-atomic-manager");
+                await using(var firstManager=new ClusterService("supplemental-pin-test",supplementalProfile))
+                {
+                    foreach(var originalRow in expandedImport.Maps)
+                        firstManager.AddMap(new LocalMap{Id=originalRow.MapId,Name=originalRow.MapKey,
+                            InstallationPath=originalRow.OriginalInstallationRoot,
+                            HistoricalStoreProtected=true,HistoricalArchiveSha256=expandedImport.FourFilesSha256,
+                            HistoricalMapKey=originalRow.MapKey,GamePort=originalRow.GamePort,QueryPort=originalRow.QueryPort});
+                    LegacyStoreV1PinnedSource.Capture(local,firstManager.Store.Root,
+                        expandedImport.FourFilesSha256,expandedImport.LaunchProfileSha256);
+                    var registry=firstManager.Registry.Snapshot();
+                    firstManager.Registry.ImportHistoricalOriginalLocalMembership(VaultProtocol.ClusterId,
+                        originalCluster.path,expandedImport.FourFilesSha256,
+                        expandedImport.Maps.Select(x=>(x.MapId,x.MapKey)).ToArray(),registry.Revision);
+                    var eligibleStore=currentStore.ToDictionary(x=>x.Key,x=>x.Value);
+                    eligibleStore[extraId]=currentStore[extraId] with{sharedSession=session};
+                    File.WriteAllText(sfile,JsonSerializer.Serialize(new{schema=1,maps=eligibleStore}));
+                    var eligible=LegacyStoreV1OriginalImport.Inspect(local);
+                    LegacyStoreV1PinnedSource.CaptureSupplemental(local,firstManager.Store.Root,
+                        Guid.Parse(extraId),eligible.FourFilesSha256,eligible.LaunchProfileSha256);
+                    Check(firstManager.Config.LocalMaps.Count==5&&
+                        !firstManager.Registry.Snapshot().ClusterRegistry.MapAssignments.Any(x=>x.MapId==Guid.Parse(extraId)),
+                        "published supplemental pin by itself has no profile or registry authority");
+                }
+                await using(var recovered=new ClusterService("supplemental-pin-test",supplementalProfile))
+                {
+                    var eligible=LegacyStoreV1OriginalImport.Inspect(local);
+                    string originalPin=LegacyStoreV1PinnedSource.PreferredProfile(recovered.Store.Root,local);
+                    string originalSha=LegacyStoreV1OriginalImport.Inspect(originalPin).FourFilesSha256;
+                    string oldProfiles=JsonSerializer.Serialize(recovered.Config.LocalMaps);
+                    string oldSchedules=JsonSerializer.Serialize(recovered.Config.RecurringSchedules);
+                    LegacyStoreV1PinnedSource.CaptureSupplemental(local,recovered.Store.Root,
+                        Guid.Parse(extraId),eligible.FourFilesSha256,eligible.LaunchProfileSha256);
+                    string firstLaunchSha=eligible.LaunchProfileSha256;
+                    File.AppendAllText(launchProfilePath,"\n ");
+                    eligible=LegacyStoreV1OriginalImport.Inspect(local);
+                    Check(eligible.LaunchProfileSha256!=firstLaunchSha,"legitimate source reserialization changes launch hash");
+                    bool reconciled=LegacyStoreV1PinnedSource.ReconcileUnregisteredSupplemental(local,recovered,
+                        Guid.Parse(extraId),eligible.FourFilesSha256,eligible.LaunchProfileSha256);
+                    string orphanRoot=Path.Combine(recovered.Store.Root,"supplemental-store-v1",Guid.Parse(extraId).ToString("N"));
+                    var archived=Directory.GetDirectories(orphanRoot,"orphan-archive-*").Single();
+                    Check(reconciled&&LegacyStoreV1OriginalImport.Inspect(archived).LaunchProfileSha256==firstLaunchSha&&
+                        recovered.Config.LocalMaps.Count==5&&
+                        !LegacyStoreV1PinnedSource.ReconcileUnregisteredSupplemental(local,recovered,Guid.Parse(extraId),eligible.FourFilesSha256,eligible.LaunchProfileSha256),
+                        "changed orphan pin archives prior exact proof; repeated current approval is idempotent");
+                    var row=LegacyStoreV1PinnedSource.RequireSupplemental(eligible,Guid.Parse(extraId));
+                    var map=new LocalMap{Id=row.MapId,Name=row.MapKey,InstallationPath=row.OriginalInstallationRoot,
+                        HistoricalStoreProtected=true,HistoricalSupplementalSource=true,
+                        HistoricalSupplementalImportedUtc=DateTimeOffset.UtcNow,
+                        HistoricalArchiveSha256=eligible.FourFilesSha256,HistoricalMapKey=row.MapKey,
+                        GamePort=row.GamePort!.Value,QueryPort=row.QueryPort!.Value,
+                        HistoricalEnabledMods=row.EnabledMods!.ToList(),HistoricalPassiveMods=row.PassiveMods!.ToList()};
+                    var registry=recovered.Registry.Snapshot();
+                    bool rejectedStale=false;
+                    try{recovered.RegisterSupplementalHistoricalMap(map,VaultProtocol.ClusterId,originalCluster.path,registry.Revision-1);}
+                    catch(InvalidOperationException e) when(e.Message=="UM-STORE-EXTRA-REGISTRY-CHANGED"){rejectedStale=true;}
+                    int originalGamePort=map.GamePort;
+                    map.GamePort=recovered.Config.LocalMaps[0].GamePort;
+                    bool rejectedPort=false;
+                    try{recovered.RegisterSupplementalHistoricalMap(map,VaultProtocol.ClusterId,originalCluster.path,registry.Revision);}
+                    catch(InvalidDataException e) when(e.Message=="UM-STORE-EXTRA-PORT-CONFLICT"){rejectedPort=true;}
+                    map.GamePort=originalGamePort;
+                    bool rejectedCluster=false;
+                    try{recovered.RegisterSupplementalHistoricalMap(map,VaultProtocol.ClusterId,originalCluster.path+"-wrong",registry.Revision);}
+                    catch(InvalidDataException e) when(e.Message=="UM-STORE-EXTRA-CLUSTER-MISMATCH"){rejectedCluster=true;}
+                    Check(rejectedStale&&rejectedPort&&rejectedCluster&&
+                        recovered.Config.LocalMaps.Count==5&&
+                        registry.Revision==recovered.Registry.Snapshot().Revision,
+                        "stale revision, conflicting UDP port and wrong transfer root cannot publish a supplemental profile");
+                    recovered.RegisterSupplementalHistoricalMap(map,VaultProtocol.ClusterId,originalCluster.path,registry.Revision);
+                    Check(recovered.Config.LocalMaps.Count==6&&
+                        recovered.Registry.Snapshot().ClusterRegistry.MapAssignments.Any(x=>x.MapId==map.Id)&&
+                        LegacyStoreV1PinnedSource.HasApprovedLocalSource(recovered.Store.Root,map)&&
+                        LegacyStoreV1OriginalImport.Inspect(originalPin).FourFilesSha256==originalSha&&
+                        oldProfiles==JsonSerializer.Serialize(recovered.Config.LocalMaps.Take(5).ToList())&&
+                        oldSchedules==JsonSerializer.Serialize(recovered.Config.RecurringSchedules),
+                        "retry after orphan pin atomically publishes one Event GUID and membership without changing original profiles/pin/schedules");
+                    bool supplementalDuplicate=false;
+                    try{recovered.RegisterSupplementalHistoricalMap(map,VaultProtocol.ClusterId,originalCluster.path,
+                        recovered.Registry.Snapshot().Revision);}
+                    catch(InvalidDataException){supplementalDuplicate=true;}
+                    Check(supplementalDuplicate&&recovered.Config.LocalMaps.Count==6,"duplicate supplemental apply cannot add a second profile");
+                    string currentLaunch=File.ReadAllText(launchProfilePath);
+                    File.AppendAllText(launchProfilePath,"\n ");
+                    try{
+                        var changed=LegacyStoreV1OriginalImport.Inspect(local);
+                        bool ownedDenied=false;
+                        try{LegacyStoreV1PinnedSource.ReconcileUnregisteredSupplemental(local,recovered,map.Id,changed.FourFilesSha256,changed.LaunchProfileSha256);}
+                        catch(InvalidDataException ex) when(ex.Message=="UM-STORE-EXTRA-PIN-ALREADY-OWNED"){ownedDenied=true;}
+                        Check(ownedDenied&&LegacyStoreV1PinnedSource.HasApprovedLocalSource(recovered.Store.Root,map)&&
+                            Directory.GetDirectories(orphanRoot,"orphan-archive-*").Length==1,
+                            "committed supplemental map pin cannot be replaced by later source drift");
+                    }finally{File.WriteAllText(launchProfilePath,currentLaunch);}
+
+                }
+                await using(var reopened=new ClusterService("supplemental-pin-test",supplementalProfile))
+                {
+                    var map=reopened.Config.LocalMaps.Single(x=>x.Id==Guid.Parse(extraId));
+                    Check(map.HistoricalSupplementalImportedUtc.HasValue&&
+                        LegacyStoreV1PinnedSource.HasApprovedLocalSource(reopened.Store.Root,map)&&
+                        reopened.Registry.Snapshot().ClusterRegistry.MapAssignments.Any(x=>x.MapId==map.Id),
+                        "restart retains audited Event registration and exact original GUID");
+                    using(var replayBridge=new DesktopHistoricalStoreImportBridge(reopened,localLegacyDataDirectory:local))
+                    {
+                        var directReplay=await Call(replayBridge,"historical.supplementalStart",new{mapId=map.Id,stoppedUseApi=false});
+                        Check(directReplay.GetProperty("ok").GetBoolean()&&directReplay.GetProperty("data").GetProperty("alreadyRegistered").GetBoolean()&&reopened.Config.LocalMaps.Count==6,
+                            "replayed one-click registration returns existing audited GUID without adding a second map");
+                    }
+                    // Runtime source proof must resolve the registered supplemental pin,
+                    // not fall back to the five-map peer writer selection or a remote share.
+                    var fingerprint=LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                        reopened.Store.Root,Path.Combine(baseRoot,"removed-legacy-profile"),map);
+                    Check(fingerprint.Length==64&&fingerprint.All(Uri.IsHexDigit)&&
+                        ModStateController.Read(map).EnabledOrder.SequenceEqual(new[]{"123456789","987654321"})&&
+                        ModStateController.Read(map).Passive.SequenceEqual(new[]{"123456789"}),
+                        "reopened Event resolves a local lifecycle source fingerprint with exact enabled/passive mods");
+                }
+                // Seventh and eighth source entries may represent a future
+                // official level and a distinct installation of an existing level.
+                string seventh=Guid.NewGuid().ToString("D"), eighth=Guid.NewGuid().ToString("D");
+                string seventhRoot=Path.Combine(baseRoot,"synthetic-future-asa"), eighthRoot=Path.Combine(baseRoot,"synthetic-second-event");
+                var furtherMembers=currentMembers.Concat(new[]{
+                    new{id=seventh,map="FutureOfficial_WP",root=seventhRoot},
+                    new{id=eighth,map="Asa_N_Chill_Hub",root=eighthRoot}
+                }).ToArray();
+                var furtherStates=currentStore.ToDictionary(x=>x.Key,x=>x.Value);
+                furtherStates[extraId]=currentStore[extraId] with{sharedSession=session};
+                furtherStates[seventh]=currentStore[extraId] with{sharedSession=session,root=seventhRoot,map="FutureOfficial_WP",backupId=Guid.NewGuid().ToString("D")};
+                furtherStates[eighth]=currentStore[extraId] with{sharedSession=session,root=eighthRoot,backupId=Guid.NewGuid().ToString("D")};
+                var furtherLaunch=launchRows.Concat(new[]{eventLaunch,
+                    new{id=seventh,root=seventhRoot,launch=new{map="FutureOfficial_WP",gamePort=7907,queryPort=27207,mods=Array.Empty<string>(),passiveMods=Array.Empty<string>()}},
+                    new{id=eighth,root=eighthRoot,launch=new{map="Asa_N_Chill_Hub",gamePort=7917,queryPort=27217,mods=new[]{"123456789"},passiveMods=Array.Empty<string>()}}
+                }).ToArray();
+                File.WriteAllText(cfile,JsonSerializer.Serialize(new{id=VaultProtocol.ClusterId,mode="shared",path=originalCluster.path,members=furtherMembers}));
+                File.WriteAllText(sfile,JsonSerializer.Serialize(new{schema=1,maps=furtherStates}));
+                File.WriteAllText(launchProfilePath,JsonSerializer.Serialize(new{version=1,rows=furtherLaunch}));
+                var future=LegacyStoreV1OriginalImport.Inspect(local);
+                Check(future.Maps.Select(x=>x.MapId.ToString("D")).SequenceEqual(ids)&&future.AdditionalMaps.Length==3&&
+                    LegacyStoreV1PinnedSource.RequireSupplemental(future,Guid.Parse(seventh)).MapKey=="FutureOfficial_WP"&&
+                    LegacyStoreV1PinnedSource.RequireSupplemental(future,Guid.Parse(eighth)).OriginalInstallationRoot==eighthRoot,
+                    "seventh future level and eighth separate same-level source preserve original owner GUIDs");
+                SetExpanded();
                 // Even if an expanded current cluster is represented in a
                 // fresh matching lock, only its explicitly selected five
                 // original GUIDs may enter the historical adapter.

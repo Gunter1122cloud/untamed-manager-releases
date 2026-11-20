@@ -56,6 +56,10 @@ public sealed class LocalMap
     // Older already configured Manager profiles remain backward compatible.
     public bool HistoricalLaunchModeNeedsApproval { get; set; } = false;
     public string HistoricalArchiveSha256 { get; set; } = "";
+    // Additional existing Store map: separate immutable source pin, never
+    // a member of the original lock-selected five-map authority.
+    public bool HistoricalSupplementalSource {get;set;}
+    public DateTimeOffset? HistoricalSupplementalImportedUtc {get;set;}
     public string HistoricalMapKey { get; set; } = "";
     public List<string> HistoricalEnabledMods { get; set; } = new();
     public List<string> HistoricalPassiveMods { get; set; } = new();

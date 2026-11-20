@@ -63,6 +63,10 @@ test.beforeEach(async ({ page }) => {
           observedRuntimeState:"observedRunning"
         });
       };
+    const eventId="00000000-0000-4000-8000-000000009002";
+    let eventRegistrationCalls=0,eventRegistered=false;
+    (window as typeof window & {__UNTAMED_EVENT_REGISTER_CALLS__?:()=>number})
+        .__UNTAMED_EVENT_REGISTER_CALLS__=()=>eventRegistrationCalls;
     let lifecycleStopHeld=false;
     let lifecycleStopNeedsOperator=false;
     let stopReviewOsStopped=false,stopReviewCount=0,stopForgetInMemory=false;
@@ -1859,6 +1863,11 @@ test.beforeEach(async ({ page }) => {
         case "historical.originalList": return {
           sourceVerified:true,originalFourFilesUnchanged:true,
           evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY",
+          additionalMaps:new URLSearchParams(window.location.search).get("fixture")==="supplementalEvent"?[
+            {mapId:eventId,mapKey:"Asa_N_Chill_Hub",active:true,sessionMatches:true,backupIdentityPresent:true,
+             gamePort:7809,queryPort:27046,enabledMods:2,passiveMods:0,launchState:"source-launch-matched",registered:eventRegistered,
+             selectedHistoricalOwner:false,storeWriterAuthorized:false}
+          ]:[],
           maps:originalLiveFiveFixture?[
             ["TheIsland_WP","The Island"],["Extinction_WP","Extinction"],
             ["Valguero_WP","Valguero"],["Astraeos_WP","Astraeos"],
@@ -1875,6 +1884,22 @@ test.beforeEach(async ({ page }) => {
             folderName:"OriginalIsland",gamePort:7777,queryPort:27015,
             enabledMods:22,passiveMods:3,registered:sourcePinCommits>0}]
         };
+        case "historical.supplementalPreview":
+          if(m.mapId!==eventId)throw new Error("UM-STORE-EXTRA-REQUEST");
+          return {alreadyRegistered:false,token:"00000000-0000-4000-8000-000000009003",
+            mapId:eventId,mapName:"Event",mapKey:"Asa_N_Chill_Hub",
+            gamePort:7809,queryPort:27046,rconPort:37046,mods:["123456789","987654321"],passiveMods:[],
+            running:true,useApi:true,clusterId:"KovaCluster",addsClusterMembership:true,changesOriginalFive:false,
+            modContentInstallationVerified:false,modContentState:"level-content-unverified",presentModProjects:["123456789"],
+            unverifiedModProjects:["987654321"],levelManifestProjects:[],serverProcessTouched:false};
+        case "historical.supplementalStart":
+          if(m.mapId!==eventId||typeof m.stoppedUseApi!=="boolean")throw new Error("UM-STORE-EXTRA-REQUEST");
+          eventRegistrationCalls++;
+          if(eventRegistered)return {mapId:eventId,mapName:"Event",registered:true,alreadyRegistered:true,processCommandIssued:false,scheduleChanged:false};
+          eventRegistered=true;
+          return {mapId:eventId,mapName:"Event",registered:true,alreadyRegistered:false,running:true,
+             processInventoryUnchanged:true,processCommandIssued:false,scheduleChanged:false,
+             modContentState:"level-content-unverified",unverifiedModProjects:["987654321"]};
         case "historical.originalClusterPreview": {
           sourceKovaClusterToken="00000000-0000-4000-8000-000000009555";
           return {
@@ -7524,6 +7549,27 @@ test("verified historical archive and original local four Store files show byte 
   await expect(panel).toContainText("NEM IGAZOLT");
   await source.fill("C:\\Backups\\ChangedArchive.zip");
   await expect(panel.getByText("BÁJT-PONTOSAN EGYEZIK")).toHaveCount(0);
+});
+
+test("supplemental Event is visible, offers read-only content evidence and registers once without confirmation",async({page})=>{
+  await page.goto("/?fixture=supplementalEvent");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const section=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await section.getByRole("button",{name:"Öt eredeti map felismerése"}).click();
+  const extra=section.locator('[aria-label="További forrásmapok"]');
+  await expect(extra).toContainText("Asa_N_Chill_Hub");
+  await extra.getByRole("button",{name:"Átvétel ellenőrzése"}).click();
+  const preview=extra.getByRole("region",{name:"További map átvétele"});
+  await expect(preview).toContainText("A pontos pálya telepített tartalma nem igazolt");
+  await expect(preview).toContainText("987654321");
+  await preview.getByRole("button",{name:"Mégse"}).click();
+  expect(await page.evaluate(()=>(window as typeof window & {__UNTAMED_EVENT_REGISTER_CALLS__?:()=>number}).__UNTAMED_EVENT_REGISTER_CALLS__?.())).toBe(0);
+  await extra.getByRole("button",{name:"Asa_N_Chill_Hub regisztrálása"}).click();
+  await expect(extra).toContainText("Event regisztrálva");
+  await expect(extra.getByRole("button",{name:"Asa_N_Chill_Hub regisztrálása"})).toHaveCount(0);
+  await expect(preview).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {__UNTAMED_EVENT_REGISTER_CALLS__?:()=>number}).__UNTAMED_EVENT_REGISTER_CALLS__?.())).toBe(1);
 });
 
 test("Store-v1 direct original local korábbi kezelőalkalmazás map registration is operator-approved and preserves identity",async ({page})=>{
