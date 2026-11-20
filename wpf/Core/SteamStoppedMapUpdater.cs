@@ -19,6 +19,10 @@ namespace UntamedManager.Core;
 /// </summary>
 public static class SteamStoppedMapUpdater
 {
+    private sealed class InlineProgress<T>(Action<T> report):IProgress<T>
+    {
+        public void Report(T value)=>report(value);
+    }
     public sealed record Receipt(Guid MapId,string InstallRoot,string OldBuild,
         string NewBuild,string BackupDirectory,DateTimeOffset VerifiedUtc,
         bool ProtectedFilesIntact);
@@ -301,8 +305,10 @@ public static class SteamStoppedMapUpdater
                     queueProgress?.Report(new SteamQueueProgress(1,selected.Length,map.Name,"cache-preparation"));
                     // The clean staging root is not a registered map. The
                     // host-wide queue serializes all SteamCMD preparation.
+                    DemandNoConcurrentSteamCmd();
                     await SteamFreshInstall.BootstrapSteamCmdAsync(steamExecutable,null,token);
-                    var published=await AsaSteamBuildCatalog.CheckAsync(steamExecutable,map.InstallationPath,
+                    DemandNoConcurrentSteamCmd();
+                    var published=await AsaSteamBuildCatalog.CheckUnderHostLeaseAsync(steamExecutable,map.InstallationPath,
                         "public",ct:token);
                     if(published.AvailableBuild==null)throw new InvalidDataException("UM-STEAM-CACHE-PUBLIC-BUILD-UNKNOWN");
                     payload=await SteamSharedPayloadCache.PrepareAsync(cluster.Store.Root,cluster.Config.LocalMaps,
@@ -311,10 +317,16 @@ public static class SteamStoppedMapUpdater
                     queueProgress?.Report(new SteamQueueProgress(1,selected.Length,map.Name,
                         payload.CacheHit?"cache-hit-verified":"cache-download-verified"));
                 }
+                int position=Array.IndexOf(selected,map)+1;
+                var stages=new InlineProgress<SteamMaintenanceStage>(stage=>{
+                    stageProgress?.Report(stage);
+                    queueProgress?.Report(new(position,selected.Length,map.Name,stage.ToString()));
+                });
                 var item=await RunCore(cluster,map,steamExecutable,reserve,
-                    timeout,fakeExecutable,stageProgress,true,token,
+                    timeout,fakeExecutable,stages,true,token,
                     originalStoppedObserver,originalStoppedObserverUnderLease,payload);
                 receipts.Add(item);
+                queueProgress?.Report(new SteamQueueProgress(position,selected.Length,map.Name,"verified-installation") {VerifiedReceipt=item});
             },queueProgress,ct);
         return receipts;
     }
@@ -381,6 +393,7 @@ public static class SteamStoppedMapUpdater
             }
         }
         progress?.Report(SteamMaintenanceStage.Preflight);
+        if(fakeExecutable==null)DemandNoConcurrentSteamCmd();
         VerifyStopped();
         var plan=SteamUpdateDryRun.Plan(steamExecutable,root,
             cluster.Config.LocalMaps.ToArray(),ObserveStopped,reserve);
@@ -432,6 +445,7 @@ public static class SteamStoppedMapUpdater
                 if(oldBuild!=plan.InstalledBuild)
                     throw new InvalidDataException("Steam build changed after preflight");
                 token.ThrowIfCancellationRequested();
+                if(fakeExecutable==null)DemandNoConcurrentSteamCmd();
                 operation.MarkMutationStarted();
                 progress?.Report(SteamMaintenanceStage.SteamCmd);
                 if(payload!=null)SteamSharedPayloadCache.Seed(payload,root,VerifyStopped,token);
@@ -439,18 +453,22 @@ public static class SteamStoppedMapUpdater
                     timeout,fakeExecutable!=null,VerifyStopped,token);
                 VerifyStopped();
                 progress?.Report(SteamMaintenanceStage.VerifyBuild);
+                var next=AsaSteamBuildCatalog.InstalledBuild(root);
+                if(next==null || !AsaReadyProbe.IsRegisteredServerBinary(map))
+                    throw new InvalidDataException("UM-STEAM-INSTALLED-BUILD-INVALID");
+                progress?.Report(SteamMaintenanceStage.VerifyProtectedFiles);
+                if(fakeExecutable==null)DemandNoConcurrentSteamCmd();
                 var after=SteamProtectedFiles.Snapshot(root);
                 if(!SteamProtectedFiles.Identical(before,after))
                     throw new InvalidDataException(
                         "SteamCMD altered protected ASA saves/config/plugin data; STOP, restore only after operator review");
-                var next=AsaSteamBuildCatalog.InstalledBuild(root);
-                if(next==null || !AsaReadyProbe.IsRegisteredServerBinary(map))
-                    throw new InvalidDataException(
-                        "SteamCMD completed but the on-disk manifest or ASA EXE is invalid");
+                if(AsaSteamBuildCatalog.InstalledBuild(root)!=next)
+                    throw new InvalidDataException("UM-STEAM-INSTALLED-BUILD-CHANGED");
                 if(payload!=null&&next!=payload.Index.Build)
                     throw new InvalidDataException("UM-STEAM-CACHE-PUBLIC-BUILD-CHANGED_DURING_TARGET_VALIDATION");
                 // No Start, RCON or SaveWorld is invoked here.
                 VerifyStopped();
+                if(fakeExecutable==null)DemandNoConcurrentSteamCmd();
                 operation.Complete();
                 var receipt=new SteamMaintenanceReceipt(map.Id,oldBuild,next,
                     WasRunning:false,Restarted:false,
@@ -480,6 +498,27 @@ public static class SteamStoppedMapUpdater
         !synthetic&&attempt is >=0 and <2&&exitCode!=0&&
         SteamFreshInstall.IsTransientMissingSteamConfiguration(output);
 
+    // Cooperative Obsidian operations already hold the machine-local queue.
+    // An external manager does not participate in that lock. If another
+    // SteamCMD is visible and its ownership is unknown, refuse to race it.
+    internal static void DemandNoConcurrentSteamCmd(int? ownPid=null)
+    {
+        Process[] candidates;
+        try{candidates=Process.GetProcessesByName("steamcmd");}
+        catch(Exception){throw new IOException("UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED");}
+        try
+        {
+            DemandNoForeignSteamPid(candidates.Select(x=>x.Id),ownPid);
+        }
+        finally{foreach(var item in candidates)item.Dispose();}
+    }
+
+    internal static void DemandNoForeignSteamPid(IEnumerable<int> pids,int? ownPid=null)
+    {
+        if(pids.Any(pid=>pid<=0||pid!=ownPid))
+            throw new IOException("UM-STEAM-EXTERNAL-PROCESS-BUSY");
+    }
+
     private static async Task RunSteamAsync(string exe,string install,
         TimeSpan timeout,bool synthetic,Action verifyStopped,CancellationToken ct)
     {
@@ -492,6 +531,7 @@ public static class SteamStoppedMapUpdater
         // local Steam maintenance lease and never starts/stops an ASA server.
         if(!synthetic)
         {
+            DemandNoConcurrentSteamCmd();
             verifyStopped();
             await SteamFreshInstall.BootstrapSteamCmdAsync(exe,null,deadline.Token);
             verifyStopped();
@@ -518,6 +558,7 @@ public static class SteamStoppedMapUpdater
             // ASA/Loader process family and its shared-install siblings are
             // independently verified STOPPED again.
             verifyStopped();
+            if(!synthetic)DemandNoConcurrentSteamCmd();
             var psi=new ProcessStartInfo(exe)
             {
                 UseShellExecute=false,CreateNoWindow=true,
@@ -537,7 +578,18 @@ public static class SteamStoppedMapUpdater
             var stderr=Capture(child.StandardError,deadline.Token);
             try
             {
-                await child.WaitForExitAsync(deadline.Token);
+                var wait=child.WaitForExitAsync(deadline.Token);
+                if(!synthetic)
+                {
+                    while(!wait.IsCompleted)
+                    {
+                        await Task.WhenAny(wait,Task.Delay(1000,deadline.Token));
+                        deadline.Token.ThrowIfCancellationRequested();
+                        if(!wait.IsCompleted)DemandNoConcurrentSteamCmd(child.Id);
+                    }
+                }
+                await wait;
+                if(!synthetic)DemandNoConcurrentSteamCmd();
                 string message=await stdout;
                 string error=await stderr;
                 if(child.ExitCode==0 &&

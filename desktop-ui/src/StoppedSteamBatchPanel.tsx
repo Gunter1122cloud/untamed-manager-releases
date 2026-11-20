@@ -1,9 +1,8 @@
-import {useEffect,useMemo,useState} from "react";
+import {useEffect,useMemo,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,RefreshCw,Shield} from "lucide-react";
-import {managerBridge, type PublicMap, type StoppedSteamBatchPreview,
+import {managerBridge, type PublicMap,
   type StoppedSteamBatchJob, type StoppedSteamBatchCurrent} from "./bridge";
 
-const approvalPhrase="HELYI SOROS STEAMCMD";
 const pageSize=25;
 
 /**
@@ -17,7 +16,7 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
   const [useCache,setUseCache]=useState(false);
   const [query,setQuery]=useState("");
   const [page,setPage]=useState(0);
-  const [preview,setPreview]=useState<StoppedSteamBatchPreview|null>(null);
+  const dispatching=useRef(false);
   const [job,setJob]=useState<StoppedSteamBatchJob|null>(null);
   const [jobId,setJobId]=useState("");
   const [current,setCurrent]=useState<StoppedSteamBatchCurrent|null>(null);
@@ -99,7 +98,7 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
     return ()=>{active=false;window.clearInterval(timer);};
   },[jobId]);
 
-  const invalidate=()=>{setPreview(null);setNotice("");setError("");};
+  const invalidate=()=>{setNotice("");setError("");};
   const toggle=(mapId:string,checked:boolean)=>{
     invalidate();
     if(checked&&selected.length>=25){
@@ -109,29 +108,17 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
     setSelected(old=>checked?[...old.filter(x=>x!==mapId),mapId]:
       old.filter(x=>x!==mapId));
   };
-  const check=async()=>{
-    if(unavailable||selected.length===0||blocked)return;
-    setBusy(true);invalidate();
-    try{
-      const approved=await managerBridge.steamBatchPreview(selected,useCache);
-      if(Boolean(approved.useSharedPayloadCache)!==useCache)throw new Error("UM-STEAM-CACHE-PREVIEW-MISMATCH");
-      setPreview(approved);
-    }catch(e){
-      setError("A natív előellenőrzés elutasította a műveletet ("+
-        (e instanceof Error?e.message:"UM-STEAM-BATCH-PREFLIGHT")+"). Egyik map sem módosult.");
-    }finally{setBusy(false);}
-  };
   const start=async()=>{
-    if(unavailable||!preview||blocked)return;
-    const token=preview.token;
-    setBusy(true);setPreview(null);setError("");setNotice("");
+    if(unavailable||blocked||dispatching.current||selected.length===0)return;
+    const requested=[...selected];
+    dispatching.current=true;setBusy(true);setError("");setNotice("");
     try{
-      const started=await managerBridge.steamBatchApply(token,approvalPhrase);
+      const started=await managerBridge.steamBatchStart(requested,useCache);
       if(!started.started||!started.jobId||started.serverStopRequested||
          started.remoteHostTouched||started.storeWriterTouched||started.automaticRetry)
         throw new Error("UM-STEAM-BATCH-START-RECEIPT-INVALID");
       setJob({jobId:started.jobId,state:"queued",stage:"preflight",
-        position:0,total:preview.installations,activeMapName:"",
+        position:0,total:requested.length,activeMapName:"",
         completedInstallations:0,changedUtc:new Date().toISOString(),
         serverStopRequested:false,remoteHostTouched:false,
         storeWriterTouched:false,automaticRetry:false});
@@ -140,11 +127,18 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
     }catch(e){
       // A one-shot approval might already have launched SteamCMD on the
       // Windows host when its response was interrupted. Reconcile first.
+      const code=e instanceof Error?e.message:"";
+      if(code==="UM-STEAM-BATCH-SELECT-ALL-SHARED-MAPS"){
+        setError("Közös telepítési gyökér: jelöld ki az összes érintett helyi mapot ("+code+").");return;
+      }
+      if(code==="UM-STEAM-EXTERNAL-PROCESS-BUSY"||code==="UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED"){
+        setError("Külső SteamCMD fut vagy nem ellenőrizhető. Várd meg a befejezését, majd ellenőrizd a Feladatkezelőt ("+code+").");return;
+      }
       setReconnectFailed(true);
       setError("A soros SteamCMD indítás eredménye nem igazolt ("+
         (e instanceof Error?e.message:"UM-STEAM-BATCH-FAILED")+
         "). Ne ismételd meg a jóváhagyást; ellenőrizd a natív feladatot.");
-    }finally{setBusy(false);}
+    }finally{dispatching.current=false;setBusy(false);}
   };
   const blocked=Boolean(current?.needsOperatorReview);
   const unavailable=busy||running||reconnecting||reconnectFailed;
@@ -192,31 +186,17 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
           <span>{map.name}</span><small>{map.steamBuildId??"ismeretlen build"}</small>
         </label>)}
       </div>
-      <button type="button" className="secondary"
+      <p className="muted small">Kijelölt mapok: {maps.filter(m=>selected.includes(m.id)).map(m=>m.name).join(", ")||"nincs"}. Közös telepítési gyökér esetén minden hozzá tartozó mapot jelölj ki; a natív ellenőrzés nem bővíti automatikusan a kiválasztást.</p>
+      <button type="button" className="primary"
         disabled={unavailable||blocked||selected.length===0}
-        onClick={()=>{void check();}}>
-        <RefreshCw size={16}/> {selected.length} map natív frissítési előellenőrzése
+        onClick={()=>{void start();}}>
+        <RefreshCw size={16}/> {selected.length} kijelölt map frissítése
       </button>
-      {preview&&<div className="historical-preview" role="region"
-        aria-label="Soros SteamCMD jóváhagyása">
-        <h3>{preview.requestedMaps} map, {preview.installations} külön ASA telepítés</h3>
-        <p>Megosztott build-cache: {preview.useSharedPayloadCache?"engedélyezve":"kikapcsolva"}</p>
-        {preview.details.map(entry=><p className="muted small" key={entry.mapId}>
-          {entry.mapName} · Steam build {entry.installedBuild} ·
-          {entry.sharedMapCount} közös map
-        </p>)}
-        <p>Az ellenőrzött helyi soros frissítést az alábbi külön
-           jóváhagyó gombbal indíthatod. A Manager nem állít le szervert.</p>
-         <button type="button" className="primary"
-          disabled={unavailable||busy}
-          onClick={()=>{void start();}}>Helyi soros SteamCMD frissítés indítása</button>
-        <p className="muted small">A jóváhagyás a meglévő natív Core-frissítőt
-          indítja, nem a szerverleállítást vagy az automatikus újraindítást.</p>
-      </div>}
       {job&&<div className="historical-preview" role="status">
         <b>SteamCMD: {job.state}</b>
         <p>{job.position}. / {job.total} · {job.activeMapName||"Előkészítés"} ·
-          {job.stage}</p>
+          {job.stage}{job.errorCode&&" · "+job.errorCode}</p>
+        {job.results?.map(result=><p key={result.mapId}>{result.mapName}: {result.oldBuild} → {result.newBuild} · {result.protectedFilesIntact?"védett fájlok ellenőrizve":"nem igazolt"}</p>)}
         {job.state==="completed"&&<p><CheckCircle2 size={16}/> Igazoltan frissített
           telepítések: {job.completedInstallations}</p>}
         {job.state==="needsOperator"&&<p className="error-inline">

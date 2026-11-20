@@ -22,6 +22,11 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
     private sealed record Candidate(Guid MapId,string Root,string Build);
     private sealed record Pending(Guid Token,Candidate[] Maps,string SteamExe,
         DateTimeOffset CreatedUtc,bool UseCache);
+
+    private sealed class InlineProgress<T>(Action<T> report):IProgress<T>
+    {
+        public void Report(T value)=>report(value);
+    }
     private sealed class Job
     {
         public Guid Id=Guid.NewGuid();
@@ -29,9 +34,12 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
         public int Position,Total;
         public string ActiveMap="";
         public int CompletedInstallations;
+        public string? ErrorCode;
+        public readonly Dictionary<Guid,object> Results=new();
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
     }
     private readonly ClusterService cluster;
+    private readonly bool isolatedExecution;
     private readonly Func<IReadOnlyList<LocalMap>,IProgress<SteamQueueProgress>,bool,
         Task<IReadOnlyList<SteamStoppedMapUpdater.Receipt>>> runBatch;
     private readonly Func<LocalMap,SteamUpdatePreview> plan;
@@ -41,6 +49,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
     private const long Reserve=10L*1024*1024*1024;
     private Pending? pending;
     private Job? job;
+    private readonly HashSet<Guid> acceptedDirectRequests=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopStoppedSteamBatchBridge(ClusterService owner,
@@ -50,6 +59,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
         Func<LocalMap,bool,ProcessCheck>? isolatedOriginalObserver=null)
     {
         cluster=owner??throw new ArgumentNullException(nameof(owner));
+        isolatedExecution=isolatedRunner!=null;
         // Production always uses the exact native stopped-family guard; an
         // injected process fixture is not a route exposed to WebView2.
         observeOriginal=isolatedOriginalObserver??((map,underOwnOperation)=>
@@ -104,7 +114,8 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
             jobId=item.Id,state=item.State,stage=item.Stage,
             position=item.Position,total=item.Total,
             activeMapName=item.ActiveMap,
-            completedInstallations=item.CompletedInstallations,
+            completedInstallations=item.CompletedInstallations,errorCode=item.ErrorCode,
+            results=item.Results.Values.ToArray(),
             changedUtc=item.ChangedUtc,
             serverStopRequested=false,remoteHostTouched=false,
             storeWriterTouched=false,automaticRetry=false
@@ -248,7 +259,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                 return Fail(null,"UM-STEAM-BATCH-MESSAGE");
             id=requestId.ToString("D");
             string? method=node.GetString();
-            if(method is not ("steam.batchPreview" or "steam.batchApply" or
+            if(method is not ("steam.batchPreview" or "steam.batchApply" or "steam.batchStart" or
                 "steam.batchStatus" or "steam.batchCurrent"))
                 return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
@@ -277,7 +288,12 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                         return Fail(id,"UM-STEAM-BATCH-JOB-MISSING");
                     return Ok(id,JobSnapshot(job));
                 }
-                if(method=="steam.batchPreview")
+                bool direct=method=="steam.batchStart";
+                Pending? saved=null;
+                Guid[]? directIds=null;
+                if(direct&&(acceptedDirectRequests.Contains(requestId)||acceptedDirectRequests.Count>=4096))
+                    return Fail(id,"UM-STEAM-BATCH-REQUEST-CONSUMED");
+                if(method=="steam.batchPreview"||direct)
                 {
                     if(!data.TryGetProperty("mapIds",out var rawIds)||
                        rawIds.ValueKind!=JsonValueKind.Array||
@@ -295,8 +311,20 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                     var selected=ValidateMaps(ids.ToArray());
                     bool useCache=data.TryGetProperty("useSharedPayloadCache",out var cache)&&cache.ValueKind==JsonValueKind.True;
                     var token=Guid.NewGuid();
-                    pending=new(token,selected.Evidence,
+                    var proposal=new Pending(token,selected.Evidence,
                         cluster.Config.SteamCmdExecutable,DateTimeOffset.UtcNow,useCache);
+                    if(direct)
+                    {
+                        directIds=ids.ToArray();
+                        var roots=selected.Evidence.Select(x=>Path.TrimEndingDirectorySeparator(Path.GetFullPath(x.Root))).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        if(cluster.Config.LocalMaps.Any(x=>!string.IsNullOrWhiteSpace(x.InstallationPath)&&
+                           roots.Contains(Path.TrimEndingDirectorySeparator(Path.GetFullPath(x.InstallationPath)))&&!directIds.Contains(x.Id)))
+                            return Fail(id,"UM-STEAM-BATCH-SELECT-ALL-SHARED-MAPS");
+                        saved=proposal;
+                    }
+                    else
+                    {
+                    pending=proposal;
                     return Ok(id,new{
                         token,requestedMaps=ids.Count,
                         installations=selected.Evidence.Length,
@@ -307,7 +335,10 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                         remoteHostTouched=false,
                         evidence="LOCAL_STOPPED_STEAM_SERIAL_BATCH_PREFLIGHT_NO_WRITES"
                     });
+                    }
                 }
+                else
+                {
                 if(!GuidField(data,"token",out var approval)||
                    pending==null||pending.Token!=approval ||
                    DateTimeOffset.UtcNow-pending.CreatedUtc>TimeSpan.FromMinutes(5))
@@ -319,12 +350,22 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                    !string.Equals(phrase.GetString(),"HELYI SOROS STEAMCMD",
                        StringComparison.Ordinal))
                     return Fail(id,"UM-STEAM-BATCH-CONFIRMATION-REQUIRED");
-                var saved=pending;
+                saved=pending;
+                }
+                if(saved==null||DateTimeOffset.UtcNow-saved.CreatedUtc>TimeSpan.FromMinutes(5))
+                    return Fail(id,"UM-STEAM-BATCH-TOKEN-EXPIRED");
                 pending=null; // one use only, even if later preflight fails
                 if(!string.Equals(cluster.Config.SteamCmdExecutable,saved.SteamExe,
                     StringComparison.OrdinalIgnoreCase))
                     return Fail(id,"UM-STEAM-BATCH-CHANGED");
-                var rechecked=ValidateMaps(saved.Maps.Select(x=>x.MapId).ToArray());
+                var rechecked=ValidateMaps(directIds??saved.Maps.Select(x=>x.MapId).ToArray());
+                if(directIds!=null)
+                {
+                    var roots=rechecked.Evidence.Select(x=>Path.TrimEndingDirectorySeparator(Path.GetFullPath(x.Root))).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    if(cluster.Config.LocalMaps.Any(x=>!string.IsNullOrWhiteSpace(x.InstallationPath)&&
+                       roots.Contains(Path.TrimEndingDirectorySeparator(Path.GetFullPath(x.InstallationPath)))&&!directIds.Contains(x.Id)))
+                        return Fail(id,"UM-STEAM-BATCH-SELECT-ALL-SHARED-MAPS");
+                }
                 if(rechecked.Evidence.Length!=saved.Maps.Length ||
                    rechecked.Evidence.Where((x,i)=>
                        x.MapId!=saved.Maps[i].MapId ||
@@ -333,14 +374,33 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                        !string.Equals(x.Build,saved.Maps[i].Build,
                            StringComparison.Ordinal)).Any())
                     return Fail(id,"UM-STEAM-BATCH-CHANGED");
+                if(!isolatedExecution)
+                {
+                    try{SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();}
+                    catch(IOException e){return Fail(id,e.Message is "UM-STEAM-EXTERNAL-PROCESS-BUSY" or "UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED"?e.Message:"UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED");}
+                }
+                if(direct)acceptedDirectRequests.Add(requestId);
                 var task=new Job{Total=rechecked.Maps.Length};
                 job=task;
                 _=Task.Run(async()=>
                 {
                     Stage(task,"running","preflight");
-                    var progress=new Progress<SteamQueueProgress>(item=>
-                        Stage(task,"running",item.Stage,
-                            item.Position,item.MapName));
+                    void RetainReceipt(SteamStoppedMapUpdater.Receipt item)
+                    {
+                        var owner=rechecked.Maps.Single(m=>m.Id==item.MapId);
+                        if(!item.ProtectedFilesIntact||!string.Equals(Path.GetFullPath(owner.InstallationPath),Path.GetFullPath(item.InstallRoot),StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidDataException("UM-STEAM-BATCH-RECEIPTS-INVALID");
+                        lock(sync)
+                        {
+                            task.Results[item.MapId]=new{mapId=item.MapId,mapName=owner.Name,
+                                oldBuild=item.OldBuild,newBuild=item.NewBuild,protectedFilesIntact=item.ProtectedFilesIntact};
+                            task.CompletedInstallations=task.Results.Count;
+                        }
+                    }
+                    var progress=new InlineProgress<SteamQueueProgress>(item=>{
+                        if(item.VerifiedReceipt!=null)RetainReceipt(item.VerifiedReceipt);
+                        Stage(task,"running",item.Stage,item.Position,item.MapName);
+                    });
                     try
                     {
                         var receipt=await runBatch(rechecked.Maps,progress,saved.UseCache);
@@ -350,12 +410,16 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                                rechecked.Maps.Select(m=>m.Id)))
                             throw new InvalidDataException(
                                 "UM-STEAM-BATCH-RECEIPTS-INVALID");
-                        lock(sync)task.CompletedInstallations=receipt.Count;
+                        foreach(var item in receipt)RetainReceipt(item);
                         Stage(task,"completed","verified");
                     }
-                    catch(Exception)
+                    catch(Exception ex)
                     {
-                        Stage(task,"needsOperator","Check native queue and backups");
+                        lock(sync)
+                        {
+                            task.ErrorCode=ex.Message is "UM-STEAM-EXTERNAL-PROCESS-BUSY" or "UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED" or "UM-STEAM-INSTALLED-BUILD-INVALID" or "UM-STEAM-INSTALLED-BUILD-CHANGED"?ex.Message:"UM-STEAM-BATCH-FAILED";
+                            Stage(task,"needsOperator",task.Stage);
+                        }
                     }
                 });
                 return Ok(id,new{

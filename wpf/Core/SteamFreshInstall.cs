@@ -231,6 +231,12 @@ public static class SteamFreshInstall
         bool allowOfficialDownload,IProgress<SteamInstallProgress>? progress=null,
         CancellationToken cancellationToken=default)
     {
+        using var hostLease=SteamHostLease.Acquire();
+        return await PrepareSteamCmdUnderHostLeaseAsync(executable,allowOfficialDownload,progress,cancellationToken);
+    }
+    private static async Task<string> PrepareSteamCmdUnderHostLeaseAsync(string executable,
+        bool allowOfficialDownload,IProgress<SteamInstallProgress>? progress,CancellationToken cancellationToken)
+    {
         string exe=Canonical(executable);
         if(!Path.GetFileName(exe).Equals("steamcmd.exe",StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("SteamCMD path must end in steamcmd.exe");
@@ -329,6 +335,7 @@ public static class SteamFreshInstall
             foreach(string key in new[]{"STEAM_USERNAME","STEAM_PASSWORD","MYSQL_PWD",
                 "MARIADB_PWD","UNTAMED_RCON_PASSWORD"})
                 psi.Environment.Remove(key);
+            SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();
             using var process=Process.Start(psi) ??
                 throw new IOException("SteamCMD bootstrap could not start");
             var stdout=CaptureSteamOutput(process.StandardOutput,null,false,deadline.Token);
@@ -408,6 +415,8 @@ public static class SteamFreshInstall
         var disk=new DriveInfo(Path.GetPathRoot(root)!);
         if(disk.AvailableFreeSpace<request.MinimumFreeBytes)
             throw new IOException("Insufficient free disk space to install ASA");
+        using var hostLease=SteamHostLease.Acquire();
+        if(fakeExecutable==null)SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();
         string journal=OperationPath(root);
         string key=Path.GetFileNameWithoutExtension(journal);
         using var mutex=new Semaphore(1,1,@"Global\Untamed-FreshSteam-v1-"+key);
@@ -455,7 +464,7 @@ public static class SteamFreshInstall
             // after the binary and manifest have been verified.
             SaveJournal(journal,new(request.MapId,root,steam,"prepared",DateTimeOffset.UtcNow,
                 request.MapName,level));
-            steam=await PrepareSteamCmdAsync(steam,request.DownloadSteamCmd,progress,cancellationToken);
+            steam=await PrepareSteamCmdUnderHostLeaseAsync(steam,request.DownloadSteamCmd,progress,cancellationToken);
             // A verified FakeSteamCMD test fixture is not Valve's executable;
             // never launch the real bootstrap during isolated CI regression.
             if(fakeExecutable==null)
@@ -492,6 +501,7 @@ public static class SteamFreshInstall
                     psi.Environment["FAKE_STEAM_NEW_INSTALL"]="1";
                     progress?.Report(new("test","Izolált FakeSteamCMD teszt, nem éles Steam",null));
                 }
+                if(fakeExecutable==null)SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();
                 using var process=Process.Start(psi)??throw new IOException("SteamCMD launch failed");
                 Task<string> stdout=CaptureSteamOutput(
                     process.StandardOutput,progress,false,deadline.Token);
