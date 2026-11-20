@@ -308,7 +308,7 @@ public static class SteamStoppedMapUpdater
                     DemandNoConcurrentSteamCmd();
                     await SteamFreshInstall.BootstrapSteamCmdAsync(steamExecutable,null,token);
                     DemandNoConcurrentSteamCmd();
-                    var published=await AsaSteamBuildCatalog.CheckAsync(steamExecutable,map.InstallationPath,
+                    var published=await AsaSteamBuildCatalog.CheckUnderHostLeaseAsync(steamExecutable,map.InstallationPath,
                         "public",ct:token);
                     if(published.AvailableBuild==null)throw new InvalidDataException("UM-STEAM-CACHE-PUBLIC-BUILD-UNKNOWN");
                     payload=await SteamSharedPayloadCache.PrepareAsync(cluster.Store.Root,cluster.Config.LocalMaps,
