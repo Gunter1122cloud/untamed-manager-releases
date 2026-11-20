@@ -7210,6 +7210,25 @@ test("per-map Steam build check compares installed/public IDs without starting u
     .toHaveCount(0);
 });
 
+test("terminal Steam update invalidates published comparison and keeps verified receipt",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await panel.getByRole("button",{name:"Elérhető ASA verzió ellenőrzése"}).click();
+  const comparison=panel.getByRole("region",{name:"ASA Steam build összehasonlítása"});
+  await expect(comparison).toContainText("Új Steam build elérhető");
+  await panel.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"}).click();
+  await panel.getByRole("button",{name:"Astraeos frissítése",exact:true}).click();
+  await expect(panel).toContainText("Frissítés: completed");
+  await expect(panel).toContainText("Build 123456 → 123457");
+  await expect(comparison).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SINGLE_STEAM_APPLIES__?:()=>number
+  }).__UNTAMED_SINGLE_STEAM_APPLIES__?.())).toBe(1);
+});
+
 test("SteamCMD new ASA: choose map and Windows folder, one click starts download and registers verified files",async ({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
