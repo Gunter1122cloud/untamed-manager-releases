@@ -17,7 +17,10 @@ public enum SteamQueuePhase
 public sealed record SteamQueueSnapshot(Guid QueueId,SteamQueuePhase Phase,
     string HostId,int NextIndex,Guid[] MapIds,Guid? ActiveMap,
     DateTimeOffset ChangedUtc,string Summary);
-public sealed record SteamQueueProgress(int Position,int Total,string MapName,string Stage);
+public sealed record SteamQueueProgress(int Position,int Total,string MapName,string Stage)
+{
+    public SteamStoppedMapUpdater.Receipt? VerifiedReceipt {get;init;}
+}
 
 /// <summary>
 /// A machine-local, cross-profile named semaphore and durable operation journal.
@@ -83,12 +86,8 @@ public sealed class SteamSerialMaintenanceQueue
            selected.Select(x=>x.Id).Distinct().Count()!=selected.Count||
            selected.Any(x=>!registeredLocal.Any(r=>ReferenceEquals(r,x))))
             throw new InvalidDataException("Queue must contain unique registered local map objects");
-        using var semaphore=new Semaphore(1,1,@"Global\Untamed-SteamQueue-Host-v1");
-        bool acquired=false;
-        try
+        using var hostLease=SteamHostLease.Acquire();
         {
-            acquired=semaphore.WaitOne(0);
-            if(!acquired)throw new IOException("Another Manager already owns the local Steam queue");
             var previous=Read();
             if(previous!=null && previous.Phase is
                (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress or SteamQueuePhase.NeedsOperator))
@@ -149,6 +148,6 @@ public sealed class SteamSerialMaintenanceQueue
                 throw;
             }
         }
-        finally{if(acquired)semaphore.Release();}
+
     }
 }

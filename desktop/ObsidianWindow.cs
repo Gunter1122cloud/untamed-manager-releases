@@ -39,6 +39,7 @@ public sealed class ObsidianWindow : Form
     internal static bool IsHistoricalStoreMethod(string? method)=>method is
         "historical.localStatus" or "historical.localParity" or
         "historical.list" or "historical.preview" or "historical.register" or
+        "historical.supplementalPreview" or "historical.supplementalRegister" or "historical.supplementalStart" or
         "historical.originalList" or "historical.originalPreview" or
         "historical.originalRegister" or
         "historical.originalBatchPreview" or "historical.originalBatchRegister" or
@@ -682,9 +683,9 @@ public sealed class ObsidianWindow : Form
                             "schedule.nativeReviewApply" or "schedule.nativeResume";
                         mapMaintenanceRoute = name is "maps.maintenanceStatus" or "maps.maintenanceSet";
                         lanRoute = name is "lan.status" or "lan.preview" or "lan.apply" or "lan.physicalStoreProbe" or "lan.historicalSaveProbe";
-                        stoppedSteamRoute = name is "steam.stoppedDiagnostics" or "steam.stoppedPreview" or "steam.stoppedApply" or
+                        stoppedSteamRoute = name is "steam.stoppedDiagnostics" or "steam.stoppedPreview" or "steam.stoppedApply" or "steam.stoppedStart" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent" or "steam.publishedBuild" or "steam.selectExecutable" or "steam.prepareExecutable";
-                        stoppedSteamBatchRoute = name is "steam.batchPreview" or "steam.batchApply" or
+                        stoppedSteamBatchRoute = name is "steam.batchPreview" or "steam.batchApply" or "steam.batchStart" or
                             "steam.batchStatus" or "steam.batchCurrent";
                         scheduledSteamRoute = name is "steam.scheduleStatus" or "steam.scheduleSet" or
                             "steam.scheduleDisable";

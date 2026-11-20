@@ -547,6 +547,9 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         eventRow.StoreFlagPresent==true&&eventRow.RegistrationState=="store-or-cluster-ownership-required"&&
         !eventRow.Controllable&&!eventRow.StoreWriteAuthorized,
         "Event Loader supplies sanitized onboarding evidence only; never a control target");
+    Check(DesktopDiscordControlApi.DiscoveredOnly(eventState,new HashSet<(int,DateTimeOffset)>{(702,instant)}).Length==0&&
+        DesktopDiscordControlApi.DiscoveredOnly(eventState,new HashSet<(int,DateTimeOffset)>{(702,instant.AddSeconds(-1))}).Single().Pid==702,
+        "registered Event ASA and its Loader collapse into one controlled map only with exact verified process identity");
     var contradiction=eventState with{Processes=new[]{
         eventState.Processes[0],
         eventState.Processes[1] with{LaunchFacts=launchFacts with{GamePort=7808}}
@@ -4003,9 +4006,12 @@ try
                 new{token=approval,confirm=true,typedApproval="WRONG"});
             Check(!badConsent.GetProperty("ok").GetBoolean()&&batchRuns==0,
                 "local serial Steam updates require the exact typed approval");
-            var started=await Call(batch.HandleAsync,"steam.batchApply",
-                new{token=approval,confirm=true,
-                    typedApproval="HELYI SOROS STEAMCMD"});
+            var incompleteScope=await Call(batch.HandleAsync,"steam.batchStart",
+                new{mapIds=new[]{batchTarget.Id}});
+            Check(IsError(incompleteScope,"UM-STEAM-BATCH-SELECT-ALL-SHARED-MAPS")&&batchRuns==0,
+                "direct batch cannot silently expand to an unselected shared-root map");
+            var started=await Call(batch.HandleAsync,"steam.batchStart",
+                new{mapIds=new[]{batchTarget.Id,second.Id}});
             IsOk(started,"explicit serial batch approval starts existing native Core operation");
             string jobId=started.GetProperty("data").GetProperty("jobId").GetString()!;
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(12));
@@ -4019,6 +4025,10 @@ try
                     typedApproval="HELYI SOROS STEAMCMD"});
             Check(!replay.GetProperty("ok").GetBoolean()&&batchRuns==1,
                 "consumed serial Steam approval cannot replay");
+            var directParallel=await Call(batch.HandleAsync,"steam.batchStart",
+                new{mapIds=new[]{batchTarget.Id,second.Id}});
+            Check(!directParallel.GetProperty("ok").GetBoolean()&&batchRuns==1,
+                "parallel direct batch cannot dispatch a second runner");
             release.TrySetResult(true);
             JsonElement progress=default;
             for(int i=0;i<60;i++)
@@ -4035,6 +4045,7 @@ try
                   progress.GetProperty("data").GetProperty("completedInstallations")
                     .GetInt32()==1 &&
                   batchRuns==1 &&
+                  progress.GetProperty("data").GetProperty("results")[0].GetProperty("newBuild").GetString()=="123457"&&
                   untouched.SequenceEqual(File.ReadAllBytes(batchTarget.ExecutablePath)),
                 "serial Steam batch executes exactly once and leaves real ASA binary unchanged in fixture");
             // Exercise the approved original Store-v1 path end to end through
@@ -4133,6 +4144,48 @@ try
             }
         }
         finally{release.TrySetResult(true);cluster.RemoveMap(second.Id);}
+    }
+
+    // A held host update lease must refuse fresh install, tool preparation,
+    // and appinfo before a second SteamCMD child or install journal exists.
+    {
+        string deniedRoot=Path.Combine(root,"steam-host-busy-install");
+        string deniedSteam=Path.Combine(root,"steam-host-busy-tools","steamcmd.exe");
+        using(var hostLease=SteamHostLease.Acquire())
+        {
+            bool freshDenied=false,appInfoDenied=false,prepareDenied=false,secondLeaseDenied=false;
+            try{await SteamFreshInstall.InstallAsync(new SteamFreshInstallRequest(Guid.NewGuid(),
+                "The Island","Busy fixture",deniedRoot,deniedSteam,false,
+                MinimumFreeBytes:5L*1024*1024*1024),Array.Empty<LocalMap>());}
+            catch(IOException ex) when(ex.Message=="UM-STEAM-HOST-BUSY"){freshDenied=true;}
+            try{await AsaSteamBuildCatalog.CheckAsync(deniedSteam,deniedRoot);}
+            catch(IOException ex) when(ex.Message=="UM-STEAM-HOST-BUSY"){appInfoDenied=true;}
+            try{await SteamFreshInstall.PrepareSteamCmdAsync(deniedSteam,true);}
+            catch(IOException ex) when(ex.Message=="UM-STEAM-HOST-BUSY"){prepareDenied=true;}
+            try{using var other=SteamHostLease.Acquire();}
+            catch(IOException ex) when(ex.Message=="UM-STEAM-HOST-BUSY"){secondLeaseDenied=true;}
+            Check(freshDenied&&appInfoDenied&&prepareDenied&&secondLeaseDenied&&!Directory.Exists(deniedRoot)&&
+                !Directory.Exists(Path.GetDirectoryName(deniedSteam)),
+                "host lease rejects every competing Steam entry before process launch or fresh install writes");
+        }
+        using var nextLease=SteamHostLease.Acquire();
+        Check(true,"host lease is available again after first operation completes");
+    }
+
+    // Pure process inventory policy: no actual SteamCMD process is spawned.
+    {
+        SteamStoppedMapUpdater.DemandNoForeignSteamPid(Array.Empty<int>());
+        SteamStoppedMapUpdater.DemandNoForeignSteamPid(new[]{123},123);
+        bool foreignDenied=false;
+        try{SteamStoppedMapUpdater.DemandNoForeignSteamPid(new[]{123,456},123);}
+        catch(IOException e) when(e.Message=="UM-STEAM-EXTERNAL-PROCESS-BUSY"){foreignDenied=true;}
+        Check(foreignDenied,"a second detected SteamCMD PID cannot be mistaken for our own");
+        Check(AsaSteamBuildCatalog.DiagnoseAppInfo("","connection failed",7).Code=="UM-STEAM-PUBLIC-NETWORK"&&
+              AsaSteamBuildCatalog.DiagnoseAppInfo("","failed to log on",1).Code=="UM-STEAM-PUBLIC-LOGIN"&&
+              AsaSteamBuildCatalog.DiagnoseAppInfo("","failed to update app info",1).Code=="UM-STEAM-PUBLIC-CACHE"&&
+              AsaSteamBuildCatalog.DiagnoseAppInfo("\"2430930\" { \"depots\" {} }","",0).Code=="UM-STEAM-PUBLIC-BUILD-MISSING"&&
+              AsaSteamBuildCatalog.DiagnoseAppInfo("\"2430930\" { \"public\" { \"buildid\" \"123\"","",0).Code=="UM-STEAM-PUBLIC-VDF",
+              "public build failure categories are stable and redacted");
     }
 
     // Actual SteamCMD entry point uses Core's stopped-map update and per-host
@@ -4273,8 +4326,12 @@ try
             new{token,confirm=false});
         Check(IsError(refused,"UM-STEAM-CONFIRMATION-REQUIRED") && executions==0,
             "SteamCMD update requires native approval");
-        var launched=await Call(updater.HandleAsync,"steam.stoppedApply",
-            new{token,confirm=true});
+        var deniedDirect=await Call(updater.HandleAsync,"steam.stoppedStart",
+            new{mapId=Guid.NewGuid(),affectedMaps=new[]{target.Name}});
+        Check(IsError(deniedDirect,"UM-MAP-NOT-OWNED")&&executions==0,
+            "direct single-map update rejects non-local IDs");
+        var launched=await Call(updater.HandleAsync,"steam.stoppedStart",
+            new{mapId=target.Id,affectedMaps=new[]{target.Name}});
         IsOk(launched,"approved update dispatches native verified Core operation");
         string job=launched.GetProperty("data").GetProperty("jobId").GetString()!;
         await runnerEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));

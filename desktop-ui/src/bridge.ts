@@ -661,12 +661,12 @@ export type FreshAsaStartStatus = {
   evidence:"LOCAL_OS_PROCESS_OBSERVATION_NOT_ASA_READINESS";
 };
 export type StoppedSteamDiagnostics = {
-  mapId:string;mapName:string;installRoot:string;
+  mapId:string;mapName:string;installRoot:string;installedBuild?:string|null;
   processes:Array<{mapName:string;confirmedStopped:boolean;running:boolean;
     pid:number|null;loaderPid:number|null;reason:string}>;
   overlaps:Array<{mapName:string;installRoot:string}>;
   steamCmdFound:boolean;steamCmdConfigured:boolean;
-  steamCmdError?:string|null;asaBinaryRegistered?:boolean;
+  steamCmdError?:string|null;externalSteamError?:string|null;asaBinaryRegistered?:boolean;
   availableBytes:number;requiredBytes:number;
   journalBlocked:boolean;historicalBlocked:boolean;safeInstallation:boolean;
   canPreview:boolean;
@@ -685,14 +685,14 @@ export type StoppedSteamStarted = {
 export type SteamPublishedBuild = {
   mapId:string;mapName:string;installedBuild:string|null;
   availableBuild:string|null;state:"Unknown"|"Current"|"UpdateAvailable";
-  checkedUtc:string;explanation:string;updateAvailable:boolean;
+  checkedUtc:string;explanation:string;diagnosticCode?:string|null;updateAvailable:boolean;
   downloadStarted:false;serverStopped:false;storeWriterTouched:false;
   remoteHostTouched:false;
   evidence:"STEAM_PUBLIC_BRANCH_APPINFO_READ_ONLY_NO_UPDATE";
 };
 export type StoppedSteamStatus = {
   jobId:string;mapId:string;state:"queued"|"running"|"completed"|"needsOperator";
-  stage:string;changedUtc:string;oldBuild:string;newBuild:string;
+  stage:string;changedUtc:string;oldBuild:string;newBuild:string;errorCode?:string|null;
   protectedFilesIntact:boolean;restartPerformed:false;storeTouched:false;
 };
 export type StoppedSteamBatchPreview = {
@@ -707,7 +707,8 @@ export type StoppedSteamBatchPreview = {
 export type StoppedSteamBatchJob = {
   jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
   stage:string;position:number;total:number;activeMapName:string;
-  completedInstallations:number;changedUtc:string;
+  completedInstallations:number;changedUtc:string;errorCode?:string|null;
+  results?:Array<{mapId:string;mapName:string;oldBuild:string;newBuild:string;protectedFilesIntact:boolean}>;
   serverStopRequested:false;remoteHostTouched:false;
   storeWriterTouched:false;automaticRetry:false;
 };
@@ -1354,6 +1355,12 @@ export type HistoricalPairEvidence = {
   evidence:"PAIRED_COPIES_OFFLINE_READ_ONLY_NO_WRITER_CERTIFICATION";
 };
 
+export type SupplementalStorePreview = {alreadyRegistered:true;mapId:string;mapName:string}|
+  {alreadyRegistered:false;token:string;mapId:string;mapName:string;mapKey:string;
+   gamePort:number;queryPort:number;rconPort:number;mods:string[];passiveMods:string[];
+   running:boolean;useApi:boolean;clusterId:string;addsClusterMembership:true;changesOriginalFive:false;
+   modContentInstallationVerified:false;modContentState?:string;presentModProjects?:string[];
+   unverifiedModProjects?:string[];levelManifestProjects?:string[];serverProcessTouched:false};
 export type OriginalKovaLocalMapList = {
   sourceVerified:true;originalFourFilesUnchanged:true;
   maps:Array<{mapId:string;mapKey:string;name:string;
@@ -1774,11 +1781,12 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.gracefulStopCurrent" | "servers.gracefulStopReview" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" |
   "servers.restartReviewPreview" | "servers.restartReviewApply" |
   "servers.freshReadiness" | "servers.lifecycleJournal" |
-  "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.selectExecutable" | "steam.prepareExecutable" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
+  "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStart" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.selectExecutable" | "steam.prepareExecutable" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStart" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "servers.apiModeStatus" |
   "servers.apiModePreview" | "servers.apiModeApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
+  "historical.supplementalPreview" | "historical.supplementalRegister" | "historical.supplementalStart" |
   "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
   "historical.originalBatchPreview" | "historical.originalBatchRegister" |
   "historical.sourcePinPreview" | "historical.sourcePinApply" |
@@ -1839,9 +1847,9 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   rconPort?:number; password?:string; createIni?:boolean;
   beforeA?: string; beforeB?: string; afterA?: string; afterB?: string;
   sourceMap?: string;destinationMap?: string; profileId?: string;
-  hostId?:string;hostName?:string;mapIds?:string[];
+  hostId?:string;hostName?:string;mapIds?:string[];affectedMaps?:string[];
   clusterId?:string;transferDirectory?:string;transferRoot?:string;
-  backupDirectory?:string; fullLocal?:boolean; keepLatest?:number; protect?:boolean };
+  backupDirectory?:string; fullLocal?:boolean; keepLatest?:number; protect?:boolean; stoppedUseApi?:boolean };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -2071,6 +2079,8 @@ export const managerBridge = {
   steamSelectExecutable: () => request<{cancelled:boolean;configured:boolean;updateStarted:false;serverStopped:false}>("steam.selectExecutable"),
   steamPublishedBuild: (mapId:string) =>
     request<SteamPublishedBuild>("steam.publishedBuild",{mapId}),
+  steamStoppedStart: (mapId:string,affectedMaps:string[]) =>
+    request<StoppedSteamStarted>("steam.stoppedStart",{mapId,affectedMaps}),
   steamStoppedApply: (token:string) =>
     request<StoppedSteamStarted>("steam.stoppedApply",{token,confirm:true}),
   steamStoppedStatus: (jobId:string) =>
@@ -2079,6 +2089,8 @@ export const managerBridge = {
     request<StoppedSteamBatchCurrent>("steam.batchCurrent"),
   steamBatchPreview: (mapIds:string[],useSharedPayloadCache=false) =>
     request<StoppedSteamBatchPreview>("steam.batchPreview",{mapIds,useSharedPayloadCache}),
+  steamBatchStart: (mapIds:string[],useSharedPayloadCache=false) =>
+    request<{jobId:string;started:true;serverStopRequested:false;remoteHostTouched:false;storeWriterTouched:false;automaticRetry:false;evidence:string}>("steam.batchStart",{mapIds,useSharedPayloadCache}),
   steamBatchApply: (token:string,typedApproval:string) =>
     request<{jobId:string;started:true;serverStopRequested:false;
       remoteHostTouched:false;storeWriterTouched:false;
@@ -2456,6 +2468,9 @@ export const managerBridge = {
   historicalLiveGuard: (mapId:string) => request<HistoricalLiveGuard>("historical.liveGuard",{mapId}),
   historicalLocalParity: (archive:string) => request<HistoricalLocalStoreParity>("historical.localParity",{archive}),
   historicalOriginalList: () => request<OriginalKovaLocalMapList>("historical.originalList"),
+  historicalSupplementalPreview:(mapId:string,stoppedUseApi:boolean)=>request<SupplementalStorePreview>("historical.supplementalPreview",{mapId,stoppedUseApi}),
+  historicalSupplementalStart:(mapId:string,stoppedUseApi:boolean)=>request<{mapId:string;mapName:string;registered:true;alreadyRegistered:boolean;running?:boolean;processInventoryUnchanged?:boolean;processCommandIssued:false;scheduleChanged:false;modContentState?:string;unverifiedModProjects?:string[]}>("historical.supplementalStart",{mapId,stoppedUseApi}),
+  historicalSupplementalRegister:(token:string)=>request<{mapId:string;mapName:string;registered:true;running:boolean;processInventoryUnchanged:boolean;processCommandIssued:false;scheduleChanged:false}>("historical.supplementalRegister",{token,confirm:true}),
   historicalRuntimeSettingsStatus: (mapId:string) =>
     request<{mapId:string;mapName:string;gamePort:number;queryPort:number;
       clusterId:string;transferRoot:string;originalSourcePinned:true;

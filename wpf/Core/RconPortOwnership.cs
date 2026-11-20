@@ -10,6 +10,39 @@ internal static class RconPortOwnership
     private static extern uint GetExtendedTcpTable(IntPtr table,ref int size,
         [MarshalAs(UnmanagedType.Bool)]bool sorted,uint family,int tableClass,uint reserved);
 
+    [DllImport("iphlpapi.dll",SetLastError=true)]
+    private static extern uint GetExtendedUdpTable(IntPtr table,ref int size,
+        [MarshalAs(UnmanagedType.Bool)]bool sorted,uint family,int tableClass,uint reserved);
+
+    // ASA game/query sockets must belong to the exact live child PID.
+    // Never report a different listener as evidence for this map.
+    internal static bool OwnsUdpPort(int port,int pid)
+    {
+        if(!OperatingSystem.IsWindows()||port is <1 or >65535||pid<=0)return false;
+        int size=0;
+        uint code=GetExtendedUdpTable(IntPtr.Zero,ref size,false,2,1,0);
+        if(code!=122||size is <4 or >16_777_216)return false;
+        IntPtr p=Marshal.AllocHGlobal(size);
+        try
+        {
+            if(GetExtendedUdpTable(p,ref size,false,2,1,0)!=0)return false;
+            byte[] bytes=new byte[size];Marshal.Copy(p,bytes,0,size);
+            int count=BitConverter.ToInt32(bytes,0);
+            if(count<0||count>(size-4)/12)return false;
+            bool matched=false;
+            for(int i=0;i<count;i++)
+            {
+                int offset=4+i*12;
+                int candidate=(bytes[offset+4]<<8)|bytes[offset+5];
+                if(candidate!=port)continue;
+                if(BitConverter.ToInt32(bytes,offset+8)!=pid)return false;
+                matched=true;
+            }
+            return matched;
+        }
+        finally{Marshal.FreeHGlobal(p);}
+    }
+
     // IPv4 loopback is intentional: no DNS and no remote peer endpoint can
     // enter the isolated mutating queue. Kernel PID ownership supplements RCON auth.
     internal static bool IsOwnedListener(int port,int pid)

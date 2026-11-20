@@ -125,6 +125,7 @@ public static class LegacyStoreV1LocalReader
             throw new InvalidDataException("UM-LOCAL-STORE-LOCAL-MAP-COUNT");
         var ids=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var mapNames=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var memberRoots=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var evidence=new List<MapEvidence>();
         var additional=new List<MapEvidence>();
         foreach(var member in memberArray)
@@ -132,8 +133,10 @@ public static class LegacyStoreV1LocalReader
             string id=Text(member,"id"),name=Text(member,"map"),install=Text(member,"root");
             if(!Guid.TryParseExact(id,"D",out var memberId)||
                memberId==Guid.Empty||!ids.Add(id)||
-               !SafeMap(name)||!mapNames.Add(name)||
+               !SafeMap(name)||
+               (selection.Contains(id,StringComparer.OrdinalIgnoreCase)&&!mapNames.Add(name))||
                string.IsNullOrWhiteSpace(install)||
+               !memberRoots.Add(name+"|"+install.TrimEnd('\\','/'))||
                !records.TryGetProperty(id,out var record))
                 throw new InvalidDataException("UM-LOCAL-STORE-MAP-BINDING");
             bool active=Text(record,"phase")=="active";

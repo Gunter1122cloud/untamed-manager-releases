@@ -17,6 +17,11 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
 {
     private sealed record Preview(Guid Token,Guid MapId,string Root,string Build,
         string Steam,DateTimeOffset Created);
+
+    private sealed class InlineProgress<T>(Action<T> report):IProgress<T>
+    {
+        public void Report(T value)=>report(value);
+    }
     private sealed class Job
     {
         public Guid Id=Guid.NewGuid();
@@ -24,12 +29,14 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         public string State="queued",Stage="preflight";
         public string OldBuild="",NewBuild="";
         public bool ProtectedFilesIntact;
+        public string? ErrorCode;
         public DateTimeOffset Changed=DateTimeOffset.UtcNow;
     }
     private readonly ClusterService cluster;
     private readonly SemaphoreSlim mutex=new(1,1);
     private readonly object sync=new();
     private readonly Func<LocalMap,SteamUpdatePreview> planner;
+    private readonly bool isolatedExecution;
     private readonly Func<LocalMap,IProgress<SteamMaintenanceStage>,Task<SteamStoppedMapUpdater.Receipt>> runner;
     private readonly Func<LocalMap,CancellationToken,Task<AsaSteamBuildCheck>> publishedBuild;
     private readonly Func<string?> pickSteamCmd;
@@ -38,6 +45,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     private readonly System.Collections.Generic.Dictionary<Guid,Preview> pendingByMap=new();
     private readonly System.Collections.Generic.Dictionary<Guid,Job> jobsById=new();
     private Job? job;
+    private readonly System.Collections.Generic.HashSet<Guid> acceptedDirectRequests=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private const long Reserve=10L*1024*1024*1024;
 
@@ -49,6 +57,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         Func<CancellationToken,Task<string>>? prepareOfficialSteamCmd=null)
     {
         cluster=owner??throw new ArgumentNullException(nameof(owner));
+        isolatedExecution=execute!=null;
         pickSteamCmd=selectSteamCmd??PickSteamCmd;
         prepareSteamCmd=prepareOfficialSteamCmd??PrepareOfficialSteamCmdAsync;
         planner=plan??(map=>SteamUpdateDryRun.Plan(
@@ -153,7 +162,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         lock(sync)return new{
             jobId=item.Id,mapId=item.MapId,state=item.State,stage=item.Stage,
             changedUtc=item.Changed,oldBuild=item.OldBuild,newBuild=item.NewBuild,
-            protectedFilesIntact=item.ProtectedFilesIntact,
+            protectedFilesIntact=item.ProtectedFilesIntact,errorCode=item.ErrorCode,
             restartPerformed=false,storeTouched=false
         };
     }
@@ -174,7 +183,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
             id=requestId.ToString("D");
             string? method=field.GetString();
             if(method is not ("steam.stoppedDiagnostics" or "steam.stoppedPreview" or
-                "steam.stoppedApply" or "steam.stoppedStatus" or "steam.stoppedCurrent" or
+                "steam.stoppedApply" or "steam.stoppedStart" or "steam.stoppedStatus" or "steam.stoppedCurrent" or
                 "steam.publishedBuild" or "steam.selectExecutable" or "steam.prepareExecutable"))
                 return Fail(id,"UM-METHOD-DENIED");
             await mutex.WaitAsync();
@@ -250,6 +259,12 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     string steamExe=cluster.Config.SteamCmdExecutable;
                     string? steamCmdError=SteamCmdError(steamExe);
                     bool steamFound=steamCmdError==null;
+                    string? externalSteamError=null;
+                    if(!isolatedExecution)
+                    {
+                        try{SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();}
+                        catch(IOException e){externalSteamError=e.Message is "UM-STEAM-EXTERNAL-PROCESS-BUSY" or "UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED"?e.Message:"UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED";}
+                    }
                     long free=new DriveInfo(Path.GetPathRoot(root)!).AvailableFreeSpace;
                     bool stopped=processes.All(p=>p.confirmedStopped&&!p.running&&
                         p.pid==null&&p.loaderPid==null);
@@ -268,15 +283,16 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     bool safeInstallation=Stopped(owned);
                     return Ok(id,new{
                         mapId=owned.Id,mapName=owned.Name,installRoot=root,
+                        installedBuild=AsaSteamBuildCatalog.InstalledBuild(root),
                         processes,overlaps,steamCmdError,
                         asaBinaryRegistered=AsaReadyProbe.IsRegisteredServerBinary(owned),
-                        steamCmdFound=steamFound,steamCmdConfigured=
+                        externalSteamError,steamCmdFound=steamFound,steamCmdConfigured=
                             !string.IsNullOrWhiteSpace(steamExe),
-                        availableBytes=free,requiredBytes=Reserve,
+                        availableBytes=free,requiredBytes=Reserve+Reserve/4,
                         journalBlocked,historicalBlocked=historical,
                         safeInstallation,
                         canPreview=AsaReadyProbe.IsRegisteredServerBinary(owned)&&stopped&&!historical&&safeInstallation&&
-                            !journalBlocked&&steamFound&&free>=Reserve&&
+                            !journalBlocked&&steamFound&&externalSteamError==null&&free>=Reserve+Reserve/4&&
                             overlaps.Length==0,
                         noProcessAutoStop=true,remoteWrites=false,
                         evidence="REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"
@@ -315,7 +331,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         availableBuild=report.AvailableBuild,
                         state=report.State.ToString(),
                         checkedUtc=report.CheckedUtc,
-                        explanation=report.Explanation,
+                        explanation=report.Explanation,diagnosticCode=report.DiagnosticCode,
                         updateAvailable=report.State==AsaSteamBuildState.UpdateAvailable,
                         downloadStarted=false,serverStopped=false,
                         storeWriterTouched=false,remoteHostTouched=false,
@@ -380,7 +396,11 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                             return Fail(id,"UM-STEAM-UPDATE-IN-PROGRESS");
                     }
                 }
-                if(method=="steam.stoppedPreview")
+                bool direct=method=="steam.stoppedStart";
+                Preview? saved=null;
+                if(direct&&(acceptedDirectRequests.Contains(requestId)||acceptedDirectRequests.Count>=4096))
+                    return Fail(id,"UM-STEAM-DIRECT-REQUEST-CONSUMED");
+                if(method=="steam.stoppedPreview"||direct)
                 {
                     if(!GuidField(data,"mapId",out var mapId))
                         return Fail(id,"UM-STEAM-MAP");
@@ -400,6 +420,20 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         return Fail(id,"UM-STEAM-PREFLIGHT-FAILED");
                     var proposed=new Preview(Guid.NewGuid(),owned.Id,owned.InstallationPath,
                         plan.InstalledBuild,steam.ExecutablePath,DateTimeOffset.UtcNow);
+                    if(direct)
+                    {
+                        // A single explicit native request creates and consumes its own scoped preflight.
+                        // Shared installation scope must have been displayed by the read-only diagnostics.
+                        if(plan.Maps.Length>1&&(!data.TryGetProperty("affectedMaps",out var affected)||
+                           affected.ValueKind!=JsonValueKind.Array||
+                           !affected.EnumerateArray().All(x=>x.ValueKind==JsonValueKind.String)||
+                           !affected.EnumerateArray().Select(x=>x.GetString()).OrderBy(x=>x,StringComparer.Ordinal)
+                               .SequenceEqual(plan.Maps.OrderBy(x=>x,StringComparer.Ordinal))))
+                            return Fail(id,"UM-STEAM-SHARED-SCOPE-CHANGED");
+                        saved=proposed;
+                    }
+                    else
+                    {
                     pendingByMap[owned.Id]=proposed;
                     return Ok(id,new{
                         token=proposed.Token,mapName=owned.Name,mapId=owned.Id,
@@ -408,15 +442,21 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         availableBytes=plan.AvailableBytes,
                         evidence="REAL_LOCAL_STOPPED_STEAM_PREFLIGHT_NO_WRITE"
                     });
+                    }
                 }
+                else
+                {
                 if(!GuidField(data,"token",out var approval))
                     return Fail(id,"UM-STEAM-TOKEN-EXPIRED");
-                var saved=pendingByMap.Values.SingleOrDefault(p=>p.Token==approval);
+                saved=pendingByMap.Values.SingleOrDefault(p=>p.Token==approval);
                 if(saved==null||DateTimeOffset.UtcNow-saved.Created>TimeSpan.FromMinutes(5))
                     return Fail(id,"UM-STEAM-TOKEN-EXPIRED");
                 if(!data.TryGetProperty("confirm",out var confirm)||
                    confirm.ValueKind!=JsonValueKind.True)
                     return Fail(id,"UM-STEAM-CONFIRMATION-REQUIRED");
+                }
+                if(saved==null||DateTimeOffset.UtcNow-saved.Created>TimeSpan.FromMinutes(5))
+                    return Fail(id,"UM-STEAM-TOKEN-EXPIRED");
                 // One-shot approval is consumed for its own map only.
                 pendingByMap.Remove(saved.MapId);
                 if(HasBlockedJournal())
@@ -429,6 +469,22 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                        StringComparison.OrdinalIgnoreCase)||
                    AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath)!=saved.Build)
                     return Fail(id,"UM-STEAM-PREFLIGHT-CHANGED");
+                var fresh=planner(map);
+                if(!fresh.DryRunAllowed||fresh.InstalledBuild!=saved.Build||
+                   !string.Equals(Path.GetFullPath(fresh.InstallRoot),Path.GetFullPath(saved.Root),StringComparison.OrdinalIgnoreCase))
+                    return Fail(id,"UM-STEAM-PREFLIGHT-CHANGED");
+                if(direct&&fresh.Maps.Length>1&&(!data.TryGetProperty("affectedMaps",out var freshScope)||
+                   freshScope.ValueKind!=JsonValueKind.Array||
+                   !freshScope.EnumerateArray().All(x=>x.ValueKind==JsonValueKind.String)||
+                   !freshScope.EnumerateArray().Select(x=>x.GetString()).OrderBy(x=>x,StringComparer.Ordinal)
+                       .SequenceEqual(fresh.Maps.OrderBy(x=>x,StringComparer.Ordinal))))
+                    return Fail(id,"UM-STEAM-SHARED-SCOPE-CHANGED");
+                if(!isolatedExecution)
+                {
+                    try{SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();}
+                    catch(IOException e){return Fail(id,e.Message is "UM-STEAM-EXTERNAL-PROCESS-BUSY" or "UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED"?e.Message:"UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED");}
+                }
+                if(direct)acceptedDirectRequests.Add(requestId);
                 var task=new Job{MapId=map.Id};
                 var events=new DiscordOperationEvents.NativeRun(cluster,task.Id,new[]{map.Id},"Update");
                 events.Emit("claimed","in-progress","NATIVE_STEAM_JOB_ACCEPTED");
@@ -448,7 +504,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                 {
                     Stage(task,"running","preflight");
                     events.Emit("started","in-progress","NATIVE_STEAM_EXECUTION_STARTED");
-                    var progress=new Progress<SteamMaintenanceStage>(value=>{
+                    var progress=new InlineProgress<SteamMaintenanceStage>(value=>{
                         Stage(task,"running",value.ToString());
                         events.Emit("steam-"+value.ToString(),"in-progress","NATIVE_STAGE_OBSERVED");
                     });
@@ -460,9 +516,13 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         Stage(task,"completed","verified",verified);
                         events.Emit("terminal","verified-local","STEAM_BUILD_AND_PROTECTED_FILES_VERIFIED");
                     }
-                    catch(Exception)
+                    catch(Exception ex)
                     {
-                        Stage(task,"needsOperator","update failed, inspect Core journal");
+                        lock(sync)
+                        {
+                            task.ErrorCode=ex.Message is "UM-STEAM-EXTERNAL-PROCESS-BUSY" or "UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED" or "UM-STEAM-INSTALLED-BUILD-INVALID" or "UM-STEAM-INSTALLED-BUILD-CHANGED"?ex.Message:"UM-STEAM-UPDATE-FAILED";
+                            Stage(task,"needsOperator",task.Stage);
+                        }
                         events.Emit("terminal","uncertain","STEAM_UPDATE_FAILED_NATIVE_JOURNAL_REVIEW");
                     }
                 });

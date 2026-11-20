@@ -17,7 +17,10 @@ public enum AsaSteamBuildState
 }
 public sealed record AsaSteamBuildCheck(string InstallationRoot,string Branch,
     string? InstalledBuild,string? AvailableBuild,AsaSteamBuildState State,
-    DateTimeOffset CheckedUtc,string Explanation);
+    DateTimeOffset CheckedUtc,string Explanation)
+{
+    public string? DiagnosticCode {get;init;}
+}
 
 /// <summary>
 /// ASA map names are launch LEVELS, not ten independent Steam applications.
@@ -218,21 +221,32 @@ public static class AsaSteamBuildCatalog
         string branch="public",TimeSpan? timeout=null,CancellationToken ct=default)
     {
         ct.ThrowIfCancellationRequested();
+        using var hostLease=SteamHostLease.Acquire();
+        return await CheckUnderHostLeaseAsync(exe,install,branch,timeout,ct);
+    }
+    internal static async Task<AsaSteamBuildCheck> CheckUnderHostLeaseAsync(string exe,string install,
+        string branch="public",TimeSpan? timeout=null,CancellationToken ct=default)
+    {
+        ct.ThrowIfCancellationRequested();
+        SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();
         SteamCmdPreflight.Inspect(exe);
         string? local=InstalledBuild(install);
         if(branch!="public")
             throw new NotSupportedException("Private Steam branches require explicit branch credentials");
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(timeout??TimeSpan.FromMinutes(3));
-        var psi=new ProcessStartInfo(exe)
+        var psi=new ProcessStartInfo(Path.GetFullPath(exe))
         {
-            WorkingDirectory=Path.GetDirectoryName(exe)!,
+            WorkingDirectory=Path.GetDirectoryName(Path.GetFullPath(exe))!,
             UseShellExecute=false,CreateNoWindow=true,
             RedirectStandardOutput=true,RedirectStandardError=true
         };
         foreach(var arg in new[]{"+login","anonymous","+app_info_update","1",
             "+app_info_print","2430930","+quit"})
             psi.ArgumentList.Add(arg);
+        AsaSteamBuildCheck Unknown(string code,string explanation)=>
+            Compare(install,branch,local,null,DateTimeOffset.UtcNow) with
+                {DiagnosticCode=code,Explanation=explanation};
         Process? process;
         try
         {
@@ -240,13 +254,11 @@ public static class AsaSteamBuildCatalog
         }
         catch(System.ComponentModel.Win32Exception)
         {
-            // A launch failure cannot prove a public build is available.
-            // Keep the observed local manifest, but classify remote as unknown.
             ct.ThrowIfCancellationRequested();
-            return Compare(install,branch,local,null,DateTimeOffset.UtcNow);
+            return Unknown("UM-STEAM-PUBLIC-LAUNCH","A SteamCMD nem indítható. Ellenőrizd a programot és a Windows jogosultságokat.");
         }
         if(process==null)
-            return Compare(install,branch,local,null,DateTimeOffset.UtcNow);
+            return Unknown("UM-STEAM-PUBLIC-LAUNCH","A SteamCMD folyamat nem indult el.");
         using(process)
         {
             try
@@ -255,21 +267,23 @@ public static class AsaSteamBuildCatalog
                 var stderr=process.StandardError.ReadToEndAsync(deadline.Token);
                 await process.WaitForExitAsync(deadline.Token);
                 var output=await stdout;
-                _=await stderr;
-                // Bounded but malformed/truncated output is never treated as a build.
-                if(output.Length>2_000_000)
-                    return Compare(install,branch,local,null,DateTimeOffset.UtcNow);
-                string? remote=process.ExitCode==0?ParseSteamAppInfo(output,branch):null;
-                return Compare(install,branch,local,remote,DateTimeOffset.UtcNow);
+                var errors=await stderr;
+                if(output.Length>2_000_000||errors.Length>2_000_000)
+                    return Unknown("UM-STEAM-PUBLIC-OUTPUT-LIMIT","A SteamCMD válasza túl nagy; ismételd meg a verzióellenőrzést.");
+                var remote=process.ExitCode==0?ParseSteamAppInfo(output,branch):null;
+                if(remote!=null)return Compare(install,branch,local,remote,DateTimeOffset.UtcNow);
+                // Only fixed diagnostic codes and messages leave the process boundary.
+                var diagnostic=DiagnoseAppInfo(output,errors,process.ExitCode);
+                return Unknown(diagnostic.Code,diagnostic.Explanation);
             }
             catch(Exception ex) when(!ct.IsCancellationRequested&&
                 ex is OperationCanceledException or IOException or InvalidDataException)
             {
-                // SteamCMD timeout, redirected pipe or malformed output:
-                // unknown is not up-to-date, and not update-available.
                 if(!process.HasExited)
                     try{process.Kill(entireProcessTree:true);}catch{}
-                return Compare(install,branch,local,null,DateTimeOffset.UtcNow);
+                return ex is OperationCanceledException?
+                    Unknown("UM-STEAM-PUBLIC-TIMEOUT","A SteamCMD verziólekérdezés időtúllépés miatt megszakadt. Ellenőrizd a kapcsolatot és próbáld újra."):
+                    Unknown("UM-STEAM-PUBLIC-OUTPUT","A SteamCMD válasza nem olvasható. Ellenőrizd az eszközt és próbáld újra.");
             }
             catch
             {
@@ -278,5 +292,26 @@ public static class AsaSteamBuildCatalog
                 throw;
             }
         }
+    }
+
+    internal static (string Code,string Explanation) DiagnoseAppInfo(string stdout,string stderr,int exitCode)
+    {
+        string all=stdout+"\n"+stderr;
+        bool Has(params string[] patterns)=>patterns.Any(p=>all.Contains(p,StringComparison.OrdinalIgnoreCase));
+        if(Has("no connection","connection failed","failed to connect","network error","ssl error","tls error","certificate verify","connection timeout"))
+            return ("UM-STEAM-PUBLIC-NETWORK","A SteamCMD kapcsolat vagy TLS hibát jelzett. Ellenőrizd a hálózatot, DNS-t és az időbeállítást.");
+        if(Has("login failure","logon failure","failed to log on","failed to login","not logged on","invalid password","access denied"))
+            return ("UM-STEAM-PUBLIC-LOGIN","A Steam névtelen bejelentkezése nem sikerült. Ellenőrizd a SteamCMD kapcsolatát.");
+        if(Has("failed to update app info","failed to load appinfo","app info cache","appinfo.vdf is corrupt"))
+            return ("UM-STEAM-PUBLIC-CACHE","A Steam appinfo gyorsítótár frissítése hibát jelzett. Ellenőrizd a SteamCMD saját mappáját.");
+        if(exitCode!=0)
+            return ("UM-STEAM-PUBLIC-EXIT","A SteamCMD hibakóddal zárult. Ellenőrizd a helyi SteamCMD naplót.");
+        if(!stdout.Contains("\"2430930\"",StringComparison.Ordinal))
+            return ("UM-STEAM-PUBLIC-APPINFO-MISSING","A SteamCMD válaszában nincs ASA appinfo rekord. Próbáld újra a lekérdezést.");
+        if(!stdout.Contains("\"public\"",StringComparison.OrdinalIgnoreCase)||
+           !stdout.Contains("\"buildid\"",StringComparison.OrdinalIgnoreCase))
+            return ("UM-STEAM-PUBLIC-BUILD-MISSING","A publikus ág buildazonosítója hiányzik. Ez nem bizonyít frissítési igényt.");
+        return ("UM-STEAM-PUBLIC-VDF","A SteamCMD appinfo VDF válasza hiányos, kétértelmű vagy nem feldolgozható.");
+
     }
 }

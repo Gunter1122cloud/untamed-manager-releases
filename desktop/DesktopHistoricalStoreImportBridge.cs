@@ -37,6 +37,12 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         string Root,string ServerExe,int GamePort,int QueryPort,
         string[] Enabled,string[] Passive,DateTimeOffset ExpiresUtc);
     private readonly Dictionary<Guid,OriginalPrepared> pendingOriginal=new();
+    private sealed record SupplementalPlan(LocalMap Map,string Source,string FourSha,
+        string LaunchSha,string Fingerprint,long RegistryRevision,bool Running,string ClusterId,
+        string TransferRoot,string InventoryHash,SupplementalMapContentProbe.Evidence Content);
+    private sealed record SupplementalApproval(Guid Token,Guid MapId,bool StoppedUseApi,
+        string Fingerprint,DateTimeOffset ExpiresUtc);
+    private readonly Dictionary<Guid,SupplementalApproval> supplementalApprovals=new();
     private sealed record OriginalBatchPrepared(Guid Token,string FourFilesHash,
         string LaunchProfileHash,Guid[] MapIds,DateTimeOffset ExpiresUtc);
     private OriginalBatchPrepared? pendingOriginalBatch;
@@ -98,6 +104,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             if(method is not ("historical.localStatus" or "historical.localParity" or "historical.list" or "historical.preview" or
                 "historical.register" or "historical.pairedEvidence" or
                 "historical.launchEvidence" or "historical.liveGuard" or
+                "historical.supplementalPreview" or "historical.supplementalRegister" or "historical.supplementalStart" or
                 "historical.originalList" or "historical.originalPreview" or
                 "historical.originalRegister" or "historical.originalBatchPreview" or
                 "historical.originalBatchRegister" or
@@ -696,6 +703,130 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     });
                 }
 
+                if(method=="historical.supplementalPreview")
+                {
+                    if(!GuidField(data,"mapId",out var extraId)||
+                       !BoolField(data,"stoppedUseApi",out var stoppedApi))
+                        return Fail(id,"UM-STORE-EXTRA-REQUEST");
+                    // Repeat clicks never allocate another GUID or duplicate a
+                    // successfully imported profile. No operation on existing maps.
+                    var existing=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==extraId);
+                    if(existing!=null)
+                    {
+                        if(!existing.HistoricalSupplementalSource||
+                           !LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,existing))
+                            return Fail(id,"UM-STORE-EXTRA-GUID-OR-NAME-CONFLICT");
+                        return Ok(id,new{alreadyRegistered=true,mapId=extraId,mapName=existing.Name});
+                    }
+                    var plan=await Task.Run(()=>PrepareSupplemental(extraId,stoppedApi));
+                    foreach(var stale in supplementalApprovals.Where(x=>x.Value.ExpiresUtc<=DateTimeOffset.UtcNow)
+                        .Select(x=>x.Key).ToArray())supplementalApprovals.Remove(stale);
+                    if(supplementalApprovals.Count>=32&&!supplementalApprovals.ContainsKey(extraId))
+                        return Fail(id,"UM-STORE-EXTRA-PREVIEW-CAPACITY");
+                    var token=Guid.NewGuid();
+                    supplementalApprovals[extraId]=new(token,extraId,stoppedApi,plan.Fingerprint,
+                        DateTimeOffset.UtcNow.AddMinutes(3));
+                    return Ok(id,new{token,mapId=extraId,mapName=plan.Map.Name,mapKey=plan.Map.HistoricalMapKey,
+                        gamePort=plan.Map.GamePort,queryPort=plan.Map.QueryPort,rconPort=plan.Map.RconPort,
+                        mods=plan.Map.HistoricalEnabledMods,passiveMods=plan.Map.HistoricalPassiveMods,
+                        running=plan.Running,useApi=plan.Map.StartWithAsaApi,clusterId=plan.ClusterId,
+                        alreadyRegistered=false,addsClusterMembership=true,changesOriginalFive=false,
+                        modContentInstallationVerified=false,modContentState=plan.Content.State,
+                        presentModProjects=plan.Content.PresentProjects,unverifiedModProjects=plan.Content.UnverifiedProjects,
+                        levelManifestProjects=plan.Content.LevelManifestProjects,serverProcessTouched=false});
+                }
+                if(method is "historical.supplementalRegister" or "historical.supplementalStart")
+                {
+                    SupplementalApproval approval;
+                    if(method=="historical.supplementalStart")
+                    {
+                        if(!GuidField(data,"mapId",out var requestedExtra)||!BoolField(data,"stoppedUseApi",out var requestedApi))
+                            return Fail(id,"UM-STORE-EXTRA-REQUEST");
+                        var existing=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==requestedExtra);
+                        if(existing!=null)
+                        {
+                            if(!existing.HistoricalSupplementalSource||
+                               !LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,existing)||
+                               !cluster.Registry.Snapshot().ClusterRegistry.MapAssignments.Any(x=>x.MapId==requestedExtra))
+                                return Fail(id,"UM-STORE-EXTRA-GUID-OR-NAME-CONFLICT");
+                            return Ok(id,new{alreadyRegistered=true,mapId=existing.Id,mapName=existing.Name,
+                                registered=true,processCommandIssued=false,scheduleChanged=false});
+                        }
+                        var initial=await Task.Run(()=>PrepareSupplemental(requestedExtra,requestedApi));
+                        approval=new(Guid.NewGuid(),requestedExtra,requestedApi,initial.Fingerprint,DateTimeOffset.UtcNow.AddMinutes(3));
+                        supplementalApprovals.Remove(requestedExtra);
+                    }
+                    else
+                    {
+                        if(!GuidField(data,"token",out var extraToken)||
+                           !BoolField(data,"confirm",out var yes)||!yes)
+                            return Fail(id,"UM-STORE-EXTRA-APPROVAL");
+                        var stored=supplementalApprovals.Values.SingleOrDefault(x=>x.Token==extraToken);
+                        if(stored==null)return Fail(id,"UM-STORE-EXTRA-PREVIEW-EXPIRED");
+                        supplementalApprovals.Remove(stored.MapId);
+                        approval=stored;
+                    }
+                    if(approval.ExpiresUtc<=DateTimeOffset.UtcNow)
+                        return Fail(id,"UM-STORE-EXTRA-PREVIEW-EXPIRED");
+                    var result=await Task.Run(()=>{
+                        var before=PrepareSupplemental(approval.MapId,approval.StoppedUseApi);
+                        if(before.Fingerprint!=approval.Fingerprint)
+                            throw new InvalidDataException("UM-STORE-EXTRA-SOURCE-OR-PROCESS-CHANGED");
+                        // This operation writes only the Manager profile; no
+                        // live installation mutation journal is needed. A
+                        // crash releases the process-scoped semaphore, and
+                        // retry reuses the immutable pin or committed GUID.
+                        using var registrationGate=new Mutex(false,
+                            @"Global\Untamed-SupplementalImport-"+UntamedOperationCoordinator.ResourceKey(before.Map.InstallationPath));
+                        bool acquired;
+                        try{acquired=registrationGate.WaitOne(0);}
+                        catch(AbandonedMutexException){acquired=true;}
+                        if(!acquired)throw new IOException("UM-STORE-EXTRA-REGISTRATION-BUSY");
+                        try
+                        {
+                        // Serialize with every ConfigStore.Save, including another
+                        // Manager process. The synchronous worker owns both mutexes.
+                        string configKey=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+                            Path.GetFullPath(cluster.Store.FilePath).ToUpperInvariant())));
+                        using var configGate=new Mutex(false,@"Global\Untamed-Config-"+configKey);
+                        bool configAcquired;
+                        try{configAcquired=configGate.WaitOne(0);}catch(AbandonedMutexException){configAcquired=true;}
+                        if(!configAcquired)throw new IOException("UM-STORE-EXTRA-REGISTRATION-BUSY");
+                        try
+                        {
+                        var current=PrepareSupplemental(approval.MapId,approval.StoppedUseApi);
+                        if(current.Fingerprint!=approval.Fingerprint)
+                            throw new InvalidDataException("UM-STORE-EXTRA-SOURCE-OR-PROCESS-CHANGED");
+                        // Publish an immutable per-map pin first. A crash here
+                        // leaves no profile or membership, and the exact next
+                        // import may reuse the same verified pin.
+                        bool orphanPinReconciled=LegacyStoreV1PinnedSource.ReconcileUnregisteredSupplemental(current.Source,cluster,
+                            current.Map.Id,current.FourSha,current.LaunchSha);
+                        var final=PrepareSupplemental(approval.MapId,approval.StoppedUseApi);
+                        if(final.Fingerprint!=approval.Fingerprint)
+                            throw new InvalidDataException("UM-STORE-EXTRA-SOURCE-OR-PROCESS-CHANGED");
+                        final.Map.HistoricalSupplementalImportedUtc=DateTimeOffset.UtcNow;
+                        // Single atomic config publication: no half-member
+                        // or half-profile after an interrupted write.
+                        cluster.RegisterSupplementalHistoricalMap(final.Map,final.ClusterId,
+                            final.TransferRoot,final.RegistryRevision);
+                        bool unchanged=false;
+                        try{unchanged=SupplementalInventoryHash(LocalRunningAsaDiscovery.ReadSamples())==final.InventoryHash;}
+                        catch(Exception){/* registration remains committed, report unknown */ }
+                        return new{mapId=final.Map.Id,mapName=final.Map.Name,registered=true,
+                            alreadyRegistered=false,running=final.Running,originalGuidPreserved=true,
+                            modContentState=final.Content.State,presentModProjects=final.Content.PresentProjects,
+                            unverifiedModProjects=final.Content.UnverifiedProjects,levelManifestProjects=final.Content.LevelManifestProjects,
+                            processInventoryUnchanged=unchanged,processCommandIssued=false,
+                            originalStoreTouched=false,scheduleChanged=false,orphanPinReconciled,
+                            requiresLocalAcceptance=!unchanged};
+                        }
+                        finally{configGate.ReleaseMutex();}
+                        }
+                        finally{registrationGate.ReleaseMutex();}
+                    });
+                    return Ok(id,result);
+                }
                 if(method=="historical.originalList")
                 {
                     var local=LegacyStoreV1OriginalImport.Inspect(PreferredSource());
@@ -1177,6 +1308,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             // A sanitized, operation-specific failure must replace the old
             // generic error. Never disclose exception text, file paths,
             // encrypted secrets or Store session bytes to the renderer.
+            if(requestedMethod is "historical.supplementalPreview" or "historical.supplementalRegister" or "historical.supplementalStart")
+                return Fail(id,"UM-STORE-EXTRA-PREFLIGHT-FAILED");
             return Fail(id,requestedMethod switch{
                 "historical.originalLiveBatchPreview"=>
                     "UM-ORIGINAL-LIVE-PREVIEW-UNEXPECTED-VERIFICATION",
@@ -1350,6 +1483,195 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         return new(id,path,after.OriginalFourFilesTag,members);
     }
 
+    private static string SupplementalHash(string material)=>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material)));
+
+    private static string SupplementalInventoryHash(IReadOnlyList<LocalRunningAsaDiscovery.Sample> samples)
+    {
+        if(samples.Any(x=>x.Pid<=0||x.StartedUtc is not {Year:>=2020}||
+            string.IsNullOrWhiteSpace(x.ExecutablePath))||
+           samples.Select(x=>x.Pid).Distinct().Count()!=samples.Count)
+            throw new InvalidDataException("UM-STORE-EXTRA-PROCESS-INVENTORY-UNVERIFIED");
+        return SupplementalHash(JsonSerializer.Serialize(samples.OrderBy(x=>x.Pid)
+            .Select(x=>new{x.Pid,x.ParentPid,x.StartedUtc,x.ExecutablePath,x.Name})));
+    }
+
+    private SupplementalPlan PrepareSupplemental(Guid id,bool stoppedUseApi)
+    {
+        if(cluster.Config.LocalMaps.Any(x=>x.Id==id))
+            throw new InvalidDataException("UM-STORE-EXTRA-GUID-OR-NAME-CONFLICT");
+        // The current local roster can expand independently of the old pin.
+        // If the original controller is removed, a committed per-map pin
+        // handles runtime; an unimported map needs its actual source.
+        string sourcePath=Directory.Exists(localLegacyDataDirectory)?
+            localLegacyDataDirectory:PreferredSource();
+        var source=LegacyStoreV1OriginalImport.Inspect(sourcePath);
+        var supplemental=LegacyStoreV1PinnedSource.RequireSupplemental(source,id);
+        var original=LegacyStoreV1OriginalImport.Inspect(PreferredSource());
+        if(!original.Maps.All(m=>source.Maps.Any(x=>x.MapId==m.MapId&&
+            x.MapKey==m.MapKey&&string.Equals(Path.GetFullPath(x.OriginalInstallationRoot),
+                Path.GetFullPath(m.OriginalInstallationRoot),StringComparison.OrdinalIgnoreCase))))
+            throw new InvalidDataException("UM-STORE-EXTRA-ORIGINAL-ROSTER-MISMATCH");
+        var oldReport=LegacyStoreV1LocalReader.Inspect(PreferredSource());
+        var currentReport=LegacyStoreV1LocalReader.Inspect(sourcePath);
+        if(oldReport.SessionTag!=currentReport.SessionTag||
+           oldReport.DeviceTag!=currentReport.DeviceTag||
+           oldReport.SharedPathTag!=currentReport.SharedPathTag)
+            throw new InvalidDataException("UM-STORE-EXTRA-SESSION-MISMATCH");
+        var originalCluster=LegacyStoreV1PinnedSource.ReadOriginalCluster(sourcePath);
+        var registry=cluster.Registry.Snapshot();
+        if(registry.HostRegistry.Maps.Any(x=>x.MapId==id)||
+           registry.ClusterRegistry.MapAssignments.Any(x=>x.MapId==id))
+            throw new InvalidDataException("UM-STORE-EXTRA-GUID-OR-NAME-CONFLICT");
+        var registered=registry.ClusterRegistry.Clusters.SingleOrDefault(x=>
+            x.ClusterId.Equals(originalCluster.RuntimeClusterId,StringComparison.OrdinalIgnoreCase));
+        if(registered==null||!string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(registered.TransferDirectory)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(originalCluster.TransferRoot)),
+            StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("UM-STORE-EXTRA-CLUSTER-MISMATCH");
+        // Verify existing shared original session through a real historical
+        // anchor, never promote the supplemental GUID to the selected five.
+        var anchor=source.Maps.FirstOrDefault(x=>cluster.Config.LocalMaps.Any(m=>
+            m.Id==x.MapId&&m.HistoricalStoreProtected&&!m.HistoricalSupplementalSource))
+            ??throw new InvalidDataException("UM-STORE-EXTRA-ORIGINAL-ANCHOR-MISSING");
+        var anchorMap=cluster.Config.LocalMaps.Single(m=>m.Id==anchor.MapId);
+        var shared=LegacyStoreV1LiveReadGate.InspectOriginalActive(anchorMap,sourcePath,supplementalMapId:id);
+        if(!shared.CompletedOriginalSourceGuard||!shared.SharedSessionMatches||
+           !shared.NoMutationMarker||!shared.NoPendingConversion||!shared.BothPeersDone||
+           !shared.LocalMapBindingMatches||!shared.HistoricalFilesUnchanged)
+            throw new InvalidDataException("UM-STORE-EXTRA-SHARED-SESSION-UNVERIFIED");
+        string transferId=StorePathIdentity.LocalDirectoryFingerprint(originalCluster.TransferRoot);
+        string root=DesktopLocalMapRegistryBridge.ValidateFixedLocalRoot(supplemental.OriginalInstallationRoot);
+        string Normalize(string path)=>Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        bool Overlap(string a,string b)
+        {
+            a=Normalize(a);b=Normalize(b);
+            return a.Equals(b,StringComparison.OrdinalIgnoreCase)||
+                a.StartsWith(b+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)||
+                b.StartsWith(a+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase);
+        }
+        if(cluster.Config.LocalMaps.Any(m=>!string.IsNullOrWhiteSpace(m.InstallationPath)&&
+            Overlap(root,m.InstallationPath))||
+           source.Maps.Any(m=>Overlap(root,m.OriginalInstallationRoot))||
+           source.AdditionalMaps.Any(m=>m.MapId!=id&&Overlap(root,m.OriginalInstallationRoot))||
+           Overlap(root,cluster.Store.Root))
+            throw new InvalidDataException("UM-STORE-EXTRA-ROOT-CONFLICT");
+        var installation=LocalAsaInstallLocator.Probe(root);
+        if(!installation.HasServerExecutable||string.IsNullOrWhiteSpace(installation.ServerExecutable))
+            throw new InvalidDataException("UM-STORE-EXTRA-ASA-EXE-MISSING");
+        string name=MapName(supplemental.MapKey);
+        if(cluster.Config.LocalMaps.Any(m=>m.Name.Equals(name,StringComparison.OrdinalIgnoreCase)))
+            name=LocalMapNameRules.Normalize(name+" "+id.ToString("N")[..8]);
+        if(cluster.Config.LocalMaps.Any(m=>m.Name.Equals(name,StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidDataException("UM-STORE-EXTRA-GUID-OR-NAME-CONFLICT");
+        var map=new LocalMap{
+            Id=id,Name=name,InstallationPath=root,ExecutablePath=installation.ServerExecutable,
+            GamePort=supplemental.GamePort!.Value,QueryPort=supplemental.QueryPort!.Value,
+            HistoricalStoreProtected=true,HistoricalSupplementalSource=true,
+            HistoricalArchiveSha256=source.FourFilesSha256,HistoricalMapKey=supplemental.MapKey,
+            HistoricalEnabledMods=supplemental.EnabledMods!.ToList(),
+            HistoricalPassiveMods=supplemental.PassiveMods!.ToList(),
+            HistoricalRuntimeClusterId=originalCluster.RuntimeClusterId,
+            HistoricalRuntimeTransferDirectory=originalCluster.TransferRoot,
+            AutoStart=false,MonitorRcon=false,Arguments="",ApiLoaderArguments=""
+        };
+        var iniPath=AsaInitialRconSettings.NewIniPath(root);
+        using var held=new VaultReadSnapshot();
+        var ini=held.Read(iniPath,131072);
+        var rcon=DesktopHistoricalRconAttachBridge.ReadExistingOriginalRcon(map);
+        map.RconPort=rcon.Port;map.RconHost="127.0.0.1";
+        map.RconPasswordProtected=SecureStore.Protect(rcon.Password);
+        if(!AsaRconConfigurationEvidence.Matches(map))
+            throw new InvalidDataException("UM-STORE-EXTRA-RCON-INI-MISMATCH");
+        if(LocalMapPortPolicy.Conflicts(map,cluster.Config.LocalMaps).Count>0)
+            throw new InvalidDataException("UM-STORE-EXTRA-PORT-CONFLICT");
+        var operation=cluster.Operations.Observe(root);
+        if(operation!=null&&operation.Phase is not
+            (UntamedOperationPhase.Completed or UntamedOperationPhase.CancelledBeforeMutation or
+             UntamedOperationPhase.OperatorReviewed))
+            throw new InvalidDataException("UM-STORE-EXTRA-INSTALLATION-OPERATION-PENDING");
+        var launch=LegacyStoreV1ActiveLaunch.Build(new(map.HistoricalMapKey,map.GamePort,
+            map.QueryPort,map.HistoricalEnabledMods,map.HistoricalPassiveMods,
+            originalCluster.RuntimeClusterId,originalCluster.TransferRoot,"active",
+            LegacyStoreV1ActiveLaunch.DecodeOriginalIni(ini),SourcePinnedClusterOnly:false));
+        string loader=Path.Combine(Path.GetDirectoryName(map.ExecutablePath)!,"AsaApiLoader.exe");
+        var samples=LocalRunningAsaDiscovery.ReadSamples();
+        string inventory=SupplementalInventoryHash(samples);
+        var children=samples.Where(x=>string.Equals(x.ExecutablePath,map.ExecutablePath,StringComparison.OrdinalIgnoreCase)).ToArray();
+        var parents=samples.Where(x=>string.Equals(x.ExecutablePath,loader,StringComparison.OrdinalIgnoreCase)).ToArray();
+        bool running=children.Length>0||parents.Length>0;
+        if(running)
+        {
+            if(children.Length!=1||parents.Length>1)
+                throw new InvalidDataException("UM-STORE-EXTRA-PID-AMBIGUOUS");
+            var child=children[0];
+            map.StartWithAsaApi=parents.Length==1;
+            if(map.StartWithAsaApi)
+            {
+                var parent=parents[0];
+                bool exactParent=LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
+                    parent.CommandLine,loader,map);
+                bool exactChild=LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
+                    child.CommandLine,map.ExecutablePath,map)||
+                    LegacyStoreV1ProcessObserver.MatchesOriginalApiLoaderChild(
+                        child.CommandLine,map.ExecutablePath,child.Pid,child.ParentPid,
+                        child.StartedUtc!.Value,parent.CommandLine,loader,parent.Pid,parent.StartedUtc!.Value,map);
+                if(!exactParent||!exactChild||child.ParentPid!=parent.Pid||
+                   parent.StartedUtc>child.StartedUtc)
+                    throw new InvalidDataException("UM-STORE-EXTRA-LOADER-PID-OR-LAUNCH-MISMATCH");
+                map.ApiLoaderPath=loader;
+            }
+            else if(!LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
+                child.CommandLine,map.ExecutablePath,map))
+                throw new InvalidDataException("UM-STORE-EXTRA-PID-OR-LAUNCH-MISMATCH");
+            var observed=LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps);
+            if(!observed.Running||observed.Identity?.Pid!=child.Pid||
+               observed.Identity.StartedUtc!=child.StartedUtc||
+               observed.LiveModOrder==null||observed.LivePassiveModOrder==null||
+               !observed.LiveModOrder.SequenceEqual(map.HistoricalEnabledMods)||
+               !observed.LivePassiveModOrder.SequenceEqual(map.HistoricalPassiveMods)||
+               (parents.Length==1&&(observed.LoaderIdentity?.Pid!=parents[0].Pid||
+                   observed.LoaderIdentity.StartedUtc!=parents[0].StartedUtc)))
+                throw new InvalidDataException("UM-STORE-EXTRA-PID-OR-LAUNCH-MISMATCH");
+            if(!RconPortOwnership.IsOwnedListener(map.RconPort,child.Pid)||
+               !RconPortOwnership.OwnsUdpPort(map.GamePort,child.Pid)||
+               !RconPortOwnership.OwnsUdpPort(map.QueryPort,child.Pid))
+                throw new InvalidDataException("UM-STORE-EXTRA-PORT-OWNER-MISMATCH");
+            map.LastProcess=observed.Identity;map.LastLoader=observed.LoaderIdentity;
+        }
+        else
+        {
+            var stopped=LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(map,cluster.Config.LocalMaps);
+            if(!stopped.ConfirmedStopped||stopped.Running||stopped.Identity!=null||stopped.LoaderIdentity!=null)
+                throw new InvalidDataException("UM-STORE-EXTRA-STOPPED-UNVERIFIED");
+            if(!AsaLocalPortPreflight.CanStart(map))
+                throw new InvalidDataException("UM-STORE-EXTRA-PORT-BUSY");
+            map.StartWithAsaApi=stoppedUseApi;
+            if(stoppedUseApi)map.ApiLoaderPath=loader;
+        }
+        if(map.StartWithAsaApi)
+        {
+            var copy=JsonSerializer.Deserialize<LocalMap>(JsonSerializer.Serialize(map))!;
+            copy.Arguments=string.Join(" ",launch.Arguments);copy.ApiLoaderArguments=copy.Arguments;
+            try{_=AsaApiLaunchPolicy.Resolve(copy);}
+            catch(Exception){throw new InvalidDataException("UM-STORE-EXTRA-API-INSTALLATION-UNVERIFIED");}
+        }
+        var content=SupplementalMapContentProbe.Inspect(root,map.HistoricalMapKey,map.HistoricalEnabledMods);
+        var after=LegacyStoreV1OriginalImport.Inspect(sourcePath);
+        if(after.FourFilesSha256!=source.FourFilesSha256||after.LaunchProfileSha256!=source.LaunchProfileSha256||
+           SupplementalInventoryHash(LocalRunningAsaDiscovery.ReadSamples())!=inventory)
+            throw new IOException("UM-STORE-EXTRA-SOURCE-OR-PROCESS-CHANGED");
+        string fingerprint=SupplementalHash(JsonSerializer.Serialize(new{
+            id,source.FourFilesSha256,source.LaunchProfileSha256,registry.Revision,
+            root,transferId,shared.SourceStateSha256,inventory,iniSha=Convert.ToHexString(SHA256.HashData(ini)),
+            launch=launch.Arguments,map.Name,map.RconPort,map.StartWithAsaApi,contentFingerprint=content.Fingerprint,
+            commands=children.Concat(parents).OrderBy(p=>p.Pid).Select(p=>p.CommandLine)}));
+        return new(map,sourcePath,source.FourFilesSha256,source.LaunchProfileSha256,
+            fingerprint,registry.Revision,running,originalCluster.RuntimeClusterId,
+            originalCluster.TransferRoot,inventory,content);
+    }
+
     private static string MapName(string key)=>key switch
     {
         "TheIsland_WP"=>"The Island",
@@ -1362,6 +1684,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         "Ragnarok_WP"=>"Ragnarok",
         "Astraeos_WP"=>"Astraeos",
         "LostColony_WP"=>"Lost Colony",
+        "Asa_N_Chill_Hub"=>"Event",
         _=>LocalMapNameRules.Normalize(key)
     };
 

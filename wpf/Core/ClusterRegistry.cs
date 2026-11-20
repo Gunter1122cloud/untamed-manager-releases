@@ -831,6 +831,68 @@ public sealed partial class ClusterService
             };
     }
 
+    // One existing ConfigStore CAS publishes the supplemental profile and
+    // assignment together. No generic registry API may grant this rights.
+    internal void RegisterSupplementalHistoricalMap(LocalMap map,string clusterId,
+        string transferRoot,long expectedRevision)
+    {
+        if(!map.HistoricalSupplementalSource||!map.HistoricalStoreProtected||
+           map.Id==Guid.Empty||map.AutoStart||map.MonitorRcon||
+           !LegacyStoreV1PinnedSource.HasApprovedLocalSource(Store.Root,map))
+            throw new UnauthorizedAccessException("UM-STORE-EXTRA-PIN-REQUIRED");
+        lock(_registryGate)
+        {
+            if(Config.ClusterRegistry.Revision!=expectedRevision)
+                throw new InvalidOperationException("UM-STORE-EXTRA-REGISTRY-CHANGED");
+            if(Config.LocalMaps.Any(m=>m.Id==map.Id||
+                m.Name.Equals(map.Name,StringComparison.OrdinalIgnoreCase))||
+               Config.HostRegistry.Maps.Any(m=>m.MapId==map.Id)||
+               Config.ClusterRegistry.MapAssignments.Any(a=>a.MapId==map.Id))
+                throw new InvalidDataException("UM-STORE-EXTRA-GUID-OR-NAME-CONFLICT");
+            // Recheck the exact candidate against the latest local profiles
+            // under the same gate as the profile/assignment publication.
+            // The bridge preview is not sufficient if another map was edited
+            // or added after the preview.
+            string NormalizeRoot(string path)=>Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            bool Overlaps(string other)
+            {
+                string candidate=NormalizeRoot(map.InstallationPath);
+                string existing=NormalizeRoot(other);
+                return candidate.Equals(existing,StringComparison.OrdinalIgnoreCase)||
+                    candidate.StartsWith(existing+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)||
+                    existing.StartsWith(candidate+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase);
+            }
+            if(string.IsNullOrWhiteSpace(map.InstallationPath)||
+               Config.LocalMaps.Any(m=>!string.IsNullOrWhiteSpace(m.InstallationPath)&&Overlaps(m.InstallationPath))||
+               Overlaps(Store.Root))
+                throw new InvalidDataException("UM-STORE-EXTRA-ROOT-CONFLICT");
+            if(LocalMapPortPolicy.Conflicts(map,Config.LocalMaps).Count>0)
+                throw new InvalidDataException("UM-STORE-EXTRA-PORT-CONFLICT");
+            string pinned=LegacyStoreV1PinnedSource.Resolve(Store.Root,"",map);
+            var approvedCluster=LegacyStoreV1PinnedSource.ReadOriginalCluster(pinned);
+            if(!approvedCluster.RuntimeClusterId.Equals(clusterId,StringComparison.OrdinalIgnoreCase)||
+               !NormalizeRoot(approvedCluster.TransferRoot).Equals(
+                   NormalizeRoot(transferRoot),StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("UM-STORE-EXTRA-CLUSTER-MISMATCH");
+            var registered=Config.ClusterRegistry.Clusters.SingleOrDefault(c=>
+                c.ClusterId.Equals(clusterId,StringComparison.OrdinalIgnoreCase));
+            if(registered==null||!string.Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(registered.TransferDirectory)),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(transferRoot)),StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("UM-STORE-EXTRA-CLUSTER-MISMATCH");
+            var staged=ClusterRegistrySchema.Clone(Config);
+            staged.LocalMaps.Add(map);
+            staged.ClusterRegistry.MapAssignments.Add(new(){MapId=map.Id,ClusterId=registered.ClusterId});
+            staged.ClusterRegistry.Revision=checked(expectedRevision+1);
+            Store.Save(staged);
+            // Preserve all existing in-memory map identities and schedules.
+            Config.LocalMaps.Add(map);
+            Config.HostRegistry=ClusterRegistrySchema.Clone(staged.HostRegistry);
+            Config.ClusterRegistry=ClusterRegistrySchema.Clone(staged.ClusterRegistry);
+            lock(_telemetryGate)_telemetryCache=null;
+        }
+    }
+
     internal T UpdateClusterRegistry<T>(long? expectedRevision, Func<ManagerConfig, T> update)
     {
         ArgumentNullException.ThrowIfNull(update);
