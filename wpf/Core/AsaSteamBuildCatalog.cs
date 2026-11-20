@@ -221,6 +221,14 @@ public static class AsaSteamBuildCatalog
         string branch="public",TimeSpan? timeout=null,CancellationToken ct=default)
     {
         ct.ThrowIfCancellationRequested();
+        using var hostLease=SteamHostLease.Acquire();
+        return await CheckUnderHostLeaseAsync(exe,install,branch,timeout,ct);
+    }
+    internal static async Task<AsaSteamBuildCheck> CheckUnderHostLeaseAsync(string exe,string install,
+        string branch="public",TimeSpan? timeout=null,CancellationToken ct=default)
+    {
+        ct.ThrowIfCancellationRequested();
+        SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();
         SteamCmdPreflight.Inspect(exe);
         string? local=InstalledBuild(install);
         if(branch!="public")
