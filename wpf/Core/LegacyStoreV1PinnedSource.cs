@@ -74,14 +74,6 @@ public static class LegacyStoreV1PinnedSource
     {
         string root=SupplementalRoot(cluster.Store.Root,mapId);
         string existing=DirectoryFor(root);
-        if(!Directory.Exists(existing))
-        {
-            CaptureSupplemental(source,cluster.Store.Root,mapId,fourSha,launchSha);
-            return false;
-        }
-        var old=VerifyPinned(existing);
-        if(old.FourFileHash==fourSha&&old.LaunchHash==launchSha)return false;
-
         // Read durable authority independently, NOT Store.Read() on the
         // active instance (that would reset its optimistic-write digest).
         var disk=new ConfigStore("supplemental-reconcile",cluster.Store.Root).Read();
@@ -92,6 +84,15 @@ public static class LegacyStoreV1PinnedSource
         if(disk.LocalHostId!=cluster.Config.LocalHostId||
            References(disk,mapId)||References(cluster.Config,mapId))
             throw new InvalidDataException("UM-STORE-EXTRA-PIN-ALREADY-OWNED");
+
+        if(!Directory.Exists(existing))
+        {
+            CaptureSupplemental(source,cluster.Store.Root,mapId,fourSha,launchSha);
+            return false;
+        }
+        var old=VerifyPinned(existing);
+        if(old.FourFileHash==fourSha&&old.LaunchHash==launchSha)return false;
+
 
         var prior=RequireSupplemental(LegacyStoreV1OriginalImport.Inspect(existing),mapId);
         var fresh=LegacyStoreV1OriginalImport.Inspect(source);
