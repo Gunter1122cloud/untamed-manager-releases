@@ -1,5 +1,7 @@
 name: Discord operation feed fixtures
 on:
+  push:
+    branches: [main]
   pull_request:
     paths:
       - 'integrations/discord-operation-feed*'
