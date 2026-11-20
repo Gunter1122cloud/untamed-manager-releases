@@ -437,6 +437,8 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                     return Fail(id,"UM-STORE-ACTIVE-ORIGINAL-SOURCE-CHANGED");
                 // Process.Start and journal persistence run on the native
                 // Windows worker. This is an actual ASA process start.
+                using var events=new DiscordOperationEvents.NativeRun(cluster,Guid.NewGuid(),new[]{live!.Id},"Start");
+                events.Emit("started","in-progress","NATIVE_LAUNCH_ATTEMPT");
                 var identity=await Task.Run(()=>start(live!.Id,approved.PlanFingerprint,true));
                 string expectedExe=approved.UseApi?live!.ApiLoaderPath:live!.ExecutablePath;
                 if(identity.Pid<=0||identity.StartedUtc==default||
@@ -482,6 +484,8 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         }
                     });
                 }
+                events.Emit("new-process",approved.UseApi?"limited":"verified-local",approved.UseApi?"LOADER_ONLY_OBSERVED":"NEW_PID_OBSERVED");
+                events.Emit("terminal","limited","START_PROCESS_ONLY_READINESS_UNVERIFIED");
                 return Ok(id,new{
                     mapId=live!.Id,mapName=live.Name,
                     pid=identity.Pid,createdUtc=identity.StartedUtc,

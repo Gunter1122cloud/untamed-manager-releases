@@ -311,8 +311,11 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                 var stopJournal=Journal(map);
                 var durable=stopJournal.Begin(map.Id,current.Pid,current.StartedUtc);
                 var item=new Job{MapId=map.Id};
+                var events=new DiscordOperationEvents.NativeRun(cluster,item.JobId,new[]{map.Id},"Stop");
+                events.Emit("claimed","in-progress","NATIVE_STOP_JOURNAL_PREPARED");
                 lock(sync)jobsByMap[map.Id]=item;
                 _=Task.Run(async()=>{
+                    events.Emit("started","in-progress","NATIVE_STOP_EXECUTION_STARTED");
                     Change(item,"running","SaveWorld → új stabil .ark / naplóellenőrzés → DoExit");
                     try
                     {
@@ -325,6 +328,9 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                         // success. Failure to persist remains NeedsOperator.
                         stopJournal.Finish(durable.Id,AsaStopPhase.Completed);
                         Change(item,"completed","Windows process verified stopped",receipt);
+                        events.Emit("save-result",receipt.PreExitSaveLogAndWorldObserved?"verified-local":"limited",receipt.PreExitSaveLogAndWorldObserved?"LOCAL_SAVE_LOG_WORLD":receipt.PreExitWorldMetadataObserved?"LOCAL_WORLD_METADATA_LOG_UNVERIFIED":"SAVE_EVIDENCE_UNVERIFIED");
+                        events.Emit("stop-result","verified-local","OLD_PROCESS_STOPPED");
+                        events.Emit("terminal","limited","GRACEFUL_STOP_FINAL_SAVE_UNVERIFIED");
                     }
                     catch(Exception ex)
                     {
@@ -334,6 +340,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                         Change(item,"needsOperator",
                             "Stop interrupted ["+NativeLifecycleFailureCode.From(ex)+
                             "]; inspect process and save journal");
+                        events.Emit("terminal","uncertain",NativeLifecycleFailureCode.From(ex));
                     }
                 });
                 return Ok(id,new{jobId=item.JobId,started=true,

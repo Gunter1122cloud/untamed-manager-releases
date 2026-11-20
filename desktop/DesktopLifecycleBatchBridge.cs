@@ -317,7 +317,9 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                         var receipt=new Receipt(Guid.NewGuid(),approved.Action,"running",now,now,
                             approved.Plans.Select(x=>new Target(x.MapId,x.MapName,"queued","NOT_DISPATCHED")).ToArray());
                         Write(receipt);
-                        _=Task.Run(()=>RunAsync(receipt,approved,held,closing.Token));
+                        var events=new DiscordOperationEvents.NativeRun(cluster,receipt.JobId,receipt.Targets.Select(x=>x.MapId).ToArray(),approved.Action);
+                        events.Emit("claimed","in-progress","NATIVE_BATCH_JOURNAL_PREPARED");
+                        _=Task.Run(()=>RunAsync(receipt,approved,held,closing.Token,events));
                         return Task.FromResult(Ok(id,receipt));
                     }
                     catch{held.Dispose();throw;}
@@ -333,10 +335,12 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
         if(Fingerprint(map)!=plan.Fingerprint||!Eligible(map,state,action)||!SameState(state,plan.Observation))
             throw new InvalidOperationException("UM-BATCH-TARGET-CHANGED");
     }
-    private async Task RunAsync(Receipt initial,Approval approved,FileStream held,CancellationToken ct)
+    private async Task RunAsync(Receipt initial,Approval approved,FileStream held,CancellationToken ct,DiscordOperationEvents.NativeRun events)
     {
         using(held)
+        using(events)
         {
+            events.Emit("started","in-progress","LOCAL_BATCH_EXECUTION_STARTED");
             var receipt=initial;
             void Set(int index,string state,string evidence,Guid? native=null)
             {
@@ -359,6 +363,7 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                     Set(i,"dispatching","DURABLE_CLAIM_NO_REPLAY");
                     try
                     {
+                        using var childOrigin=DiscordOperationEvents.EnterOrigin("unknown",suppress:true);
                         var result=await execute(plan.MapId,approved.Action,plan.Historical,ct);
                         Set(i,"completed",approved.Action=="stop"?"NATIVE_STOP_RECEIPT":
                             "NEW_PID_AND_RCON_READY_GAME_CLIENT_UNVERIFIED",result.JobId);
@@ -369,12 +374,14 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                         Set(i,"unknown",NativeLifecycleFailureCode.From(ex));
                         for(int j=i+1;j<approved.Plans.Length;j++)Set(j,"skipped","HALTED_AFTER_UNCERTAIN_NATIVE_OPERATION");
                         receipt=receipt with{State="needsReview",UpdatedUtc=DateTimeOffset.UtcNow};Write(receipt);
+                        events.Emit("terminal","uncertain","BATCH_HALTED_AFTER_UNCERTAIN_NATIVE_OPERATION");
                         DesktopDiscordNotifications.Record(cluster,plan.MapId,"lifecycle",true);return;
                     }
                     if(i+1<approved.Plans.Length&&approved.DelaySeconds>0)
                         await Task.Delay(TimeSpan.FromSeconds(approved.DelaySeconds),ct);
                 }
                 receipt=receipt with{State="completed",UpdatedUtc=DateTimeOffset.UtcNow};Write(receipt);
+                events.Emit("terminal","limited",receipt.Targets.All(t=>t.State=="completed")?"BATCH_LOCAL_RECEIPTS_CLIENT_GAMEPLAY_UNVERIFIED":"BATCH_COMPLETED_WITH_SKIPPED_TARGETS");
             }
             catch{/* The disk claim survives any write failure or process exit. Never replay. */}
         }

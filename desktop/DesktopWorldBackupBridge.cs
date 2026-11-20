@@ -814,8 +814,11 @@ public sealed class DesktopWorldBackupBridge
                        chosenName.ValueKind!=JsonValueKind.String||
                        chosenName.GetString()!=current.Name)
                         return Fail(id,"UM-BACKUP-MAP-NAME-CONFIRMATION-REQUIRED");
+                    using var events=new DiscordOperationEvents.NativeRun(cluster,Guid.NewGuid(),new[]{current.Id},"Restore");
+                    events.Emit("started","in-progress","RESTORE_EXECUTION_ATTEMPT");
                     var receipt=await Task.Run(()=>KovaCompatibleWorldBackup.Restore(
                         current,cluster.Store.Root,ticket.Point,()=>inspect(current)));
+                    events.Emit("terminal",receipt.Restored?"verified-local":"uncertain",receipt.Restored?"RESTORE_BYTES_HASHES_VERIFIED_GAME_LOAD_UNVERIFIED":"RESTORE_RECEIPT_UNVERIFIED");
                     return Ok(id,new{
                         mapId=current.Id,mapName=current.Name,
                         point=receipt.Point,protectiveBackup=receipt.ProtectiveBackup,
@@ -833,8 +836,11 @@ public sealed class DesktopWorldBackupBridge
                         evidence="VERIFIED_STOPPED_MAP_KOVA_STYLE_RESTORE_WITH_PROTECTIVE_COPY"
                     });
                 }
+                using var backupEvents=new DiscordOperationEvents.NativeRun(cluster,Guid.NewGuid(),new[]{current.Id},"Backup");
+                backupEvents.Emit("started","in-progress","BACKUP_EXECUTION_ATTEMPT");
                 var created=await Task.Run(()=>KovaCompatibleWorldBackup.Create(
                     current,cluster.Store.Root,()=>inspect(current)));
+                backupEvents.Emit("terminal","verified-local","BACKUP_BYTES_AND_HASHES_VERIFIED");
                 return Ok(id,new{
                     mapId=current.Id,mapName=current.Name,
                     point=created.Id,createdUtc=created.CreatedUtc,

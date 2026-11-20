@@ -409,8 +409,11 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     MapId=currentMap.Id,OldPid=approved.Pid,
                     NewProcessRole=currentMap.StartWithAsaApi?"loaderParent":"asaServer"
                 };
+                var events=new DiscordOperationEvents.NativeRun(cluster,job.Id,new[]{currentMap.Id},"Restart");
+                events.Emit("claimed","in-progress","NATIVE_RESTART_JOURNAL_PREPARED");
                 lock(sync)jobsByMap[currentMap.Id]=job;
                 _=Task.Run(async()=>{
+                    events.Emit("started","in-progress","NATIVE_RESTART_EXECUTION_STARTED");
                     Change(job,"running","SaveWorld → DoExit");
                     try
                     {
@@ -426,6 +429,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                             receipt.Stop.PreExitSaveLogAndWorldObserved;
                         job.PreExitWorldMetadataObserved=
                             receipt.Stop.PreExitWorldMetadataObserved;
+                        events.Emit("save-result",job.PreExitSaveEvidenceObserved?"verified-local":"limited",job.PreExitSaveEvidenceObserved?"LOCAL_SAVE_LOG_WORLD":job.PreExitWorldMetadataObserved?"LOCAL_WORLD_METADATA_LOG_UNVERIFIED":"SAVE_EVIDENCE_UNVERIFIED");
+                        events.Emit("stop-result","verified-local","OLD_PROCESS_STOPPED");
                         int verifiedAsaPid=receipt.Started.Pid;
                         if(nativeRunner&&currentMap.StartWithAsaApi)
                         {
@@ -474,6 +479,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                                 "Új ASA gyermek PID és RCON ellenőrizve; játékbeli készenlét még nem":
                                 "Új ASA Windows-folyamat indult; játékbeli készenlét még nem",
                             receipt.Started.Pid);
+                        events.Emit("new-process",job.NewProcessRole=="loaderParent"&&!job.ApiChildAndRconVerified?"limited":"verified-local",job.NewProcessRole=="loaderParent"&&!job.ApiChildAndRconVerified?"LOADER_ONLY_OBSERVED":"NEW_PID_OBSERVED");
+                        events.Emit("terminal","limited","RESTART_NEW_PID_READINESS_UNVERIFIED");
                         if(nativeRunner&&currentMap.StartWithAsaApi)
                             FreshStoreApiPairObserver.Begin(
                                 cluster,currentMap.Id,receipt.Started,closingToken);
@@ -485,6 +492,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                         Change(job,"needsOperator",
                             "Restart interrupted ["+NativeLifecycleFailureCode.From(ex)+
                             "]: inspect local process and operation journal");
+                        events.Emit("terminal","uncertain",NativeLifecycleFailureCode.From(ex));
                     }
                 });
                 return Ok(id,new{

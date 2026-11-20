@@ -38,6 +38,8 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     private static readonly Regex Snowflake=new(@"\A[0-9]{15,25}\z",RegexOptions.CultureInvariant);
     private static readonly Regex PlayerRow=new(@"\A\s*[0-9]+\.\s+.+,\s*[A-Za-z0-9]{16,64}\s*\z",RegexOptions.CultureInvariant);
     private readonly ClusterService cluster;
+    private readonly DiscordOperationEvents eventStream;
+    private readonly Func<Guid?,int,object>? legacySchedules;
     private readonly SemaphoreSlim hostGate;
     private readonly Func<bool> frozen,enterLane;
     private readonly Action leaveLane;
@@ -64,11 +66,13 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     private readonly SemaphoreSlim connections=new(4,4);
     internal DesktopDiscordControlApi(ClusterService cluster,SemaphoreSlim hostGate,Func<bool> frozen,
         Func<bool> enterLane,Action leaveLane,Func<string,string,Task<string>> native,
-        Func<DesktopAutomaticAsaDiscoverySupervisor.State>? discovery=null)
+        Func<DesktopAutomaticAsaDiscoverySupervisor.State>? discovery=null,
+        Func<Guid?,int,object>? legacySchedules=null)
     {
         this.cluster=cluster;this.hostGate=hostGate;this.frozen=frozen;
         this.enterLane=enterLane;this.leaveLane=leaveLane;this.native=native;
-        this.discovery=discovery;
+        this.discovery=discovery;this.legacySchedules=legacySchedules;
+        eventStream=new DiscordOperationEvents(cluster);
         root=Path.Combine(cluster.Store.Root,"discord-control-v1");
         settingsPath=Path.Combine(root,"settings.json");
         auditFolder=Path.Combine(root,"audit");
@@ -116,9 +120,9 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             if(Field(a,"guildId",25)!=s.GuildId||!Snowflake.IsMatch(actor)||
                 Math.Abs((now-a.GetProperty("sentUtc").GetDateTimeOffset()).TotalSeconds)>60)return false;
             if(actor==s.ServiceUserId)
-                return channel==s.StatusChannelId&&(kind is "status" or "players" or "job");
+                return channel==s.StatusChannelId&&(kind is "status" or "players" or "job" or "events" or "scheduleHistory");
             if(channel!=s.ControlChannelId||kind is not
-                ("status" or "players" or "job" or "backupHistory" or "preview" or "apply"))return false;
+                ("status" or "players" or "job" or "backupHistory" or "events" or "scheduleHistory" or "preview" or "apply"))return false;
             var roles=a.GetProperty("roleIds");
             if(roles.ValueKind!=JsonValueKind.Array||roles.GetArrayLength()>100||
                 !roles.EnumerateArray().Any(x=>x.ValueKind==JsonValueKind.String&&s.RoleIds.Contains(x.GetString())))return false;
@@ -359,6 +363,8 @@ internal sealed class DesktopDiscordControlApi : IDisposable
                 var observed=discovery?.Invoke();
                 return new{hostId=cluster.Config.LocalHostId,hostName=cluster.Config.LocalHostName,
                     observedUtc=DateTimeOffset.UtcNow,maps=result,
+                    capabilities=new{operationEventsVersion=1,legacyScheduleHistory=legacySchedules!=null,completeOperationCoverage=false,
+                        coverage=new[]{"scheduler-native","discord-dispatch","manual-local-lifecycle","manual-local-wipe-save","manual-stopped-backup-restore-steam","local-batch-lifecycle-steam"}},
                     discoveryFresh=observed?.Fresh??false,
                     discoveryObservedUtc=observed?.ObservedUtc,
                     discoveredMaps=DiscoveredOnly(observed,verifiedServers)};
@@ -473,8 +479,10 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             var row=new Audit(requestId,DateTimeOffset.UtcNow,actor,p.Action,p.Maps,"claimed-no-replay",null,null,
                 p.Maps.Select(id=>Owned(id).Name).ToArray(),cluster.Config.LocalHostName);
             Claim(row); // durable before any native dispatch
+            eventStream.Record(row.RequestId,row.Maps,row.Action,"discord",row.Actor,"claimed","in-progress","DISCORD_DURABLE_CLAIM",row.Utc);
             try
             {
+                using var operationOrigin=DiscordOperationEvents.EnterOrigin("discord",row.RequestId,row.Actor,row.Maps,row.Action);
                 if(frozen()||closing.IsCancellationRequested)throw new InvalidOperationException("UM-DC-HANDOFF");
                 Guid mapId=p.Maps[0];var map=Owned(mapId);
                 string apply=p.ApplyRoute;Guid? nativeToken=p.NativeToken;
@@ -501,6 +509,8 @@ internal sealed class DesktopDiscordControlApi : IDisposable
                 Guid? job=Value(response,"jobId") is {ValueKind:JsonValueKind.String} j?j.GetGuid():null;
                 row=row with{State="native-receipt",NativeJobId=job,StatusRoute=StatusRoute(apply)};
                 Finish(row);
+                eventStream.Record(row.RequestId,row.Maps,row.Action,"discord",row.Actor,job.HasValue?"native-dispatched":"receipt",job.HasValue?"in-progress":"limited",
+                    job.HasValue?"NATIVE_JOB_ACCEPTED":"NATIVE_RECEIPT_NOT_GAME_EFFECT",DateTimeOffset.UtcNow,nativeJob:job);
                 return Ok(new{requestId,action=p.Action,actorId=row.Actor,hostName=row.HostName,
                     mapIds=row.Maps,mapNames=row.MapNames,requestedUtc=row.Utc,receipt=Projection(response,"mapId","jobId","state","startRequested",
                     "started","pid","launchMode","commandSent","rconCommandDispatched","backupVerified","point",
@@ -510,6 +520,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             catch(Exception ex)
             {
                 Finish(row with{State="uncertain-no-replay"});
+                eventStream.Record(row.RequestId,row.Maps,row.Action,"discord",row.Actor,"terminal","uncertain","NATIVE_DISPATCH_UNCERTAIN_NO_REPLAY",DateTimeOffset.UtcNow);
                 return Error(ex.Message.StartsWith("UM-DC-",StringComparison.Ordinal)?"UM-DC-UNCERTAIN-NO-REPLAY":"UM-DC-NATIVE-UNCERTAIN-NO-REPLAY");
             }
         }
@@ -526,6 +537,21 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             Guid id=a.GetProperty("requestId").GetGuid();if(id==Guid.Empty)return Error("UM-DC-ID");
             string actor=Field(a,"userId",25),channel=Field(a,"channelId",25);
             string kind=Field(a,"kind",32);
+            if(kind=="events")
+            {
+                string? cursor=a.TryGetProperty("cursor",out var c)&&c.ValueKind!=JsonValueKind.Null?Field(a,"cursor",80):null;
+                int limit=a.TryGetProperty("limit",out var l)?l.GetInt32():50;
+                // No Invoke, filesystem writes, preview/apply, process
+                // observation or RCON on this route.
+                return Ok(eventStream.Read(cursor,limit));
+            }
+            if(kind=="scheduleHistory")
+            {
+                if(legacySchedules==null)return Error("UM-DC-HISTORY-UNAVAILABLE");
+                Guid? after=a.TryGetProperty("afterRunId",out var c)&&c.ValueKind!=JsonValueKind.Null?c.GetGuid():null;
+                int limit=a.TryGetProperty("limit",out var l)?l.GetInt32():50;
+                return Ok(legacySchedules(after,limit));
+            }
             if(kind=="status")return Ok(await Status());
             if(kind=="players")return Ok(await Players(a.GetProperty("mapId").GetGuid()));
             if(kind=="backupHistory")

@@ -486,6 +486,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                 }
                 if(direct)acceptedDirectRequests.Add(requestId);
                 var task=new Job{MapId=map.Id};
+                var events=new DiscordOperationEvents.NativeRun(cluster,task.Id,new[]{map.Id},"Update");
+                events.Emit("claimed","in-progress","NATIVE_STEAM_JOB_ACCEPTED");
                 lock(sync)
                 {
                     job=task;
@@ -501,14 +503,18 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                 _=Task.Run(async()=>
                 {
                     Stage(task,"running","preflight");
-                    var progress=new InlineProgress<SteamMaintenanceStage>(
-                        value=>Stage(task,"running",value.ToString()));
+                    events.Emit("started","in-progress","NATIVE_STEAM_EXECUTION_STARTED");
+                    var progress=new InlineProgress<SteamMaintenanceStage>(value=>{
+                        Stage(task,"running",value.ToString());
+                        events.Emit("steam-"+value.ToString(),"in-progress","NATIVE_STAGE_OBSERVED");
+                    });
                     try
                     {
                         var verified=await runner(map,progress);
                         if(verified.MapId!=map.Id||!verified.ProtectedFilesIntact)
                             throw new InvalidDataException("UM-STEAM-RECEIPT-INVALID");
                         Stage(task,"completed","verified",verified);
+                        events.Emit("terminal","verified-local","STEAM_BUILD_AND_PROTECTED_FILES_VERIFIED");
                     }
                     catch(Exception ex)
                     {
@@ -517,6 +523,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                             task.ErrorCode=ex.Message is "UM-STEAM-EXTERNAL-PROCESS-BUSY" or "UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED" or "UM-STEAM-INSTALLED-BUILD-INVALID" or "UM-STEAM-INSTALLED-BUILD-CHANGED"?ex.Message:"UM-STEAM-UPDATE-FAILED";
                             Stage(task,"needsOperator",task.Stage);
                         }
+                        events.Emit("terminal","uncertain","STEAM_UPDATE_FAILED_NATIVE_JOURNAL_REVIEW");
                     }
                 });
                 return Ok(id,new{jobId=task.Id,started=true,

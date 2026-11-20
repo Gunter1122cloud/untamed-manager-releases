@@ -220,6 +220,8 @@ public sealed class DesktopRconAdminBridge
                             "UM-RCON-ADMIN-POST-AUTH-PID-CHANGED");
                 }
                 RecheckAfterAuthentication();
+                using var events=job.Action=="wildWipe"?new DiscordOperationEvents.NativeRun(cluster,Guid.NewGuid(),new[]{owned.Id},"WildWipe"):null;
+                events?.Emit("started","in-progress","WIPE_DISPATCH_ATTEMPT");
                 lease.MarkMutationStarted();
                 string output=await send("127.0.0.1",owned.RconPort,password,job.Command,
                     RecheckAfterAuthentication,deadline.Token);
@@ -232,6 +234,8 @@ public sealed class DesktopRconAdminBridge
                 if(output==null||output.Length>32000)
                     return Fail(id,"UM-RCON-ADMIN-OUTPUT-TOO-LARGE");
                 lease.Complete();
+                events?.Emit("wipe-result","limited","WIPE_SENT_EFFECT_UNVERIFIED");
+                events?.Emit("terminal","limited","WIPE_SENT_EFFECT_UNVERIFIED");
                 return Ok(id,new{
                     mapId=owned.Id,mapName=owned.Name,action=job.Action,
                     command=job.Command,

@@ -381,10 +381,13 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                 }
                 if(direct)acceptedDirectRequests.Add(requestId);
                 var task=new Job{Total=rechecked.Maps.Length};
+                var events=new DiscordOperationEvents.NativeRun(cluster,task.Id,rechecked.Maps.Select(x=>x.Id).ToArray(),"Update");
+                events.Emit("claimed","in-progress","NATIVE_STEAM_BATCH_ACCEPTED");
                 job=task;
                 _=Task.Run(async()=>
                 {
                     Stage(task,"running","preflight");
+                    events.Emit("started","in-progress","NATIVE_STEAM_BATCH_EXECUTION_STARTED");
                     void RetainReceipt(SteamStoppedMapUpdater.Receipt item)
                     {
                         var owner=rechecked.Maps.Single(m=>m.Id==item.MapId);
@@ -412,6 +415,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                                 "UM-STEAM-BATCH-RECEIPTS-INVALID");
                         foreach(var item in receipt)RetainReceipt(item);
                         Stage(task,"completed","verified");
+                        events.Emit("terminal","verified-local","STEAM_BATCH_BUILDS_AND_PROTECTED_FILES_VERIFIED");
                     }
                     catch(Exception ex)
                     {
@@ -420,6 +424,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                             task.ErrorCode=ex.Message is "UM-STEAM-EXTERNAL-PROCESS-BUSY" or "UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED" or "UM-STEAM-INSTALLED-BUILD-INVALID" or "UM-STEAM-INSTALLED-BUILD-CHANGED"?ex.Message:"UM-STEAM-BATCH-FAILED";
                             Stage(task,"needsOperator",task.Stage);
                         }
+                        events.Emit("terminal","uncertain","STEAM_BATCH_NATIVE_QUEUE_REVIEW");
                     }
                 });
                 return Ok(id,new{

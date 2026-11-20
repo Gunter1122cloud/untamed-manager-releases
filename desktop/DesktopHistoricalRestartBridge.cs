@@ -373,8 +373,11 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                 }
                 var job=new Job{MapId=original.Id,OldPid=approved.Pid,
                     UseApi=original.StartWithAsaApi};
+                var events=new DiscordOperationEvents.NativeRun(cluster,job.Id,new[]{original.Id},"Restart");
+                events.Emit("claimed","in-progress","NATIVE_RESTART_JOURNAL_PREPARED");
                 lock(sync)jobsByMap[original.Id]=job;
                 _=Task.Run(async()=>{
+                    events.Emit("started","in-progress","NATIVE_RESTART_EXECUTION_STARTED");
                     Update(job,"running","SaveWorld → stabil világfájl → DoExit");
                     try
                     {
@@ -389,6 +392,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         Update(job,"running","Régi eredeti PID kilépett; új indítás előellenőrzése",
                             oldStopped:true,saved:stopped.PreExitSaveLogAndWorldObserved,
                             worldMetadata:stopped.PreExitWorldMetadataObserved);
+                        events.Emit("save-result",stopped.PreExitSaveLogAndWorldObserved?"verified-local":"limited",stopped.PreExitSaveLogAndWorldObserved?"LOCAL_SAVE_LOG_WORLD":"LOCAL_WORLD_METADATA_LOG_UNVERIFIED");
+                        events.Emit("stop-result","verified-local","OLD_PROCESS_STOPPED");
                         // Old process is gone. Persist only the approved mod
                         // fields, under the same install lease, before the
                         // planner fingerprints and launches the new process.
@@ -472,6 +477,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             "Új ASA API gyermek PID és RCON tulajdonlás igazolt; játékbeli készenlét még nem":
                             "Új eredeti ASA PID létrejött; játékbeli készenlét nem igazolt",
                             newPid:verifiedNewServerPid,newStartedUtc:verifiedNewStartedUtc);
+                        events.Emit("new-process","verified-local","NEW_PID_OBSERVED");
+                        events.Emit("terminal","limited","RESTART_NEW_PID_READINESS_UNVERIFIED");
                     }
                     catch(Exception ex)
                     {
@@ -480,6 +487,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         Update(job,"needsOperator",
                             "Store-v1 Restart megszakadt ["+NativeLifecycleFailureCode.From(ex)+
                             "]: helyi PID és tartós napló kézi ellenőrzése szükséges");
+                        events.Emit("terminal","uncertain",NativeLifecycleFailureCode.From(ex));
                     }
                 });
                 return Ok(id,new{

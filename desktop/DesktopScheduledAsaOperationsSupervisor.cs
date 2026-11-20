@@ -27,7 +27,8 @@ public sealed record ScheduledAsaOperation(
 // after a crash an unfinished claim remains visible and is never auto-replayed.
 public sealed record ScheduledAsaExecution(
     Guid RunId,Guid MapId,string Kind,DateTimeOffset ScheduledUtc,
-    DateTimeOffset ClaimedUtc,DateTimeOffset? FinishedUtc,string Status,string Evidence);
+    DateTimeOffset ClaimedUtc,DateTimeOffset? FinishedUtc,string Status,string Evidence,
+    bool TerminalPublicationPending=false);
 
 public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
 {
@@ -69,6 +70,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     private const int MaxJournalBytes=4_000_000;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private readonly ClusterService cluster;
+    private readonly DiscordOperationEvents eventStream;
     private readonly DesktopRconReadOnlyBridge rcon;
     private readonly DesktopRconAdminBridge freshWipeAdmin;
     private readonly DesktopFreshAsaRestartBridge restart;
@@ -109,6 +111,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     {
         minimumReviewAge=isolatedMinimumReviewAge??TimeSpan.FromMinutes(5);
         this.cluster=cluster??throw new ArgumentNullException(nameof(cluster));
+        eventStream=new DiscordOperationEvents(cluster);
         this.rcon=rcon??throw new ArgumentNullException(nameof(rcon));
         freshWipeAdmin=new DesktopRconAdminBridge(cluster);
         this.restart=restart??throw new ArgumentNullException(nameof(restart));
@@ -207,11 +210,71 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             throw new InvalidDataException("UM-ASA-SCHEDULE-HISTORY-INVALID");
         return state;
     }
-    private static void AddHistory(State state,ScheduledAsaExecution entry)
+    // Read-only retained history for explicit historical backfill. A missing
+    // cursor is not silently reinterpreted as a new baseline. No phases
+    // or event timestamps are reconstructed from the terminal evidence.
+    internal object LegacyOperationHistory(Guid? after,int limit)
     {
-        state.History.Add(entry);
+        if(limit is <1 or >100)throw new InvalidDataException("UM-DC-EVENTS-LIMIT");
+        return Locked(()=>{
+            var history=Read().History;
+            int offset=after.HasValue?history.FindIndex(x=>x.RunId==after.Value)+1:0;
+            bool invalid=after.HasValue&&offset==0;
+            var rows=invalid?Array.Empty<ScheduledAsaExecution>():history.Skip(offset).Take(limit).ToArray();
+            string SafeCode(string text)=>System.Text.RegularExpressions.Regex.IsMatch(text??"",@"\A[A-Za-z0-9_-]{1,240}\z")?text:"EVIDENCE_NOT_EXPORTABLE";
+            return new {version=1,hostId=cluster.Config.LocalHostId,origin="scheduler",historical=true,
+                state=invalid?"cursorInvalid":"ok",gap=invalid,retentionMayBeTruncated=history.Count==MaxHistory,
+                nextRunId=invalid?(Guid?)null:rows.LastOrDefault()?.RunId??after,
+                more=!invalid&&offset+rows.Length<history.Count,
+                runs=rows.Select(x=>new {x.RunId,x.MapId,x.Kind,x.ScheduledUtc,x.ClaimedUtc,x.FinishedUtc,
+                    currentMapName=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==x.MapId)?.Name,
+                    status=SafeCode(x.Status),evidence=SafeCode(x.Evidence)})};
+        });
+    }
+
+    private void AddHistory(State state,ScheduledAsaExecution entry)
+    {
+        // Durable publication obligation is committed with the native claim,
+        // before the first operation dispatch. Old v1 records default false.
+        state.History.Add(entry with{TerminalPublicationPending=true});
         if(state.History.Count>MaxHistory)
-            state.History.RemoveRange(0,state.History.Count-MaxHistory);
+        {
+            int remove=state.History.Count-MaxHistory;
+            if(state.History.Take(remove).Any(x=>x.TerminalPublicationPending))
+                eventStream.MarkGap();
+            state.History.RemoveRange(0,remove);
+        }
+    }
+    private void PublishTerminal(ScheduledAsaExecution entry,bool recovered)
+    {
+        if(!entry.TerminalPublicationPending||!entry.FinishedUtc.HasValue)return;
+        if(!eventStream.Record(entry.RunId,new[]{entry.MapId},entry.Kind,"scheduler",null,
+            "terminal",entry.Status,entry.Evidence,entry.FinishedUtc.Value,entry.ScheduledUtc,
+            historical:recovered))return;
+        // A separate acknowledgement can fail; retrying publication is safe
+        // by immutable run identity. Never retry the underlying ASA action.
+        try
+        {
+            Locked(()=>{
+                var state=Read();
+                int i=state.History.FindIndex(x=>x.RunId==entry.RunId);
+                if(i>=0&&state.History[i]==entry)
+                {
+                    state.History[i]=entry with{TerminalPublicationPending=false};
+                    Write(state);
+                }
+                return true;
+            });
+        }
+        catch{/* Retain the pending bit for next reconciliation. */}
+    }
+    internal void ReconcileEventTerminals(int limit=32)
+    {
+        if(limit is <1 or >100)throw new ArgumentOutOfRangeException(nameof(limit));
+        // No bridge calls, no command re-dispatch, no synthetic phase timestamps.
+        var pending=Locked(()=>Read().History.Where(x=>x.TerminalPublicationPending&&
+            x.FinishedUtc.HasValue).Take(limit).ToArray());
+        foreach(var entry in pending)PublishTerminal(entry,true);
     }
     private void Write(State state)
     {
@@ -676,7 +739,10 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     }
     // Only native code invokes these existing bridges. No raw commands,
     // passwords, server paths or peer writes enter this scheduler's RPC.
-    private async Task<string> RunHistoricalAsync(ScheduledAsaOperation job,CancellationToken ct)
+    private void ScheduleEvent(Guid runId,ScheduledAsaOperation job,string phase,string result,string evidence,Guid? nativeJob=null)=>
+        eventStream.Record(runId,new[]{job.MapId},job.Kind,"scheduler",null,phase,result,evidence,DateTimeOffset.UtcNow,job.NextDueUtc,nativeJob);
+
+    private async Task<string> RunHistoricalAsync(ScheduledAsaOperation job,Guid runId,CancellationToken ct)
     {
         var map=Owned(job.MapId);
         if(!HistoricalEligible(map)||Fingerprint(map)!=job.Fingerprint)
@@ -709,13 +775,31 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
            begun.GetProperty("storeTouched").GetBoolean())
             throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-APPLY");
         Guid id=begun.GetProperty("jobId").GetGuid();
+        ScheduleEvent(runId,job,"native-dispatched","in-progress","NATIVE_JOB_ACCEPTED",id);
         var limit=DateTimeOffset.UtcNow.AddMinutes(16);
+        bool savePublished=false,stopPublished=false,newPidPublished=false;
         while(DateTimeOffset.UtcNow<limit)
         {
             await Task.Delay(TimeSpan.FromSeconds(2),ct);
             var result=Decode(await handle(Message(prefix+"Status",new{jobId=id})));
             if(result.GetProperty("jobId").GetGuid()!=id||result.GetProperty("mapId").GetGuid()!=job.MapId)
                 throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-JOB-MISMATCH");
+            // These fields are native structured evidence, not parsed stage
+            // prose or a reconstructed terminal summary. Publish at the
+            // first poll where each proof exists; time = observation time.
+            bool Has(string name)=>result.TryGetProperty(name,out var v)&&v.ValueKind==JsonValueKind.True;
+            bool observedLog=Has("preExitSaveLogAndWorldObserved"),observedMeta=Has("preExitWorldMetadataObserved");
+            if(!savePublished&&observedLog!=observedMeta)
+            {
+                ScheduleEvent(runId,job,"save-result",observedLog?"verified-local":"limited",
+                    observedLog?"LOCAL_SAVE_LOG_WORLD":"LOCAL_WORLD_METADATA_LOG_UNVERIFIED",id);
+                savePublished=true;
+            }
+            if(!save&&!stopPublished&&Has("oldProcessStopped")&&result.TryGetProperty("oldPid",out var previous)&&previous.TryGetInt32(out int previousPid)&&previousPid==oldPid)
+            {ScheduleEvent(runId,job,"stop-result","verified-local","OLD_PROCESS_STOPPED",id);stopPublished=true;}
+            if(!save&&stopPublished&&!newPidPublished&&result.TryGetProperty("newPid",out var process)&&process.TryGetInt32(out int freshPid)&&freshPid>0&&freshPid!=oldPid&&
+               result.TryGetProperty("newStartedUtc",out var startedField)&&startedField.ValueKind==JsonValueKind.String&&startedField.TryGetDateTimeOffset(out _))
+            {ScheduleEvent(runId,job,"new-process","verified-local","NEW_PID_OBSERVED",id);newPidPublished=true;}
             string? state=result.GetProperty("state").GetString();
             if(state is "needsOperator" or "notDispatched" or "reviewed")
                 throw new InvalidOperationException("UM-SCHEDULE-HISTORICAL-NEEDS-REVIEW");
@@ -762,6 +846,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 await Task.Delay(TimeSpan.FromSeconds(2),ct);
             }
             if(!ready)throw new InvalidOperationException("UM-SCHEDULE-WIPE-NOT-READY");
+            ScheduleEvent(runId,job,"readiness","verified-local","OWN_LISTENER_AND_JOIN_ADVERTISED",id);
             // A disabled or edited job may finish its in-progress Restart,
             // but it must not send a newly pending wipe.
             bool WipeStillEnabled()=>Locked(()=>Read().Jobs.Any(x=>x.MapId==job.MapId&&
@@ -787,6 +872,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 throw new InvalidDataException("UM-SCHEDULE-WIPE-PREVIEW");
             ct.ThrowIfCancellationRequested();
             if(!WipeStillEnabled())return evidence+"_RESTART_WIPE_DISABLED";
+            ScheduleEvent(runId,job,"wipe-dispatch","in-progress","WIPE_INTENT_NO_EFFECT_PROOF",id);
             var sent=Decode(await historicalAdmin.HandleScheduledWipeAsync(
                 Message("historical.adminSend",new{token=wipe.GetProperty("token").GetGuid(),
                     confirm=true,typedApproval="STORE-V1 DINÓTÖRLÉS"}),pid,started));
@@ -795,6 +881,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                !sent.GetProperty("commandSent").GetBoolean()||
                !sent.GetProperty("oneShot").GetBoolean())
                 throw new InvalidDataException("UM-SCHEDULE-WIPE-RECEIPT");
+            ScheduleEvent(runId,job,"wipe-result","limited","WIPE_SENT_EFFECT_UNVERIFIED",id);
             return evidence+"_RESTART_READY_WIPE_SENT_EFFECT_UNVERIFIED";
         }
         throw new InvalidOperationException("UM-SCHEDULE-HISTORICAL-TIMEOUT");
@@ -924,6 +1011,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         try
         {
             now=now.ToUniversalTime();
+            ReconcileEventTerminals();
             var due=Locked(()=>Read().Jobs.Where(x=>x.Enabled&&x.NextDueUtc<=now)
                 .OrderBy(x=>x.NextDueUtc).ThenBy(x=>x.MapId).ToArray());
             foreach(var observed in due)
@@ -983,7 +1071,13 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     Write(state);
                     return !missed;
                 });
-                if(!dispatched)continue;
+                if(!dispatched)
+                {
+                    var skipped=Locked(()=>Read().History.SingleOrDefault(x=>x.RunId==claimId));
+                    if(skipped!=null)PublishTerminal(skipped,false);
+                    continue;
+                }
+                ScheduleEvent(claimId,observed,"claimed","in-progress","DURABLE_SLOT_CLAIMED_NO_REPLAY");
                 using var activeSlot=AcquireOwnedSlot(observed.MapId,observed.Kind);
                 string status="failed-no-auto-retry",evidence="";
                 try
@@ -995,8 +1089,10 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                         x.LastClaimedUtc==now&&x.LastStatus=="claimed-no-auto-retry"));
                     if(stillApproved&&Eligible(map)&&Fingerprint(map)==observed.Fingerprint)
                     {
+                        ScheduleEvent(claimId,observed,"started","in-progress","NATIVE_PREFLIGHT_PASSED");
+                        using var origin=DiscordOperationEvents.EnterOrigin("scheduler",claimId,maps:new[]{map.Id},action:observed.Kind,suppress:true);
                         evidence=map.HistoricalStoreProtected?
-                            await RunHistoricalAsync(observed,token):await runner(map.Id,observed.Kind,token);
+                            await RunHistoricalAsync(observed,claimId,token):await runner(map.Id,observed.Kind,token);
                         status="executed-no-fsync-or-client-certification";
                     }
                     else status="config-or-store-blocked";
@@ -1033,6 +1129,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                             }
                             return true;
                         });
+                        var persisted=Locked(()=>Read().History.SingleOrDefault(x=>x.RunId==claimId));
+                        if(persisted!=null)PublishTerminal(persisted,false);
                         DesktopDiscordNotifications.Record(cluster,observed.MapId,"schedule",status!="executed-no-fsync-or-client-certification");
                     }
                     catch
@@ -1082,7 +1180,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     {
         if(Volatile.Read(ref disposed)!=0)throw new ObjectDisposedException(GetType().Name);
         if(Interlocked.Exchange(ref started,1)!=0)return;
-        try {SkipMissedOnManagerStart(DateTimeOffset.UtcNow);}
+        try {SkipMissedOnManagerStart(DateTimeOffset.UtcNow);ReconcileEventTerminals();}
         catch(Exception) {Volatile.Write(ref runtimeState,"journal-recovery-needs-operator");return;}
         Volatile.Write(ref runtimeState,"active");
         loop=Task.Run(async()=>{
