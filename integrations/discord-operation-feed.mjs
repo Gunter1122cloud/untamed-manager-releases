@@ -102,7 +102,7 @@ export class OperationFeed {
  async load(){
    if(this.state)return;
    try{if((await fs.stat(this.file)).size>64*1024*1024)throw Error("EVENT_STATE_LIMIT_REVIEW_REQUIRED");this.state=JSON.parse(await fs.readFile(this.file,"utf8"));}
-   catch(e){if(e.code!=="ENOENT")throw e;this.state={schema:1,hosts:{},runs:{},outbox:{}};}
+   catch(e){if(e.code!=="ENOENT")throw e;this.state={schema:1,hosts:{},runs:{},outbox:{},deliveryCursor:null};}
    if(this.state.schema!==1||!this.state.hosts||!this.state.runs||!this.state.outbox)throw Error("EVENT_STATE_CORRUPT");
  }
  async commit(next){await atomic(this.file,next);this.state=next;}
@@ -272,9 +272,28 @@ export class OperationFeed {
          try{await this.commit(next);}catch(write){this.onProblem(h.id,clean(write.message));}
        }
      }
-     for(const k of Object.keys(this.state.outbox).filter(k=>this.state.outbox[k].status!=="sent"&&(!this.state.outbox[k].retryAt||this.state.outbox[k].retryAt<=this.clock())).slice(0,20)){
+     // Stable circular order, including a persisted checkpoint. A channel
+     // failure never pins the head of the queue. All failure paths, not
+     // just REST send, receive bounded retry delay.
+     const keys=Object.keys(this.state.outbox).sort();
+     const pivot=keys.findIndex(k=>k>(this.state.deliveryCursor??""));
+     const ordered=pivot<0?keys:[...keys.slice(pivot),...keys.slice(0,pivot)];
+     const eligible=ordered.filter(k=>this.state.outbox[k].status!=="sent"&&
+       (!this.state.outbox[k].retryAt||this.state.outbox[k].retryAt<=this.clock())).slice(0,20);
+     for(const k of eligible){
+       let error=null;
        try{await this.deliver(k);if(this.state.outbox[k]?.status==="uncertain")this.onProblem(k,"SEND_UNCERTAIN_REVIEW_REQUIRED");}
-       catch(e){this.onProblem(k,clean(e.message));}
+       catch(e){error=clean(e.message);this.onProblem(k,error);}
+       const next=structuredClone(this.state),item=next.outbox[k];
+       next.deliveryCursor=k;
+       if(error&&item.status!=="sent"){
+         item.failureCount=Math.min(10,(item.failureCount??0)+1);
+         item.retryAt=Math.max(item.retryAt??0,this.clock()+Math.min(900_000,30_000*2**(item.failureCount-1)));
+         item.problem=item.problem??"DELIVERY_FAILED";
+       }else if(!error&&item.status==="sent"){item.failureCount=0;item.retryAt=null;}
+       // If storage itself fails, stop instead of operating against a
+       // cursor/outbox checkpoint we could not durably acknowledge.
+       await this.commit(next);
      }
      // Bounded audit of recently delivered mutable messages; deleted
      // embeds are repaired, but deleted historical alerts never re-alert.
