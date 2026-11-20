@@ -321,6 +321,18 @@ internal static class OriginalKovaDirectImportTests
                     string oldSchedules=JsonSerializer.Serialize(recovered.Config.RecurringSchedules);
                     LegacyStoreV1PinnedSource.CaptureSupplemental(local,recovered.Store.Root,
                         Guid.Parse(extraId),eligible.FourFilesSha256,eligible.LaunchProfileSha256);
+                    string firstLaunchSha=eligible.LaunchProfileSha256;
+                    File.AppendAllText(launchProfilePath,"\n ");
+                    eligible=LegacyStoreV1OriginalImport.Inspect(local);
+                    Check(eligible.LaunchProfileSha256!=firstLaunchSha,"legitimate source reserialization changes launch hash");
+                    bool reconciled=LegacyStoreV1PinnedSource.ReconcileUnregisteredSupplemental(local,recovered,
+                        Guid.Parse(extraId),eligible.FourFilesSha256,eligible.LaunchProfileSha256);
+                    string orphanRoot=Path.Combine(recovered.Store.Root,"supplemental-store-v1",Guid.Parse(extraId).ToString("N"));
+                    var archived=Directory.GetDirectories(orphanRoot,"orphan-archive-*").Single();
+                    Check(reconciled&&LegacyStoreV1OriginalImport.Inspect(archived).LaunchProfileSha256==firstLaunchSha&&
+                        recovered.Config.LocalMaps.Count==5&&
+                        !LegacyStoreV1PinnedSource.ReconcileUnregisteredSupplemental(local,recovered,Guid.Parse(extraId),eligible.FourFilesSha256,eligible.LaunchProfileSha256),
+                        "changed orphan pin archives prior exact proof; repeated current approval is idempotent");
                     var row=LegacyStoreV1PinnedSource.RequireSupplemental(eligible,Guid.Parse(extraId));
                     var map=new LocalMap{Id=row.MapId,Name=row.MapKey,InstallationPath=row.OriginalInstallationRoot,
                         HistoricalStoreProtected=true,HistoricalSupplementalSource=true,
@@ -358,6 +370,18 @@ internal static class OriginalKovaDirectImportTests
                         recovered.Registry.Snapshot().Revision);}
                     catch(InvalidDataException){supplementalDuplicate=true;}
                     Check(supplementalDuplicate&&recovered.Config.LocalMaps.Count==6,"duplicate supplemental apply cannot add a second profile");
+                    string currentLaunch=File.ReadAllText(launchProfilePath);
+                    File.AppendAllText(launchProfilePath,"\n ");
+                    try{
+                        var changed=LegacyStoreV1OriginalImport.Inspect(local);
+                        bool ownedDenied=false;
+                        try{LegacyStoreV1PinnedSource.ReconcileUnregisteredSupplemental(local,recovered,map.Id,changed.FourFilesSha256,changed.LaunchProfileSha256);}
+                        catch(InvalidDataException ex) when(ex.Message=="UM-STORE-EXTRA-PIN-ALREADY-OWNED"){ownedDenied=true;}
+                        Check(ownedDenied&&LegacyStoreV1PinnedSource.HasApprovedLocalSource(recovered.Store.Root,map)&&
+                            Directory.GetDirectories(orphanRoot,"orphan-archive-*").Length==1,
+                            "committed supplemental map pin cannot be replaced by later source drift");
+                    }finally{File.WriteAllText(launchProfilePath,currentLaunch);}
+
                 }
                 await using(var reopened=new ClusterService("supplemental-pin-test",supplementalProfile))
                 {
