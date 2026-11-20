@@ -784,13 +784,23 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         if(!acquired)throw new IOException("UM-STORE-EXTRA-REGISTRATION-BUSY");
                         try
                         {
+                        // Serialize with every ConfigStore.Save, including another
+                        // Manager process. The synchronous worker owns both mutexes.
+                        string configKey=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+                            Path.GetFullPath(cluster.Store.FilePath).ToUpperInvariant())));
+                        using var configGate=new Mutex(false,@"Global\Untamed-Config-"+configKey);
+                        bool configAcquired;
+                        try{configAcquired=configGate.WaitOne(0);}catch(AbandonedMutexException){configAcquired=true;}
+                        if(!configAcquired)throw new IOException("UM-STORE-EXTRA-REGISTRATION-BUSY");
+                        try
+                        {
                         var current=PrepareSupplemental(approval.MapId,approval.StoppedUseApi);
                         if(current.Fingerprint!=approval.Fingerprint)
                             throw new InvalidDataException("UM-STORE-EXTRA-SOURCE-OR-PROCESS-CHANGED");
                         // Publish an immutable per-map pin first. A crash here
                         // leaves no profile or membership, and the exact next
                         // import may reuse the same verified pin.
-                        LegacyStoreV1PinnedSource.CaptureSupplemental(current.Source,cluster.Store.Root,
+                        bool orphanPinReconciled=LegacyStoreV1PinnedSource.ReconcileUnregisteredSupplemental(current.Source,cluster,
                             current.Map.Id,current.FourSha,current.LaunchSha);
                         var final=PrepareSupplemental(approval.MapId,approval.StoppedUseApi);
                         if(final.Fingerprint!=approval.Fingerprint)
@@ -808,8 +818,10 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                             modContentState=final.Content.State,presentModProjects=final.Content.PresentProjects,
                             unverifiedModProjects=final.Content.UnverifiedProjects,levelManifestProjects=final.Content.LevelManifestProjects,
                             processInventoryUnchanged=unchanged,processCommandIssued=false,
-                            originalStoreTouched=false,scheduleChanged=false,
+                            originalStoreTouched=false,scheduleChanged=false,orphanPinReconciled,
                             requiresLocalAcceptance=!unchanged};
+                        }
+                        finally{configGate.ReleaseMutex();}
                         }
                         finally{registrationGate.ReleaseMutex();}
                     });
