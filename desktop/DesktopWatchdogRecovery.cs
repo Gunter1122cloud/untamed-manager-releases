@@ -24,7 +24,9 @@ public sealed class DesktopWatchdogRecovery : IDisposable
         DateTimeOffset ArmedUtc,DateTimeOffset? LastAttemptUtc,Guid? Claim,
         int? LaunchPid,DateTimeOffset? LaunchStartedUtc,DateTimeOffset? ReadyDeadlineUtc,
         int StoppedSamples,DateTimeOffset? LastStoppedUtc,string Evidence,
-        bool? Enabled=null,string? AsaPath=null,string? LoaderPath=null);
+        bool? Enabled=null,string? AsaPath=null,string? LoaderPath=null,
+        Guid? TerminalClaim=null,string? TerminalResult=null,string? TerminalEvidence=null,DateTimeOffset? TerminalUtc=null,
+        bool TerminalPublicationPending=false);
     internal interface IExitWitness : IDisposable
     {
         bool HasExited {get;}
@@ -104,7 +106,9 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                 AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map));
         });
         ready=isolatedReady??(async(map,seen)=>{
-            if(!Running(map,seen)||!RconPortOwnership.IsOwnedListener(map.RconPort,seen.Identity!.Pid))return false;
+            if(!Running(map,seen)||!RconPortOwnership.IsOwnedListener(map.RconPort,seen.Identity!.Pid)||
+                !RconPortOwnership.OwnsUdpPort(map.GamePort,seen.Identity.Pid)||
+                !RconPortOwnership.OwnsUdpPort(map.QueryPort,seen.Identity.Pid))return false;
             if(map.HistoricalStoreProtected)
             {
                 var proof=LegacyStoreV1GracefulStop.Preview(cluster,map.Id);
@@ -216,8 +220,24 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     }
     private void End(State row,string status,string evidence,bool notify=false)
     {
-        Write(row with{Status=status,Evidence=evidence,Enabled=status=="disarmed"?false:Enabled(row)});Drop(row.MapId);
-        if(notify){Publish(row,"terminal","uncertain",evidence);DesktopDiscordNotifications.Record(cluster,row.MapId,"recovery",true);}
+        var next=row with{Status=status,Evidence=evidence,Enabled=status=="disarmed"?false:Enabled(row)};
+        if(notify&&row.Claim.HasValue)next=TerminalReceipt(next,row.Claim.Value,"uncertain",evidence);
+        Write(next);Drop(row.MapId);
+        FlushTerminal(next);
+    }
+    private static State TerminalReceipt(State next,Guid claim,string result,string evidence)=>next with{
+        TerminalClaim=claim,TerminalResult=result,TerminalEvidence=evidence,TerminalUtc=DateTimeOffset.UtcNow,
+        TerminalPublicationPending=true,Claim=null};
+    // Source receipt and pending publication are committed together. Retrying
+    // telemetry can never replay native Start. Original finish time is retained.
+    private bool FlushTerminal(State row)
+    {
+        if(!row.TerminalPublicationPending)return true;
+        if(!row.TerminalClaim.HasValue||!row.TerminalUtc.HasValue||row.TerminalResult==null||row.TerminalEvidence==null)
+            return false;
+        if(!events.Record(row.TerminalClaim.Value,new[]{row.MapId},"Recovery","recovery",null,"terminal",
+            row.TerminalResult,row.TerminalEvidence,row.TerminalUtc.Value))return false;
+        Write(row with{TerminalPublicationPending=false});return true;
     }
     private static bool Enabled(State row)=>row.Enabled??row.Status!="disarmed";
     private void Publish(State row,string phase,string result,string evidence)
@@ -266,7 +286,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     private static string Fail(string? id,string error)=>JsonSerializer.Serialize(new{id,ok=false,error},Json);
     private object Data(State? row,LocalMap map)=>new{mapId=map.Id,mapName=map.Name,
         enabled=row!=null&&Enabled(row),lastCheckedUtc=lastChecked.TryGetValue(map.Id,out var checkedUtc)?(DateTimeOffset?)checkedUtc:null,
-        nextAttemptUtc=row?.LastAttemptUtc?.AddMinutes(30),
+        nextAttemptUtc=row?.LastAttemptUtc?.AddMinutes(30),terminalPublicationPending=row?.TerminalPublicationPending??false,
         status=row?.Status??"disarmed",evidence=row?.Evidence??"NOT_ARMED",
         lastAttemptUtc=row?.LastAttemptUtc,claim=row?.Claim,pid=row?.Pid,loaderPid=row?.LoaderPid,
         launchMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",storeV1=map.HistoricalStoreProtected,
@@ -289,6 +309,8 @@ public sealed class DesktopWatchdogRecovery : IDisposable
             var map=Owned(a.GetProperty("mapId").GetGuid());
             using var held=Lock(map.Id);
             var old=Read(map.Id);
+            if(old!=null&&!FlushTerminal(old))return Fail(id,"UM-WATCHDOG-EVENT-PUBLICATION-PENDING");
+            old=Read(map.Id);
             if(old?.Status is "claimed" or "awaitingReady")
                 return Fail(id,"UM-WATCHDOG-ATTEMPT-IN-PROGRESS");
             if(method=="recovery.suspend")
@@ -347,7 +369,9 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     if(!File.Exists(FileFor(map.Id)))continue;
                     using var held=Lock(map.Id);
                     var row=Read(map.Id);
-                    if(row==null||!Enabled(row)||row.Status is "disarmed" or "needsReview" or "externalSuspended")continue;
+                    if(row==null||!FlushTerminal(row))continue;
+                    row=Read(map.Id)!;
+                    if(!Enabled(row)||row.Status is "disarmed" or "needsReview" or "externalSuspended")continue;
                     lastChecked[map.Id]=now;
                     if(row.Status=="claimed")
                     {
@@ -369,8 +393,10 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     bool intentional=RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc);
                     if(intentional||row.Status=="suspended")
                     {
-                        if(row.Status=="awaitingReady")Publish(row,"terminal","uncertain","RECOVERY_INTERRUPTED_BY_STOP_INTENT");
-                        if(row.Status!="suspended"){End(row,"suspended","INTENTIONAL_STOP_WAITING_TRUSTED_START");row=Read(map.Id)!;}
+                        if(row.Status!="suspended"){
+                            End(row,"suspended",row.Status=="awaitingReady"?"RECOVERY_INTERRUPTED_BY_STOP_INTENT":"INTENTIONAL_STOP_WAITING_TRUSTED_START",row.Status=="awaitingReady");
+                            row=Read(map.Id)!;if(row.TerminalPublicationPending)continue;
+                        }
                         // Only a native Start receipt issued AFTER the old Stop
                         // can authorize replacement of the monitored family.
                         var intent=RecoveryStopIntent.Read(map);
@@ -414,14 +440,16 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         if(!verified||!Running(map,confirmed)||!Same(state.Identity,confirmed.Identity)||
                            (map.StartWithAsaApi&&!Same(state.LoaderIdentity,confirmed.LoaderIdentity)))continue;
                         Attach(map.Id,confirmed.Identity!);
-                        Write(row with{Status="armed",Pid=confirmed.Identity!.Pid,StartedUtc=confirmed.Identity.StartedUtc,
+                        var recovered=row with{Status="armed",Pid=confirmed.Identity!.Pid,StartedUtc=confirmed.Identity.StartedUtc,
                             LoaderPid=confirmed.LoaderIdentity?.Pid,LoaderStartedUtc=confirmed.LoaderIdentity?.StartedUtc,
                             ArmedUtc=now,StoppedSamples=0,LastStoppedUtc=null,Enabled=true,
                             AsaPath=confirmed.Identity.ExecutablePath,LoaderPath=confirmed.LoaderIdentity?.ExecutablePath,
-                            Evidence="RECOVERED_NATIVE_READINESS",Claim=null,LaunchPid=null,LaunchStartedUtc=null,ReadyDeadlineUtc=null});
+                            Evidence="RECOVERED_NATIVE_READINESS",Claim=null,LaunchPid=null,LaunchStartedUtc=null,ReadyDeadlineUtc=null};
+                        if(!row.Claim.HasValue)throw new InvalidDataException("UM-WATCHDOG-MISSING-CLAIM");
+                        recovered=TerminalReceipt(recovered,row.Claim.Value,"verified-local","RECOVERY_NATIVE_READINESS_PROVEN");
+                        Write(recovered);
                         Publish(row,"readiness","verified-local","RECOVERY_NATIVE_READINESS_PROVEN");
-                        Publish(row,"terminal","verified-local","RECOVERY_NATIVE_READINESS_PROVEN");
-                        DesktopDiscordNotifications.Record(cluster,map.Id,"recovery",false);
+                        FlushTerminal(recovered);
                         continue;
                     }
                     if(!handles.TryGetValue(map.Id,out var exit)||!epochs.TryGetValue(map.Id,out var original)||
