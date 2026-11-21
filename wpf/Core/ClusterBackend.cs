@@ -1836,6 +1836,7 @@ public sealed partial class ClusterService : IAsyncDisposable
         // to recognize the original process and reject PID reuse.
         if(map.StartWithAsaApi)map.LastLoader=identity;else map.LastProcess=identity;
         Save();
+        RecoveryStopIntent.RecordNativeStart(map,identity,approvedRestartId);
         lease.Complete();
         return identity;
     }
@@ -1920,6 +1921,7 @@ public sealed partial class ClusterService : IAsyncDisposable
                 map.ModChangesPending=false;
         }
         Save();
+        RecoveryStopIntent.RecordNativeStart(map,redacted,approvedRestartId);
         lease.Complete();
         return redacted;
     }
