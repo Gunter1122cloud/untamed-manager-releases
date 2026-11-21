@@ -366,6 +366,8 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     overrideObservation=new ProcessCheck(false,"loader remains",null,false,loader);
     await recovery.TickOnceAsync(now.AddSeconds(2));await recovery.TickOnceAsync(now.AddSeconds(3));
     Check(launches==0,"fatal ASA exit with surviving Loader never starts");
+    Check(recovery.HasPendingRecovery(m.Id)&&!recovery.CanManagerUpdate(),
+        "durable fatal-exit claim excludes scheduler and Manager handoff even before stopped samples complete");
     overrideObservation=null;
     await recovery.TickOnceAsync(now.AddSeconds(10));await recovery.TickOnceAsync(now.AddSeconds(10));
     await recovery.TickOnceAsync(now.AddSeconds(20));
