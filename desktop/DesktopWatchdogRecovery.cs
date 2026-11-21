@@ -151,7 +151,11 @@ public sealed class DesktopWatchdogRecovery : IDisposable
         // Native start and API child reattachment may legitimately update
         // only these identities; every other profile field remains pinned.
         var node=JsonSerializer.SerializeToNode(map)!.AsObject();
+        // Native Start may clear the submitted-mod draft marker after verified
+        // ordered launch parity. The actual ordered mod/launch arguments remain
+        // hashed, so this bookkeeping transition cannot invalidate rearm.
         node.Remove(nameof(LocalMap.LastProcess));node.Remove(nameof(LocalMap.LastLoader));
+        node.Remove(nameof(LocalMap.ModChangesPending));
         return Hash(node.ToJsonString());
     }
     private LocalMap Owned(Guid id)=>cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==id)??
