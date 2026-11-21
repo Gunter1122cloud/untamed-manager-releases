@@ -412,7 +412,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         var receipt=RecoveryStopIntent.ReadNativeStart(map);
                         if(intent==null||intent.MapId!=map.Id||receipt==null||receipt.RecordedUtc<=intent.MarkedUtc||
                             receipt.StartedUtc<=intent.MarkedUtc||receipt.RecoveryClaim.HasValue||
-                            (intent.RestartId.HasValue&&receipt.RestartId.HasValue&&intent.RestartId!=receipt.RestartId)||!Running(map,state)||
+                            (intent.RestartId.HasValue&&intent.RestartId!=receipt.RestartId)||!Running(map,state)||
                             !RecoveryStopIntent.MatchesNativeStart(receipt,map.StartWithAsaApi?state.LoaderIdentity:state.Identity))continue;
                         if(!tryEnterMaintenanceLane())continue;
                         try{
