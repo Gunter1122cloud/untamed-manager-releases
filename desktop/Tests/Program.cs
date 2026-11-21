@@ -419,6 +419,10 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     await Task.Delay(20);
     loader=new ProcessIdentity{Pid=52340,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath="synthetic-loader"};
     child=new ProcessIdentity{Pid=52341,StartedUtc=loader.StartedUtc,ExecutablePath="synthetic-asa"};
+    RecoveryStopIntent.RecordNativeStart(m,loader,Guid.NewGuid());
+    await recovery.TickOnceAsync(now.AddSeconds(95));
+    Check((await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0].GetProperty("status").GetString()=="suspended",
+        "a mismatched native Restart operation cannot rearm a suspended watchdog");
     RecoveryStopIntent.RecordNativeStart(m,loader,restart);
     await recovery.TickOnceAsync(now.AddSeconds(100));
     Check((await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0].GetProperty("status").GetString()=="armed"&&launches==1,"planned restart retains protection on verified new family");
