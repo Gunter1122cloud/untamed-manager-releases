@@ -346,32 +346,47 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     var start=DateTimeOffset.UtcNow.AddHours(-1);
     var child=new ProcessIdentity{Pid=52311,StartedUtc=start,ExecutablePath="synthetic-asa"};
     var loader=new ProcessIdentity{Pid=52310,StartedUtc=start,ExecutablePath="synthetic-loader"};
-    bool stopped=false,readyForRecovery=true;var fake=new SyntheticRecoveryExitWitness();
+    bool stopped=false,readyForRecovery=true;ProcessCheck? overrideObservation=null;var fake=new SyntheticRecoveryExitWitness();
     DateTimeOffset launchedUtc=default;
     using var hostGate=new SemaphoreSlim(1,1);int launches=0;
     Task<string> NoNative(string raw)=>throw new InvalidOperationException("unexpected real request");
     using var recovery=new DesktopWatchdogRecovery(recoveryCluster,hostGate,()=>true,()=>{},()=>false,
         NoNative,NoNative,NoNative,
-        _=>stopped?new ProcessCheck(false,"stopped",null,true):
-            new ProcessCheck(true,"running",child,false,loader),
+        _=>overrideObservation??(stopped?new ProcessCheck(false,"stopped",null,true):
+            new ProcessCheck(true,"running",child,false,loader)),
         _=>fake,_=>new string('A',64),(_,_)=>Task.FromResult(readyForRecovery),
         _=>{launches++;launchedUtc=DateTimeOffset.UtcNow;return Task.FromResult((52320,launchedUtc));});
     IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=m.Id,confirm=true}),"watchdog arms exact Store-v1 API family");
     var now=DateTimeOffset.UtcNow;
     await recovery.TickOnceAsync(now);Check(launches==0,"running map never auto-starts");
+    overrideObservation=new ProcessCheck(false,"unknown",null,false);
+    await recovery.TickOnceAsync(now.AddSeconds(1));
+    Check(launches==0,"WMI unknown without retained fatal exit cannot start");
     stopped=true;fake.Exited=true;fake.Code=unchecked((int)0xC0000005);
-    await recovery.TickOnceAsync(now.AddSeconds(10));await recovery.TickOnceAsync(now.AddSeconds(20));
-    Check(launches==0,"fatal exit requires three distinct stopped samples");
-    await recovery.TickOnceAsync(now.AddSeconds(30));
+    overrideObservation=new ProcessCheck(false,"loader remains",null,false,loader);
+    await recovery.TickOnceAsync(now.AddSeconds(2));await recovery.TickOnceAsync(now.AddSeconds(3));
+    Check(launches==0,"fatal ASA exit with surviving Loader never starts");
+    overrideObservation=null;
+    await recovery.TickOnceAsync(now.AddSeconds(10));await recovery.TickOnceAsync(now.AddSeconds(10));
+    await recovery.TickOnceAsync(now.AddSeconds(20));
+    Check(launches==0,"fatal exit requires three distinct stopped samples, duplicate time does not count");
+    using(var steamLease=SteamHostLease.Acquire()){
+        await recovery.TickOnceAsync(now.AddSeconds(30));
+        Check(launches==0,"host Steam lease blocks recovery before native Start");
+    }
+    await recovery.TickOnceAsync(now.AddSeconds(40));
     Check(launches==1&&!recovery.CanManagerUpdate(),"confirmed crash claims one start and blocks Manager handoff during readiness");
     stopped=false;fake.Exited=false;readyForRecovery=false;
     loader=new ProcessIdentity{Pid=52320,StartedUtc=launchedUtc,ExecutablePath="synthetic-loader"};
     child=new ProcessIdentity{Pid=52321,StartedUtc=launchedUtc,ExecutablePath="synthetic-asa"};
-    await recovery.TickOnceAsync(now.AddSeconds(40));
+    await recovery.TickOnceAsync(now.AddSeconds(50));
     Check(launches==1&&!recovery.CanManagerUpdate(),"new PID without readiness is not success");
     readyForRecovery=true;
-    await recovery.TickOnceAsync(now.AddSeconds(50));
+    await recovery.TickOnceAsync(now.AddSeconds(60));
     Check(launches==1&&recovery.CanManagerUpdate(),"verified new family rearms and releases handoff without second Start");
+    stopped=true;fake.Exited=true;
+    await recovery.TickOnceAsync(now.AddSeconds(70));await recovery.TickOnceAsync(now.AddSeconds(80));await recovery.TickOnceAsync(now.AddSeconds(90));
+    Check(launches==1&&(await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0].GetProperty("evidence").GetString()=="RECOVERY_COOLDOWN_NO_CRASH_LOOP","repeated crash cannot bypass 30-minute limit after verified recovery");
     // Separate exact epoch and retained stop intent suppress a manual stop
     // even when the process exits with a crash-style code.
     stopped=false;fake.Exited=false;
@@ -409,6 +424,56 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     stopped=true;fake.Exited=true;
     await recovery.TickOnceAsync(now.AddSeconds(110));await recovery.TickOnceAsync(now.AddSeconds(120));await recovery.TickOnceAsync(now.AddSeconds(130));
     Check(launches==1,"external suspension prevents automatic recovery");
+    // Wrong process identity, including a reused PID, must not inherit authority.
+    stopped=false;fake.Exited=false;
+    await Task.Delay(20);
+    loader=new ProcessIdentity{Pid=52350,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath="synthetic-loader"};
+    child=new ProcessIdentity{Pid=52351,StartedUtc=loader.StartedUtc,ExecutablePath="synthetic-asa"};
+    IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=m.Id,confirm=true}),"operator may resume external suspension on a proven new family");
+    child=new ProcessIdentity{Pid=child.Pid,StartedUtc=child.StartedUtc.AddMilliseconds(1),ExecutablePath=child.ExecutablePath};
+    await recovery.TickOnceAsync(now.AddSeconds(140));
+    Check(launches==1&&(await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0].GetProperty("status").GetString()=="needsReview","reused PID cannot transfer crash recovery permission");
+}
+// Isolate Manager interruption at the durable claim/receipt boundaries.
+{
+    string recoveryRoot=Path.Combine(root,"watchdog-receipt-boundary-fixture");
+    await using var service=new ClusterService("watchdog-boundary",recoveryRoot);
+    var m=new LocalMap{Name="Boundary fixture",InstallationPath=Path.Combine(recoveryRoot,"asa"),
+        RconHost="127.0.0.1",RconPort=45679,RconPasswordProtected="synthetic"};
+    service.Config.LocalMaps.Add(m);service.Save();
+    var child=new ProcessIdentity{Pid=52400,StartedUtc=DateTimeOffset.UtcNow.AddHours(-1),ExecutablePath="synthetic-asa"};
+    bool stopped=false,ready=true;int launches=0;
+    using var gate=new SemaphoreSlim(1,1);
+    Task<string> Denied(string raw)=>throw new InvalidOperationException("no real native call");
+    DesktopWatchdogRecovery Create()=>new(service,gate,()=>true,()=>{},()=>false,
+        Denied,Denied,Denied,_=>stopped?new ProcessCheck(false,"stopped",null,true):new ProcessCheck(true,"running",child,false),
+        _=>new SyntheticRecoveryExitWitness(),_=>new string('B',64),(_,_)=>Task.FromResult(ready),
+        _=>{launches++;throw new InvalidOperationException("no replay permitted");});
+    string file=Path.Combine(recoveryRoot,"watchdog-recovery-v1",m.Id.ToString("N")+".json");
+    var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
+    DesktopWatchdogRecovery.State ReadRow()=>JsonSerializer.Deserialize<DesktopWatchdogRecovery.State>(File.ReadAllText(file),json)!;
+    void WriteRow(DesktopWatchdogRecovery.State row)=>File.WriteAllText(file,JsonSerializer.Serialize(row,json)); // fixture only
+    using(var first=Create())IsOk(await Call(first.HandleAsync,"recovery.arm",new{mapId=m.Id,confirm=true}),"arm isolated boundary fixture");
+    var armed=ReadRow();var missing=Guid.NewGuid();var attempted=DateTimeOffset.UtcNow.AddSeconds(-1);
+    WriteRow(armed with{Status="claimed",Claim=missing,LastAttemptUtc=attempted,CrashConfirmedUtc=attempted});
+    stopped=true;
+    using(var resumed=Create()){await resumed.TickOnceAsync(DateTimeOffset.UtcNow);
+        Check(ReadRow().Status=="needsReview"&&launches==0&&ReadRow().LastAttemptUtc==attempted,"Manager interruption before process receipt is review-only with durable cooldown");}
+    // Recreate only an independently recorded exact native Start receipt.
+    var claim=Guid.NewGuid();attempted=DateTimeOffset.UtcNow.AddSeconds(-1);
+    WriteRow(armed with{Status="claimed",Claim=claim,LastAttemptUtc=attempted,CrashConfirmedUtc=attempted});
+    child=new ProcessIdentity{Pid=52401,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath="synthetic-asa"};
+    using(RecoveryNativeStartBoundary.Pin(_=>{},claim))RecoveryStopIntent.RecordNativeStart(m,child,null);
+    stopped=false;ready=false;
+    using(var resumed=Create()){
+        await resumed.TickOnceAsync(DateTimeOffset.UtcNow);
+        Check(ReadRow().Status=="awaitingReady"&&launches==0,"Manager relaunch reconciles exact native Start receipt without replay");
+        await resumed.TickOnceAsync(DateTimeOffset.UtcNow);
+        Check(ReadRow().Status=="awaitingReady"&&launches==0,"reconciled process alone is not readiness");
+        await resumed.TickOnceAsync(attempted.AddMinutes(12).AddSeconds(1));
+        Check(ReadRow().Status=="needsReview"&&ReadRow().LastAttemptUtc==attempted&&launches==0,"readiness timeout persists failure and cooldown without Start replay");
+    }
+    using(var reopened=Create()){await reopened.TickOnceAsync(DateTimeOffset.UtcNow.AddMinutes(40));Check(launches==0&&ReadRow().Status=="needsReview","Manager restart and elapsed cooldown cannot replay failed recovery");}
 }
 // Local moderation command and durable receipt tests, no real RCON.
 {
@@ -1782,6 +1847,10 @@ try
                 "native schedule overview lists only the registered local map without peer control");
             var before=supervisor.Snapshot().Single();
             var due=before.NextDueUtc;
+            supervisor.AutomaticRecoveryPending=id=>id==m1.Id;
+            await supervisor.TickOnceAsync(due.AddMinutes(1));
+            Check(sent==0&&supervisor.Snapshot().Single().NextDueUtc==due,"scheduler defers rather than claims a map during pending recovery");
+            supervisor.AutomaticRecoveryPending=null;
             await supervisor.TickOnceAsync(due.AddMinutes(1));
             Check(sent==1&&supervisor.Snapshot().Single().LastStatus==
                     "executed-no-fsync-or-client-certification",
