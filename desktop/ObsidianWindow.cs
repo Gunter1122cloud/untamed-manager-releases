@@ -671,7 +671,7 @@ public sealed class ObsidianWindow : Form
                             "servers.lifecycleRecoveryPreview" or
                             "servers.lifecycleRecoveryApply";
                         moderationRoute = name is "moderation.history" or "moderation.preview" or "moderation.apply";
-                        recoveryRoute = name is "recovery.status" or "recovery.arm" or "recovery.disarm";
+                        recoveryRoute = name is "recovery.status" or "recovery.arm" or "recovery.disarm" or "recovery.suspend";
                         notificationsRoute = name is "notifications.status" or "notifications.save" or "notifications.clear" or "notifications.test";
                         operationsRoute = name is "operations.snapshot" or "operations.map" or
                             "operations.scheduleCreate" or "operations.scheduleDisable" or "operations.watchdogStart";
