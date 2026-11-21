@@ -48,6 +48,7 @@ public sealed class DesktopWorldBackupBridge
     }
     private readonly object originalBatchSync=new();
     private OriginalBatchJob? originalBatchJob;
+    internal bool RecoveryLaneBusy(){lock(originalBatchSync)return originalBatchJob?.State is "queued" or "running";}
     private bool originalBatchJournalInvalid;
     private sealed record RepairApproval(Guid Token,string FourSha,string LaunchSha,
         string JournalSha,DateTimeOffset ExpiresUtc);
