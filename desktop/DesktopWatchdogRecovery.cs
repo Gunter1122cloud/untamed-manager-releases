@@ -288,7 +288,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     private static string Fail(string? id,string error)=>JsonSerializer.Serialize(new{id,ok=false,error},Json);
     private object Data(State? row,LocalMap map)=>new{mapId=map.Id,mapName=map.Name,
         enabled=row!=null&&Enabled(row),lastCheckedUtc=lastChecked.TryGetValue(map.Id,out var checkedUtc)?(DateTimeOffset?)checkedUtc:null,
-        nextAttemptUtc=row?.LastAttemptUtc?.AddMinutes(30),terminalPublicationPending=row?.TerminalPublicationPending??false,
+        nextAttemptUtc=row?.LastAttemptUtc?.AddMinutes(30),terminalPublicationPending=row?.TerminalPublicationPending??false,lastResultUtc=row?.TerminalUtc,lastResult=row?.TerminalResult,lastResultEvidence=row?.TerminalEvidence,
         status=row?.Status??"disarmed",evidence=row?.Evidence??"NOT_ARMED",crashConfirmedUtc=row?.CrashConfirmedUtc,
         lastAttemptUtc=row?.LastAttemptUtc,claim=row?.Claim,pid=row?.Pid,loaderPid=row?.LoaderPid,
         launchMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",storeV1=map.HistoricalStoreProtected,
@@ -317,12 +317,12 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                 return Fail(id,"UM-WATCHDOG-ATTEMPT-IN-PROGRESS");
             if(method=="recovery.suspend")
             {
-                if(old!=null&&Enabled(old))End(old,"externalSuspended","OPERATOR_EXTERNAL_MAINTENANCE_NO_AUTOSTART");
+                if(old!=null&&Enabled(old))End(old,"externalSuspended","OPERATOR_EXTERNAL_MAINTENANCE_NO_AUTOSTART",old.Claim.HasValue);
                 return Ok(id,Data(Read(map.Id),map));
             }
             if(method=="recovery.disarm")
             {
-                if(old!=null)End(old,"disarmed","OPERATOR_DISABLED_NO_SERVER_STOP");
+                if(old!=null)End(old,"disarmed","OPERATOR_DISABLED_NO_SERVER_STOP",old.Claim.HasValue);
                 else Drop(map.Id);
                 return Ok(id,Data(Read(map.Id),map));
             }
@@ -349,6 +349,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
             DemandProfile(map,row,true);
             if(RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc))
                 return Fail(id,"UM-WATCHDOG-PREVIOUS-STOP-INTENT");
+            if(old?.Claim.HasValue==true){End(old,"needsReview","OPERATOR_REARMED_DIFFERENT_VERIFIED_FAMILY",true);if(Read(map.Id)?.TerminalPublicationPending==true)return Fail(id,"UM-WATCHDOG-EVENT-PUBLICATION-PENDING");}
             Attach(map.Id,after.Identity);
             Write(row);
             return Ok(id,Data(row,map));
@@ -396,7 +397,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         continue;
                     }
                     try{DemandProfile(map,row,false);}
-                    catch{End(row,"needsReview","MAINTENANCE_OR_PROFILE_CHANGE",row.Status=="awaitingReady");continue;}
+                    catch{End(row,"needsReview","MAINTENANCE_OR_PROFILE_CHANGE",row.Claim.HasValue);continue;}
                     var state=observe(map);
                     bool intentional=RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc);
                     if(intentional||row.Status=="suspended")
@@ -525,7 +526,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         DemandProfile(map,row,true);DemandNoPending(map);
                         if(RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc)||
                             !Stopped(observe(map))||!exit.HasExited||!FatalExitCode(exit.ExitCode))
-                        {End(row,"needsReview","FINAL_STOP_OR_OWNER_CHANGED");continue;}
+                        {End(row,"needsReview","FINAL_STOP_OR_OWNER_CHANGED",true);continue;}
                         var claimed=row with{Status="claimed",LastAttemptUtc=now,
                             Evidence="DURABLE_CRASH_RECOVERY_CLAIM"};
                         Write(claimed);Drop(map.Id);
