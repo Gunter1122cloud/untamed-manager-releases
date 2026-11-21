@@ -346,15 +346,16 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     var start=DateTimeOffset.UtcNow.AddHours(-1);
     var child=new ProcessIdentity{Pid=52311,StartedUtc=start,ExecutablePath="synthetic-asa"};
     var loader=new ProcessIdentity{Pid=52310,StartedUtc=start,ExecutablePath="synthetic-loader"};
-    bool stopped=false;var fake=new SyntheticRecoveryExitWitness();
+    bool stopped=false,readyForRecovery=true;var fake=new SyntheticRecoveryExitWitness();
+    DateTimeOffset launchedUtc=default;
     using var hostGate=new SemaphoreSlim(1,1);int launches=0;
     Task<string> NoNative(string raw)=>throw new InvalidOperationException("unexpected real request");
     using var recovery=new DesktopWatchdogRecovery(recoveryCluster,hostGate,()=>true,()=>{},()=>false,
         NoNative,NoNative,NoNative,
         _=>stopped?new ProcessCheck(false,"stopped",null,true):
             new ProcessCheck(true,"running",child,false,loader),
-        _=>fake,_=>new string('A',64),(_,_)=>Task.FromResult(true),
-        _=>{launches++;return Task.FromResult((52320,DateTimeOffset.UtcNow));});
+        _=>fake,_=>new string('A',64),(_,_)=>Task.FromResult(readyForRecovery),
+        _=>{launches++;launchedUtc=DateTimeOffset.UtcNow;return Task.FromResult((52320,launchedUtc));});
     IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=m.Id,confirm=true}),"watchdog arms exact Store-v1 API family");
     var now=DateTimeOffset.UtcNow;
     await recovery.TickOnceAsync(now);Check(launches==0,"running map never auto-starts");
@@ -363,8 +364,14 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     Check(launches==0,"fatal exit requires three distinct stopped samples");
     await recovery.TickOnceAsync(now.AddSeconds(30));
     Check(launches==1&&!recovery.CanManagerUpdate(),"confirmed crash claims one start and blocks Manager handoff during readiness");
-    await recovery.TickOnceAsync(now.AddSeconds(40));await recovery.TickOnceAsync(now.AddSeconds(50));
-    Check(launches==1,"failed recovery never repeats its native launch");
+    stopped=false;fake.Exited=false;readyForRecovery=false;
+    loader=new ProcessIdentity{Pid=52320,StartedUtc=launchedUtc,ExecutablePath="synthetic-loader"};
+    child=new ProcessIdentity{Pid=52321,StartedUtc=launchedUtc,ExecutablePath="synthetic-asa"};
+    await recovery.TickOnceAsync(now.AddSeconds(40));
+    Check(launches==1&&!recovery.CanManagerUpdate(),"new PID without readiness is not success");
+    readyForRecovery=true;
+    await recovery.TickOnceAsync(now.AddSeconds(50));
+    Check(launches==1&&recovery.CanManagerUpdate(),"verified new family rearms and releases handoff without second Start");
     // Separate exact epoch and retained stop intent suppress a manual stop
     // even when the process exits with a crash-style code.
     stopped=false;fake.Exited=false;
@@ -375,8 +382,33 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     stopped=true;fake.Exited=true;
     await recovery.TickOnceAsync(now.AddSeconds(60));
     var result=await Call(recovery.HandleAsync,"recovery.status");
-    Check(launches==1&&result.GetProperty("data").GetProperty("maps")[0].GetProperty("status").GetString()=="disarmed",
-        "durable intentional stop suppresses automatic recovery");
+    Check(launches==1&&result.GetProperty("data").GetProperty("maps")[0].GetProperty("status").GetString()=="suspended"&&result.GetProperty("data").GetProperty("maps")[0].GetProperty("enabled").GetBoolean(),
+        "durable intentional stop suppresses recovery without clearing permission");
+    // An external replacement is not a native receipt. A later trusted Start
+    // can restore protection only when its exact identity becomes ready.
+    stopped=false;fake.Exited=false;readyForRecovery=false;
+    await Task.Delay(20);
+    loader=new ProcessIdentity{Pid=52330,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath="synthetic-loader"};
+    child=new ProcessIdentity{Pid=52331,StartedUtc=loader.StartedUtc,ExecutablePath="synthetic-asa"};
+    await recovery.TickOnceAsync(now.AddSeconds(70));
+    Check((await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0].GetProperty("status").GetString()=="suspended","external replacement cannot rearm");
+    RecoveryStopIntent.RecordNativeStart(m,loader,null);
+    await recovery.TickOnceAsync(now.AddSeconds(80));
+    Check((await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0].GetProperty("status").GetString()=="suspended","trusted native receipt alone cannot rearm before readiness");
+    readyForRecovery=true;
+    await recovery.TickOnceAsync(now.AddSeconds(90));
+    Check((await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0].GetProperty("status").GetString()=="armed"&&launches==1,"trusted Start re-arms persisted protection without extra Start");
+    var restart=Guid.NewGuid();RecoveryStopIntent.Mark(m,child,restart);
+    await Task.Delay(20);
+    loader=new ProcessIdentity{Pid=52340,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath="synthetic-loader"};
+    child=new ProcessIdentity{Pid=52341,StartedUtc=loader.StartedUtc,ExecutablePath="synthetic-asa"};
+    RecoveryStopIntent.RecordNativeStart(m,loader,restart);
+    await recovery.TickOnceAsync(now.AddSeconds(100));
+    Check((await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0].GetProperty("status").GetString()=="armed"&&launches==1,"planned restart retains protection on verified new family");
+    IsOk(await Call(recovery.HandleAsync,"recovery.suspend",new{mapId=m.Id,confirm=true}),"external maintenance suspension is durable");
+    stopped=true;fake.Exited=true;
+    await recovery.TickOnceAsync(now.AddSeconds(110));await recovery.TickOnceAsync(now.AddSeconds(120));await recovery.TickOnceAsync(now.AddSeconds(130));
+    Check(launches==1,"external suspension prevents automatic recovery");
 }
 // Local moderation command and durable receipt tests, no real RCON.
 {
