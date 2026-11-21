@@ -65,6 +65,9 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     private readonly string directory;
     private readonly DiscordOperationEvents events;
     private readonly Dictionary<Guid,DateTimeOffset> lastChecked=new();
+    // WMI is queried on every production tick; never count a cached returned
+    // ProcessCheck instance as several independent stop observations.
+    private readonly Dictionary<Guid,ProcessCheck> lastStoppedObservation=new();
     private readonly Dictionary<Guid,IExitWitness> handles=new();
     private readonly Dictionary<Guid,(int Pid,DateTimeOffset Start)> epochs=new();
     private readonly CancellationTokenSource cancel=new();
@@ -213,6 +216,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     {
         if(handles.Remove(map,out var held))held.Dispose();
         epochs.Remove(map);
+        lastStoppedObservation.Remove(map);
     }
     private void Attach(Guid id,ProcessIdentity identity)
     {
@@ -498,12 +502,16 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     Publish(row,"crash-confirmed","in-progress","RECOVERY_FATAL_EXIT_HANDLE_CONFIRMED",row.CrashConfirmedUtc);
                     if(!Stopped(state))
                     {
+                        lastStoppedObservation.Remove(map.Id);
                         if(now>=row.CrashConfirmedUtc!.Value.AddMinutes(12))
                         {End(row,"needsReview","RECOVERY_OLD_FAMILY_NOT_STOPPED_NO_START",true);continue;}
                         Write(row with{StoppedSamples=0,LastStoppedUtc=null,Evidence="RECOVERY_OLD_FAMILY_NOT_STOPPED"});
                         continue; // API parent must also have exited
                     }
                     if(row.LastStoppedUtc.HasValue&&now<=row.LastStoppedUtc.Value.AddSeconds(9))continue;
+                    if(lastStoppedObservation.TryGetValue(map.Id,out var priorSample)&&ReferenceEquals(priorSample,state))
+                        continue;
+                    lastStoppedObservation[map.Id]=state;
                     int count=Math.Min(3,row.StoppedSamples+1);
                     row=row with{StoppedSamples=count,LastStoppedUtc=now,Evidence="FATAL_EXIT_CONFIRMED_STOP_SAMPLING"};
                     Write(row);
