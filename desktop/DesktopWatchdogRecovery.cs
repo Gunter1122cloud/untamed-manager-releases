@@ -351,7 +351,17 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     lastChecked[map.Id]=now;
                     if(row.Status=="claimed")
                     {
-                        End(row,"needsReview","INTERRUPTED_DURABLE_CLAIM_NO_REPLAY",true);continue;
+                        // Reconcile only the exact receipt written by the claimed native launch.
+                        var receipt=RecoveryStopIntent.ReadNativeStart(map);
+                        if(row.Claim.HasValue&&row.LastAttemptUtc.HasValue&&receipt?.RecoveryClaim==row.Claim&&
+                            receipt.StartedUtc>=row.LastAttemptUtc.Value&&receipt.RecordedUtc>=row.LastAttemptUtc.Value)
+                        {
+                            Write(row with{Status="awaitingReady",LaunchPid=receipt.Pid,LaunchStartedUtc=receipt.StartedUtc,
+                                ReadyDeadlineUtc=row.LastAttemptUtc.Value.AddMinutes(12),Evidence="RECOVERY_RECONCILED_NATIVE_START_NO_REPLAY"});
+                            Publish(row,"native-dispatched","in-progress","RECOVERY_RECONCILED_NATIVE_START");
+                        }
+                        else End(row,"needsReview","INTERRUPTED_DURABLE_CLAIM_NO_REPLAY",true);
+                        continue;
                     }
                     try{DemandProfile(map,row,false);}
                     catch{End(row,"needsReview","MAINTENANCE_OR_PROFILE_CHANGE");continue;}
@@ -408,7 +418,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                             LoaderPid=confirmed.LoaderIdentity?.Pid,LoaderStartedUtc=confirmed.LoaderIdentity?.StartedUtc,
                             ArmedUtc=now,StoppedSamples=0,LastStoppedUtc=null,Enabled=true,
                             AsaPath=confirmed.Identity.ExecutablePath,LoaderPath=confirmed.LoaderIdentity?.ExecutablePath,
-                            Evidence="RECOVERED_NATIVE_READINESS"});
+                            Evidence="RECOVERED_NATIVE_READINESS",Claim=null,LaunchPid=null,LaunchStartedUtc=null,ReadyDeadlineUtc=null});
                         Publish(row,"readiness","verified-local","RECOVERY_NATIVE_READINESS_PROVEN");
                         Publish(row,"terminal","verified-local","RECOVERY_NATIVE_READINESS_PROVEN");
                         DesktopDiscordNotifications.Record(cluster,map.Id,"recovery",false);
@@ -448,13 +458,13 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     Write(row);
                     if(count<3)continue;
                     if(row.LastAttemptUtc.HasValue&&now<row.LastAttemptUtc.Value.AddMinutes(30))
-                    {End(row,"needsReview","RECOVERY_COOLDOWN_NO_CRASH_LOOP",true);continue;}
+                    {var blocked=row with{Claim=Guid.NewGuid()};Write(blocked);Publish(blocked,"claimed","limited","RECOVERY_FATAL_EXIT_CONFIRMED");End(blocked,"needsReview","RECOVERY_COOLDOWN_NO_CRASH_LOOP",true);continue;}
                     // Freeze independent automatic lanes before final source
                     // proof. Existing native launch also acquires the map's
                     // machine-wide installation lease and rechecks all ports.
                     // Never launch a second recovery while the first still
                     // has a durable pending receipt, even for a different map.
-                    if(cluster.Config.LocalMaps.Any(other=>other.Id!=map.Id&&Read(other.Id)?.Status is "claimed" or "awaitingReady"))continue;
+                    if(cluster.Config.LocalMaps.Any(other=>other.Id!=map.Id&&(Read(other.Id)?.Status is "claimed" or "awaitingReady")))continue;
                     if(!tryEnterMaintenanceLane())continue;
                     try
                     {
@@ -478,7 +488,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                                     throw new InvalidOperationException("UM-WATCHDOG-FINAL-INTENT");
                                 DemandProfile(map,row,false);
                                 if(!Stopped(observe(map)))throw new InvalidOperationException("UM-WATCHDOG-FINAL-STATE");
-                            });
+                            },claimed.Claim);
                             using var origin=DiscordOperationEvents.EnterOrigin("recovery",claimed.Claim,maps:new[]{map.Id},action:"Recovery",suppress:true);
                             var child=await launch(map);
                             if(child.Pid<=0||child.Started==default)
