@@ -26,7 +26,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
         int StoppedSamples,DateTimeOffset? LastStoppedUtc,string Evidence,
         bool? Enabled=null,string? AsaPath=null,string? LoaderPath=null,
         Guid? TerminalClaim=null,string? TerminalResult=null,string? TerminalEvidence=null,DateTimeOffset? TerminalUtc=null,
-        bool TerminalPublicationPending=false);
+        bool TerminalPublicationPending=false,DateTimeOffset? CrashConfirmedUtc=null);
     internal interface IExitWitness : IDisposable
     {
         bool HasExited {get;}
@@ -227,7 +227,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     }
     private static State TerminalReceipt(State next,Guid claim,string result,string evidence)=>next with{
         TerminalClaim=claim,TerminalResult=result,TerminalEvidence=evidence,TerminalUtc=DateTimeOffset.UtcNow,
-        TerminalPublicationPending=true,Claim=null};
+        TerminalPublicationPending=true,Claim=null,CrashConfirmedUtc=null};
     // Source receipt and pending publication are committed together. Retrying
     // telemetry can never replay native Start. Original finish time is retained.
     private bool FlushTerminal(State row)
@@ -289,7 +289,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     private object Data(State? row,LocalMap map)=>new{mapId=map.Id,mapName=map.Name,
         enabled=row!=null&&Enabled(row),lastCheckedUtc=lastChecked.TryGetValue(map.Id,out var checkedUtc)?(DateTimeOffset?)checkedUtc:null,
         nextAttemptUtc=row?.LastAttemptUtc?.AddMinutes(30),terminalPublicationPending=row?.TerminalPublicationPending??false,
-        status=row?.Status??"disarmed",evidence=row?.Evidence??"NOT_ARMED",
+        status=row?.Status??"disarmed",evidence=row?.Evidence??"NOT_ARMED",crashConfirmedUtc=row?.CrashConfirmedUtc,
         lastAttemptUtc=row?.LastAttemptUtc,claim=row?.Claim,pid=row?.Pid,loaderPid=row?.LoaderPid,
         launchMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",storeV1=map.HistoricalStoreProtected,
         stoppedSamples=row?.StoppedSamples??0,managerRequired=true};
@@ -375,6 +375,8 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     row=Read(map.Id)!;
                     if(!Enabled(row)||row.Status is "disarmed" or "needsReview" or "externalSuspended")continue;
                     lastChecked[map.Id]=now;
+                    if(row.CrashConfirmedUtc.HasValue&&row.Claim.HasValue)
+                        Publish(row,"crash-confirmed","in-progress","RECOVERY_FATAL_EXIT_HANDLE_CONFIRMED",row.CrashConfirmedUtc);
                     if(row.Status=="claimed")
                     {
                         // Reconcile only the exact receipt written by the claimed native launch.
@@ -400,7 +402,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     if(intentional||row.Status=="suspended")
                     {
                         if(row.Status!="suspended"){
-                            End(row,"suspended",row.Status=="awaitingReady"?"RECOVERY_INTERRUPTED_BY_STOP_INTENT":"INTENTIONAL_STOP_WAITING_TRUSTED_START",row.Status=="awaitingReady");
+                            End(row,"suspended",row.Claim.HasValue?"RECOVERY_INTERRUPTED_BY_STOP_INTENT":"INTENTIONAL_STOP_WAITING_TRUSTED_START",row.Claim.HasValue);
                             row=Read(map.Id)!;if(row.TerminalPublicationPending)continue;
                         }
                         // Only a native Start receipt issued AFTER the old Stop
@@ -475,7 +477,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     if(Running(map,state))
                     {
                         if(!SameFamily(row,state)||exit.HasExited)
-                            End(row,"needsReview","DIFFERENT_PROCESS_FAMILY_REARM_REQUIRED");
+                            End(row,"needsReview","DIFFERENT_PROCESS_FAMILY_REARM_REQUIRED",row.Claim.HasValue);
                         else if(row.StoppedSamples!=0)Write(row with{StoppedSamples=0,LastStoppedUtc=null});
                         continue;
                     }
@@ -486,9 +488,18 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     }
                     if(!FatalExitCode(exit.ExitCode))
                     {End(row,"needsReview","CLEAN_OR_UNCLASSIFIED_EXIT_NO_AUTOSTART");continue;}
+                    if(!row.CrashConfirmedUtc.HasValue||!row.Claim.HasValue)
+                    {
+                        row=row with{Claim=Guid.NewGuid(),CrashConfirmedUtc=now,StoppedSamples=0,LastStoppedUtc=null,
+                            Evidence="RECOVERY_FATAL_EXIT_WAITING_FULL_STOP"};
+                        Write(row);
+                    }
+                    Publish(row,"crash-confirmed","in-progress","RECOVERY_FATAL_EXIT_HANDLE_CONFIRMED",row.CrashConfirmedUtc);
                     if(!Stopped(state))
                     {
-                        if(row.StoppedSamples!=0)Write(row with{StoppedSamples=0,LastStoppedUtc=null});
+                        if(now>=row.CrashConfirmedUtc!.Value.AddMinutes(12))
+                        {End(row,"needsReview","RECOVERY_OLD_FAMILY_NOT_STOPPED_NO_START",true);continue;}
+                        Write(row with{StoppedSamples=0,LastStoppedUtc=null,Evidence="RECOVERY_OLD_FAMILY_NOT_STOPPED"});
                         continue; // API parent must also have exited
                     }
                     if(row.LastStoppedUtc.HasValue&&now<=row.LastStoppedUtc.Value.AddSeconds(9))continue;
@@ -497,7 +508,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     Write(row);
                     if(count<3)continue;
                     if(row.LastAttemptUtc.HasValue&&now<row.LastAttemptUtc.Value.AddMinutes(30))
-                    {var blocked=row with{Claim=Guid.NewGuid()};Write(blocked);Publish(blocked,"claimed","limited","RECOVERY_FATAL_EXIT_CONFIRMED");End(blocked,"needsReview","RECOVERY_COOLDOWN_NO_CRASH_LOOP",true);continue;}
+                    {End(row,"needsReview","RECOVERY_COOLDOWN_NO_CRASH_LOOP",true);continue;}
                     // Freeze independent automatic lanes before final source
                     // proof. Existing native launch also acquires the map's
                     // machine-wide installation lease and rechecks all ports.
@@ -515,7 +526,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         if(RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc)||
                             !Stopped(observe(map))||!exit.HasExited||!FatalExitCode(exit.ExitCode))
                         {End(row,"needsReview","FINAL_STOP_OR_OWNER_CHANGED");continue;}
-                        var claimed=row with{Status="claimed",Claim=Guid.NewGuid(),LastAttemptUtc=now,
+                        var claimed=row with{Status="claimed",LastAttemptUtc=now,
                             Evidence="DURABLE_CRASH_RECOVERY_CLAIM"};
                         Write(claimed);Drop(map.Id);
                         Publish(claimed,"claimed","in-progress","RECOVERY_FATAL_EXIT_CONFIRMED",claimed.LastAttemptUtc);
