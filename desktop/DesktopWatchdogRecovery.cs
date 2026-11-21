@@ -235,14 +235,16 @@ public sealed class DesktopWatchdogRecovery : IDisposable
         if(!row.TerminalPublicationPending)return true;
         if(!row.TerminalClaim.HasValue||!row.TerminalUtc.HasValue||row.TerminalResult==null||row.TerminalEvidence==null)
             return false;
+        if(row.TerminalResult=="verified-local"&&!events.Record(row.TerminalClaim.Value,new[]{row.MapId},"Recovery","recovery",null,"readiness",
+            row.TerminalResult,row.TerminalEvidence,row.TerminalUtc.Value))return false;
         if(!events.Record(row.TerminalClaim.Value,new[]{row.MapId},"Recovery","recovery",null,"terminal",
             row.TerminalResult,row.TerminalEvidence,row.TerminalUtc.Value))return false;
         Write(row with{TerminalPublicationPending=false});return true;
     }
     private static bool Enabled(State row)=>row.Enabled??row.Status!="disarmed";
-    private void Publish(State row,string phase,string result,string evidence)
+    private void Publish(State row,string phase,string result,string evidence,DateTimeOffset? observedUtc=null)
     {
-        if(row.Claim.HasValue)events.Record(row.Claim.Value,new[]{row.MapId},"Recovery","recovery",null,phase,result,evidence,DateTimeOffset.UtcNow);
+        if(row.Claim.HasValue)events.Record(row.Claim.Value,new[]{row.MapId},"Recovery","recovery",null,phase,result,evidence,observedUtc??DateTimeOffset.UtcNow);
     }
     private void DemandProfile(LocalMap map,State row,bool disk)
     {
@@ -376,13 +378,17 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     if(row.Status=="claimed")
                     {
                         // Reconcile only the exact receipt written by the claimed native launch.
+                        if(row.LastAttemptUtc.HasValue){
+                            Publish(row,"claimed","in-progress","RECOVERY_FATAL_EXIT_CONFIRMED",row.LastAttemptUtc);
+                            Publish(row,"started","in-progress","RECOVERY_DURABLE_START_CLAIM",row.LastAttemptUtc);
+                        }
                         var receipt=RecoveryStopIntent.ReadNativeStart(map);
                         if(row.Claim.HasValue&&row.LastAttemptUtc.HasValue&&receipt?.RecoveryClaim==row.Claim&&
                             receipt.StartedUtc>=row.LastAttemptUtc.Value&&receipt.RecordedUtc>=row.LastAttemptUtc.Value)
                         {
                             Write(row with{Status="awaitingReady",LaunchPid=receipt.Pid,LaunchStartedUtc=receipt.StartedUtc,
                                 ReadyDeadlineUtc=row.LastAttemptUtc.Value.AddMinutes(12),Evidence="RECOVERY_RECONCILED_NATIVE_START_NO_REPLAY"});
-                            Publish(row,"native-dispatched","in-progress","RECOVERY_RECONCILED_NATIVE_START");
+                            Publish(row,"native-dispatched","in-progress","RECOVERY_NATIVE_START_DISPATCHED",receipt.StartedUtc);
                         }
                         else End(row,"needsReview","INTERRUPTED_DURABLE_CLAIM_NO_REPLAY",true);
                         continue;
@@ -425,6 +431,11 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     }
                     if(row.Status=="awaitingReady")
                     {
+                        if(row.LastAttemptUtc.HasValue){
+                            Publish(row,"claimed","in-progress","RECOVERY_FATAL_EXIT_CONFIRMED",row.LastAttemptUtc);
+                            Publish(row,"started","in-progress","RECOVERY_DURABLE_START_CLAIM",row.LastAttemptUtc);
+                        }
+                        if(row.LaunchStartedUtc.HasValue)Publish(row,"native-dispatched","in-progress","RECOVERY_NATIVE_START_DISPATCHED",row.LaunchStartedUtc);
                         if(row.ReadyDeadlineUtc==null||now>=row.ReadyDeadlineUtc)
                         {End(row,"needsReview","RECOVERY_READINESS_TIMEOUT_NO_RETRY",true);continue;}
                         var epoch=state.Identity?.Pid==row.LaunchPid?state.Identity:
@@ -449,7 +460,6 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         if(!row.Claim.HasValue)throw new InvalidDataException("UM-WATCHDOG-MISSING-CLAIM");
                         recovered=TerminalReceipt(recovered,row.Claim.Value,"verified-local","RECOVERY_NATIVE_READINESS_PROVEN");
                         Write(recovered);
-                        Publish(row,"readiness","verified-local","RECOVERY_NATIVE_READINESS_PROVEN");
                         FlushTerminal(recovered);
                         continue;
                     }
@@ -508,8 +518,8 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         var claimed=row with{Status="claimed",Claim=Guid.NewGuid(),LastAttemptUtc=now,
                             Evidence="DURABLE_CRASH_RECOVERY_CLAIM"};
                         Write(claimed);Drop(map.Id);
-                        Publish(claimed,"claimed","in-progress","RECOVERY_FATAL_EXIT_CONFIRMED");
-                        Publish(claimed,"started","in-progress","RECOVERY_DURABLE_START_CLAIM");
+                        Publish(claimed,"claimed","in-progress","RECOVERY_FATAL_EXIT_CONFIRMED",claimed.LastAttemptUtc);
+                        Publish(claimed,"started","in-progress","RECOVERY_DURABLE_START_CLAIM",claimed.LastAttemptUtc);
                         try
                         {
                             using var boundary=RecoveryNativeStartBoundary.Pin(id=>{
@@ -524,7 +534,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                                 throw new InvalidDataException("UM-WATCHDOG-LAUNCH-IDENTITY");
                             Write(claimed with{Status="awaitingReady",LaunchPid=child.Pid,LaunchStartedUtc=child.Started,
                                 ReadyDeadlineUtc=claimed.LastAttemptUtc!.Value.AddMinutes(12),Evidence="NATIVE_START_DISPATCHED_WAITING_READY"});
-                            Publish(claimed,"native-dispatched","in-progress","RECOVERY_NATIVE_START_DISPATCHED");
+                            Publish(claimed,"native-dispatched","in-progress","RECOVERY_NATIVE_START_DISPATCHED",child.Started);
                         }
                         catch{End(claimed,"needsReview","RECOVERY_START_UNCERTAIN_NO_RETRY",true);}
                     }
@@ -553,6 +563,11 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     }
     // Called under the same host gate during Manager update. Do not interrupt
     // an automatic launch's pending readiness receipt.
+    internal bool HasPendingRecovery(Guid mapId)
+    {
+        try{return Read(mapId)?.Status is "claimed" or "awaitingReady";}
+        catch{return true;}
+    }
     internal bool CanManagerUpdate()
     {
         try{return cluster.Config.LocalMaps.All(m=>Read(m.Id)?.Status is not ("claimed" or "awaitingReady"));}
