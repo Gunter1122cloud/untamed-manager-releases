@@ -55,7 +55,7 @@ internal static class RecoveryStopIntent
         finally{if(File.Exists(tmp))File.Delete(tmp);}
     }
     internal sealed record NativeStart(Guid MapId,int Pid,DateTimeOffset StartedUtc,
-        string ExecutablePath,DateTimeOffset RecordedUtc,Guid? RestartId);
+        string ExecutablePath,DateTimeOffset RecordedUtc,Guid? RestartId,Guid? RecoveryClaim=null);
     private static string StartPath(LocalMap map)
     {
         string path=PathFor(map)+"."+map.Id.ToString("N")+".start";
@@ -77,7 +77,7 @@ internal static class RecoveryStopIntent
             using(var output=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough))
             {
                 JsonSerializer.Serialize(output,new NativeStart(map.Id,process.Pid,process.StartedUtc,
-                    process.ExecutablePath,DateTimeOffset.UtcNow,restartId));output.Flush(true);
+                    process.ExecutablePath,DateTimeOffset.UtcNow,restartId,RecoveryNativeStartBoundary.Claim));output.Flush(true);
             }
             File.Move(tmp,path,true);
         }
