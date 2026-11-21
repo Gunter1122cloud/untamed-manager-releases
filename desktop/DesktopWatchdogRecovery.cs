@@ -575,14 +575,21 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     }
     // Called under the same host gate during Manager update. Do not interrupt
     // an automatic launch's pending readiness receipt.
+    private static bool HoldsCrashLane(State? row)=>
+        row!=null&&Enabled(row)&&
+        (row.Status is "claimed" or "awaitingReady"||
+         row.Status=="armed"&&row.Claim.HasValue&&row.CrashConfirmedUtc.HasValue);
     internal bool HasPendingRecovery(Guid mapId)
     {
-        try{return Read(mapId)?.Status is "claimed" or "awaitingReady";}
+        // A proven fatal exit remains a claimed crash even while the three
+        // independent stop observations are still being collected. This
+        // prevents a scheduled Restart/wipe chain from racing recovery.
+        try{return HoldsCrashLane(Read(mapId));}
         catch{return true;}
     }
     internal bool CanManagerUpdate()
     {
-        try{return cluster.Config.LocalMaps.All(m=>Read(m.Id)?.Status is not ("claimed" or "awaitingReady"));}
+        try{return cluster.Config.LocalMaps.All(m=>!HoldsCrashLane(Read(m.Id)));}
         catch{return false;}
     }
     public void Dispose()
