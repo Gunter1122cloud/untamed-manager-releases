@@ -297,7 +297,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     private static string NextAction(State? row)=>row?.Status switch
     {
         null or "disarmed" => "READY_MAP_REQUIRED_TO_ENABLE",
-        "armed" when row.CrashConfirmedUtc.HasValue => "WAIT_FOR_THREE_FRESH_STOP_SAMPLES",
+        "armed" when row?.CrashConfirmedUtc.HasValue==true => "WAIT_FOR_THREE_FRESH_STOP_SAMPLES",
         "armed" => "NO_ACTION_PROTECTION_ACTIVE",
         "claimed" or "awaitingReady" => "DO_NOT_RETRY_NATIVE_START",
         "suspended" => "WAIT_FOR_TRUSTED_NATIVE_START_AND_READINESS",
