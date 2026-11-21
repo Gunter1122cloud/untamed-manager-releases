@@ -187,7 +187,7 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
           nativeOverview.jobs.filter(x=>x.enabled).length:"—"}</strong><span>Natív ASA feladat</span></div>
       </div>}
       {!selectedMapId&&<LifecycleBatchPanel maps={snapshot.maps} visible={visible} onRefresh={reload}/>}
-      {!selectedMapId&&<WatchdogRecoveryPanel/>}
+      <WatchdogRecoveryPanel key={selectedMapId??"all-recovery"} fixedMapId={selectedMapId??undefined}/>
       {!selectedMapId&&<BanManagerPanel maps={snapshot.maps}/> }
       {!selectedMapId&&<DiscordNotificationsPanel/>}
       {(!selectedMapId||!showScheduler)&&(visible.length===0?<div className="empty">A szűrőnek megfelelő helyi map nem található.</div>:

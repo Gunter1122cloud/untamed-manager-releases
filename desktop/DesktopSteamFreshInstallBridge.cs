@@ -31,6 +31,7 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
     private readonly object stateGate = new();
     private readonly Dictionary<Guid,Prepared> prepared = new();
     private InstallJob? currentJob;
+    internal bool RecoveryLaneBusy(){lock(stateGate)return currentJob!=null&&!currentJob.Completed&&currentJob.ErrorCode==null;}
     private sealed record PreparedCompletedRecovery(Guid Token,CompletedSteamInstall Source,
         string Fingerprint,DateTimeOffset ExpiresUtc);
     private PreparedCompletedRecovery? completedRecovery;

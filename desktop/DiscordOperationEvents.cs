@@ -107,7 +107,7 @@ internal sealed class DiscordOperationEvents
     }
     private static bool Valid(Event e)=>e.MapIds is {Length:>=1 and <=25}&&e.MapIds.All(x=>x!=Guid.Empty)&&
         e.MapIds.Distinct().Count()==e.MapIds.Length&&Code.IsMatch(e.Operation)&&
-        e.Origin is "scheduler" or "discord" or "manager" or "unknown"&&
+        e.Origin is "scheduler" or "discord" or "manager" or "unknown" or "recovery"&&
         (e.ActorId==null||(e.ActorId.Length is >=15 and <=25&&e.ActorId.All(char.IsAsciiDigit)))&&
         Code.IsMatch(e.Phase)&&Code.IsMatch(e.Result)&&Code.IsMatch(e.Evidence)&&
         (e.MapNames==null||(e.MapNames.Length==e.MapIds.Length&&e.MapNames.All(n=>n==null||(n.Length<=96&&!n.Any(char.IsControl)))));

@@ -62,6 +62,7 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
     private RestoreApproval? restoreApproval;
     private RecoveryApproval? recoveryApproval;
     private Job? current;
+    internal bool RecoveryLaneBusy(){lock(sync)return current?.State is "queued" or "running";}
     private CancellationTokenSource? currentCancellation;
     private bool disposed;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);

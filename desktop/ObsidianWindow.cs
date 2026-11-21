@@ -99,6 +99,17 @@ public sealed class ObsidianWindow : Form
         if(_scheduledBackups.TryFreezeForManagerUpdate())return true;
         _nativeSchedules.ReleaseManagerUpdateFreeze();return false;
     }
+    private bool TryEnterWatchdogLane()
+    {
+        // The caller holds the UI/Discord host gate. Do not race an already
+        // accepted native worker which has not yet acquired its Core lease.
+        if(_freshStop.RecoveryLaneBusy()||_historicalStop.RecoveryLaneBusy()||
+            _freshRestart.RecoveryLaneBusy()||_historicalRestart.RecoveryLaneBusy()||
+            _steamUpdate.RecoveryLaneBusy()||_steamBatch.RecoveryLaneBusy()||
+            _freshInstall.RecoveryLaneBusy()||_worldBackup.RecoveryLaneBusy()||
+            _multiHostBackup.RecoveryLaneBusy())return false;
+        return TryEnterRecoveryLane();
+    }
     private void ReleaseRecoveryLane()
     {
         _scheduledBackups.ReleaseManagerUpdateFreeze();
@@ -384,8 +395,9 @@ public sealed class ObsidianWindow : Form
         _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster,
             scheduledBackups:_scheduledBackups);
         _recovery = new DesktopWatchdogRecovery(_bridge.LocalCluster,_bridgeGate,
-            TryEnterRecoveryLane,ReleaseRecoveryLane,()=>_updateHandoff,
+            TryEnterWatchdogLane,ReleaseRecoveryLane,()=>_updateHandoff,
             _freshStart.HandleAsync,_historicalStart.HandleAsync,_historicalReadOnlyRcon.HandleAsync);
+        _nativeSchedules.AutomaticRecoveryPending=_recovery.HasPendingRecovery;
         _discordControl = new DesktopDiscordControlApi(_bridge.LocalCluster,_bridgeGate,()=>_updateHandoff,
             TryEnterRecoveryLane,ReleaseRecoveryLane,DispatchDiscordNative,_asaDiscovery.Snapshot,_nativeSchedules.LegacyOperationHistory);
         _liveMods=new DesktopHistoricalLiveModSync(_bridge.LocalCluster,_bridgeGate,
@@ -671,7 +683,7 @@ public sealed class ObsidianWindow : Form
                             "servers.lifecycleRecoveryPreview" or
                             "servers.lifecycleRecoveryApply";
                         moderationRoute = name is "moderation.history" or "moderation.preview" or "moderation.apply";
-                        recoveryRoute = name is "recovery.status" or "recovery.arm" or "recovery.disarm";
+                        recoveryRoute = name is "recovery.status" or "recovery.arm" or "recovery.disarm" or "recovery.suspend";
                         notificationsRoute = name is "notifications.status" or "notifications.save" or "notifications.clear" or "notifications.test";
                         operationsRoute = name is "operations.snapshot" or "operations.map" or
                             "operations.scheduleCreate" or "operations.scheduleDisable" or "operations.watchdogStart";

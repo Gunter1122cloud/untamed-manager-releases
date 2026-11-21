@@ -45,6 +45,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     private readonly System.Collections.Generic.Dictionary<Guid,Preview> pendingByMap=new();
     private readonly System.Collections.Generic.Dictionary<Guid,Job> jobsById=new();
     private Job? job;
+    internal bool RecoveryLaneBusy(){lock(sync)return job?.State is "queued" or "running";}
     private readonly System.Collections.Generic.HashSet<Guid> acceptedDirectRequests=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private const long Reserve=10L*1024*1024*1024;
