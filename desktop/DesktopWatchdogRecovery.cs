@@ -23,7 +23,8 @@ public sealed class DesktopWatchdogRecovery : IDisposable
         int Pid,DateTimeOffset StartedUtc,int? LoaderPid,DateTimeOffset? LoaderStartedUtc,
         DateTimeOffset ArmedUtc,DateTimeOffset? LastAttemptUtc,Guid? Claim,
         int? LaunchPid,DateTimeOffset? LaunchStartedUtc,DateTimeOffset? ReadyDeadlineUtc,
-        int StoppedSamples,DateTimeOffset? LastStoppedUtc,string Evidence);
+        int StoppedSamples,DateTimeOffset? LastStoppedUtc,string Evidence,
+        bool? Enabled=null,string? AsaPath=null,string? LoaderPath=null);
     internal interface IExitWitness : IDisposable
     {
         bool HasExited {get;}
@@ -60,6 +61,8 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     private readonly Func<LocalMap,ProcessCheck,Task<bool>> ready;
     private readonly Func<LocalMap,Task<(int Pid,DateTimeOffset Started)>> launch;
     private readonly string directory;
+    private readonly DiscordOperationEvents events;
+    private readonly Dictionary<Guid,DateTimeOffset> lastChecked=new();
     private readonly Dictionary<Guid,IExitWitness> handles=new();
     private readonly Dictionary<Guid,(int Pid,DateTimeOffset Start)> epochs=new();
     private readonly CancellationTokenSource cancel=new();
@@ -79,6 +82,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
         this.cluster=cluster;this.hostGate=hostGate;
         this.tryEnterMaintenanceLane=tryEnterMaintenanceLane;this.releaseMaintenanceLane=releaseMaintenanceLane;
         this.handoff=handoff;
+        events=new DiscordOperationEvents(cluster);
         directory=Path.Combine(cluster.Store.Root,"watchdog-recovery-v1");
         _=UntamedOperationCoordinator.ResourceKey(directory);
         observe=isolatedObservation??(map=>{
@@ -154,7 +158,9 @@ public sealed class DesktopWatchdogRecovery : IDisposable
         state.Identity==null&&state.LoaderIdentity==null;
     private static bool SameFamily(State state,ProcessCheck now)=>now.Identity?.Pid==state.Pid&&
         now.Identity.StartedUtc==state.StartedUtc&&now.LoaderIdentity?.Pid==state.LoaderPid&&
-        now.LoaderIdentity?.StartedUtc==state.LoaderStartedUtc;
+        now.LoaderIdentity?.StartedUtc==state.LoaderStartedUtc&&
+        (state.AsaPath==null||string.Equals(state.AsaPath,now.Identity.ExecutablePath,StringComparison.OrdinalIgnoreCase))&&
+        (state.LoaderPath==null||string.Equals(state.LoaderPath,now.LoaderIdentity?.ExecutablePath,StringComparison.OrdinalIgnoreCase));
     // Only Windows fatal exception/abort results are crash evidence. A clean
     // exit, arbitrary nonzero code, lost handle or RCON-only failure is not.
     internal static bool FatalExitCode(int code)=>unchecked((uint)code) is
@@ -183,7 +189,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
         if(row==null||row.MapId!=id||row.ProfileHash==null||row.LaunchHash==null||
             row.ProfileHash.Length!=64||row.LaunchHash.Length!=64||row.Pid<=0||
             row.StartedUtc==default||row.ArmedUtc==default||row.StoppedSamples is <0 or >3||
-            row.Status is not ("armed" or "disarmed" or "claimed" or "awaitingReady" or "needsReview"))
+            row.Status is not ("armed" or "disarmed" or "claimed" or "awaitingReady" or "needsReview" or "suspended" or "externalSuspended"))
             throw new InvalidDataException("UM-WATCHDOG-JOURNAL");
         return row;
     }
@@ -210,8 +216,13 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     }
     private void End(State row,string status,string evidence,bool notify=false)
     {
-        Write(row with{Status=status,Evidence=evidence});Drop(row.MapId);
-        if(notify)DesktopDiscordNotifications.Record(cluster,row.MapId,"recovery",true);
+        Write(row with{Status=status,Evidence=evidence,Enabled=status=="disarmed"?false:Enabled(row)});Drop(row.MapId);
+        if(notify){Publish(row,"terminal","uncertain",evidence);DesktopDiscordNotifications.Record(cluster,row.MapId,"recovery",true);}
+    }
+    private static bool Enabled(State row)=>row.Enabled??row.Status!="disarmed";
+    private void Publish(State row,string phase,string result,string evidence)
+    {
+        if(row.Claim.HasValue)events.Record(row.Claim.Value,new[]{row.MapId},"Recovery","recovery",null,phase,result,evidence,DateTimeOffset.UtcNow);
     }
     private void DemandProfile(LocalMap map,State row,bool disk)
     {
@@ -220,7 +231,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
             throw new InvalidOperationException("UM-WATCHDOG-PROFILE-CHANGED");
         if(disk)
         {
-            var saved=cluster.Store.Read();
+            var saved=new ConfigStore("watchdog-proof",cluster.Store.Root).Read();
             var local=saved.LocalMaps.SingleOrDefault(m=>m.Id==map.Id);
             if(saved.LocalHostId!=cluster.Config.LocalHostId||local==null||ProfileHash(local)!=row.ProfileHash||
                 validateLaunchHash(map)!=row.LaunchHash)
@@ -253,7 +264,9 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     }
     private static string Ok(string? id,object data)=>JsonSerializer.Serialize(new{id,ok=true,data},Json);
     private static string Fail(string? id,string error)=>JsonSerializer.Serialize(new{id,ok=false,error},Json);
-    private static object Data(State? row,LocalMap map)=>new{mapId=map.Id,mapName=map.Name,
+    private object Data(State? row,LocalMap map)=>new{mapId=map.Id,mapName=map.Name,
+        enabled=row!=null&&Enabled(row),lastCheckedUtc=lastChecked.TryGetValue(map.Id,out var checkedUtc)?(DateTimeOffset?)checkedUtc:null,
+        nextAttemptUtc=row?.LastAttemptUtc?.AddMinutes(30),
         status=row?.Status??"disarmed",evidence=row?.Evidence??"NOT_ARMED",
         lastAttemptUtc=row?.LastAttemptUtc,claim=row?.Claim,pid=row?.Pid,loaderPid=row?.LoaderPid,
         launchMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",storeV1=map.HistoricalStoreProtected,
@@ -270,12 +283,19 @@ public sealed class DesktopWatchdogRecovery : IDisposable
             if(method=="recovery.status")
                 return Ok(id,new{running=Volatile.Read(ref started)!=0&&!closing,
                     maps=cluster.Config.LocalMaps.Select(m=>Data(Read(m.Id),m)).ToArray()});
-            if(method is not ("recovery.arm" or "recovery.disarm"))return Fail(id,"UM-METHOD-DENIED");
+            if(method is not ("recovery.arm" or "recovery.disarm" or "recovery.suspend"))return Fail(id,"UM-METHOD-DENIED");
             if(closing||handoff()||!a.TryGetProperty("confirm",out var yes)||yes.ValueKind!=JsonValueKind.True)
                 return Fail(id,"UM-WATCHDOG-CONFIRM");
             var map=Owned(a.GetProperty("mapId").GetGuid());
             using var held=Lock(map.Id);
             var old=Read(map.Id);
+            if(old?.Status is "claimed" or "awaitingReady")
+                return Fail(id,"UM-WATCHDOG-ATTEMPT-IN-PROGRESS");
+            if(method=="recovery.suspend")
+            {
+                if(old!=null&&Enabled(old))End(old,"externalSuspended","OPERATOR_EXTERNAL_MAINTENANCE_NO_AUTOSTART");
+                return Ok(id,Data(Read(map.Id),map));
+            }
             if(method=="recovery.disarm")
             {
                 if(old!=null)End(old,"disarmed","OPERATOR_DISABLED_NO_SERVER_STOP");
@@ -300,7 +320,8 @@ public sealed class DesktopWatchdogRecovery : IDisposable
             var now=DateTimeOffset.UtcNow;
             var row=new State(map.Id,"armed",ProfileHash(map),validateLaunchHash(map),
                 after.Identity!.Pid,after.Identity.StartedUtc,after.LoaderIdentity?.Pid,after.LoaderIdentity?.StartedUtc,
-                now,old?.LastAttemptUtc,null,null,null,null,0,null,"READY_OWNED_FAMILY_ARMED");
+                now,old?.LastAttemptUtc,null,null,null,null,0,null,"READY_OWNED_FAMILY_ARMED",true,
+                after.Identity.ExecutablePath,after.LoaderIdentity?.ExecutablePath);
             DemandProfile(map,row,true);
             if(RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc))
                 return Fail(id,"UM-WATCHDOG-PREVIOUS-STOP-INTENT");
@@ -326,16 +347,45 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     if(!File.Exists(FileFor(map.Id)))continue;
                     using var held=Lock(map.Id);
                     var row=Read(map.Id);
-                    if(row==null||row.Status is "disarmed" or "needsReview")continue;
+                    if(row==null||!Enabled(row)||row.Status is "disarmed" or "needsReview" or "externalSuspended")continue;
+                    lastChecked[map.Id]=now;
                     if(row.Status=="claimed")
                     {
                         End(row,"needsReview","INTERRUPTED_DURABLE_CLAIM_NO_REPLAY",true);continue;
                     }
                     try{DemandProfile(map,row,false);}
-                    catch{End(row,"disarmed","MAINTENANCE_OR_PROFILE_CHANGE");continue;}
-                    if(RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc))
-                    {End(row,"disarmed","INTENTIONAL_STOP_OR_RESTART");continue;}
+                    catch{End(row,"needsReview","MAINTENANCE_OR_PROFILE_CHANGE");continue;}
                     var state=observe(map);
+                    bool intentional=RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc);
+                    if(intentional||row.Status=="suspended")
+                    {
+                        if(row.Status=="awaitingReady")Publish(row,"terminal","uncertain","RECOVERY_INTERRUPTED_BY_STOP_INTENT");
+                        if(row.Status!="suspended"){End(row,"suspended","INTENTIONAL_STOP_WAITING_TRUSTED_START");row=Read(map.Id)!;}
+                        // Only a native Start receipt issued AFTER the old Stop
+                        // can authorize replacement of the monitored family.
+                        var intent=RecoveryStopIntent.Read(map);
+                        var receipt=RecoveryStopIntent.ReadNativeStart(map);
+                        if(intent==null||intent.MapId!=map.Id||receipt==null||receipt.RecordedUtc<=intent.MarkedUtc||
+                            receipt.StartedUtc<=intent.MarkedUtc||!Running(map,state)||
+                            !RecoveryStopIntent.MatchesNativeStart(receipt,map.StartWithAsaApi?state.LoaderIdentity:state.Identity))continue;
+                        if(!tryEnterMaintenanceLane())continue;
+                        try{
+                            DemandProfile(map,row,true);DemandNoPending(map);
+                            if(!await ready(map,state))continue;
+                            var confirmed=observe(map);
+                            if(!Running(map,confirmed)||!Same(state.Identity,confirmed.Identity)||
+                                (map.StartWithAsaApi&&!Same(state.LoaderIdentity,confirmed.LoaderIdentity))||
+                                RecoveryStopIntent.Read(map)!=intent||RecoveryStopIntent.ReadNativeStart(map)!=receipt)continue;
+                            Attach(map.Id,confirmed.Identity!);
+                            Write(row with{Status="armed",Enabled=true,Pid=confirmed.Identity!.Pid,StartedUtc=confirmed.Identity.StartedUtc,
+                                LoaderPid=confirmed.LoaderIdentity?.Pid,LoaderStartedUtc=confirmed.LoaderIdentity?.StartedUtc,
+                                AsaPath=confirmed.Identity.ExecutablePath,LoaderPath=confirmed.LoaderIdentity?.ExecutablePath,
+                                ArmedUtc=DateTimeOffset.UtcNow,Claim=null,LaunchPid=null,LaunchStartedUtc=null,ReadyDeadlineUtc=null,
+                                StoppedSamples=0,LastStoppedUtc=null,Evidence="TRUSTED_NATIVE_START_READY_REARMED"});
+                        }catch{/* Pending operation/readiness remains suspended, never grants Start. */}
+                        finally{releaseMaintenanceLane();}
+                        continue;
+                    }
                     if(row.Status=="awaitingReady")
                     {
                         if(row.ReadyDeadlineUtc==null||now>=row.ReadyDeadlineUtc)
@@ -347,15 +397,20 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         if(!Running(map,state)||epoch==null||epoch.StartedUtc!=row.LaunchStartedUtc)continue;
                         // Read-only readiness may legitimately fail during
                         // initial startup. Never send a second Start.
+                        Publish(row,"new-process","in-progress","RECOVERY_NEW_FAMILY_OBSERVED");
                         bool verified=false;
-                        try{verified=await ready(map,state);}catch{}
+                        try{DemandNoPending(map);verified=await ready(map,state);}catch{}
                         var confirmed=observe(map);
                         if(!verified||!Running(map,confirmed)||!Same(state.Identity,confirmed.Identity)||
                            (map.StartWithAsaApi&&!Same(state.LoaderIdentity,confirmed.LoaderIdentity)))continue;
                         Attach(map.Id,confirmed.Identity!);
                         Write(row with{Status="armed",Pid=confirmed.Identity!.Pid,StartedUtc=confirmed.Identity.StartedUtc,
                             LoaderPid=confirmed.LoaderIdentity?.Pid,LoaderStartedUtc=confirmed.LoaderIdentity?.StartedUtc,
-                            ArmedUtc=now,StoppedSamples=0,LastStoppedUtc=null,Evidence="RECOVERED_NEW_PID_RCON_READY_GAME_CLIENT_UNVERIFIED"});
+                            ArmedUtc=now,StoppedSamples=0,LastStoppedUtc=null,Enabled=true,
+                            AsaPath=confirmed.Identity.ExecutablePath,LoaderPath=confirmed.LoaderIdentity?.ExecutablePath,
+                            Evidence="RECOVERED_NATIVE_READINESS"});
+                        Publish(row,"readiness","verified-local","RECOVERY_NATIVE_READINESS_PROVEN");
+                        Publish(row,"terminal","verified-local","RECOVERY_NATIVE_READINESS_PROVEN");
                         DesktopDiscordNotifications.Record(cluster,map.Id,"recovery",false);
                         continue;
                     }
@@ -371,7 +426,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     if(Running(map,state))
                     {
                         if(!SameFamily(row,state)||exit.HasExited)
-                            End(row,"disarmed","DIFFERENT_PROCESS_FAMILY_REARM_REQUIRED");
+                            End(row,"needsReview","DIFFERENT_PROCESS_FAMILY_REARM_REQUIRED");
                         else if(row.StoppedSamples!=0)Write(row with{StoppedSamples=0,LastStoppedUtc=null});
                         continue;
                     }
@@ -381,7 +436,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         continue; // never kill an RCON-unreachable or partial family
                     }
                     if(!FatalExitCode(exit.ExitCode))
-                    {End(row,"disarmed","CLEAN_OR_UNCLASSIFIED_EXIT_NO_AUTOSTART");continue;}
+                    {End(row,"needsReview","CLEAN_OR_UNCLASSIFIED_EXIT_NO_AUTOSTART");continue;}
                     if(!Stopped(state))
                     {
                         if(row.StoppedSamples!=0)Write(row with{StoppedSamples=0,LastStoppedUtc=null});
@@ -397,16 +452,25 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     // Freeze independent automatic lanes before final source
                     // proof. Existing native launch also acquires the map's
                     // machine-wide installation lease and rechecks all ports.
+                    // Never launch a second recovery while the first still
+                    // has a durable pending receipt, even for a different map.
+                    if(cluster.Config.LocalMaps.Any(other=>other.Id!=map.Id&&Read(other.Id)?.Status is "claimed" or "awaitingReady"))continue;
                     if(!tryEnterMaintenanceLane())continue;
                     try
                     {
+                        SteamHostLease? steamLease=null;
+                        try{steamLease=SteamHostLease.Acquire();}catch(IOException){continue;}
+                        using var exclusiveSteam=steamLease;
+                        SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();
                         DemandProfile(map,row,true);DemandNoPending(map);
                         if(RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc)||
                             !Stopped(observe(map))||!exit.HasExited||!FatalExitCode(exit.ExitCode))
-                        {End(row,"disarmed","FINAL_STOP_OR_OWNER_CHANGED");continue;}
+                        {End(row,"needsReview","FINAL_STOP_OR_OWNER_CHANGED");continue;}
                         var claimed=row with{Status="claimed",Claim=Guid.NewGuid(),LastAttemptUtc=now,
                             Evidence="DURABLE_CRASH_RECOVERY_CLAIM"};
                         Write(claimed);Drop(map.Id);
+                        Publish(claimed,"claimed","in-progress","RECOVERY_FATAL_EXIT_CONFIRMED");
+                        Publish(claimed,"started","in-progress","RECOVERY_DURABLE_START_CLAIM");
                         try
                         {
                             using var boundary=RecoveryNativeStartBoundary.Pin(id=>{
@@ -415,11 +479,13 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                                 DemandProfile(map,row,false);
                                 if(!Stopped(observe(map)))throw new InvalidOperationException("UM-WATCHDOG-FINAL-STATE");
                             });
+                            using var origin=DiscordOperationEvents.EnterOrigin("recovery",claimed.Claim,maps:new[]{map.Id},action:"Recovery",suppress:true);
                             var child=await launch(map);
                             if(child.Pid<=0||child.Started==default)
                                 throw new InvalidDataException("UM-WATCHDOG-LAUNCH-IDENTITY");
                             Write(claimed with{Status="awaitingReady",LaunchPid=child.Pid,LaunchStartedUtc=child.Started,
                                 ReadyDeadlineUtc=DateTimeOffset.UtcNow.AddMinutes(12),Evidence="NATIVE_START_DISPATCHED_WAITING_READY"});
+                            Publish(claimed,"native-dispatched","in-progress","RECOVERY_NATIVE_START_DISPATCHED");
                         }
                         catch{End(claimed,"needsReview","RECOVERY_START_UNCERTAIN_NO_RETRY",true);}
                     }
