@@ -388,7 +388,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         continue;
                     }
                     try{DemandProfile(map,row,false);}
-                    catch{End(row,"needsReview","MAINTENANCE_OR_PROFILE_CHANGE");continue;}
+                    catch{End(row,"needsReview","MAINTENANCE_OR_PROFILE_CHANGE",row.Status=="awaitingReady");continue;}
                     var state=observe(map);
                     bool intentional=RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc);
                     if(intentional||row.Status=="suspended")
@@ -402,7 +402,8 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         var intent=RecoveryStopIntent.Read(map);
                         var receipt=RecoveryStopIntent.ReadNativeStart(map);
                         if(intent==null||intent.MapId!=map.Id||receipt==null||receipt.RecordedUtc<=intent.MarkedUtc||
-                            receipt.StartedUtc<=intent.MarkedUtc||!Running(map,state)||
+                            receipt.StartedUtc<=intent.MarkedUtc||receipt.RecoveryClaim.HasValue||
+                            (intent.RestartId.HasValue&&receipt.RestartId.HasValue&&intent.RestartId!=receipt.RestartId)||!Running(map,state)||
                             !RecoveryStopIntent.MatchesNativeStart(receipt,map.StartWithAsaApi?state.LoaderIdentity:state.Identity))continue;
                         if(!tryEnterMaintenanceLane())continue;
                         try{
@@ -493,11 +494,11 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     // Never launch a second recovery while the first still
                     // has a durable pending receipt, even for a different map.
                     if(cluster.Config.LocalMaps.Any(other=>other.Id!=map.Id&&(Read(other.Id)?.Status is "claimed" or "awaitingReady")))continue;
-                    if(!tryEnterMaintenanceLane())continue;
+                    if(!tryEnterMaintenanceLane()){Write(row with{Evidence="RECOVERY_NATIVE_LANE_BUSY"});continue;}
                     try
                     {
                         SteamHostLease? steamLease=null;
-                        try{steamLease=SteamHostLease.Acquire();}catch(IOException){continue;}
+                        try{steamLease=SteamHostLease.Acquire();}catch(IOException){Write(row with{Evidence="RECOVERY_STEAM_HOST_BUSY"});continue;}
                         using var exclusiveSteam=steamLease;
                         SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();
                         DemandProfile(map,row,true);DemandNoPending(map);
@@ -514,7 +515,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                             using var boundary=RecoveryNativeStartBoundary.Pin(id=>{
                                 if(id!=map.Id||closing||handoff()||RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc))
                                     throw new InvalidOperationException("UM-WATCHDOG-FINAL-INTENT");
-                                DemandProfile(map,row,false);
+                                DemandProfile(map,row,true);
                                 if(!Stopped(observe(map)))throw new InvalidOperationException("UM-WATCHDOG-FINAL-STATE");
                             },claimed.Claim);
                             using var origin=DiscordOperationEvents.EnterOrigin("recovery",claimed.Claim,maps:new[]{map.Id},action:"Recovery",suppress:true);
@@ -522,7 +523,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                             if(child.Pid<=0||child.Started==default)
                                 throw new InvalidDataException("UM-WATCHDOG-LAUNCH-IDENTITY");
                             Write(claimed with{Status="awaitingReady",LaunchPid=child.Pid,LaunchStartedUtc=child.Started,
-                                ReadyDeadlineUtc=DateTimeOffset.UtcNow.AddMinutes(12),Evidence="NATIVE_START_DISPATCHED_WAITING_READY"});
+                                ReadyDeadlineUtc=claimed.LastAttemptUtc!.Value.AddMinutes(12),Evidence="NATIVE_START_DISPATCHED_WAITING_READY"});
                             Publish(claimed,"native-dispatched","in-progress","RECOVERY_NATIVE_START_DISPATCHED");
                         }
                         catch{End(claimed,"needsReview","RECOVERY_START_UNCERTAIN_NO_RETRY",true);}
