@@ -210,7 +210,7 @@ internal static class LegacyStoreV1GracefulStop
             AsaWorldSaveEvidence.Begin(locked.Map,locked.Process)
                 ??throw new InvalidOperationException("UM-ORIGINAL-STOP-SAVE-WITNESS-MISSING"):
             null;
-        RecoveryStopIntent.Mark(locked.Map,locked.Process);
+        RecoveryStopIntent.Mark(locked.Map,locked.Process,approvedRestartId);
         lease.MarkMutationStarted();
         bool preExitObserved=false,worldMetadataObserved=false;
         if(execute!=null)

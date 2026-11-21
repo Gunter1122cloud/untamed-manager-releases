@@ -50,6 +50,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
     private readonly Dictionary<Guid,Approval> approvalsByMap=new();
     // Preserve the in-memory Restart identity of every local ASA map.
     private readonly Dictionary<Guid,Job> jobsByMap=new();
+    internal bool RecoveryLaneBusy(){lock(sync)return jobsByMap.Values.Any(x=>x.State is "queued" or "running");}
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private bool HasActive(Guid mapId)
     {

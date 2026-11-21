@@ -4,11 +4,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {createHash,randomUUID} from "node:crypto";
 
-const phases={claimed:"Feladat lefoglalva",started:"Végrehajtás megkezdődött",
+const phases={"crash-confirmed":"Igazolt szerverösszeomlás",claimed:"Feladat lefoglalva",started:"Végrehajtás megkezdődött",
  "native-dispatched":"Natív művelet elfogadva","save-result":"Mentési eredmény","stop-result":"Régi folyamat kilépése",
  "new-process":"Új folyamat megfigyelve",readiness:"Játékosfogadási készültség","wipe-dispatch":"Dinówipe küldése",
  "wipe-result":"Dinówipe eredménye",receipt:"Natív bizonylat",terminal:"Lezárás"};
-const operations={Restart:"Újraindítás",SaveWorld:"Világmentés",WildWipe:"Dinówipe",
+const operations={Recovery:"Automatikus helyreállítás",Restart:"Újraindítás",SaveWorld:"Világmentés",WildWipe:"Dinówipe",
  Start:"Indítás",Stop:"Leállítás",Backup:"Biztonsági mentés",Restore:"Visszaállítás",Update:"Frissítés",
  restart:"Újraindítás",start:"Indítás",stop:"Leállítás",save:"Világmentés",saveWorld:"Világmentés",
  wipe:"Dinówipe",backup:"Biztonsági mentés",restore:"Visszaállítás",update:"Frissítés",steamUpdate:"Frissítés"};
@@ -41,6 +41,16 @@ const resultText=r=>/failed|error|rejected|blocked|denied/i.test(r)?"Hiba vagy e
  /limited|no-fsync/i.test(r)?"Korlátozott natív bizonyíték":
  r==="verified-local"?"Helyi natív bizonyíték igazolva":r==="in-progress"?"Folyamatban":"Natív eredmény";
 Object.assign(evidence,{
+ RECOVERY_FATAL_EXIT_HANDLE_CONFIRMED:"A megtartott Windows-handle igazolt végzetes kilépést; a teljes régi folyamatcsalád leállását még ellenőrizni kell.",
+ RECOVERY_OLD_FAMILY_NOT_STOPPED_NO_START:"A régi ASA/Loader-család teljes leállása nem igazolható. Nincs automatikus Start.",
+ RECOVERY_FATAL_EXIT_CONFIRMED:"Megtartott folyamat-handle és végzetes kilépési kód, teljes leállás igazolva.",
+ RECOVERY_DURABLE_START_CLAIM:"Tartós foglalás. Egyetlen natív Start engedélyezett.",
+ RECOVERY_NATIVE_START_DISPATCHED:"Natív Start elfogadva; játékosfogadás még nem igazolt.",
+ RECOVERY_RECONCILED_NATIVE_START:"Megszakadt foglaláshoz tartozó pontos natív Start-bizonylat visszaolvasva; újraküldés nincs.",
+ RECOVERY_NEW_FAMILY_OBSERVED:"Új ASA/Loader folyamatcsalád megfigyelve; készültség még nem igazolt.",
+ RECOVERY_NATIVE_READINESS_PROVEN:"Új folyamat és natív játékosfogadási készültség igazolva; crash előtti mentés és kliensbelépés nem tanúsított.",
+ RECOVERY_COOLDOWN_NO_CRASH_LOOP:"30 perces korlát: nincs újabb automatikus indítás.",
+ RECOVERY_READINESS_TIMEOUT_NO_RETRY:"Készültségi időtúllépés; kézi ellenőrzés, nincs újraküldés.",
  NATIVE_PREFLIGHT_PASSED:"A natív előellenőrzés sikeres, a végrehajtás megkezdődött.",
  NATIVE_JOB_ACCEPTED:"A natív munkásfeladat elfogadva; eredménye még nem igazolt.",
  RESTART_NEW_PID_READINESS_UNVERIFIED:"Új ASA-folyamat megfigyelve. Játékosfogadási készültség még nem igazolt.",
@@ -151,16 +161,16 @@ export class OperationFeed {
    queue("admin",this.channels.admin);
    if(/backup|restore/i.test(e.operation))queue("backup",this.channels.backup);
    if(/update|steam/i.test(e.operation))queue("update",this.channels.update);
-   if(!backfill&&e.phase==="started")queue("alert-start",this.channels.alert);
+   if(!backfill&&(e.phase==="started"||(e.origin==="recovery"&&e.phase==="crash-confirmed")))queue("alert-start",this.channels.alert);
    if(!backfill&&terminal(e))queue("alert-end",this.channels.alert);
  }
  payload(item){
    const run=this.state.runs[item.runId],e=run.latest;
-   const start=run.phases.started??run.phases.claimed??e;
+   const start=run.phases["crash-confirmed"]??run.phases.started??run.phases.claimed??e;
    const alert=item.kind==="alert-start";
    const shown=alert?start:e;
-   const title=(operations[run.operation]??clean(run.operation))+(alert?" – kezdés":item.kind==="alert-end"?" – lezárás":"");
-   const actor=run.origin==="scheduler"?"Automatikus ütemező":run.actorId?"Discord ID: "+run.actorId:run.origin==="manager"?"Manager (név nem ismert)":"Nem ismert";
+   const title=(operations[run.operation]??clean(run.operation))+(alert?(run.origin==="recovery"?" – igazolt crash / kezdés":" – kezdés"):item.kind==="alert-end"?" – lezárás":"");
+   const actor=run.origin==="recovery"?"Automatikus helyreállítás":run.origin==="scheduler"?"Automatikus ütemező":run.actorId?"Discord ID: "+run.actorId:run.origin==="manager"?"Manager (név nem ismert)":"Nem ismert";
    const fields=[{name:"Gép",value:clean(run.hostName??run.hostId),inline:true},
      {name:"Map(ok)",value:clean(run.mapNames.join(", ")),inline:true},
      {name:"Végrehajtó",value:actor,inline:true},
@@ -168,7 +178,7 @@ export class OperationFeed {
      {name:"Fázis",value:phases[shown.phase]??clean(shown.phase),inline:true}];
    if(run.scheduledUtc)fields.push({name:"Esedékesség",value:stamp(run.scheduledUtc),inline:true});
    if(run.claimedUtc&&!run.startedUtc)fields.push({name:"Lefoglalás",value:stamp(run.claimedUtc),inline:true});
-   if(!alert)for(const p of ["save-result","stop-result","new-process","readiness","wipe-result"]){
+   if(!alert)for(const p of (run.origin==="recovery"?["crash-confirmed","claimed","native-dispatched","new-process","readiness"]:["save-result","stop-result","new-process","readiness","wipe-result"])){
      const row=run.phases[p];if(row)fields.push({name:phases[p],value:description(row)});
    }
    const embed={title,description:(run.historical||shown.historical?"Utólagos átvétel · eredeti eseményidő: "+stamp(shown.eventUtc)+"\n":"")+description(shown),

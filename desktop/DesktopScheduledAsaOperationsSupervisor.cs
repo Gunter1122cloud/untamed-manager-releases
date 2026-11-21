@@ -71,6 +71,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private readonly ClusterService cluster;
     private readonly DiscordOperationEvents eventStream;
+    internal Func<Guid,bool>? AutomaticRecoveryPending {get;set;}
     private readonly DesktopRconReadOnlyBridge rcon;
     private readonly DesktopRconAdminBridge freshWipeAdmin;
     private readonly DesktopFreshAsaRestartBridge restart;
@@ -1017,6 +1018,10 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             foreach(var observed in due)
             {
                 token.ThrowIfCancellationRequested();
+                // A claimed crash launch owns the map until its readiness or
+                // terminal failure. Do not consume/execute a scheduler slot
+                // during that window; ordinary missed-slot rules apply later.
+                if(AutomaticRecoveryPending?.Invoke(observed.MapId)==true)continue;
                 bool missed=now-observed.NextDueUtc>TimeSpan.FromMinutes(5);
                 var claimId=Guid.NewGuid();
                 bool dispatched=Locked(()=>{

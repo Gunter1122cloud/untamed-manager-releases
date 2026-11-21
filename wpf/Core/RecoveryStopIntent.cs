@@ -9,7 +9,7 @@ namespace UntamedManager.Core;
 // BEFORE any SaveWorld/DoExit/kill can affect the approved process.
 internal static class RecoveryStopIntent
 {
-    internal sealed record Intent(Guid MapId,int Pid,DateTimeOffset StartedUtc,DateTimeOffset MarkedUtc);
+    internal sealed record Intent(Guid MapId,int Pid,DateTimeOffset StartedUtc,DateTimeOffset MarkedUtc,Guid? RestartId=null);
     private static string PathFor(LocalMap map)
     {
         string dir=Path.Combine(UntamedOperationCoordinator.DefaultRoot,"RecoveryStopIntent-v1");
@@ -19,9 +19,17 @@ internal static class RecoveryStopIntent
             throw new InvalidDataException("UM-WATCHDOG-STOP-INTENT-LINK");
         return path;
     }
+    private static string MapStopPath(LocalMap map)=>PathFor(map)+"."+map.Id.ToString("N")+".stop";
     internal static Intent? Read(LocalMap map)
     {
-        string path=PathFor(map);
+        var specific=ReadPath(MapStopPath(map));
+        var legacy=ReadPath(PathFor(map));
+        if(specific!=null&&specific.MapId!=map.Id)throw new InvalidDataException("UM-WATCHDOG-STOP-INTENT-MAP");
+        if(legacy?.MapId!=map.Id)legacy=null;
+        return specific==null?legacy:legacy!=null&&legacy.MarkedUtc>specific.MarkedUtc?legacy:specific;
+    }
+    private static Intent? ReadPath(string path)
+    {
         FileAttributes attrs;
         try{attrs=File.GetAttributes(path);}
         catch(FileNotFoundException){return null;}
@@ -36,30 +44,76 @@ internal static class RecoveryStopIntent
             throw new InvalidDataException("UM-WATCHDOG-STOP-INTENT-INVALID");
         return intent;
     }
-    internal static void Mark(LocalMap map,ProcessIdentity process)
+    internal static void Mark(LocalMap map,ProcessIdentity process,Guid? restartId=null)
     {
         if(map.Id==Guid.Empty||process.Pid<=0||process.StartedUtc==default)
             throw new InvalidDataException("UM-WATCHDOG-STOP-IDENTITY");
-        string path=PathFor(map);Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        string path=MapStopPath(map);Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        if(Directory.Exists(path)||(File.Exists(path)&&(File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0))
+            throw new InvalidDataException("UM-WATCHDOG-STOP-INTENT-LINK");
         string tmp=path+"."+Guid.NewGuid().ToString("N")+".tmp";
         try
         {
             using(var output=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,
                 FileShare.None,4096,FileOptions.WriteThrough))
             {
-                JsonSerializer.Serialize(output,new Intent(map.Id,process.Pid,process.StartedUtc,DateTimeOffset.UtcNow));
+                JsonSerializer.Serialize(output,new Intent(map.Id,process.Pid,process.StartedUtc,DateTimeOffset.UtcNow,restartId));
                 output.Flush(true);
             }
             File.Move(tmp,path,true);
         }
         finally{if(File.Exists(tmp))File.Delete(tmp);}
     }
+    internal sealed record NativeStart(Guid MapId,int Pid,DateTimeOffset StartedUtc,
+        string ExecutablePath,DateTimeOffset RecordedUtc,Guid? RestartId,Guid? RecoveryClaim=null);
+    private static string StartPath(LocalMap map)
+    {
+        string path=PathFor(map)+"."+map.Id.ToString("N")+".start";
+        if(Directory.Exists(path)||(File.Exists(path)&&(File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0))
+            throw new InvalidDataException("UM-WATCHDOG-START-INTENT-LINK");
+        return path;
+    }
+    // Called under the native installation lease AFTER saved process identity
+    // and successful native launch. No renderer or process discovery may mint it.
+    internal static void RecordNativeStart(LocalMap map,ProcessIdentity process,Guid? restartId)
+    {
+        if(map.Id==Guid.Empty||process.Pid<=0||process.StartedUtc==default||
+           string.IsNullOrWhiteSpace(process.ExecutablePath))
+            throw new InvalidDataException("UM-WATCHDOG-START-IDENTITY");
+        string path=StartPath(map);Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        string tmp=path+"."+Guid.NewGuid().ToString("N")+".tmp";
+        try
+        {
+            using(var output=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough))
+            {
+                JsonSerializer.Serialize(output,new NativeStart(map.Id,process.Pid,process.StartedUtc,
+                    process.ExecutablePath,DateTimeOffset.UtcNow,restartId,RecoveryNativeStartBoundary.Claim));output.Flush(true);
+            }
+            File.Move(tmp,path,true);
+        }
+        finally{if(File.Exists(tmp))File.Delete(tmp);}
+    }
+    internal static NativeStart? ReadNativeStart(LocalMap map)
+    {
+        string path=StartPath(map);
+        if(!File.Exists(path))return null;
+        using var input=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
+        if(input.Length is <2 or >16384)throw new InvalidDataException("UM-WATCHDOG-START-INTENT-INVALID");
+        var row=JsonSerializer.Deserialize<NativeStart>(input);
+        if(row==null||row.MapId!=map.Id||row.Pid<=0||row.StartedUtc==default||
+            row.RecordedUtc<row.StartedUtc||string.IsNullOrWhiteSpace(row.ExecutablePath))
+            throw new InvalidDataException("UM-WATCHDOG-START-INTENT-INVALID");
+        return row;
+    }
+    internal static bool MatchesNativeStart(NativeStart receipt,ProcessIdentity? process)=>
+        process!=null&&receipt.Pid==process.Pid&&receipt.StartedUtc==process.StartedUtc&&
+        string.Equals(receipt.ExecutablePath,process.ExecutablePath,StringComparison.OrdinalIgnoreCase);
     internal static bool Suppresses(LocalMap map,int pid,DateTimeOffset started,DateTimeOffset armed)
     {
         var intent=Read(map);
         // Also suppress a later intentional stop on the same installation,
         // even if a new process ran between watchdog observations.
-        return intent!=null&&((intent.Pid==pid&&intent.StartedUtc==started)||
+        return intent!=null&&intent.MapId==map.Id&&((intent.Pid==pid&&intent.StartedUtc==started)||
             intent.MarkedUtc>=armed);
     }
 }

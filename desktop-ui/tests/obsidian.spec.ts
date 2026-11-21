@@ -3638,14 +3638,14 @@ test("read-only operations scheduler requires approval, shows durable receipt an
   await page.getByRole("checkbox",{name:/Jóváhagyom a helyi, csak olvasó/}).check();
   await add.click();
   await expect(page.getByText(/Mentve: a helyi, csak olvasó ellenőrzés/)).toBeVisible();
-  await expect(page.locator(".ops-schedule-table").first().locator("tbody tr")).toHaveCount(2);
+  await expect(page.locator(".ops-schedules .ops-schedule-table").first().locator("tbody tr")).toHaveCount(2);
   await expect(page.getByText("read-only-complete")).toBeVisible();
   await expect(page.locator(".ops-schedules").getByRole("button",{name:"Kikapcsolás"})).toBeDisabled();
   await page.getByRole("checkbox",{name:/Jóváhagyom a helyi, csak olvasó/}).check();
   await page.locator(".ops-schedules").getByRole("button",{name:"Kikapcsolás"}).click();
   await expect(page.getByText("Az automatikus helyi ellenőrzés kikapcsolva.")).toBeVisible();
   await expect(page.locator(".ops-schedules").getByRole("button",{name:"Kikapcsolás"})).toHaveCount(0);
-  await expect(page.locator(".ops-schedule-table").first().locator("tbody tr")).toHaveCount(2);
+  await expect(page.locator(".ops-schedules .ops-schedule-table").first().locator("tbody tr")).toHaveCount(2);
   await expect(page.locator(".ops-schedules")).not.toContainText("Szerver automatikus újraindítása");
 });
 
@@ -3655,7 +3655,7 @@ test("map-only scheduling never exposes another local map's tasks",async({page})
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await page.getByRole("tab",{name:"Ütemező"}).click();
   await expect(page.locator(".ops-scheduler-map")).toContainText("Astraeos");
-  await expect(page.locator(".ops-schedule-table").first().locator("tbody tr")).toHaveCount(0);
+  await expect(page.locator(".ops-schedules .ops-schedule-table").first().locator("tbody tr")).toHaveCount(0);
   await expect(page.getByRole("combobox",{name:"Ütemezett ellenőrzés mapja"})).toHaveCount(0);
   await expect(page.getByRole("button",{name:"Ellenőrzés bekapcsolása"})).toBeDisabled();
 });

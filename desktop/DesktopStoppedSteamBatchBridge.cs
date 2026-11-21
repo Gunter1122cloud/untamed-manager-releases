@@ -49,6 +49,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
     private const long Reserve=10L*1024*1024*1024;
     private Pending? pending;
     private Job? job;
+    internal bool RecoveryLaneBusy()=>RunningJob();
     private readonly HashSet<Guid> acceptedDirectRequests=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
