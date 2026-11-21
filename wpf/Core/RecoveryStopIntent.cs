@@ -19,9 +19,17 @@ internal static class RecoveryStopIntent
             throw new InvalidDataException("UM-WATCHDOG-STOP-INTENT-LINK");
         return path;
     }
+    private static string MapStopPath(LocalMap map)=>PathFor(map)+"."+map.Id.ToString("N")+".stop";
     internal static Intent? Read(LocalMap map)
     {
-        string path=PathFor(map);
+        var specific=ReadPath(MapStopPath(map));
+        var legacy=ReadPath(PathFor(map));
+        if(specific!=null&&specific.MapId!=map.Id)throw new InvalidDataException("UM-WATCHDOG-STOP-INTENT-MAP");
+        if(legacy?.MapId!=map.Id)legacy=null;
+        return specific==null?legacy:legacy!=null&&legacy.MarkedUtc>specific.MarkedUtc?legacy:specific;
+    }
+    private static Intent? ReadPath(string path)
+    {
         FileAttributes attrs;
         try{attrs=File.GetAttributes(path);}
         catch(FileNotFoundException){return null;}
@@ -40,7 +48,9 @@ internal static class RecoveryStopIntent
     {
         if(map.Id==Guid.Empty||process.Pid<=0||process.StartedUtc==default)
             throw new InvalidDataException("UM-WATCHDOG-STOP-IDENTITY");
-        string path=PathFor(map);Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        string path=MapStopPath(map);Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        if(Directory.Exists(path)||(File.Exists(path)&&(File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0))
+            throw new InvalidDataException("UM-WATCHDOG-STOP-INTENT-LINK");
         string tmp=path+"."+Guid.NewGuid().ToString("N")+".tmp";
         try
         {
@@ -103,7 +113,7 @@ internal static class RecoveryStopIntent
         var intent=Read(map);
         // Also suppress a later intentional stop on the same installation,
         // even if a new process ran between watchdog observations.
-        return intent!=null&&((intent.Pid==pid&&intent.StartedUtc==started)||
+        return intent!=null&&intent.MapId==map.Id&&((intent.Pid==pid&&intent.StartedUtc==started)||
             intent.MarkedUtc>=armed);
     }
 }
