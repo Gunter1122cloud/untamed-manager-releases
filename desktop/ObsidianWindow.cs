@@ -397,6 +397,7 @@ public sealed class ObsidianWindow : Form
         _recovery = new DesktopWatchdogRecovery(_bridge.LocalCluster,_bridgeGate,
             TryEnterWatchdogLane,ReleaseRecoveryLane,()=>_updateHandoff,
             _freshStart.HandleAsync,_historicalStart.HandleAsync,_historicalReadOnlyRcon.HandleAsync);
+        _nativeSchedules.AutomaticRecoveryPending=_recovery.HasPendingRecovery;
         _discordControl = new DesktopDiscordControlApi(_bridge.LocalCluster,_bridgeGate,()=>_updateHandoff,
             TryEnterRecoveryLane,ReleaseRecoveryLane,DispatchDiscordNative,_asaDiscovery.Snapshot,_nativeSchedules.LegacyOperationHistory);
         _liveMods=new DesktopHistoricalLiveModSync(_bridge.LocalCluster,_bridgeGate,
