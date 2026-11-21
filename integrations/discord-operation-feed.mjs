@@ -8,7 +8,7 @@ const phases={claimed:"Feladat lefoglalva",started:"Végrehajtás megkezdődött
  "native-dispatched":"Natív művelet elfogadva","save-result":"Mentési eredmény","stop-result":"Régi folyamat kilépése",
  "new-process":"Új folyamat megfigyelve",readiness:"Játékosfogadási készültség","wipe-dispatch":"Dinówipe küldése",
  "wipe-result":"Dinówipe eredménye",receipt:"Natív bizonylat",terminal:"Lezárás"};
-const operations={Restart:"Újraindítás",SaveWorld:"Világmentés",WildWipe:"Dinówipe",
+const operations={Recovery:"Automatikus helyreállítás",Restart:"Újraindítás",SaveWorld:"Világmentés",WildWipe:"Dinówipe",
  Start:"Indítás",Stop:"Leállítás",Backup:"Biztonsági mentés",Restore:"Visszaállítás",Update:"Frissítés",
  restart:"Újraindítás",start:"Indítás",stop:"Leállítás",save:"Világmentés",saveWorld:"Világmentés",
  wipe:"Dinówipe",backup:"Biztonsági mentés",restore:"Visszaállítás",update:"Frissítés",steamUpdate:"Frissítés"};
@@ -41,6 +41,14 @@ const resultText=r=>/failed|error|rejected|blocked|denied/i.test(r)?"Hiba vagy e
  /limited|no-fsync/i.test(r)?"Korlátozott natív bizonyíték":
  r==="verified-local"?"Helyi natív bizonyíték igazolva":r==="in-progress"?"Folyamatban":"Natív eredmény";
 Object.assign(evidence,{
+ RECOVERY_FATAL_EXIT_CONFIRMED:"Megtartott folyamat-handle és végzetes kilépési kód, teljes leállás igazolva.",
+ RECOVERY_DURABLE_START_CLAIM:"Tartós foglalás. Egyetlen natív Start engedélyezett.",
+ RECOVERY_NATIVE_START_DISPATCHED:"Natív Start elfogadva; játékosfogadás még nem igazolt.",
+ RECOVERY_RECONCILED_NATIVE_START:"Megszakadt foglaláshoz tartozó pontos natív Start-bizonylat visszaolvasva; újraküldés nincs.",
+ RECOVERY_NEW_FAMILY_OBSERVED:"Új ASA/Loader folyamatcsalád megfigyelve; készültség még nem igazolt.",
+ RECOVERY_NATIVE_READINESS_PROVEN:"Új folyamat és natív játékosfogadási készültség igazolva; crash előtti mentés és kliensbelépés nem tanúsított.",
+ RECOVERY_COOLDOWN_NO_CRASH_LOOP:"30 perces korlát: nincs újabb automatikus indítás.",
+ RECOVERY_READINESS_TIMEOUT_NO_RETRY:"Készültségi időtúllépés; kézi ellenőrzés, nincs újraküldés.",
  NATIVE_PREFLIGHT_PASSED:"A natív előellenőrzés sikeres, a végrehajtás megkezdődött.",
  NATIVE_JOB_ACCEPTED:"A natív munkásfeladat elfogadva; eredménye még nem igazolt.",
  RESTART_NEW_PID_READINESS_UNVERIFIED:"Új ASA-folyamat megfigyelve. Játékosfogadási készültség még nem igazolt.",
@@ -160,7 +168,7 @@ export class OperationFeed {
    const alert=item.kind==="alert-start";
    const shown=alert?start:e;
    const title=(operations[run.operation]??clean(run.operation))+(alert?" – kezdés":item.kind==="alert-end"?" – lezárás":"");
-   const actor=run.origin==="scheduler"?"Automatikus ütemező":run.actorId?"Discord ID: "+run.actorId:run.origin==="manager"?"Manager (név nem ismert)":"Nem ismert";
+   const actor=run.origin==="recovery"?"Automatikus helyreállítás":run.origin==="scheduler"?"Automatikus ütemező":run.actorId?"Discord ID: "+run.actorId:run.origin==="manager"?"Manager (név nem ismert)":"Nem ismert";
    const fields=[{name:"Gép",value:clean(run.hostName??run.hostId),inline:true},
      {name:"Map(ok)",value:clean(run.mapNames.join(", ")),inline:true},
      {name:"Végrehajtó",value:actor,inline:true},
