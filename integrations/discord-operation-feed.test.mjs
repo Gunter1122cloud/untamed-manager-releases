@@ -145,3 +145,23 @@ test("twenty or more inaccessible channel items do not starve later healthy aler
  assert.equal(alert.status,"sent");assert.ok(l.sinks.get("alert").sent>0);
  assert.ok(Object.values(feed.state.outbox).some(x=>x.failureCount===1&&x.status!=="sent"));
 });
+
+test("recovery on two hosts: stable independent run identity, separate phases and readiness-only success",async t=>{
+ const l=await lab(t);let feed=l.make();await feed.tick();
+ const sameRun=randomUUID();
+ for(const [i,h] of l.hosts.entries()){
+   const map=randomUUID();
+   for(const [phase,result,evidence] of [["claimed","in-progress","RECOVERY_FATAL_EXIT_CONFIRMED"],["started","in-progress","RECOVERY_DURABLE_START_CLAIM"],["native-dispatched","in-progress","RECOVERY_NATIVE_START_DISPATCHED"],["new-process","in-progress","RECOVERY_NEW_FAMILY_OBSERVED"]])l.evt(h,sameRun,phase,result,evidence,map,"recovery","Recovery");
+   h.recoveryMap=map;
+ }
+ await feed.tick();assert.equal(l.sinks.get("admin").sent,2);assert.equal(l.sinks.get("alert").sent,2);
+ for(const m of l.sinks.get("admin").rows.values())assert.notEqual(m.embeds[0].color,0x2ecc71);
+ const [a,b]=l.hosts;
+ l.evt(a,sameRun,"readiness","verified-local","RECOVERY_NATIVE_READINESS_PROVEN",a.recoveryMap,"recovery","Recovery");
+ l.evt(a,sameRun,"terminal","verified-local","RECOVERY_NATIVE_READINESS_PROVEN",a.recoveryMap,"recovery","Recovery");
+ l.evt(b,sameRun,"terminal","uncertain","RECOVERY_READINESS_TIMEOUT_NO_RETRY",b.recoveryMap,"recovery","Recovery");
+ feed=l.make();await feed.tick();assert.equal(l.sinks.get("admin").sent,2);assert.equal(l.sinks.get("alert").sent,4);
+ const admin=[...l.sinks.get("admin").rows.values()].map(m=>m.embeds[0]);assert.equal(admin.filter(e=>e.color===0x2ecc71).length,1);
+ assert.ok(admin.every(e=>e.fields.find(f=>f.name==="Végrehajtó").value==="Automatikus helyreállítás"));
+ feed=l.make();await feed.tick();assert.equal(l.sinks.get("admin").sent,2);assert.equal(l.sinks.get("alert").sent,4);
+});
