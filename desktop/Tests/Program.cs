@@ -449,9 +449,9 @@ await SteamPublicBuildParsingTests.RunAsync(root);
 {
     string sampleRoot=Path.Combine(root,"watchdog-cached-stop-fixture");
     await using var service=new ClusterService("watchdog-cached-stop",sampleRoot);
-    var map=new LocalMap{Name="Cached stop",InstallationPath=Path.Combine(sampleRoot,"asa"),
+    var cachedMap=new LocalMap{Name="Cached stop",InstallationPath=Path.Combine(sampleRoot,"asa"),
         RconHost="127.0.0.1",RconPort=45701,RconPasswordProtected="synthetic"};
-    service.Config.LocalMaps.Add(map);service.Save();
+    service.Config.LocalMaps.Add(cachedMap);service.Save();
     var pid=new ProcessIdentity{Pid=52482,StartedUtc=DateTimeOffset.UtcNow.AddHours(-1),ExecutablePath="synthetic-asa"};
     var fixedSample=new ProcessCheck(false,"stopped but cached",null,true);
     bool stopped=false;int starts=0;
@@ -462,13 +462,13 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         Never,Never,Never,_=>stopped?fixedSample:new ProcessCheck(true,"running",pid,false),
         _=>witness,_=>new string('C',64),(_,_)=>Task.FromResult(true),
         _=>{starts++;return Task.FromResult((52483,DateTimeOffset.UtcNow));});
-    IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=map.Id,confirm=true}),"arm cached-stop fixture");
+    IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=cachedMap.Id,confirm=true}),"arm cached-stop fixture");
     var now=DateTimeOffset.UtcNow;stopped=true;witness.Exited=true;witness.Code=unchecked((int)0xC0000005);
     await recovery.TickOnceAsync(now.AddSeconds(10));
     await recovery.TickOnceAsync(now.AddSeconds(20));
     await recovery.TickOnceAsync(now.AddSeconds(30));
     var status=(await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0];
-    Check(starts==0&&status.GetProperty("stoppedSamples").GetInt32()==1&&recovery.HasPendingRecovery(map.Id),
+    Check(starts==0&&status.GetProperty("stoppedSamples").GetInt32()==1&&recovery.HasPendingRecovery(cachedMap.Id),
         "three timer ticks using one cached stopped observation count only once");
 }
 // Isolate Manager interruption at the durable claim/receipt boundaries.
