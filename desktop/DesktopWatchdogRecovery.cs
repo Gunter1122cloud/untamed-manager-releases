@@ -290,8 +290,23 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     }
     private static string Ok(string? id,object data)=>JsonSerializer.Serialize(new{id,ok=true,data},Json);
     private static string Fail(string? id,string error)=>JsonSerializer.Serialize(new{id,ok=false,error},Json);
+    private static string NextAction(State? row)=>row?.Status switch
+    {
+        null or "disarmed" => "READY_MAP_REQUIRED_TO_ENABLE",
+        "armed" when row.CrashConfirmedUtc.HasValue => "WAIT_FOR_THREE_FRESH_STOP_SAMPLES",
+        "armed" => "NO_ACTION_PROTECTION_ACTIVE",
+        "claimed" or "awaitingReady" => "DO_NOT_RETRY_NATIVE_START",
+        "suspended" => "WAIT_FOR_TRUSTED_NATIVE_START_AND_READINESS",
+        "externalSuspended" => "FINISH_EXTERNAL_MAINTENANCE_THEN_ARM_ON_READY_MAP",
+        "needsReview" when row.Evidence=="RECOVERY_READINESS_TIMEOUT_NO_RETRY" => "REVIEW_LISTENERS_RCON_AND_CURRENT_STARTUP_LOG",
+        "needsReview" when row.Evidence is "RECOVERY_START_UNCERTAIN_NO_RETRY" or "INTERRUPTED_DURABLE_CLAIM_NO_REPLAY"
+            => "RECONCILE_NATIVE_START_JOURNAL_AND_RUNNING_PROCESSES",
+        "needsReview" when row.Evidence=="RECOVERY_COOLDOWN_NO_CRASH_LOOP" => "REVIEW_REPEATED_CRASH_AND_COOLDOWN",
+        "needsReview" => "MANUAL_NATIVE_JOURNAL_AND_PROCESS_REVIEW",
+        _ => "REVIEW_WATCHDOG_STATUS"
+    };
     private object Data(State? row,LocalMap map)=>new{mapId=map.Id,mapName=map.Name,
-        enabled=row!=null&&Enabled(row),lastCheckedUtc=lastChecked.TryGetValue(map.Id,out var checkedUtc)?(DateTimeOffset?)checkedUtc:null,
+        enabled=row!=null&&Enabled(row),nextAction=NextAction(row),lastCheckedUtc=lastChecked.TryGetValue(map.Id,out var checkedUtc)?(DateTimeOffset?)checkedUtc:null,
         nextAttemptUtc=row?.LastAttemptUtc?.AddMinutes(30),terminalPublicationPending=row?.TerminalPublicationPending??false,lastResultUtc=row?.TerminalUtc,lastResult=row?.TerminalResult,lastResultEvidence=row?.TerminalEvidence,
         status=row?.Status??"disarmed",evidence=row?.Evidence??"NOT_ARMED",crashConfirmedUtc=row?.CrashConfirmedUtc,
         lastAttemptUtc=row?.LastAttemptUtc,claim=row?.Claim,pid=row?.Pid,loaderPid=row?.LoaderPid,
