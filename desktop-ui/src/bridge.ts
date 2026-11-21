@@ -104,7 +104,7 @@ export type NativeAsaScheduleSaved={
 
 export type ModerationReceipt={id:string;createdUtc:string;action:string;eosId:string;reason:string;reviewAtUtc:string|null;targets:Array<{mapId:string;mapName:string;status:string}>};
 export type ModerationPreview={token:string;action:string;eosId:string;reason:string;reviewAtUtc:string|null;command:string;maps:Array<{mapId:string;mapName:string}>;remoteExecutionAllowed:false};
-export type WatchdogRecoveryMap={mapId:string;mapName:string;status:"armed"|"disarmed"|"claimed"|"awaitingReady"|"needsReview"|"suspended"|"externalSuspended";enabled?:boolean;lastCheckedUtc?:string|null;nextAttemptUtc?:string|null;evidence:string;lastAttemptUtc:string|null;claim:string|null;pid:number|null;loaderPid:number|null;launchMode:"asaApiLoader"|"directAsa";storeV1:boolean;stoppedSamples:number;managerRequired:true};
+export type WatchdogRecoveryMap={mapId:string;mapName:string;status:"armed"|"disarmed"|"claimed"|"awaitingReady"|"needsReview"|"suspended"|"externalSuspended";enabled?:boolean;lastCheckedUtc?:string|null;nextAttemptUtc?:string|null;terminalPublicationPending?:boolean;evidence:string;lastAttemptUtc:string|null;claim:string|null;pid:number|null;loaderPid:number|null;launchMode:"asaApiLoader"|"directAsa";storeV1:boolean;stoppedSamples:number;managerRequired:true};
 export type DiscordNotificationStatus={configured:boolean;categories:string[];warningsOnly:boolean;lastStatus:string;lastAttemptUtc:string|null;cooldownUntilUtc:string};
 export type LifecycleBatchAction="start"|"stop"|"restart";
 export type LifecycleBatchPreview={token:string;action:LifecycleBatchAction;delaySeconds:number;maps:Array<{mapId:string;mapName:string}>;remoteExecutionAllowed:false};
