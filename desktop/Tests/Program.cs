@@ -378,6 +378,10 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     }
     await recovery.TickOnceAsync(now.AddSeconds(40));
     Check(launches==1&&!recovery.CanManagerUpdate(),"confirmed crash claims one start and blocks Manager handoff during readiness");
+    // The historical Core launcher may clear only the submitted-mod draft
+    // marker after proving ordered mod arguments. This must not disarm
+    // watchdog readiness for the already-approved native Start.
+    m.ModChangesPending=!m.ModChangesPending;recoveryCluster.Save();
     stopped=false;fake.Exited=false;readyForRecovery=false;
     loader=new ProcessIdentity{Pid=52320,StartedUtc=launchedUtc,ExecutablePath="synthetic-loader"};
     child=new ProcessIdentity{Pid=52321,StartedUtc=launchedUtc,ExecutablePath="synthetic-asa"};
