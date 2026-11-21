@@ -440,6 +440,33 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     await recovery.TickOnceAsync(now.AddSeconds(140));
     Check(launches==1&&(await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0].GetProperty("status").GetString()=="needsReview","reused PID cannot transfer crash recovery permission");
 }
+// Independently timestamped ticks must not multiply one cached process
+// inventory into the required three stopped observations.
+{
+    string sampleRoot=Path.Combine(root,"watchdog-cached-stop-fixture");
+    await using var service=new ClusterService("watchdog-cached-stop",sampleRoot);
+    var map=new LocalMap{Name="Cached stop",InstallationPath=Path.Combine(sampleRoot,"asa"),
+        RconHost="127.0.0.1",RconPort=45701,RconPasswordProtected="synthetic"};
+    service.Config.LocalMaps.Add(map);service.Save();
+    var pid=new ProcessIdentity{Pid=52482,StartedUtc=DateTimeOffset.UtcNow.AddHours(-1),ExecutablePath="synthetic-asa"};
+    var fixedSample=new ProcessCheck(false,"stopped but cached",null,true);
+    bool stopped=false;int starts=0;
+    var witness=new SyntheticRecoveryExitWitness();
+    using var gate=new SemaphoreSlim(1,1);
+    Task<string> Never(string raw)=>throw new InvalidOperationException("no real native call");
+    using var recovery=new DesktopWatchdogRecovery(service,gate,()=>true,()=>{},()=>false,
+        Never,Never,Never,_=>stopped?fixedSample:new ProcessCheck(true,"running",pid,false),
+        _=>witness,_=>new string('C',64),(_,_)=>Task.FromResult(true),
+        _=>{starts++;return Task.FromResult((52483,DateTimeOffset.UtcNow));});
+    IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=map.Id,confirm=true}),"arm cached-stop fixture");
+    var now=DateTimeOffset.UtcNow;stopped=true;witness.Exited=true;witness.Code=unchecked((int)0xC0000005);
+    await recovery.TickOnceAsync(now.AddSeconds(10));
+    await recovery.TickOnceAsync(now.AddSeconds(20));
+    await recovery.TickOnceAsync(now.AddSeconds(30));
+    var status=(await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0];
+    Check(starts==0&&status.GetProperty("stoppedSamples").GetInt32()==1&&recovery.HasPendingRecovery(map.Id),
+        "three timer ticks using one cached stopped observation count only once");
+}
 // Isolate Manager interruption at the durable claim/receipt boundaries.
 {
     string recoveryRoot=Path.Combine(root,"watchdog-receipt-boundary-fixture");
