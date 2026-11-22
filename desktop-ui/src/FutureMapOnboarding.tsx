@@ -87,9 +87,15 @@ export function FutureMapOnboarding({maps,onInstall,onExisting,onHistorical,
     try{
       const receipt=await managerBridge.historicalSupplementalRegister(approved.token);
       if(!same(receipt.mapId,approved.mapId)||!receipt.registered||
-         !receipt.processInventoryUnchanged||receipt.processCommandIssued||receipt.scheduleChanged)
+         receipt.processCommandIssued||receipt.scheduleChanged)
         throw Error("UM-ONBOARD-EXTRA-POSTCHECK-REQUIRED");
-      setNotice("A kiegészítő Store-map regisztrálva; a futó folyamatleltár változatlan.");
+      // A successful atomic registration with a changing unrelated WMI
+      // inventory is still a committed profile; do not misreport failure
+      // or silently replay the registration.
+      setNotice(receipt.processInventoryUnchanged?
+        "A kiegészítő Store-map regisztrálva; a futó folyamatleltár változatlan.":
+        "A kiegészítő Store-map regisztrálva, de a folyamatleltár megváltozott. "+
+        "Natív PID-ellenőrzés szükséges a vezérlés előtt.");
       await onImported();await refresh();
     }catch(e){setError("A Store-regisztráció eredménye kézi ellenőrzést igényel; "+
       "ne ismételd meg automatikusan ("+
