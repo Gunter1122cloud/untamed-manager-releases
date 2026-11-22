@@ -82,7 +82,7 @@ export function FutureMapOnboarding({maps,onInstall,onExisting,onHistorical,
     finally{setBusy(false);}
   };
   const applyExtra=async()=>{
-    if(!extraPreview||busy)return;
+    if(!extraPreview||extraPreview.alreadyRegistered||busy)return;
     const approved=extraPreview;setExtraPreview(null);setBusy(true);setError("");
     try{
       const receipt=await managerBridge.historicalSupplementalRegister(approved.token);
@@ -192,7 +192,7 @@ export function FutureMapOnboarding({maps,onInstall,onExisting,onHistorical,
           </div>:<>
             <button type="button" className="secondary" disabled={busy||!selectedExtra.active}
               onClick={()=>{void prepareExtra();}}>Store-forrás natív ellenőrzése</button>
-            {extraPreview&&<div role="region" aria-label="Kiegészítő Store-map jóváhagyása">
+            {extraPreview&&!extraPreview.alreadyRegistered&&<div role="region" aria-label="Kiegészítő Store-map jóváhagyása">
               <p>{extraPreview.mapName} · {extraPreview.mapKey} ·
                 {extraPreview.running?"fut":"leállított"}</p>
               <button type="button" className="primary" disabled={busy}
