@@ -4693,8 +4693,11 @@ test("future map cluster add preserves every existing member and requires one ex
   await expect(wizard).toContainText("cluster regiszteréhez");
   await expect(wizard).toContainText("már szerepel a kiválasztott");
   await page.getByRole("button",{name:"Cluster",exact:true}).click();
-  const reg=page.getByRole("region",{name:"Map-hozzárendelés jóváhagyása"});
-  await expect(reg).toContainText("Future Atlantis");
+  await page.getByRole("combobox",{name:"Kiválasztott cluster"}).selectOption("fixture-alpha");
+  const registered=page.locator(".cluster-registry-map-groups");
+  await expect(registered.getByRole("checkbox",{name:/Future Atlantis/})).toBeChecked();
+  // The old member must remain selected after onboarding the next map.
+  await expect(registered.getByRole("checkbox",{name:/The Island/})).toBeChecked();
 });
 
 test("Server import actions render BEFORE the potentially long running-ASA process list",async({page})=>{
