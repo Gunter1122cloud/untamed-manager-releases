@@ -31,6 +31,7 @@ import { HistoricalStoreSaveWorldPanel } from "./HistoricalStoreSaveWorldPanel";
 import { PremiumDashboard } from "./PremiumDashboard";
 import { LocalRunningAsaPanel } from "./LocalRunningAsaPanel";
 import { ClusterMapGallery } from "./ClusterMapGallery";
+import { FutureMapOnboarding } from "./FutureMapOnboarding";
 import { MapCover } from "./MapArtwork";
 import { PremiumModBoard } from "./PremiumModBoard";
 import { UpdateCenterPage } from "./UpdateCenterPage";
@@ -572,11 +573,11 @@ function LocalAsaImport({onImported}: {onImported:()=>Promise<void>}) {
   </Panel>;
 }
 
-function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
+function Servers({ snapshot, search, setSearch, onSelect, onImported, onCluster }: {
   snapshot: DashboardSnapshot; search: string; setSearch: (v: string) => void; onSelect: (v: string) => void;
-  onImported:()=>Promise<void>
+  onImported:()=>Promise<void>;onCluster:()=>void
 }) {
-  const [importMode,setImportMode]=useState<"none"|"new"|"existing"|"store">("none");
+  const [importMode,setImportMode]=useState<"none"|"wizard"|"new"|"existing"|"store">("none");
   // A first-run Windows test machine should show real map choices instead of
   // a half-page empty table. Existing cluster installs retain compact list.
   const [serverView,setServerView]=useState<"table"|"gallery">(
@@ -587,6 +588,10 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
     <div className="server-toolbar">
       <div className="toolbar"><Search size={19}/><input aria-label="Map keresése" placeholder="Map keresése..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
       <div className="server-import-buttons">
+        <button className="primary" type="button"
+          onClick={()=>setImportMode(v=>v==="wizard"?"none":"wizard")}>
+          {importMode==="wizard"?"Maphozzáadás bezárása":"Új map hozzáadása"}
+        </button>
         <div className="premium-view-switcher" role="group" aria-label="Szervernézet">
           <button type="button" className={serverView==="table"?"is-active":""}
             aria-pressed={serverView==="table"} onClick={()=>setServerView("table")}><List size={15}/> Lista</button>
@@ -604,8 +609,11 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
         </button>
       </div>
     </div>
-    {/* Show the requested import action immediately below its toolbar.
-        The process observation list can be many screens tall on API Loader hosts. */}
+    {/* Keep the selected onboarding action above the potentially long WMI process list. */}
+    {importMode==="wizard"&&<FutureMapOnboarding maps={snapshot.local.maps}
+      onInstall={()=>setImportMode("new")} onExisting={()=>setImportMode("existing")}
+      onHistorical={()=>setImportMode("store")} onCluster={onCluster}
+      onOpenMap={onSelect} onImported={onImported}/>}
     {importMode==="new" && <FreshAsaSteamWizard onRegistered={onImported} initialMapName={installMap}
       onImport={()=>setImportMode("existing")} onOpenMap={onSelect}/>}
     {importMode==="existing" && <LocalAsaImport onImported={onImported}/>}
@@ -2106,7 +2114,7 @@ export function App() {
         {snapshot && <>
           {page === "dashboard" && <Dashboard snapshot={snapshot} onPage={setPage} onSelect={selectMap} onInstall={openSteamInstall}/>}
           {page === "map" && <MapDetails snapshot={snapshot} mapId={selected} setSelected={setSelected} onBack={()=>setPage("servers")} onConfigured={refresh} onOpenCluster={()=>setPage("cluster")} refreshRevision={refreshRevision}/>}
-          {page === "servers" && <Servers snapshot={snapshot} search={search} setSearch={setSearch} onSelect={selectMap} onImported={refresh}/>} 
+          {page === "servers" && <Servers snapshot={snapshot} search={search} setSearch={setSearch} onSelect={selectMap} onImported={refresh} onCluster={()=>setPage("cluster")}/>} 
           {page === "cluster" && <Cluster snapshot={snapshot}/>}
           {page === "mods" && <Mods snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "plugins" && <PluginCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
