@@ -240,7 +240,35 @@ internal static class OriginalKovaDirectImportTests
                     catch(InvalidDataException ex) when(ex.Message=="UM-STORE-EXTRA-SESSION-MISMATCH")
                     {deniedMissingSharedSession=true;}
                     Check(deniedMissingSharedSession,
-                        "source without sharedSession is not silently promoted to original Store writer");
+                        "source without sharedSession and conversion chronology cannot be promoted");
+                    // A distinct completed activation (as produced by the
+                    // audited append-to-cluster script) contains its own
+                    // backup ID and ordered timestamps, not the old session.
+                    var own=independentSourceWithoutSession["maps"]![extraId]!.AsObject();
+                    var preparedAt=DateTimeOffset.UtcNow.AddHours(-3);
+                    own["preparedAt"]=preparedAt.ToString("O");
+                    own["attemptedAt"]=preparedAt.AddMinutes(10).ToString("O");
+                    own["confirmedAt"]=preparedAt.AddMinutes(20).ToString("O");
+                    File.WriteAllText(sfile,independentSourceWithoutSession.ToJsonString());
+                    var complete=LegacyStoreV1OriginalImport.Inspect(local);
+                    var appended=complete.AdditionalMaps.Single();
+                    Check(!appended.SessionMatches&&
+                          appended.SessionBinding=="missing-shared-session"&&
+                          appended.IndependentActivationMetadataComplete&&
+                          LegacyStoreV1PinnedSource.RequireSupplemental(
+                            complete,Guid.Parse(extraId)).MapId==Guid.Parse(extraId)&&
+                          complete.Maps.Length==5,
+                        "independently converted active map is eligible for STRICT two-peer/native preflight, not selected as original writer");
+                    own["confirmedAt"]=preparedAt.AddMinutes(5).ToString("O");
+                    File.WriteAllText(sfile,independentSourceWithoutSession.ToJsonString());
+                    var reversed=LegacyStoreV1OriginalImport.Inspect(local);
+                    Check(!reversed.AdditionalMaps.Single().IndependentActivationMetadataComplete,
+                        "forged or reversed independent conversion chronology does not authorize native preview");
+                    own.Remove("confirmedAt");
+                    File.WriteAllText(sfile,independentSourceWithoutSession.ToJsonString());
+                    var incomplete=LegacyStoreV1OriginalImport.Inspect(local);
+                    Check(!incomplete.AdditionalMaps.Single().IndependentActivationMetadataComplete,
+                        "missing conversion confirmation blocks independently activated Store source");
                 }
                 finally {File.WriteAllText(sfile,expandedStore);}
                 // Missing, foreign and matched Store session cases remain
