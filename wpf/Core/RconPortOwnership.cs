@@ -52,7 +52,8 @@ internal static class RconPortOwnership
         if(data.Length<4||rowBytes<12||pidOffset+4>rowBytes||
            portOffset+2>rowBytes)return false;
         int count=BitConverter.ToInt32(data,0);
-        if(count<0||count>(data.Length-4)/rowBytes)return false;
+        if(count<0||count>(data.Length-4)/rowBytes||
+           data.Length!=4+count*rowBytes)return false;
         var result=new UdpRow[count];
         for(int i=0;i<count;i++)
         {
