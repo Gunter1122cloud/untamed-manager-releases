@@ -45,7 +45,16 @@ public static class LegacyStoreV1PinnedSource
         var row=source.AdditionalMaps.SingleOrDefault(m=>m.MapId==id)
             ??throw new InvalidDataException("UM-STORE-EXTRA-SOURCE-MISSING");
         if(!row.Active)throw new InvalidDataException("UM-STORE-EXTRA-NOT-ACTIVE");
-        if(!row.SessionMatches)throw new InvalidDataException("UM-STORE-EXTRA-SESSION-MISMATCH");
+        // The original five must retain their shared-session lock. A later map
+        // can instead have a SEPARATELY completed active Store record,
+        // with its own backup ID and ordered conversion timestamps.
+        // This permits a strict native preview, not ownership by itself:
+        // the live two-peer gate, original map selection, process/port
+        // proof and identical source fingerprint are checked afterwards.
+        bool independentlyActivated=row.SessionBinding=="missing-shared-session"&&
+            row.IndependentActivationMetadataComplete;
+        if(!row.SessionMatches&&!independentlyActivated)
+            throw new InvalidDataException("UM-STORE-EXTRA-SESSION-MISMATCH");
         if(!row.BackupIdentityPresent)
             throw new InvalidDataException("UM-STORE-EXTRA-BACKUP-IDENTITY-MISSING");
         if(row.LaunchState!="source-launch-matched"||row.GamePort==null||
