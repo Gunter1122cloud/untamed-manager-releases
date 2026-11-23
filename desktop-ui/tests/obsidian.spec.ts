@@ -1904,6 +1904,8 @@ test.beforeEach(async ({ page }) => {
             mapId:eventId,mapName:"Event",mapKey:"Asa_N_Chill_Hub",
             gamePort:7809,queryPort:27046,rconPort:37046,mods:["123456789","987654321"],passiveMods:[],
             running:true,useApi:true,clusterId:"KovaCluster",addsClusterMembership:true,changesOriginalFive:false,
+            queryListenerNotBound:new URLSearchParams(window.location.search).get("fixture")==="supplementalEventIndependent",
+            queryReadyVerified:false,
             modContentInstallationVerified:false,modContentState:"level-content-unverified",presentModProjects:["123456789"],
             unverifiedModProjects:["987654321"],levelManifestProjects:[],serverProcessTouched:false};
         case "historical.supplementalRegister":
@@ -4693,6 +4695,7 @@ test("independent Store map with complete native metadata offers gated two-stage
   expect(await page.evaluate(()=>(window as any).__UNTAMED_EVENT_REGISTER_CALLS__())).toBe(0);
   await wizard.getByRole("button",{name:"Store-forrás natív ellenőrzése"}).click();
   await expect(wizard.getByRole("region",{name:"Kiegészítő Store-map jóváhagyása"})).toBeVisible();
+  await expect(wizard).toContainText("A Query UDP porton nincs igazolt");
   expect(await page.evaluate(()=>(window as any).__UNTAMED_EVENT_REGISTER_CALLS__())).toBe(0);
 });
 
