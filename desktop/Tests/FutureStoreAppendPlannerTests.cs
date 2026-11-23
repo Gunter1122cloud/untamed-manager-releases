@@ -205,6 +205,48 @@ internal static class FutureStoreAppendPlannerTests
             previousRoster=added.NewRosterHash;
         }
 
+        // Reuse the actual stopped-world backup pipeline rather than
+        // accepting any 64-character hash as a pre-conversion backup.
+        string worldInstall=Path.Combine(root,"offline-world-to-convert");
+        string worldFiles=Path.Combine(worldInstall,"ShooterGame","Saved","SavedArks");
+        string iniFiles=Path.Combine(worldInstall,"ShooterGame","Saved","Config","WindowsServer");
+        Directory.CreateDirectory(worldFiles);
+        Directory.CreateDirectory(iniFiles);
+        File.WriteAllBytes(Path.Combine(worldFiles,"FutureGen2_WP.ark"),
+            Enumerable.Range(0,256).Select(i=>(byte)i).ToArray());
+        File.WriteAllText(Path.Combine(iniFiles,"Game.ini"),"[ServerSettings]\\n");
+        File.WriteAllText(Path.Combine(iniFiles,"GameUserSettings.ini"),
+            "[ServerSettings]\\nRCONEnabled=True\\n");
+        Guid backupMapId=Guid.NewGuid();
+        var offlineMap=new LocalMap{
+            Id=backupMapId,Name="FutureGen2",InstallationPath=worldInstall
+        };
+        var stopped=new ProcessCheck(false,"synthetic verified stopped",null,true);
+        string realPackage=Path.Combine(root,"frozen-pre-conversion-backup");
+        var created=LocalBackupWorkflow.Create(offlineMap,stopped,realPackage,
+            LocalBackupScope.WorldAndProfiles|LocalBackupScope.Ini,
+            checkCurrent:()=>stopped);
+        var proof=FutureStoreBackupVerifier.Verify(offlineMap,stopped,
+            created.PackageDirectory,()=>stopped);
+        Check(proof.MapId==backupMapId&&proof.Files>=3&&proof.Bytes>256&&
+              proof.ManifestSha256.Length==64&&
+              !proof.GameSideSaveWorldConfirmed&&!proof.ConversionAuthorized,
+            "native stopped-world backup package verified before conversion without inventing SaveWorld proof");
+        bool runningBackupDenied=false;
+        try{_=FutureStoreBackupVerifier.Verify(offlineMap,
+                new ProcessCheck(true,"running",null),created.PackageDirectory);}
+        catch(InvalidOperationException){runningBackupDenied=true;}
+        Check(runningBackupDenied,
+            "backup evidence cannot be reused while ASA is running");
+        File.AppendAllText(Path.Combine(realPackage,"data","ShooterGame",
+            "Saved","SavedArks","FutureGen2_WP.ark"),"tamper");
+        bool tamperedBackupDenied=false;
+        try{_=FutureStoreBackupVerifier.Verify(offlineMap,stopped,
+                created.PackageDirectory,()=>stopped);}
+        catch(InvalidDataException){tamperedBackupDenied=true;}
+        Check(tamperedBackupDenied,
+            "tampered world byte in a prior backup invalidates future conversion readiness");
+
         // The durable conversion journal is a LOCAL crash-safety guard,
         // not a license to execute an actual ASA conversion. A second
         // invocation must never repeat an uncertain one-shot conversion.
