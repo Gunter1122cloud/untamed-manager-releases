@@ -230,6 +230,12 @@ internal static class FutureStoreAppendPlannerTests
             FutureStoreAppendInvariant.Verify(previousSource,new[]{
                 added.ClusterJson,added.StoreJson,added.LockJson,
                 added.LaunchJson,added.LocalDonePeerJson},futureId);
+            var expandedSourceAudit=FutureStoreConversionSourceAudit.Inspect(new[]{
+                added.ClusterJson,added.StoreJson,added.LockJson,
+                added.LaunchJson,added.LocalDonePeerJson});
+            Check(expandedSourceAudit.MapIds.Length==memberCount&&
+                  !expandedSourceAudit.StoreWriterAuthorized,
+                "offline source audit accepts repeated append-only 5-to-8 maps without changing selected owners");
             using(var more=JsonDocument.Parse(added.LocalDonePeerJson))
             {
                 var currentMembers=more.RootElement.GetProperty("members");
