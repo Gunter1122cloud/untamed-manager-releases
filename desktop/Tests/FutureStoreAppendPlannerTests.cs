@@ -250,7 +250,10 @@ internal static class FutureStoreAppendPlannerTests
             "[ServerSettings]\\nRCONEnabled=True\\n");
         Guid backupMapId=Guid.NewGuid();
         var offlineMap=new LocalMap{
-            Id=backupMapId,Name="FutureGen2",InstallationPath=worldInstall
+            Id=backupMapId,Name="FutureGen2",InstallationPath=worldInstall,
+            GamePort=7897,QueryPort=27197,RconPort=37197,
+            Arguments=AsaSteamMapCatalog.LaunchArgumentsForLevel(
+                "FutureGen2_WP","FutureGen2",7897,27197)
         };
         var stopped=new ProcessCheck(false,"synthetic verified stopped",null,true);
         string realPackage=Path.Combine(root,"frozen-pre-conversion-backup");
@@ -269,6 +272,43 @@ internal static class FutureStoreAppendPlannerTests
         catch(InvalidOperationException){runningBackupDenied=true;}
         Check(runningBackupDenied,
             "backup evidence cannot be reused while ASA is running");
+        // Real local file bytes + verified native backup + durable journal:
+        // do not reserve a one-shot conversion merely for a string hash.
+        string gateRoot=Path.Combine(root,"future-conversion-gate-manager");
+        Directory.CreateDirectory(gateRoot);
+        var gateIntent=FutureStoreConversionJournal.Begin(gateRoot,backupMapId,
+            VaultProtocol.ClusterId,new string('C',64));
+        var gateMaps=new[]{offlineMap};
+        var ready=FutureStoreConversionAttemptGate.RecordVerifiedBackup(
+            gateRoot,offlineMap,gateMaps,realPackage,new string('C',64),
+            ()=>stopped);
+        Check(ready.Phase=="backupVerified"&&
+              ready.BackupManifestSha256==proof.ManifestSha256,
+            "verified local stopped-world backup is bound to durable conversion intent");
+        string worldPath=Path.Combine(worldFiles,"FutureGen2_WP.ark");
+        byte[] unmodifiedWorld=File.ReadAllBytes(worldPath);
+        File.AppendAllText(worldPath,"late world mutation after verified backup");
+        Check(Denied(()=>FutureStoreConversionAttemptGate.ReserveOneShot(
+                gateRoot,offlineMap,gateMaps,realPackage,new string('C',64),
+                ()=>stopped)),
+            "changed original world bytes refuse the irreversible conversion reservation");
+        File.WriteAllBytes(worldPath,unmodifiedWorld);
+        var reservation=FutureStoreConversionAttemptGate.ReserveOneShot(
+            gateRoot,offlineMap,gateMaps,realPackage,new string('C',64),
+            ()=>stopped);
+        Check(reservation.OperationId==gateIntent.OperationId&&
+              reservation.BackupManifestSha256==proof.ManifestSha256&&
+              !reservation.AsaStarted&&!reservation.WorldConverted&&
+              !reservation.AutomaticRetryAllowed,
+            "one-shot attempt is durably reserved without launching an ASA process");
+        bool secondAttemptRefused=false;
+        try{_=FutureStoreConversionAttemptGate.ReserveOneShot(
+                gateRoot,offlineMap,gateMaps,realPackage,new string('C',64),
+                ()=>stopped);}
+        catch(InvalidOperationException){secondAttemptRefused=true;}
+        Check(secondAttemptRefused&&FutureStoreConversionJournal.Inspect(
+                gateRoot,backupMapId)?.Phase=="conversionAttempted",
+            "crash/reentry cannot reserve a second one-shot conversion");
         File.AppendAllText(Path.Combine(realPackage,"data","ShooterGame",
             "Saved","SavedArks","FutureGen2_WP.ark"),"tamper");
         bool tamperedBackupDenied=false;
