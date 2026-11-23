@@ -1369,6 +1369,7 @@ export type OriginalKovaLocalMapList = {
   additionalSource?:string;
   additionalMaps?:Array<{mapId:string;mapKey:string;active:boolean;
     sessionMatches:boolean;sessionBinding?:"original-session-matched"|"missing-shared-session"|"foreign-or-invalid-session"|"unverified";
+    independentActivationMetadataComplete?:boolean;
     backupIdentityPresent:boolean;gamePort:number|null;queryPort:number|null;
     enabledMods:number|null;passiveMods:number|null;launchState:string;
     selectedHistoricalOwner:false;storeWriterAuthorized:false;registered:boolean}>;
