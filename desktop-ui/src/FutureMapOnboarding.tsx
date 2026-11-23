@@ -191,10 +191,11 @@ export function FutureMapOnboarding({maps,onInstall,onExisting,onHistorical,
             {selectedExtra.launchState} · Game {selectedExtra.gamePort??"?"} /
             Query {selectedExtra.queryPort??"?"}</p>
           {!selectedExtra.sessionMatches?<div className="warning-inline" role="status">
-            Ez a map nem az eredeti öt Map Store-session modelljével készült.
-            A külön konverzió és jelenlegi Store-tagság bizonyítása szükséges.
-            Nem hamisítunk sharedSession mezőt, és nem végezzük el az átvételt
-            bizonyíték nélkül. A szerver futása változatlan marad.
+            {selectedExtra.sessionBinding==="missing-shared-session"?
+              "A külön hozzáadott map Store-rekordjában nincs sharedSession. Ez nem bizonyítja önmagában a konverziót: külön hiteles forrás, saját backup és a jelenlegi kétgépes Store-állapot igazolása szükséges.":
+              "A map Store-session értéke eltér vagy érvénytelen. Másik clusterhez tartozó rekord nem vehető át az eredeti clusterbe."}
+            Az átvétel blokkolva marad, amíg a natív Store-bizonyítás hiányzik.
+            A futó ASA és az eredeti öt map érintetlen.
           </div>:<>
             <button type="button" className="secondary" disabled={busy||!selectedExtra.active}
               onClick={()=>{void prepareExtra();}}>Store-forrás natív ellenőrzése</button>
