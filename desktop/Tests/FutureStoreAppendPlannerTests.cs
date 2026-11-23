@@ -161,6 +161,50 @@ internal static class FutureStoreAppendPlannerTests
               launchText,peerText})==before&&
               result.OriginalRosterHash!=result.NewRosterHash,
             "the original inputs stay unchanged and new roster has distinct fingerprint");
+        // Repeated future maps are the real product requirement: prove
+        // append-only 5 -> 6 -> 7 -> 8 with the ORIGINAL five selected and
+        // no previously added member rewritten or removed.
+        string[] previousSource={
+            result.ClusterJson,result.StoreJson,result.LockJson,
+            result.LaunchJson,result.LocalDonePeerJson};
+        string previousRoster=result.NewRosterHash;
+        for(int memberCount=7;memberCount<=8;memberCount++)
+        {
+            Guid futureId=Guid.NewGuid();
+            string futureKey="FutureMap_"+memberCount+"_WP";
+            var added=FutureStoreAppendPlanner.Stage(previousSource[0],
+                previousSource[1],previousSource[2],previousSource[3],
+                previousSource[4],device,witness with{
+                    MapId=futureId,MapKey=futureKey,
+                    BackupId=Guid.NewGuid(),
+                    InstallationRoot=Path.Combine(root,"later-map-"+memberCount)
+                },7897+10*(memberCount-6),27197+10*(memberCount-6),
+                new[]{"123456789"},Array.Empty<string>());
+            using(var more=JsonDocument.Parse(added.LocalDonePeerJson))
+            {
+                var currentMembers=more.RootElement.GetProperty("members");
+                Check(currentMembers.GetArrayLength()==memberCount&&
+                    more.RootElement.GetProperty("selected").EnumerateArray()
+                        .Select(x=>x.GetString()).SequenceEqual(ids)&&
+                    added.OriginalRosterHash==previousRoster,
+                    "later append keeps every prior member and all five original selected owners");
+            }
+            File.WriteAllText(Path.Combine(local,"cluster-v1.json"),added.ClusterJson);
+            File.WriteAllText(Path.Combine(local,"cluster-store-v1.json"),added.StoreJson);
+            File.WriteAllText(Path.Combine(local,"shared-store-lock-v1.json"),added.LockJson);
+            File.WriteAllText(Path.Combine(local,"launch-profiles-v1.json"),added.LaunchJson);
+            var expanded=LegacyStoreV1LocalReader.Inspect(local);
+            Check(expanded.LocalSnapshotReady&&expanded.Maps.Length==5&&
+                expanded.CurrentLocalMemberCount==memberCount&&
+                expanded.AdditionalMaps.Length==memberCount-5&&
+                expanded.AdditionalMaps.All(x=>x.IndependentActivationMetadataComplete),
+                "real Store parser accepts repeated independently converted appended maps");
+            previousSource=new[]{
+                added.ClusterJson,added.StoreJson,added.LockJson,
+                added.LaunchJson,added.LocalDonePeerJson};
+            previousRoster=added.NewRosterHash;
+        }
+
         // The durable conversion journal is a LOCAL crash-safety guard,
         // not a license to execute an actual ASA conversion. A second
         // invocation must never repeat an uncertain one-shot conversion.
