@@ -75,6 +75,7 @@ public static class FutureStoreAppendEscrow
             if(doc.RootElement.ValueKind!=JsonValueKind.Object)
                 throw new InvalidDataException("UM-FUTURE-ESCROW-JSON-INVALID");
         }
+        FutureStoreAppendInvariant.Verify(sourceImages,proposed,mapId);
         using var planned=JsonDocument.Parse(bundle.ClusterJson);
         var nextMembers=planned.RootElement.GetProperty("members");
         if(nextMembers.ValueKind!=JsonValueKind.Array||
