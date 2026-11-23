@@ -50,8 +50,35 @@ internal static class OriginalStoreExpandedDonePeerTests
         LegacyStoreV1LiveReadGate.InspectOriginalDonePeer(
             peer,device,session,Shared);
 
+    private static byte[] UdpOwnerTable(int rowSize,int portOffset,int pidOffset,
+        int port,int pid)
+    {
+        var bytes=new byte[4+rowSize];
+        BitConverter.TryWriteBytes(bytes.AsSpan(0,4),1);
+        bytes[4+portOffset]=(byte)(port>>8);
+        bytes[4+portOffset+1]=(byte)port;
+        BitConverter.TryWriteBytes(bytes.AsSpan(4+pidOffset,4),pid);
+        return bytes;
+    }
     public static void Run()
     {
+        // Windows UDP owner tables are not interchangeable between IPv4
+        // (12-byte rows) and IPv6 (28-byte rows); synthetics exercise both.
+        var empty=BitConverter.GetBytes(0);
+        var own4=UdpOwnerTable(12,4,8,27046,32123);
+        var own6=UdpOwnerTable(28,20,24,27046,32123);
+        var foreign6=UdpOwnerTable(28,20,24,27046,32124);
+        Check(RconPortOwnership.InspectSyntheticUdp(own4,empty,27046,32123)=="Owned",
+            "IPv4 Query UDP socket binds to the correct ASA PID");
+        Check(RconPortOwnership.InspectSyntheticUdp(empty,own6,27046,32123)=="Owned",
+            "IPv6-only Query UDP socket is a valid owner proof");
+        Check(RconPortOwnership.InspectSyntheticUdp(own4,foreign6,27046,32123)=="ForeignOrAmbiguous",
+            "a different IPv6 query owner blocks even when IPv4 binds to the target PID");
+        Check(RconPortOwnership.InspectSyntheticUdp(empty,empty,27046,32123)=="Missing",
+            "absent Query UDP owner remains unverified and cannot be promoted");
+        Check(RconPortOwnership.InspectSyntheticUdp(new byte[5],empty,27046,32123)=="Unverified",
+            "corrupt native UDP table fails closed");
+
         string localDevice=Guid.NewGuid().ToString("D");
         string remoteDevice=Guid.NewGuid().ToString("D");
         string session=Guid.NewGuid().ToString("D");
@@ -99,6 +126,50 @@ internal static class OriginalStoreExpandedDonePeerTests
         }
 
         var six=five.Concat(Members("Extra",1)).ToArray();
+        var independentId=Guid.Parse(six[5].GetProperty("id").GetString()!);
+        string independentMap=six[5].GetProperty("map").GetString()!;
+        string independentRoot=six[5].GetProperty("root").GetString()!;
+        Check(LegacyStoreV1LiveReadGate.MatchesIndependentLocalPeerOwner(
+            JsonSerializer.SerializeToElement(six),independentId,independentMap,independentRoot),
+            "independently converted extra map belongs to the exact local expanded DONE peer");
+        Check(!LegacyStoreV1LiveReadGate.MatchesIndependentLocalPeerOwner(
+            JsonSerializer.SerializeToElement(five),independentId,independentMap,independentRoot),
+            "old five-map DONE peer cannot claim separately converted sixth map");
+        Check(!LegacyStoreV1LiveReadGate.MatchesIndependentLocalPeerOwner(
+            JsonSerializer.SerializeToElement(six),independentId,independentMap,@"C:\foreign-root"),
+            "mismatched independent root is never an owned peer map");
+        Check(!LegacyStoreV1LiveReadGate.MatchesIndependentLocalPeerOwner(
+            JsonSerializer.SerializeToElement(six),independentId,independentMap+"_FORGED",independentRoot),
+            "mismatched independent level is never an owned peer map");
+        JsonElement Roster(JsonElement[] members)=>
+            JsonSerializer.SerializeToElement(new{
+                id=VaultProtocol.ClusterId,mode="shared",path=Shared,members
+            });
+        var originalPin=Roster(five);
+        var sixCurrent=Roster(six);
+        Check(LegacyStoreV1LocalReader.MatchesAppendOnlyRoster(
+            sixCurrent,originalPin,historical),
+            "later independent sixth map leaves the original five local owners immutable");
+        var seventh=Members("Future",1);
+        var seven=six.Concat(seventh).ToArray();
+        Check(LegacyStoreV1LocalReader.MatchesAppendOnlyRoster(
+            Roster(seven),sixCurrent,historical),
+            "new seventh map does not break the already pinned sixth map");
+        Check(!LegacyStoreV1LocalReader.MatchesAppendOnlyRoster(
+            Roster(seven.Skip(1).Concat(new[]{seven[0]}).ToArray()),sixCurrent,historical),
+            "reordering existing owners is not an append-only Store change");
+        var rewritten=six.ToArray();
+        rewritten[5]=JsonSerializer.SerializeToElement(new{
+            id=six[5].GetProperty("id").GetString(),
+            map=six[5].GetProperty("map").GetString(),
+            root=@"C:\forged-owner-root"});
+        Check(!LegacyStoreV1LocalReader.MatchesAppendOnlyRoster(
+            Roster(rewritten.Concat(seventh).ToArray()),sixCurrent,historical),
+            "rewriting an earlier independently pinned root blocks later additions");
+        Check(!LegacyStoreV1LocalReader.MatchesAppendOnlyRoster(
+            Roster(seven),sixCurrent,new[]{
+                historical[0],historical[0],historical[2],historical[3],historical[4]}),
+            "duplicate original selection cannot authorize append-only roster");
         var valid=Done(localDevice,session,six,historical);
         var verified=Verified(valid,localDevice,session);
         var remote=Verified(Done(remoteDevice,session,remoteFive,

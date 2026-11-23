@@ -1867,10 +1867,17 @@ test.beforeEach(async ({ page }) => {
         case "historical.originalList": return {
           sourceVerified:true,originalFourFilesUnchanged:true,
           evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY",
-          additionalMaps:["supplementalEvent","supplementalEventNoSession"].includes(
+          additionalMaps:["supplementalEvent","supplementalEventNoSession","supplementalEventForeignSession","supplementalEventIndependent"].includes(
             new URLSearchParams(window.location.search).get("fixture")??"")?[
             {mapId:eventId,mapKey:"Asa_N_Chill_Hub",active:true,
-             sessionMatches:new URLSearchParams(window.location.search).get("fixture")!=="supplementalEventNoSession",
+             sessionMatches:new URLSearchParams(window.location.search).get("fixture")==="supplementalEvent",
+             sessionBinding:new URLSearchParams(window.location.search).get("fixture")==="supplementalEvent"?
+               "original-session-matched":
+               ["supplementalEventNoSession","supplementalEventIndependent"].includes(
+                 new URLSearchParams(window.location.search).get("fixture")??"")?
+               "missing-shared-session":"foreign-or-invalid-session",
+             independentActivationMetadataComplete:
+               new URLSearchParams(window.location.search).get("fixture")==="supplementalEventIndependent",
              backupIdentityPresent:true,
              gamePort:7809,queryPort:27046,enabledMods:2,passiveMods:0,launchState:"source-launch-matched",registered:eventRegistered,
              selectedHistoricalOwner:false,storeWriterAuthorized:false}
@@ -1897,6 +1904,8 @@ test.beforeEach(async ({ page }) => {
             mapId:eventId,mapName:"Event",mapKey:"Asa_N_Chill_Hub",
             gamePort:7809,queryPort:27046,rconPort:37046,mods:["123456789","987654321"],passiveMods:[],
             running:true,useApi:true,clusterId:"KovaCluster",addsClusterMembership:true,changesOriginalFive:false,
+            queryListenerNotBound:new URLSearchParams(window.location.search).get("fixture")==="supplementalEventIndependent",
+            queryReadyVerified:false,
             modContentInstallationVerified:false,modContentState:"level-content-unverified",presentModProjects:["123456789"],
             unverifiedModProjects:["987654321"],levelManifestProjects:[],serverProcessTouched:false};
         case "historical.supplementalRegister":
@@ -4658,8 +4667,35 @@ test("future Store map without sharedSession is visible but never silently adopt
   const wizard=page.getByRole("region",{name:"Jövőbeli mapok hozzáadási varázslója"});
   await wizard.getByRole("combobox",{name:"Felderített Store-map"}).selectOption(
     "00000000-0000-4000-8000-000000009002");
-  await expect(wizard).toContainText("nem az eredeti öt Map Store-session modelljével");
+  await expect(wizard).toContainText("nincs sharedSession");
   await expect(wizard.getByRole("button",{name:"Store-forrás natív ellenőrzése"})).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as any).__UNTAMED_EVENT_REGISTER_CALLS__())).toBe(0);
+});
+
+test("foreign supplemental Store session is rejected with a distinct explanation",async({page})=>{
+  await page.goto("/?fixture=supplementalEventForeignSession");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Új map hozzáadása",exact:true}).click();
+  const wizard=page.getByRole("region",{name:"Jövőbeli mapok hozzáadási varázslója"});
+  await wizard.getByRole("combobox",{name:"Felderített Store-map"}).selectOption(
+    "00000000-0000-4000-8000-000000009002");
+  await expect(wizard).toContainText("Másik clusterhez tartozó rekord");
+  await expect(wizard.getByRole("button",{name:"Store-forrás natív ellenőrzése"})).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as any).__UNTAMED_EVENT_REGISTER_CALLS__())).toBe(0);
+});
+
+test("independent Store map with complete native metadata offers gated two-stage preview",async({page})=>{
+  await page.goto("/?fixture=supplementalEventIndependent");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Új map hozzáadása",exact:true}).click();
+  const wizard=page.getByRole("region",{name:"Jövőbeli mapok hozzáadási varázslója"});
+  await wizard.getByRole("combobox",{name:"Felderített Store-map"}).selectOption(
+    "00000000-0000-4000-8000-000000009002");
+  await expect(wizard).toContainText("Külön aktivált Store-rekord");
+  expect(await page.evaluate(()=>(window as any).__UNTAMED_EVENT_REGISTER_CALLS__())).toBe(0);
+  await wizard.getByRole("button",{name:"Store-forrás natív ellenőrzése"}).click();
+  await expect(wizard.getByRole("region",{name:"Kiegészítő Store-map jóváhagyása"})).toBeVisible();
+  await expect(wizard).toContainText("A Query UDP porton nincs igazolt");
   expect(await page.evaluate(()=>(window as any).__UNTAMED_EVENT_REGISTER_CALLS__())).toBe(0);
 });
 

@@ -70,7 +70,7 @@ export function FutureMapOnboarding({maps,onInstall,onExisting,onHistorical,
     !local.freshStoreEnrolled&&!local.running&&assignedHere&&!protectedCluster;
 
   const prepareExtra=async()=>{
-    if(!selectedExtra||busy||!selectedExtra.sessionMatches)return;
+    if(!selectedExtra||busy||(!selectedExtra.sessionMatches&&!selectedExtra.independentActivationMetadataComplete))return;
     setBusy(true);setError("");setNotice("");setExtraPreview(null);
     try{
       const p=await managerBridge.historicalSupplementalPreview(selectedExtra.mapId,true);
@@ -190,17 +190,29 @@ export function FutureMapOnboarding({maps,onInstall,onExisting,onHistorical,
             {selectedExtra.backupIdentityPresent?" saját backup-ID":" backup-ID nincs"} ·
             {selectedExtra.launchState} · Game {selectedExtra.gamePort??"?"} /
             Query {selectedExtra.queryPort??"?"}</p>
-          {!selectedExtra.sessionMatches?<div className="warning-inline" role="status">
-            Ez a map nem az eredeti öt Map Store-session modelljével készült.
-            A külön konverzió és jelenlegi Store-tagság bizonyítása szükséges.
-            Nem hamisítunk sharedSession mezőt, és nem végezzük el az átvételt
-            bizonyíték nélkül. A szerver futása változatlan marad.
+          {!selectedExtra.sessionMatches&&!selectedExtra.independentActivationMetadataComplete?<div className="warning-inline" role="status">
+            {selectedExtra.sessionBinding==="missing-shared-session"?
+              "A külön hozzáadott map Store-rekordjában nincs sharedSession. Ez nem bizonyítja önmagában a konverziót: külön hiteles forrás, saját backup és a jelenlegi kétgépes Store-állapot igazolása szükséges.":
+              "A map Store-session értéke eltér vagy érvénytelen. Másik clusterhez tartozó rekord nem vehető át az eredeti clusterbe."}
+            Az átvétel blokkolva marad, amíg a natív Store-bizonyítás hiányzik.
+            A futó ASA és az eredeti öt map érintetlen.
           </div>:<>
             <button type="button" className="secondary" disabled={busy||!selectedExtra.active}
               onClick={()=>{void prepareExtra();}}>Store-forrás natív ellenőrzése</button>
+            {selectedExtra.independentActivationMetadataComplete&&!selectedExtra.sessionMatches&&
+              <p className="muted small">Külön aktivált Store-rekord: teljes saját backup-ID és
+                időrendi metaadat ellenőrizve. A natív előnézetnek még igazolnia kell
+                a két DONE peert, a pontos forrást, a futó folyamatot, portokat és a
+                mentési/Store védelmet. A sharedSession mezőt nem pótoljuk.</p>}
             {extraPreview&&!extraPreview.alreadyRegistered&&<div role="region" aria-label="Kiegészítő Store-map jóváhagyása">
               <p>{extraPreview.mapName} · {extraPreview.mapKey} ·
                 {extraPreview.running?"fut":"leállított"}</p>
+              {extraPreview.queryListenerNotBound&&<p className="warning-inline" role="status">
+                A Query UDP porton nincs igazolt ASA-tulajdonú listener. Ez a
+                folyamatazonosságot nem változtatja meg, de a Query-szolgáltatás
+                és a szerverkereső működése nincs igazolva. Az átvétel után
+                külön ellenőrzés szükséges; más PID által birtokolt port tiltott.
+              </p>}
               <button type="button" className="primary" disabled={busy}
                 onClick={()=>{void applyExtra();}}>
                 Ellenőrzött Store-map hozzáadása</button>

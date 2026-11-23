@@ -129,6 +129,19 @@ public static class LegacyStoreV1LiveReadGate
             throw new IOException("UM-STORE-LIVE-SHARED-CHANGED");
     }
 
+    internal static bool MatchesIndependentLocalPeerOwner(
+        JsonElement members,Guid addedId,string addedMap,string addedRoot)
+    {
+        if(members.ValueKind!=JsonValueKind.Array||addedId==Guid.Empty||
+           string.IsNullOrWhiteSpace(addedMap)||string.IsNullOrWhiteSpace(addedRoot))
+            return false;
+        var matches=members.EnumerateArray().Where(m=>
+            Guid.TryParse(Text(m,"id"),out var value)&&value==addedId).ToArray();
+        return matches.Length==1&&Str(matches[0],"map",addedMap)&&
+               NormalRoot(Text(matches[0],"root")).Equals(
+                   NormalRoot(addedRoot),StringComparison.OrdinalIgnoreCase);
+    }
+
     // Used by the real read-only live preflight AND isolated regression
     // fixtures. The two DONE records may have extra current members, but
     // each has exactly FIVE selected historical map GUIDs. No selection,
@@ -198,12 +211,20 @@ public static class LegacyStoreV1LiveReadGate
         var report=LegacyStoreV1LocalReader.Inspect(originalLocalProfile);
         if(!report.LocalSnapshotReady||report.Maps.Length!=5)
             throw new InvalidDataException("UM-STORE-LIVE-LOCAL-NOT-ACTIVE");
-        if(supplementalMapId is Guid extra)
-        {
-            var row=report.AdditionalMaps.SingleOrDefault(x=>x.MapId==extra);
-            if(row==null||!row.Active||!row.SessionMatches||!row.BackupIdentityPresent||!row.RootMatches)
-                throw new InvalidDataException("UM-STORE-EXTRA-SHARED-SESSION-UNVERIFIED");
-        }
+        // The historical conversion session authenticates the original five.
+        // A sixth independently converted Store map deliberately has NO
+        // sharedSession, but it must carry a complete own conversion record.
+        // The current local DONE peer MUST also bind it to the exact root
+        // and map without selecting it as an original conversion owner.
+        var extraRow=supplementalMapId is Guid extra?
+            report.AdditionalMaps.SingleOrDefault(x=>x.MapId==extra):null;
+        bool independentSupplemental=extraRow!=null&&
+            extraRow.SessionBinding=="missing-shared-session"&&
+            extraRow.IndependentActivationMetadataComplete;
+        if(supplementalMapId.HasValue&&
+           (extraRow==null||!extraRow.Active||!extraRow.BackupIdentityPresent||
+            !extraRow.RootMatches||(!extraRow.SessionMatches&&!independentSupplemental)))
+            throw new InvalidDataException("UM-STORE-EXTRA-SHARED-SESSION-UNVERIFIED");
         var files=new Dictionary<string,byte[]>{
             ["cluster.json"]=clusterRaw,["device.json"]=deviceRaw,
             ["lock.json"]=lockRaw,["store.json"]=storeRaw};
@@ -257,6 +278,7 @@ public static class LegacyStoreV1LiveReadGate
             throw new InvalidDataException("UM-STORE-LIVE-PEERS-INVALID");
         var members=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var topology=new List<LegacyStoreV1PeerTopology.Peer>();
+        bool independentlyOwnedByLocalPeer=false;
         int done=0;byte[][] peerBytes=new byte[2][];
         for(int i=0;i<2;i++)
         {
@@ -275,19 +297,45 @@ public static class LegacyStoreV1LiveReadGate
                 LegacyStoreV1PeerTopology.RequireOriginalLocalSelection(
                     Need(localLock,"selected"),
                     validatedPeer.SelectedIds);
-                if(supplementalMapId.HasValue&&report.CurrentLocalMemberCount>5&&
-                   LegacyStoreV1LocalReader.MatchesPinnedHistoricalSubset(cluster,Need(localLock,"config"),
-                       Need(localLock,"selected").EnumerateArray().Select(x=>x.GetString()??"").ToArray())&&
-                   StoreV1Fingerprint.Compute(Need(peer,"config"))==
-                       StoreV1Fingerprint.Compute(Need(localLock,"config")))
+                if(independentSupplemental&&extraRow!=null&&supplementalMapId is Guid independentId)
                 {
-                    // Both hashes were checked above. The peer remains
-                    // EXACTLY the durable original lock's five owners.
-                    LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
-                        Need(localLock,"config"),Need(peer,"config"));
+                    // Independently converted Store maps were appended to
+                    // local config, Store map records, lock.config and the
+                    // LOCAL DONE peer. The other peer and selected original
+                    // five stay unchanged. A stale five-only local peer may
+                    // NOT authorize the added map.
+                    var selection=Need(localLock,"selected").EnumerateArray()
+                        .Select(x=>x.GetString()??"").ToArray();
+                    if(!StoreV1Fingerprint.Matches(cluster,Text(localLock,"configHash"))||
+                       !LegacyStoreV1LocalReader.MatchesAppendOnlyRoster(
+                          Need(peer,"config"),cluster,selection))
+                        throw new InvalidDataException("UM-STORE-EXTRA-INDEPENDENT-LOCAL-PEER-DIVERGED");
+                    var peerMembers=Need(peer,"members");
+                    if(!MatchesIndependentLocalPeerOwner(peerMembers,
+                        independentId,extraRow.MapKey,extraRow.OriginalRoot))
+                        throw new InvalidDataException("UM-STORE-EXTRA-INDEPENDENT-LOCAL-OWNER");
+                    independentlyOwnedByLocalPeer=true;
                 }
-                else LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
-                    cluster,Need(peer,"config"));
+                // A later seventh/eighth map must not invalidate the
+                // already imported sixth map or the original five.
+                // The local DONE peer may have appended new members, but
+                // ALL earlier pinned entries and the five original
+                // selections must be unchanged in order and content.
+                var originalSelected=Need(localLock,"selected").EnumerateArray()
+                    .Select(x=>x.GetString()??"").ToArray();
+                var peerConfig=Need(peer,"config");
+                bool pinnedPeer=StoreV1Fingerprint.Compute(cluster)==
+                    StoreV1Fingerprint.Compute(peerConfig);
+                bool appendOnlyPeer=LegacyStoreV1LocalReader.MatchesAppendOnlyRoster(
+                    peerConfig,cluster,originalSelected);
+                bool legacyFivePeer=!independentSupplemental&&
+                    report.CurrentLocalMemberCount>5&&
+                    LegacyStoreV1LocalReader.MatchesPinnedHistoricalSubset(
+                        cluster,Need(localLock,"config"),originalSelected)&&
+                    StoreV1Fingerprint.Compute(peerConfig)==
+                        StoreV1Fingerprint.Compute(Need(localLock,"config"));
+                if(!pinnedPeer&&!appendOnlyPeer&&!legacyFivePeer)
+                    throw new InvalidDataException("UM-STORE-LIVE-LOCAL-PEER-CONFIG-DIVERGED");
             }
             foreach(string name in validatedPeer.MapNames)
                 if(!members.Add(name))
@@ -297,6 +345,8 @@ public static class LegacyStoreV1LiveReadGate
         // No two peers may claim the same GUID under different map names.
         // The shared LOCAL peer's identity must include the imported map.
         LegacyStoreV1PeerTopology.Validate(deviceId,topology);
+        if(independentSupplemental&&!independentlyOwnedByLocalPeer)
+            throw new InvalidDataException("UM-STORE-EXTRA-INDEPENDENT-OWNER-UNVERIFIED");
         if(supplementalMapId is Guid candidateId&&topology
             .Where(p=>!p.DeviceId.Equals(deviceId,StringComparison.OrdinalIgnoreCase))
             .Any(p=>p.MemberIds.Any(x=>Guid.TryParse(x,out var gid)&&gid==candidateId)))

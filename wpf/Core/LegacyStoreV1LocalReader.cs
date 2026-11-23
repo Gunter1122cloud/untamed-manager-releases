@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -27,6 +28,11 @@ public static class LegacyStoreV1LocalReader
         // Original source GUID never serialized into a LAN status packet.
         public Guid MapId {get;init;}
         public string OriginalRoot {get;init;}="";
+        // Source-field classification only, NEVER independent-conversion proof.
+        public string SessionBinding {get;init;}="unverified";
+        // Complete metadata for a separately activated Store record.
+        // Never sufficient alone for native lifecycle or writer authority.
+        public bool IndependentActivationMetadataComplete {get;init;}
     }
     public sealed record Report(bool LocalFilesVerified,bool ClusterHashVerified,
         bool LocalLockVerified,bool AllLocalMapsActive,bool LocalSnapshotReady,
@@ -76,6 +82,44 @@ public static class LegacyStoreV1LocalReader
         return now.Length==5&&locked.Zip(now).All(pair=>
             StoreV1Fingerprint.Compute(pair.First)==
             StoreV1Fingerprint.Compute(pair.Second));
+    }
+
+    // A valid previously pinned five/six/seven-map source may be followed
+    // by another independently added map. The shared local DONE peer can
+    // append members only: every previously pinned id/level/root remains
+    // byte-equivalent and in order, and the original selected five remain
+    // within that immutable prefix. A peer may NEVER rewrite the earlier
+    // map while adding a later one.
+    internal static bool MatchesAppendOnlyRoster(JsonElement newer,
+        JsonElement pinned,string[] originalSelected)
+    {
+        if(Text(newer,"id")!=Text(pinned,"id")||
+           Text(newer,"mode")!=Text(pinned,"mode")||
+           Text(newer,"path")!=Text(pinned,"path")||
+           !newer.TryGetProperty("members",out var present)||
+           !pinned.TryGetProperty("members",out var earlier)||
+           present.ValueKind!=JsonValueKind.Array||
+           earlier.ValueKind!=JsonValueKind.Array||
+           earlier.GetArrayLength() is <5 or >32||
+           present.GetArrayLength()<earlier.GetArrayLength()||
+           present.GetArrayLength()>32||
+           originalSelected.Length!=5||
+           originalSelected.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=5)
+            return false;
+        var old=earlier.EnumerateArray().ToArray();
+        var now=present.EnumerateArray().ToArray();
+        var ids=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var names=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach(var item in now)
+            if(!ids.Add(Text(item,"id"))||!names.Add(Text(item,"map")))
+                return false;
+        if(originalSelected.Any(id=>!old.Any(row=>
+                Text(row,"id").Equals(id,StringComparison.OrdinalIgnoreCase))))
+            return false;
+        for(int i=0;i<old.Length;i++)
+            if(StoreV1Fingerprint.Compute(old[i])!=StoreV1Fingerprint.Compute(now[i]))
+                return false;
+        return true;
     }
 
     public static Report Inspect(string localDirectory)
@@ -140,20 +184,47 @@ public static class LegacyStoreV1LocalReader
                !records.TryGetProperty(id,out var record))
                 throw new InvalidDataException("UM-LOCAL-STORE-MAP-BINDING");
             bool active=Text(record,"phase")=="active";
-            bool sameSession=Guid.TryParse(Text(record,"sharedSession"),out var existing)&&
-                existing==session;
+            JsonElement sessionField=default;
+            bool hasSession=record.ValueKind==JsonValueKind.Object&&
+                record.TryGetProperty("sharedSession",out sessionField);
+            bool sameSession=hasSession&&sessionField.ValueKind==JsonValueKind.String&&
+                Guid.TryParse(sessionField.GetString(),out var existing)&&existing==session;
+            string binding=sameSession?"original-session-matched":
+                !hasSession?"missing-shared-session":"foreign-or-invalid-session";
             bool sameRoot=string.Equals(Text(record,"root"),install,
                 StringComparison.OrdinalIgnoreCase)&&Text(record,"map")==name;
             bool marked=selection.Contains(id,StringComparer.OrdinalIgnoreCase);
             bool backup=Guid.TryParse(Text(record,"backupId"),out var backupId)&&
                 backupId!=Guid.Empty;
+            // A post-conversion Store record produced by an independently
+            // converted, later-added map has NO original sharedSession.
+            // Validate its native chronological fields instead; this is
+            // source metadata evidence, NOT proof of successful ASA conversion.
+            static bool Timestamp(JsonElement item,string key,out DateTimeOffset when)
+            {
+                when=default;
+                return item.ValueKind==JsonValueKind.Object&&
+                    item.TryGetProperty(key,out var field)&&
+                    field.ValueKind==JsonValueKind.String&&
+                    DateTimeOffset.TryParse(field.GetString(),CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeUniversal|DateTimeStyles.AdjustToUniversal,
+                        out when)&&when.Year>=2020&&
+                    when<=DateTimeOffset.UtcNow.AddMinutes(5);
+            }
+            bool prepared=Timestamp(record,"preparedAt",out var preparedAt);
+            bool attempted=Timestamp(record,"attemptedAt",out var attemptedAt);
+            bool confirmed=Timestamp(record,"confirmedAt",out var confirmedAt);
+            bool independentMetadata=!marked&&binding=="missing-shared-session"&&
+                active&&sameRoot&&backup&&prepared&&attempted&&confirmed&&
+                preparedAt<=attemptedAt&&attemptedAt<=confirmedAt;
             // Unselected event maps are not automatically promoted to the
             // original Store session. Their local GUID/root/map binding is
             // still checked so malformed extra metadata cannot be ignored.
             if(!marked&&!sameRoot)
                 throw new InvalidDataException("UM-LOCAL-STORE-EXTRA-MAP-BINDING");
             var entry=new MapEvidence(name,active,sameSession,sameRoot,marked,backup)
-                {MapId=memberId,OriginalRoot=install};
+                {MapId=memberId,OriginalRoot=install,SessionBinding=binding,
+                 IndependentActivationMetadataComplete=independentMetadata};
             if(marked)evidence.Add(entry);else additional.Add(entry);
         }
         if(!selection.All(ids.Contains)||

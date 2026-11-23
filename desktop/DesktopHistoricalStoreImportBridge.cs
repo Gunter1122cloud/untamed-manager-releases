@@ -39,7 +39,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
     private readonly Dictionary<Guid,OriginalPrepared> pendingOriginal=new();
     private sealed record SupplementalPlan(LocalMap Map,string Source,string FourSha,
         string LaunchSha,string Fingerprint,long RegistryRevision,bool Running,string ClusterId,
-        string TransferRoot,string InventoryHash,SupplementalMapContentProbe.Evidence Content);
+        string TransferRoot,string InventoryHash,SupplementalMapContentProbe.Evidence Content,
+        bool QueryListenerNotBound);
     private sealed record SupplementalApproval(Guid Token,Guid MapId,bool StoppedUseApi,
         string Fingerprint,DateTimeOffset ExpiresUtc);
     private readonly Dictionary<Guid,SupplementalApproval> supplementalApprovals=new();
@@ -733,7 +734,10 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         alreadyRegistered=false,addsClusterMembership=true,changesOriginalFive=false,
                         modContentInstallationVerified=false,modContentState=plan.Content.State,
                         presentModProjects=plan.Content.PresentProjects,unverifiedModProjects=plan.Content.UnverifiedProjects,
-                        levelManifestProjects=plan.Content.LevelManifestProjects,serverProcessTouched=false});
+                        levelManifestProjects=plan.Content.LevelManifestProjects,
+                        queryListenerNotBound=plan.QueryListenerNotBound,
+                        queryReadyVerified=!plan.QueryListenerNotBound&&plan.Running,
+                        serverProcessTouched=false});
                 }
                 if(method is "historical.supplementalRegister" or "historical.supplementalStart")
                 {
@@ -819,7 +823,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                             unverifiedModProjects=final.Content.UnverifiedProjects,levelManifestProjects=final.Content.LevelManifestProjects,
                             processInventoryUnchanged=unchanged,processCommandIssued=false,
                             originalStoreTouched=false,scheduleChanged=false,orphanPinReconciled,
-                            requiresLocalAcceptance=!unchanged};
+                            requiresLocalAcceptance=!unchanged||final.QueryListenerNotBound,
+                            queryListenerNotBound=final.QueryListenerNotBound,
+                            queryReadyVerified=!final.QueryListenerNotBound&&final.Running};
                         }
                         finally{configGate.ReleaseMutex();}
                         }
@@ -859,6 +865,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         additionalMaps=supplemental.Select(m=>new{
                             mapId=m.MapId,mapKey=m.MapKey,
                             active=m.Active,sessionMatches=m.SessionMatches,
+                            sessionBinding=m.SessionBinding,
+                            independentActivationMetadataComplete=m.IndependentActivationMetadataComplete,
                             backupIdentityPresent=m.BackupIdentityPresent,
                             gamePort=m.GamePort,queryPort=m.QueryPort,
                             enabledMods=m.EnabledMods?.Length,passiveMods=m.PassiveMods?.Length,
@@ -1601,6 +1609,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         var children=samples.Where(x=>string.Equals(x.ExecutablePath,map.ExecutablePath,StringComparison.OrdinalIgnoreCase)).ToArray();
         var parents=samples.Where(x=>string.Equals(x.ExecutablePath,loader,StringComparison.OrdinalIgnoreCase)).ToArray();
         bool running=children.Length>0||parents.Length>0;
+        bool queryListenerNotBound=false;
         if(running)
         {
             if(children.Length!=1||parents.Length>1)
@@ -1635,9 +1644,26 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                    observed.LoaderIdentity.StartedUtc!=parents[0].StartedUtc)))
                 throw new InvalidDataException("UM-STORE-EXTRA-PID-OR-LAUNCH-MISMATCH");
             if(!RconPortOwnership.IsOwnedListener(map.RconPort,child.Pid)||
-               !RconPortOwnership.OwnsUdpPort(map.GamePort,child.Pid)||
-               !RconPortOwnership.OwnsUdpPort(map.QueryPort,child.Pid))
+               !RconPortOwnership.OwnsUdpPort(map.GamePort,child.Pid))
                 throw new InvalidDataException("UM-STORE-EXTRA-PORT-OWNER-MISMATCH");
+            var queryPort=RconPortOwnership.InspectUdpPort(map.QueryPort,child.Pid);
+            // For an independently activated, currently running map only,
+            // no query socket on EITHER IP family is not a foreign owner:
+            // the exact ASA/Loader process, launch source, Game UDP owner
+            // and authenticated RCON TCP owner have all been proved above.
+            // Query readiness itself remains explicitly UNVERIFIED. No
+            // observed/unverified or foreign Query socket can be accepted.
+            if(queryPort==RconPortOwnership.UdpOwnership.ForeignOrAmbiguous)
+                throw new InvalidDataException("UM-STORE-EXTRA-QUERY-UDP-FOREIGN-OWNER");
+            if(queryPort==RconPortOwnership.UdpOwnership.Unverified)
+                throw new InvalidDataException("UM-STORE-EXTRA-QUERY-UDP-UNVERIFIED");
+            if(queryPort==RconPortOwnership.UdpOwnership.Missing)
+            {
+                if(supplemental.SessionBinding!="missing-shared-session"||
+                   !supplemental.IndependentActivationMetadataComplete)
+                    throw new InvalidDataException("UM-STORE-EXTRA-QUERY-UDP-NOT-BOUND");
+                queryListenerNotBound=true;
+            }
             map.LastProcess=observed.Identity;map.LastLoader=observed.LoaderIdentity;
         }
         else
@@ -1665,11 +1691,12 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         string fingerprint=SupplementalHash(JsonSerializer.Serialize(new{
             id,source.FourFilesSha256,source.LaunchProfileSha256,registry.Revision,
             root,transferId,shared.SourceStateSha256,inventory,iniSha=Convert.ToHexString(SHA256.HashData(ini)),
-            launch=launch.Arguments,map.Name,map.RconPort,map.StartWithAsaApi,contentFingerprint=content.Fingerprint,
+            launch=launch.Arguments,map.Name,map.RconPort,map.StartWithAsaApi,
+            queryListenerNotBound,contentFingerprint=content.Fingerprint,
             commands=children.Concat(parents).OrderBy(p=>p.Pid).Select(p=>p.CommandLine)}));
         return new(map,sourcePath,source.FourFilesSha256,source.LaunchProfileSha256,
             fingerprint,registry.Revision,running,originalCluster.RuntimeClusterId,
-            originalCluster.TransferRoot,inventory,content);
+            originalCluster.TransferRoot,inventory,content,queryListenerNotBound);
     }
 
     private static string MapName(string key)=>key switch
