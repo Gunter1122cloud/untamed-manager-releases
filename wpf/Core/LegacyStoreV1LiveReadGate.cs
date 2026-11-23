@@ -291,9 +291,11 @@ public static class LegacyStoreV1LiveReadGate
                     // LOCAL DONE peer. The other peer and selected original
                     // five stay unchanged. A stale five-only local peer may
                     // NOT authorize the added map.
+                    var selection=Need(localLock,"selected").EnumerateArray()
+                        .Select(x=>x.GetString()??"").ToArray();
                     if(!StoreV1Fingerprint.Matches(cluster,Text(localLock,"configHash"))||
-                       StoreV1Fingerprint.Compute(cluster)!=
-                           StoreV1Fingerprint.Compute(Need(peer,"config")))
+                       !LegacyStoreV1LocalReader.MatchesAppendOnlyRoster(
+                          Need(peer,"config"),cluster,selection))
                         throw new InvalidDataException("UM-STORE-EXTRA-INDEPENDENT-LOCAL-PEER-DIVERGED");
                     var peerMembers=Need(peer,"members");
                     if(peerMembers.ValueKind!=JsonValueKind.Array)
@@ -307,19 +309,26 @@ public static class LegacyStoreV1LiveReadGate
                         throw new InvalidDataException("UM-STORE-EXTRA-INDEPENDENT-LOCAL-OWNER");
                     independentlyOwnedByLocalPeer=true;
                 }
-                if(supplementalMapId.HasValue&&report.CurrentLocalMemberCount>5&&
-                   LegacyStoreV1LocalReader.MatchesPinnedHistoricalSubset(cluster,Need(localLock,"config"),
-                       Need(localLock,"selected").EnumerateArray().Select(x=>x.GetString()??"").ToArray())&&
-                   StoreV1Fingerprint.Compute(Need(peer,"config"))==
-                       StoreV1Fingerprint.Compute(Need(localLock,"config")))
-                {
-                    // Both hashes were checked above. The peer remains
-                    // EXACTLY the durable original lock's five owners.
-                    LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
-                        Need(localLock,"config"),Need(peer,"config"));
-                }
-                else LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
-                    cluster,Need(peer,"config"));
+                // A later seventh/eighth map must not invalidate the
+                // already imported sixth map or the original five.
+                // The local DONE peer may have appended new members, but
+                // ALL earlier pinned entries and the five original
+                // selections must be unchanged in order and content.
+                var originalSelected=Need(localLock,"selected").EnumerateArray()
+                    .Select(x=>x.GetString()??"").ToArray();
+                var peerConfig=Need(peer,"config");
+                bool pinnedPeer=StoreV1Fingerprint.Compute(cluster)==
+                    StoreV1Fingerprint.Compute(peerConfig);
+                bool appendOnlyPeer=LegacyStoreV1LocalReader.MatchesAppendOnlyRoster(
+                    peerConfig,cluster,originalSelected);
+                bool legacyFivePeer=!independentSupplemental&&
+                    report.CurrentLocalMemberCount>5&&
+                    LegacyStoreV1LocalReader.MatchesPinnedHistoricalSubset(
+                        cluster,Need(localLock,"config"),originalSelected)&&
+                    StoreV1Fingerprint.Compute(peerConfig)==
+                        StoreV1Fingerprint.Compute(Need(localLock,"config"));
+                if(!pinnedPeer&&!appendOnlyPeer&&!legacyFivePeer)
+                    throw new InvalidDataException("UM-STORE-LIVE-LOCAL-PEER-CONFIG-DIVERGED");
             }
             foreach(string name in validatedPeer.MapNames)
                 if(!members.Add(name))
