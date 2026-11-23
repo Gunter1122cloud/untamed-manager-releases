@@ -28,7 +28,9 @@ public sealed record FutureStoreAppendBundle(
     string LaunchJson,string LocalDonePeerJson,
     string OriginalRosterHash,string NewRosterHash,
     string OriginalSourceHash,string NewSourceHash,
-    string Evidence)
+    string Evidence,
+    string PreConversionBackupSha256="",
+    string ConvertedStoreSha256="")
 {
     // Never a production authorization; all five strings are candidate
     // offline images and need a separate irreversible-write coordinator.
@@ -261,6 +263,7 @@ public static class FutureStoreAppendPlanner
         return new(output[0],output[1],output[2],output[3],output[4],
             beforeRoster,ConfigHash(members),beforeSource,
             HashText(string.Join("\n",output)),
-            "IN_MEMORY_APPEND_IMAGES_ONLY_NO_STORE_OR_WORLD_AUTHORITY");
+            "IN_MEMORY_APPEND_IMAGES_ONLY_NO_STORE_OR_WORLD_AUTHORITY",
+            converted.PreConversionBackupSha256,converted.ConvertedStoreSha256);
     }
 }

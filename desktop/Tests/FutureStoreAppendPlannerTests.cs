@@ -371,6 +371,14 @@ internal static class FutureStoreAppendPlannerTests
             escrowStart.OperationId,"conversionAttempted","conversionVerified",
             new string('B',64));
         string[] unchangedSource={clusterText,storeText,lockText,launchText,peerText};
+        Check(Denied(()=>FutureStoreAppendEscrow.Stage(manager,escrowMapId,
+                escrowStart.OperationId,unchangedSource,escrowBundle with{
+                    PreConversionBackupSha256=new string('F',64)})),
+            "escrow rejects a backup witness hash different from the durable journal");
+        Check(Denied(()=>FutureStoreAppendEscrow.Stage(manager,escrowMapId,
+                escrowStart.OperationId,unchangedSource,escrowBundle with{
+                    ConvertedStoreSha256=new string('F',64)})),
+            "escrow rejects a converted world hash different from the durable journal");
         var escrow=FutureStoreAppendEscrow.Stage(manager,escrowMapId,
             escrowStart.OperationId,unchangedSource,escrowBundle);
         Check(escrow.BeforeSha256==escrowBundle.OriginalSourceHash&&

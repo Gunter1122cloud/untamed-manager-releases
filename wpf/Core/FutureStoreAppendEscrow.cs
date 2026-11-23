@@ -90,6 +90,12 @@ public static class FutureStoreAppendEscrow
            journal.ClusterId!=VaultProtocol.ClusterId||
            journal.OriginalSourceSha256!=bundle.OriginalSourceHash)
             throw new InvalidOperationException("UM-FUTURE-ESCROW-CONVERSION-NOT-VERIFIED");
+        // A map/source match is not enough: bind the exact stopped-world
+        // backup and independently witnessed converted Store hash to the
+        // durable one-shot journal, or refuse publication entirely.
+        if(journal.BackupManifestSha256!=bundle.PreConversionBackupSha256||
+           journal.ConvertedStoreSha256!=bundle.ConvertedStoreSha256)
+            throw new InvalidDataException("UM-FUTURE-ESCROW-CONVERSION-RECEIPT-MISMATCH");
         string target=Destination(managerProfileRoot,mapId,operationId);
         string staging=target+".incomplete";
         if(Directory.Exists(target)||Directory.Exists(staging)||
