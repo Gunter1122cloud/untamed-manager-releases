@@ -54,7 +54,8 @@ public static class FutureStoreConversionSourceAudit
     private static int Port(JsonElement obj,string name)
     {
         var value=Field(obj,name);
-        if(value.ValueKind!=JsonValueKind.Number||!value.TryGetInt32(out int port)||
+        int port=0;
+        if(value.ValueKind!=JsonValueKind.Number||!value.TryGetInt32(out port)||
            port is <1024 or >65535)Deny("PORT-"+name);
         return port;
     }
