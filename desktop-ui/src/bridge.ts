@@ -1368,7 +1368,8 @@ export type OriginalKovaLocalMapList = {
     enabledMods:number;passiveMods:number;registered:boolean}>;
   additionalSource?:string;
   additionalMaps?:Array<{mapId:string;mapKey:string;active:boolean;
-    sessionMatches:boolean;backupIdentityPresent:boolean;gamePort:number|null;queryPort:number|null;
+    sessionMatches:boolean;sessionBinding?:"original-session-matched"|"missing-shared-session"|"foreign-or-invalid-session"|"unverified";
+    backupIdentityPresent:boolean;gamePort:number|null;queryPort:number|null;
     enabledMods:number|null;passiveMods:number|null;launchState:string;
     selectedHistoricalOwner:false;storeWriterAuthorized:false;registered:boolean}>;
   evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY";
