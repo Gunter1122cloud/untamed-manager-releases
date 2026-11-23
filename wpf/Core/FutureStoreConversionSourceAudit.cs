@@ -29,8 +29,9 @@ public static class FutureStoreConversionSourceAudit
         Guid.TryParseExact(value,"D",out var result)&&result!=Guid.Empty;
     private static JsonElement Field(JsonElement obj,string name)
     {
+        JsonElement value=default;
         if(obj.ValueKind!=JsonValueKind.Object||
-           !obj.TryGetProperty(name,out var value))Deny("MISSING-"+name);
+           !obj.TryGetProperty(name,out value))Deny("MISSING-"+name);
         return value;
     }
     private static string Text(JsonElement obj,string name)
