@@ -84,6 +84,44 @@ public static class LegacyStoreV1LocalReader
             StoreV1Fingerprint.Compute(pair.Second));
     }
 
+    // A valid previously pinned five/six/seven-map source may be followed
+    // by another independently added map. The shared local DONE peer can
+    // append members only: every previously pinned id/level/root remains
+    // byte-equivalent and in order, and the original selected five remain
+    // within that immutable prefix. A peer may NEVER rewrite the earlier
+    // map while adding a later one.
+    internal static bool MatchesAppendOnlyRoster(JsonElement newer,
+        JsonElement pinned,string[] originalSelected)
+    {
+        if(Text(newer,"id")!=Text(pinned,"id")||
+           Text(newer,"mode")!=Text(pinned,"mode")||
+           Text(newer,"path")!=Text(pinned,"path")||
+           !newer.TryGetProperty("members",out var present)||
+           !pinned.TryGetProperty("members",out var earlier)||
+           present.ValueKind!=JsonValueKind.Array||
+           earlier.ValueKind!=JsonValueKind.Array||
+           earlier.GetArrayLength() is <5 or >32||
+           present.GetArrayLength()<earlier.GetArrayLength()||
+           present.GetArrayLength()>32||
+           originalSelected.Length!=5||
+           originalSelected.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=5)
+            return false;
+        var old=earlier.EnumerateArray().ToArray();
+        var now=present.EnumerateArray().ToArray();
+        var ids=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var names=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach(var item in now)
+            if(!ids.Add(Text(item,"id"))||!names.Add(Text(item,"map")))
+                return false;
+        if(originalSelected.Any(id=>!old.Any(row=>
+                Text(row,"id").Equals(id,StringComparison.OrdinalIgnoreCase))))
+            return false;
+        for(int i=0;i<old.Length;i++)
+            if(StoreV1Fingerprint.Compute(old[i])!=StoreV1Fingerprint.Compute(now[i]))
+                return false;
+        return true;
+    }
+
     public static Report Inspect(string localDirectory)
     {
         string root=VaultReadSnapshot.LocalPath(localDirectory,true);
