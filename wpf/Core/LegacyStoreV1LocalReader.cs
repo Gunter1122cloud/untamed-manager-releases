@@ -142,8 +142,9 @@ public static class LegacyStoreV1LocalReader
                !records.TryGetProperty(id,out var record))
                 throw new InvalidDataException("UM-LOCAL-STORE-MAP-BINDING");
             bool active=Text(record,"phase")=="active";
+            JsonElement sessionField=default;
             bool hasSession=record.ValueKind==JsonValueKind.Object&&
-                record.TryGetProperty("sharedSession",out var sessionField);
+                record.TryGetProperty("sharedSession",out sessionField);
             bool sameSession=hasSession&&sessionField.ValueKind==JsonValueKind.String&&
                 Guid.TryParse(sessionField.GetString(),out var existing)&&existing==session;
             string binding=sameSession?"original-session-matched":
