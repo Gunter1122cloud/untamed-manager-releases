@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using UntamedManager.Core;
 using UntamedDesktop;
 
@@ -86,6 +87,32 @@ internal static class FutureStoreAppendPlannerTests
         var before=string.Join("\n",new[]{clusterText,storeText,lockText,
             launchText,peerText});
         var result=Build();
+        var beforeImages=new[]{clusterText,storeText,lockText,launchText,peerText};
+        var afterImages=new[]{result.ClusterJson,result.StoreJson,result.LockJson,
+            result.LaunchJson,result.LocalDonePeerJson};
+        FutureStoreAppendInvariant.Verify(beforeImages,afterImages,extraId);
+        Check(true,"offline append invariant accepts exactly one new member");
+        var forgedCluster=JsonNode.Parse(afterImages[0])!;
+        ((JsonObject)((JsonArray)forgedCluster["members"]!)[0]!)["root"]=
+            Path.Combine(root,"forged-old-world");
+        var rewritten=afterImages.ToArray();
+        rewritten[0]=forgedCluster.ToJsonString();
+        Check(Denied(()=>FutureStoreAppendInvariant.Verify(beforeImages,rewritten,extraId)),
+            "offline append invariant denies a rewritten original map root");
+        var forgedLaunch=JsonNode.Parse(afterImages[3])!;
+        ((JsonObject)((JsonObject)((JsonArray)forgedLaunch["rows"]!)[0]!)["launch"]!)
+            ["gamePort"]=49999;
+        rewritten=afterImages.ToArray();
+        rewritten[3]=forgedLaunch.ToJsonString();
+        Check(Denied(()=>FutureStoreAppendInvariant.Verify(beforeImages,rewritten,extraId)),
+            "offline append invariant denies historical launch port rewrites");
+        var forgedRecord=JsonNode.Parse(afterImages[1])!;
+        ((JsonObject)((JsonObject)forgedRecord["maps"]!)[extraId.ToString("D")]!)
+            ["sharedSession"]=session;
+        rewritten=afterImages.ToArray();
+        rewritten[1]=forgedRecord.ToJsonString();
+        Check(Denied(()=>FutureStoreAppendInvariant.Verify(beforeImages,rewritten,extraId)),
+            "future added record may never borrow original sharedSession");
         Check(!result.StoreWriteAuthorized&&!result.ConversionExecuted&&
               !result.CharacterTravelCertified,
             "offline bundle never grants writer rights, conversion or character travel");
