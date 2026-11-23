@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -29,6 +30,9 @@ public static class LegacyStoreV1LocalReader
         public string OriginalRoot {get;init;}="";
         // Source-field classification only, NEVER independent-conversion proof.
         public string SessionBinding {get;init;}="unverified";
+        // Complete metadata for a separately activated Store record.
+        // Never sufficient alone for native lifecycle or writer authority.
+        public bool IndependentActivationMetadataComplete {get;init;}
     }
     public sealed record Report(bool LocalFilesVerified,bool ClusterHashVerified,
         bool LocalLockVerified,bool AllLocalMapsActive,bool LocalSnapshotReady,
@@ -154,13 +158,35 @@ public static class LegacyStoreV1LocalReader
             bool marked=selection.Contains(id,StringComparer.OrdinalIgnoreCase);
             bool backup=Guid.TryParse(Text(record,"backupId"),out var backupId)&&
                 backupId!=Guid.Empty;
+            // A post-conversion Store record produced by an independently
+            // converted, later-added map has NO original sharedSession.
+            // Validate its native chronological fields instead; this is
+            // source metadata evidence, NOT proof of successful ASA conversion.
+            static bool Timestamp(JsonElement item,string key,out DateTimeOffset when)
+            {
+                when=default;
+                return item.ValueKind==JsonValueKind.Object&&
+                    item.TryGetProperty(key,out var field)&&
+                    field.ValueKind==JsonValueKind.String&&
+                    DateTimeOffset.TryParse(field.GetString(),CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeUniversal|DateTimeStyles.AdjustToUniversal,
+                        out when)&&when.Year>=2020&&
+                    when<=DateTimeOffset.UtcNow.AddMinutes(5);
+            }
+            bool prepared=Timestamp(record,"preparedAt",out var preparedAt);
+            bool attempted=Timestamp(record,"attemptedAt",out var attemptedAt);
+            bool confirmed=Timestamp(record,"confirmedAt",out var confirmedAt);
+            bool independentMetadata=!marked&&binding=="missing-shared-session"&&
+                active&&sameRoot&&backup&&prepared&&attempted&&confirmed&&
+                preparedAt<=attemptedAt&&attemptedAt<=confirmedAt;
             // Unselected event maps are not automatically promoted to the
             // original Store session. Their local GUID/root/map binding is
             // still checked so malformed extra metadata cannot be ignored.
             if(!marked&&!sameRoot)
                 throw new InvalidDataException("UM-LOCAL-STORE-EXTRA-MAP-BINDING");
             var entry=new MapEvidence(name,active,sameSession,sameRoot,marked,backup)
-                {MapId=memberId,OriginalRoot=install,SessionBinding=binding};
+                {MapId=memberId,OriginalRoot=install,SessionBinding=binding,
+                 IndependentActivationMetadataComplete=independentMetadata};
             if(marked)evidence.Add(entry);else additional.Add(entry);
         }
         if(!selection.All(ids.Contains)||
