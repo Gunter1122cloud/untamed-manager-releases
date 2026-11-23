@@ -75,10 +75,19 @@ public static class FutureStoreAppendEscrow
             if(doc.RootElement.ValueKind!=JsonValueKind.Object)
                 throw new InvalidDataException("UM-FUTURE-ESCROW-JSON-INVALID");
         }
+        using var planned=JsonDocument.Parse(bundle.ClusterJson);
+        var nextMembers=planned.RootElement.GetProperty("members");
+        if(nextMembers.ValueKind!=JsonValueKind.Array||
+           nextMembers.GetArrayLength()<6||
+           nextMembers.EnumerateArray().Last().GetProperty("id").GetString()!=
+               mapId.ToString("D"))
+            throw new InvalidDataException("UM-FUTURE-ESCROW-NEW-MAP-IDENTITY");
         var journal=FutureStoreConversionJournal.Inspect(
             managerProfileRoot,mapId);
         if(journal==null||journal.OperationId!=operationId||
-           journal.Phase!="conversionVerified")
+           journal.Phase!="conversionVerified"||
+           journal.ClusterId!=VaultProtocol.ClusterId||
+           journal.OriginalSourceSha256!=bundle.OriginalSourceHash)
             throw new InvalidOperationException("UM-FUTURE-ESCROW-CONVERSION-NOT-VERIFIED");
         string target=Destination(managerProfileRoot,mapId,operationId);
         string staging=target+".incomplete";
