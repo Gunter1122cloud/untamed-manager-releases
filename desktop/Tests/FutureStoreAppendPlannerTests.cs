@@ -281,6 +281,32 @@ internal static class FutureStoreAppendPlannerTests
                 "FutureGen2_WP","FutureGen2",7897,27197)
         };
         var stopped=new ProcessCheck(false,"synthetic verified stopped",null,true);
+        // First-use of a truly EMPTY future map is intentionally different
+        // from conversion of an existing world. The next map must be usable
+        // without inventing a previous .ark or a one-shot conversion receipt.
+        string blankRoot=Path.Combine(root,"new-empty-map-installation");
+        string blankSaves=Path.Combine(blankRoot,"ShooterGame","Saved","SavedArks");
+        Directory.CreateDirectory(blankSaves);
+        var blankMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="FutureBlank",InstallationPath=blankRoot,
+            GamePort=7957,QueryPort=27257,RconPort=37257,
+            Arguments=AsaSteamMapCatalog.LaunchArgumentsForLevel(
+                "FutureBlank_WP","FutureBlank",7957,27257)
+        };
+        var firstUse=FutureStoreFreshFirstUsePlanner.Preview(
+            blankMap,new[]{blankMap},stopped,beforeImages,()=>stopped);
+        Check(firstUse.MapId==blankMap.Id&&
+              firstUse.Args.Contains(" -usestore -log",StringComparison.Ordinal)&&
+              !firstUse.Args.Contains("-converttostore",StringComparison.OrdinalIgnoreCase)&&
+              !firstUse.NeedsLegacyWorldConversion&&!firstUse.ProcessStartAuthorized&&
+              !firstUse.RemotePeerWriterVerified,
+            "new empty map gets no-conversion Store first-use plan without writer permission");
+        string unexpectedProfile=Path.Combine(blankSaves,"unexpected.arkprofile");
+        File.WriteAllText(unexpectedProfile,"profile-before-first-store-start");
+        Check(Denied(()=>FutureStoreFreshFirstUsePlanner.Preview(
+                blankMap,new[]{blankMap},stopped,beforeImages,()=>stopped)),
+            "empty-map first-use refuses any preexisting loose player profile");
+        File.Delete(unexpectedProfile);
         string realPackage=Path.Combine(root,"frozen-pre-conversion-backup");
         var created=LocalBackupWorkflow.Create(offlineMap,stopped,realPackage,
             LocalBackupScope.WorldAndProfiles|LocalBackupScope.Ini,
