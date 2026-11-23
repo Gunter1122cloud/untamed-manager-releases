@@ -277,10 +277,10 @@ internal static class FutureStoreAppendPlannerTests
         string gateRoot=Path.Combine(root,"future-conversion-gate-manager");
         Directory.CreateDirectory(gateRoot);
         var gateIntent=FutureStoreConversionJournal.Begin(gateRoot,backupMapId,
-            VaultProtocol.ClusterId,new string('C',64));
+            VaultProtocol.ClusterId,result.OriginalSourceHash);
         var gateMaps=new[]{offlineMap};
         var ready=FutureStoreConversionAttemptGate.RecordVerifiedBackup(
-            gateRoot,offlineMap,gateMaps,realPackage,new string('C',64),
+            gateRoot,offlineMap,gateMaps,realPackage,result.OriginalSourceHash,
             ()=>stopped);
         Check(ready.Phase=="backupVerified"&&
               ready.BackupManifestSha256==proof.ManifestSha256,
@@ -289,21 +289,42 @@ internal static class FutureStoreAppendPlannerTests
         byte[] unmodifiedWorld=File.ReadAllBytes(worldPath);
         File.AppendAllText(worldPath,"late world mutation after verified backup");
         Check(Denied(()=>FutureStoreConversionAttemptGate.ReserveOneShot(
-                gateRoot,offlineMap,gateMaps,realPackage,new string('C',64),
+                gateRoot,offlineMap,gateMaps,realPackage,result.OriginalSourceHash,
                 ()=>stopped)),
             "changed original world bytes refuse the irreversible conversion reservation");
         File.WriteAllBytes(worldPath,unmodifiedWorld);
         var reservation=FutureStoreConversionAttemptGate.ReserveOneShot(
-            gateRoot,offlineMap,gateMaps,realPackage,new string('C',64),
+            gateRoot,offlineMap,gateMaps,realPackage,result.OriginalSourceHash,
             ()=>stopped);
         Check(reservation.OperationId==gateIntent.OperationId&&
               reservation.BackupManifestSha256==proof.ManifestSha256&&
               !reservation.AsaStarted&&!reservation.WorldConverted&&
               !reservation.AutomaticRetryAllowed,
             "one-shot attempt is durably reserved without launching an ASA process");
+        var launchProposal=FutureStoreConversionLaunchPlanner.Prepare(
+            gateRoot,offlineMap,reservation,beforeImages);
+        Check(launchProposal.OperationId==gateIntent.OperationId&&
+              launchProposal.SourceSha256==result.OriginalSourceHash&&
+              launchProposal.Arguments.Contains(" -usestore -converttostore -log",
+                  StringComparison.Ordinal)&&
+              launchProposal.Arguments.Contains(" -clusterid=KovaCluster ",
+                  StringComparison.Ordinal)&&
+              !launchProposal.ProcessStartAuthorized&&!launchProposal.RetryAllowed,
+            "one-shot ASA conversion command is derived from verified source but never executed");
+        var changedImage=beforeImages.ToArray();
+        changedImage[3]+=" ";
+        Check(Denied(()=>FutureStoreConversionLaunchPlanner.Prepare(
+                gateRoot,offlineMap,reservation,changedImage)),
+            "one-shot launch proposal rejects a different original Store source fingerprint");
+        string originalArgs=offlineMap.Arguments;
+        offlineMap.Arguments=originalArgs+" -usestore";
+        Check(Denied(()=>FutureStoreConversionLaunchPlanner.Prepare(
+                gateRoot,offlineMap,reservation,beforeImages)),
+            "one-shot proposal rejects an injected Store writer switch on the base profile");
+        offlineMap.Arguments=originalArgs;
         bool secondAttemptRefused=false;
         try{_=FutureStoreConversionAttemptGate.ReserveOneShot(
-                gateRoot,offlineMap,gateMaps,realPackage,new string('C',64),
+                gateRoot,offlineMap,gateMaps,realPackage,result.OriginalSourceHash,
                 ()=>stopped);}
         catch(InvalidOperationException){secondAttemptRefused=true;}
         Check(secondAttemptRefused&&FutureStoreConversionJournal.Inspect(
