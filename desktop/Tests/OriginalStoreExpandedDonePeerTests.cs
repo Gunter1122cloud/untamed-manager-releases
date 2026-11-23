@@ -50,8 +50,35 @@ internal static class OriginalStoreExpandedDonePeerTests
         LegacyStoreV1LiveReadGate.InspectOriginalDonePeer(
             peer,device,session,Shared);
 
+    private static byte[] UdpOwnerTable(int rowSize,int portOffset,int pidOffset,
+        int port,int pid)
+    {
+        var bytes=new byte[4+rowSize];
+        BitConverter.TryWriteBytes(bytes.AsSpan(0,4),1);
+        bytes[4+portOffset]=(byte)(port>>8);
+        bytes[4+portOffset+1]=(byte)port;
+        BitConverter.TryWriteBytes(bytes.AsSpan(4+pidOffset,4),pid);
+        return bytes;
+    }
     public static void Run()
     {
+        // Windows UDP owner tables are not interchangeable between IPv4
+        // (12-byte rows) and IPv6 (28-byte rows); synthetics exercise both.
+        var empty=BitConverter.GetBytes(0);
+        var own4=UdpOwnerTable(12,4,8,27046,32123);
+        var own6=UdpOwnerTable(28,20,24,27046,32123);
+        var foreign6=UdpOwnerTable(28,20,24,27046,32124);
+        Check(RconPortOwnership.InspectSyntheticUdp(own4,empty,27046,32123)=="Owned",
+            "IPv4 Query UDP socket binds to the correct ASA PID");
+        Check(RconPortOwnership.InspectSyntheticUdp(empty,own6,27046,32123)=="Owned",
+            "IPv6-only Query UDP socket is a valid owner proof");
+        Check(RconPortOwnership.InspectSyntheticUdp(own4,foreign6,27046,32123)=="ForeignOrAmbiguous",
+            "a different IPv6 query owner blocks even when IPv4 binds to the target PID");
+        Check(RconPortOwnership.InspectSyntheticUdp(empty,empty,27046,32123)=="Missing",
+            "absent Query UDP owner remains unverified and cannot be promoted");
+        Check(RconPortOwnership.InspectSyntheticUdp(new byte[5],empty,27046,32123)=="Unverified",
+            "corrupt native UDP table fails closed");
+
         string localDevice=Guid.NewGuid().ToString("D");
         string remoteDevice=Guid.NewGuid().ToString("D");
         string session=Guid.NewGuid().ToString("D");
