@@ -208,6 +208,9 @@ internal static class FutureStoreAppendPlannerTests
                     InstallationRoot=Path.Combine(root,"later-map-"+memberCount)
                 },7897+10*(memberCount-6),27197+10*(memberCount-6),
                 new[]{"123456789"},Array.Empty<string>());
+            FutureStoreAppendInvariant.Verify(previousSource,new[]{
+                added.ClusterJson,added.StoreJson,added.LockJson,
+                added.LaunchJson,added.LocalDonePeerJson},futureId);
             using(var more=JsonDocument.Parse(added.LocalDonePeerJson))
             {
                 var currentMembers=more.RootElement.GetProperty("members");
