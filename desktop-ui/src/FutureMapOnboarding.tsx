@@ -70,7 +70,7 @@ export function FutureMapOnboarding({maps,onInstall,onExisting,onHistorical,
     !local.freshStoreEnrolled&&!local.running&&assignedHere&&!protectedCluster;
 
   const prepareExtra=async()=>{
-    if(!selectedExtra||busy||!selectedExtra.sessionMatches)return;
+    if(!selectedExtra||busy||(!selectedExtra.sessionMatches&&!selectedExtra.independentActivationMetadataComplete))return;
     setBusy(true);setError("");setNotice("");setExtraPreview(null);
     try{
       const p=await managerBridge.historicalSupplementalPreview(selectedExtra.mapId,true);
@@ -190,7 +190,7 @@ export function FutureMapOnboarding({maps,onInstall,onExisting,onHistorical,
             {selectedExtra.backupIdentityPresent?" saját backup-ID":" backup-ID nincs"} ·
             {selectedExtra.launchState} · Game {selectedExtra.gamePort??"?"} /
             Query {selectedExtra.queryPort??"?"}</p>
-          {!selectedExtra.sessionMatches?<div className="warning-inline" role="status">
+          {!selectedExtra.sessionMatches&&!selectedExtra.independentActivationMetadataComplete?<div className="warning-inline" role="status">
             {selectedExtra.sessionBinding==="missing-shared-session"?
               "A külön hozzáadott map Store-rekordjában nincs sharedSession. Ez nem bizonyítja önmagában a konverziót: külön hiteles forrás, saját backup és a jelenlegi kétgépes Store-állapot igazolása szükséges.":
               "A map Store-session értéke eltér vagy érvénytelen. Másik clusterhez tartozó rekord nem vehető át az eredeti clusterbe."}
@@ -199,6 +199,11 @@ export function FutureMapOnboarding({maps,onInstall,onExisting,onHistorical,
           </div>:<>
             <button type="button" className="secondary" disabled={busy||!selectedExtra.active}
               onClick={()=>{void prepareExtra();}}>Store-forrás natív ellenőrzése</button>
+            {selectedExtra.independentActivationMetadataComplete&&!selectedExtra.sessionMatches&&
+              <p className="muted small">Külön aktivált Store-rekord: teljes saját backup-ID és
+                időrendi metaadat ellenőrizve. A natív előnézetnek még igazolnia kell
+                a két DONE peert, a pontos forrást, a futó folyamatot, portokat és a
+                mentési/Store védelmet. A sharedSession mezőt nem pótoljuk.</p>}
             {extraPreview&&!extraPreview.alreadyRegistered&&<div role="region" aria-label="Kiegészítő Store-map jóváhagyása">
               <p>{extraPreview.mapName} · {extraPreview.mapKey} ·
                 {extraPreview.running?"fut":"leállított"}</p>
