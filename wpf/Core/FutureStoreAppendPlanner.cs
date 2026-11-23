@@ -184,8 +184,9 @@ public static class FutureStoreAppendPlanner
         {
             var map=Item(item);
             string id=Id(map,"id"),key=Text(map,"map"),path=Text(map,"root");
+            JsonNode? rawRecord=null;
             if(!SafeMap(key)||!ids.Add(id)||!keys.Add(key)||!roots.Add(path)||
-               !records.TryGetPropertyValue(id,out var rawRecord)||
+               !records.TryGetPropertyValue(id,out rawRecord)||
                rawRecord is not JsonObject)
                 Deny("UM-FUTURE-STORE-RECORD-INVALID");
             var record=rawRecord as JsonObject ??
