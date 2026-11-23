@@ -82,7 +82,14 @@ public static class FutureStoreConversionLaunchPlanner
         using var launch=JsonDocument.Parse(originalLocalImages[3]);
         using var peer=JsonDocument.Parse(originalLocalImages[4]);
         var source=cluster.RootElement;
+        // Strict original Store/source/lock/DONE peer parity is independent
+        // of the SHA used to pin these exact bytes to the one-shot journal.
+        var originalAudit=FutureStoreConversionSourceAudit.Inspect(originalLocalImages);
+        if(originalAudit.OriginalSourceSha256!=reservation.OriginalSourceSha256)
+            Deny("ORIGINAL-SOURCE-NOT-PINNED");
         string path=Read(source,"path");
+        if(!string.Equals(path,originalAudit.ClusterPath,StringComparison.Ordinal))
+            Deny("ORIGINAL-CLUSTER-PATH-CHANGED");
         if(Read(source,"id")!=VaultProtocol.ClusterId||
            Read(source,"mode")!="shared"||
            !path.StartsWith(@"\\",StringComparison.Ordinal)||

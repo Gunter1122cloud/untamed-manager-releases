@@ -90,6 +90,25 @@ internal static class FutureStoreAppendPlannerTests
         var beforeImages=new[]{clusterText,storeText,lockText,launchText,peerText};
         var afterImages=new[]{result.ClusterJson,result.StoreJson,result.LockJson,
             result.LaunchJson,result.LocalDonePeerJson};
+        var originalAudit=FutureStoreConversionSourceAudit.Inspect(beforeImages);
+        Check(originalAudit.OriginalSourceSha256==result.OriginalSourceHash&&
+              originalAudit.MapIds.Length==5&&
+              originalAudit.UdpPorts.Length==10&&
+              !originalAudit.RemotePeerCertified&&!originalAudit.StoreWriterAuthorized,
+            "native original Store source audit proves five coherent local members without writer authority");
+        var wrongPeer=beforeImages.ToArray();
+        var wrongPeerDoc=JsonNode.Parse(wrongPeer[4])!;
+        ((JsonObject)wrongPeerDoc["config"]!)["mode"]="private";
+        wrongPeer[4]=wrongPeerDoc.ToJsonString();
+        Check(Denied(()=>FutureStoreConversionSourceAudit.Inspect(wrongPeer)),
+            "Store source audit rejects a peer configuration diverging from source");
+        var duplicatePort=beforeImages.ToArray();
+        var duplicatePortDoc=JsonNode.Parse(duplicatePort[3])!;
+        var dupRows=(JsonArray)duplicatePortDoc["rows"]!;
+        ((JsonObject)((JsonObject)dupRows[1]!)["launch"]!)["gamePort"]=7777;
+        duplicatePort[3]=duplicatePortDoc.ToJsonString();
+        Check(Denied(()=>FutureStoreConversionSourceAudit.Inspect(duplicatePort)),
+            "Store source audit rejects conflicting historical UDP ports");
         FutureStoreAppendInvariant.Verify(beforeImages,afterImages,extraId);
         Check(true,"offline append invariant accepts exactly one new member");
         var forgedCluster=JsonNode.Parse(afterImages[0])!;

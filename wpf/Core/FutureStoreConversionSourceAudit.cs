@@ -59,7 +59,7 @@ public static class FutureStoreConversionSourceAudit
         return port;
     }
     private static bool SafeKey(string value)=>value.Length is >0 and <=80&&
-        value.All(x=>char.IsAsciiLetterOrDigit(x)||x is '_' or '-');
+        value.All(x=>char.IsAsciiLetterOrDigit(x)||x is '_' or '-' or '.');
     private static bool Same(JsonElement a,JsonElement b)=>
         JsonElement.DeepEquals(a,b);
     private static string CanonicalLocal(string value)
