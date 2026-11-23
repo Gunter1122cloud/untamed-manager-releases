@@ -310,6 +310,13 @@ internal static class FutureStoreAppendPlannerTests
         Check(ready.Phase=="backupVerified"&&
               ready.BackupManifestSha256==proof.ManifestSha256,
             "verified local stopped-world backup is bound to durable conversion intent");
+        string latePlayer=Path.Combine(worldFiles,"late-player.arkprofile");
+        File.WriteAllBytes(latePlayer,new byte[]{1,2,3,4});
+        Check(Denied(()=>FutureStoreConversionAttemptGate.ReserveOneShot(
+                gateRoot,offlineMap,gateMaps,realPackage,result.OriginalSourceHash,
+                ()=>stopped)),
+            "new player profile added after snapshot blocks one-shot conversion");
+        File.Delete(latePlayer);
         string worldPath=Path.Combine(worldFiles,"FutureGen2_WP.ark");
         byte[] unmodifiedWorld=File.ReadAllBytes(worldPath);
         File.AppendAllText(worldPath,"late world mutation after verified backup");
