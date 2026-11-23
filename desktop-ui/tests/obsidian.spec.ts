@@ -681,6 +681,10 @@ test.beforeEach(async ({ page }) => {
       {mapId:one,clusterId:"fixture-alpha"},{mapId:two,clusterId:"fixture-beta"},
       {mapId:"peer-1",clusterId:"fixture-gamma"}
     ];
+    if(new URLSearchParams(window.location.search).get("fixture")==="futureUnassigned")
+      state.local.maps.push({id:"00000000-0000-4000-8000-000000009090",
+        name:"Future Atlantis",running:false,status:"Leállítva",gamePort:7897,
+        steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"});
     let freshStoreEnrolled=false;
     let freshStoreApprovalIssued=false;
     let freshStoreLoaderEnabled=false;
@@ -1863,8 +1867,11 @@ test.beforeEach(async ({ page }) => {
         case "historical.originalList": return {
           sourceVerified:true,originalFourFilesUnchanged:true,
           evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY",
-          additionalMaps:new URLSearchParams(window.location.search).get("fixture")==="supplementalEvent"?[
-            {mapId:eventId,mapKey:"Asa_N_Chill_Hub",active:true,sessionMatches:true,backupIdentityPresent:true,
+          additionalMaps:["supplementalEvent","supplementalEventNoSession"].includes(
+            new URLSearchParams(window.location.search).get("fixture")??"")?[
+            {mapId:eventId,mapKey:"Asa_N_Chill_Hub",active:true,
+             sessionMatches:new URLSearchParams(window.location.search).get("fixture")!=="supplementalEventNoSession",
+             backupIdentityPresent:true,
              gamePort:7809,queryPort:27046,enabledMods:2,passiveMods:0,launchState:"source-launch-matched",registered:eventRegistered,
              selectedHistoricalOwner:false,storeWriterAuthorized:false}
           ]:[],
@@ -1892,6 +1899,14 @@ test.beforeEach(async ({ page }) => {
             running:true,useApi:true,clusterId:"KovaCluster",addsClusterMembership:true,changesOriginalFive:false,
             modContentInstallationVerified:false,modContentState:"level-content-unverified",presentModProjects:["123456789"],
             unverifiedModProjects:["987654321"],levelManifestProjects:[],serverProcessTouched:false};
+        case "historical.supplementalRegister":
+          if(m.token!=="00000000-0000-4000-8000-000000009003"||m.confirm!==true)
+            throw new Error("UM-STORE-EXTRA-APPROVAL");
+          eventRegistrationCalls++;
+          if(eventRegistered)throw new Error("UM-STORE-EXTRA-DUPLICATE");
+          eventRegistered=true;
+          return {mapId:eventId,mapName:"Event",registered:true,running:true,
+            processInventoryUnchanged:true,processCommandIssued:false,scheduleChanged:false};
         case "historical.supplementalStart":
           if(m.mapId!==eventId||typeof m.stoppedUseApi!=="boolean")throw new Error("UM-STORE-EXTRA-REQUEST");
           eventRegistrationCalls++;
@@ -4620,6 +4635,69 @@ test("P0 observed-only map detail never exposes lifecycle, RCON, or disk writer 
   await expect(detail.getByRole("button",{
     name:"Eredeti öt futó Store-v1 map átvétele"
   })).toHaveCount(0);
+});
+
+
+test("future map wizard accepts custom future maps without granting live or Store ownership",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Új map hozzáadása",exact:true}).click();
+  const wizard=page.getByRole("region",{name:"Jövőbeli mapok hozzáadási varázslója"});
+  await expect(wizard).toBeVisible();
+  await expect(wizard.getByRole("button",{name:"Új ASA telepítése (egyedi map is)"})).toBeVisible();
+  await expect(wizard).toContainText("nem konvertál szervert");
+  await wizard.getByRole("button",{name:"Új ASA telepítése (egyedi map is)"}).click();
+  await expect(page.getByRole("button",{name:"Letöltő bezárása"})).toBeVisible();
+  await expect(page.getByText("SteamCMD", {exact:false}).first()).toBeVisible();
+});
+
+test("future Store map without sharedSession is visible but never silently adopted",async({page})=>{
+  await page.goto("/?fixture=supplementalEventNoSession");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Új map hozzáadása",exact:true}).click();
+  const wizard=page.getByRole("region",{name:"Jövőbeli mapok hozzáadási varázslója"});
+  await wizard.getByRole("combobox",{name:"Felderített Store-map"}).selectOption(
+    "00000000-0000-4000-8000-000000009002");
+  await expect(wizard).toContainText("nem az eredeti öt Map Store-session modelljével");
+  await expect(wizard.getByRole("button",{name:"Store-forrás natív ellenőrzése"})).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as any).__UNTAMED_EVENT_REGISTER_CALLS__())).toBe(0);
+});
+
+test("future supplemental Store map with exact native proof registers only on approved receipt",async({page})=>{
+  await page.goto("/?fixture=supplementalEvent");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Új map hozzáadása",exact:true}).click();
+  const wizard=page.getByRole("region",{name:"Jövőbeli mapok hozzáadási varázslója"});
+  await wizard.getByRole("combobox",{name:"Felderített Store-map"}).selectOption(
+    "00000000-0000-4000-8000-000000009002");
+  await wizard.getByRole("button",{name:"Store-forrás natív ellenőrzése"}).click();
+  await expect(wizard.getByRole("region",{name:"Kiegészítő Store-map jóváhagyása"})).toBeVisible();
+  expect(await page.evaluate(()=>(window as any).__UNTAMED_EVENT_REGISTER_CALLS__())).toBe(0);
+  await wizard.getByRole("button",{name:"Ellenőrzött Store-map hozzáadása"}).click();
+  await expect(wizard).toContainText("Store-map regisztrálva");
+  expect(await page.evaluate(()=>(window as any).__UNTAMED_EVENT_REGISTER_CALLS__())).toBe(1);
+});
+
+test("future map cluster add preserves every existing member and requires one exact native approval",async({page})=>{
+  await page.goto("/?fixture=futureUnassigned");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Új map hozzáadása",exact:true}).click();
+  const wizard=page.getByRole("region",{name:"Jövőbeli mapok hozzáadási varázslója"});
+  await wizard.getByRole("combobox",{name:"Clusterbe felveendő map"}).selectOption(
+    "00000000-0000-4000-8000-000000009090");
+  await wizard.getByRole("combobox",{name:"Célcluster"}).selectOption("fixture-alpha");
+  await wizard.getByRole("button",{name:"Cluster-tagság natív előnézete"}).click();
+  const approval=wizard.getByRole("region",{name:"Egyetlen új map cluster-jóváhagyása"});
+  await expect(approval).toContainText("nincs másik map eltávolítva");
+  await approval.getByRole("button",{name:"Egyetlen map hozzáadásának jóváhagyása"}).click();
+  await expect(wizard).toContainText("cluster regiszteréhez");
+  await expect(wizard).toContainText("már szerepel a kiválasztott");
+  await page.getByRole("button",{name:"Cluster",exact:true}).click();
+  await page.getByRole("combobox",{name:"Kiválasztott cluster"}).selectOption("fixture-alpha");
+  const registered=page.locator(".cluster-registry-map-groups");
+  await expect(registered.getByRole("checkbox",{name:/Future Atlantis/})).toBeChecked();
+  // The old member must remain selected after onboarding the next map.
+  await expect(registered.getByRole("checkbox",{name:/The Island/})).toBeChecked();
 });
 
 test("Server import actions render BEFORE the potentially long running-ASA process list",async({page})=>{
