@@ -25,6 +25,9 @@ public sealed record LegacyStoreV1AdditionalMapEvidence(Guid MapId,string MapKey
     // Missing sharedSession is not proof of conversion; it is distinct
     // from a FOREIGN/INVALID sharedSession, and neither grants writer rights.
     public string SessionBinding {get;init;}="unverified";
+    // Read-only source witness. Full native Store+two-peer ownership and
+    // runtime proof are still required at preview and every lifecycle call.
+    public bool IndependentActivationMetadataComplete {get;init;}
 }
 public sealed record LegacyStoreV1OriginalLocalSelection(string FourFilesSha256,
     string LaunchProfileSha256,LegacyStoreV1OriginalMap[] Maps)
@@ -209,7 +212,8 @@ public static class LegacyStoreV1OriginalImport
             }
             additional.Add(new(row.MapId,row.MapKey,row.OriginalRoot,row.Active,
                 row.SessionMatches,row.BackupIdentityPresent,game,query,enabled,passive,state)
-                {SessionBinding=row.SessionBinding});
+                {SessionBinding=row.SessionBinding,
+                 IndependentActivationMetadataComplete=row.IndependentActivationMetadataComplete});
         }
         var collisions=additional.Where(x=>x.GamePort.HasValue&&x.QueryPort.HasValue)
             .SelectMany(x=>new[]{x.GamePort!.Value,x.QueryPort!.Value})
