@@ -859,6 +859,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         additionalMaps=supplemental.Select(m=>new{
                             mapId=m.MapId,mapKey=m.MapKey,
                             active=m.Active,sessionMatches=m.SessionMatches,
+                            sessionBinding=m.SessionBinding,
                             backupIdentityPresent=m.BackupIdentityPresent,
                             gamePort=m.GamePort,queryPort=m.QueryPort,
                             enabledMods=m.EnabledMods?.Length,passiveMods=m.PassiveMods?.Length,
