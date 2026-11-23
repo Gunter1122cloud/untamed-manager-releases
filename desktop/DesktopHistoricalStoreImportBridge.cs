@@ -1637,9 +1637,18 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                    observed.LoaderIdentity.StartedUtc!=parents[0].StartedUtc)))
                 throw new InvalidDataException("UM-STORE-EXTRA-PID-OR-LAUNCH-MISMATCH");
             if(!RconPortOwnership.IsOwnedListener(map.RconPort,child.Pid)||
-               !RconPortOwnership.OwnsUdpPort(map.GamePort,child.Pid)||
-               !RconPortOwnership.OwnsUdpPort(map.QueryPort,child.Pid))
+               !RconPortOwnership.OwnsUdpPort(map.GamePort,child.Pid))
                 throw new InvalidDataException("UM-STORE-EXTRA-PORT-OWNER-MISMATCH");
+            var queryPort=RconPortOwnership.InspectUdpPort(map.QueryPort,child.Pid);
+            if(queryPort!=RconPortOwnership.UdpOwnership.Owned)
+                throw new InvalidDataException(queryPort switch
+                {
+                    RconPortOwnership.UdpOwnership.Missing=>
+                        "UM-STORE-EXTRA-QUERY-UDP-NOT-BOUND",
+                    RconPortOwnership.UdpOwnership.ForeignOrAmbiguous=>
+                        "UM-STORE-EXTRA-QUERY-UDP-FOREIGN-OWNER",
+                    _=>"UM-STORE-EXTRA-QUERY-UDP-UNVERIFIED"
+                });
             map.LastProcess=observed.Identity;map.LastLoader=observed.LoaderIdentity;
         }
         else
