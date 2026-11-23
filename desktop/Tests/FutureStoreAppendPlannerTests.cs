@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
 using UntamedManager.Core;
+using UntamedDesktop;
 
 // In-memory metadata planner is deliberately NOT connected to any live
 // server, RCON, Store writer or UNC mutation. Temp files are only used to
