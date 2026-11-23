@@ -238,6 +238,57 @@ internal static class FutureStoreAppendPlannerTests
         Check(interruptedDenied,
             "crashed staged journal publication refuses to treat old bytes as current");
 
+        // A separate finished converter receipt is required before even
+        // staging proposed source images. Stage writes only the disposable
+        // Manager profile, never the historical source or shared transfer.
+        Guid escrowMapId=Guid.NewGuid();
+        var escrowBundle=Build(evidence:witness with{
+            MapId=escrowMapId,BackupId=Guid.NewGuid()});
+        var escrowStart=FutureStoreConversionJournal.Begin(manager,escrowMapId,
+            VaultProtocol.ClusterId,escrowBundle.OriginalSourceHash);
+        FutureStoreConversionJournal.Advance(manager,escrowMapId,
+            escrowStart.OperationId,"prepared","backupVerified",new string('A',64));
+        FutureStoreConversionJournal.Advance(manager,escrowMapId,
+            escrowStart.OperationId,"backupVerified","conversionAttempted");
+        FutureStoreConversionJournal.Advance(manager,escrowMapId,
+            escrowStart.OperationId,"conversionAttempted","conversionVerified",
+            new string('B',64));
+        string[] unchangedSource={clusterText,storeText,lockText,launchText,peerText};
+        var escrow=FutureStoreAppendEscrow.Stage(manager,escrowMapId,
+            escrowStart.OperationId,unchangedSource,escrowBundle);
+        Check(escrow.BeforeSha256==escrowBundle.OriginalSourceHash&&
+              escrow.AfterSha256==escrowBundle.NewSourceHash&&
+              !escrow.ApplyAuthorized&&!escrow.OriginalStoreTouched&&
+              !escrow.RemotePeerTouched&&
+              FutureStoreConversionJournal.Inspect(manager,escrowMapId)?.Phase=="appendStaged",
+            "durable verified before/after escrow advances only the local journal");
+        var unchanged=FutureStoreAppendEscrow.Inspect(manager,escrowMapId,
+            escrowStart.OperationId);
+        Check(unchanged.BeforeFileSha256.Length==5&&
+              unchanged.AfterFileSha256.Length==5&&
+              string.Join("\\n",unchangedSource)==before,
+            "staged files read back with exact byte hashes and original sources unchanged");
+        Check(Denied(()=>FutureStoreAppendEscrow.Stage(manager,escrowMapId,
+                escrowStart.OperationId,unchangedSource,Build())),
+            "another map cannot be substituted into a valid conversion escrow");
+        File.AppendAllText(Path.Combine(escrow.StagingDirectory,"after",
+            "launch-profiles-v1.json")," ");
+        bool tamperDenied=false;
+        try{_=FutureStoreAppendEscrow.Inspect(manager,escrowMapId,
+                escrowStart.OperationId);}
+        catch(InvalidDataException){tamperDenied=true;}
+        Check(tamperDenied,
+            "tampered escrowed launch image is detected without touching any server");
+        Guid partialMapId=Guid.NewGuid(),partialOpId=Guid.NewGuid();
+        string partial=Path.Combine(manager,"future-store-append-escrow",
+            partialMapId.ToString("N")+"-"+partialOpId.ToString("N")+".incomplete");
+        Directory.CreateDirectory(partial);
+        bool partialDenied=false;
+        try{_=FutureStoreAppendEscrow.Inspect(manager,partialMapId,partialOpId);}
+        catch(IOException){partialDenied=true;}
+        Check(partialDenied,
+            "interrupted before/after escrow remains blocked for explicit recovery");
+
         Check(Denied(()=>Build(evidence:witness with{
                 PreConversionBackupSha256="unknown"})),
             "missing verifiable pre-conversion backup evidence denied");
