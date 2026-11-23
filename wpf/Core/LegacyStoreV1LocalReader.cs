@@ -27,6 +27,8 @@ public static class LegacyStoreV1LocalReader
         // Original source GUID never serialized into a LAN status packet.
         public Guid MapId {get;init;}
         public string OriginalRoot {get;init;}="";
+        // Source-field classification only, NEVER independent-conversion proof.
+        public string SessionBinding {get;init;}="unverified";
     }
     public sealed record Report(bool LocalFilesVerified,bool ClusterHashVerified,
         bool LocalLockVerified,bool AllLocalMapsActive,bool LocalSnapshotReady,
@@ -140,8 +142,12 @@ public static class LegacyStoreV1LocalReader
                !records.TryGetProperty(id,out var record))
                 throw new InvalidDataException("UM-LOCAL-STORE-MAP-BINDING");
             bool active=Text(record,"phase")=="active";
-            bool sameSession=Guid.TryParse(Text(record,"sharedSession"),out var existing)&&
-                existing==session;
+            bool hasSession=record.ValueKind==JsonValueKind.Object&&
+                record.TryGetProperty("sharedSession",out var sessionField);
+            bool sameSession=hasSession&&sessionField.ValueKind==JsonValueKind.String&&
+                Guid.TryParse(sessionField.GetString(),out var existing)&&existing==session;
+            string binding=sameSession?"original-session-matched":
+                !hasSession?"missing-shared-session":"foreign-or-invalid-session";
             bool sameRoot=string.Equals(Text(record,"root"),install,
                 StringComparison.OrdinalIgnoreCase)&&Text(record,"map")==name;
             bool marked=selection.Contains(id,StringComparer.OrdinalIgnoreCase);
@@ -153,7 +159,7 @@ public static class LegacyStoreV1LocalReader
             if(!marked&&!sameRoot)
                 throw new InvalidDataException("UM-LOCAL-STORE-EXTRA-MAP-BINDING");
             var entry=new MapEvidence(name,active,sameSession,sameRoot,marked,backup)
-                {MapId=memberId,OriginalRoot=install};
+                {MapId=memberId,OriginalRoot=install,SessionBinding=binding};
             if(marked)evidence.Add(entry);else additional.Add(entry);
         }
         if(!selection.All(ids.Contains)||
