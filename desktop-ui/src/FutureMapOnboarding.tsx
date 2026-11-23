@@ -207,6 +207,12 @@ export function FutureMapOnboarding({maps,onInstall,onExisting,onHistorical,
             {extraPreview&&!extraPreview.alreadyRegistered&&<div role="region" aria-label="Kiegészítő Store-map jóváhagyása">
               <p>{extraPreview.mapName} · {extraPreview.mapKey} ·
                 {extraPreview.running?"fut":"leállított"}</p>
+              {extraPreview.queryListenerNotBound&&<p className="warning-inline" role="status">
+                A Query UDP porton nincs igazolt ASA-tulajdonú listener. Ez a
+                folyamatazonosságot nem változtatja meg, de a Query-szolgáltatás
+                és a szerverkereső működése nincs igazolva. Az átvétel után
+                külön ellenőrzés szükséges; más PID által birtokolt port tiltott.
+              </p>}
               <button type="button" className="primary" disabled={busy}
                 onClick={()=>{void applyExtra();}}>
                 Ellenőrzött Store-map hozzáadása</button>
