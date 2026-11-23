@@ -136,6 +136,23 @@ internal static class FutureStoreAppendPlannerTests
             parsed.AdditionalMaps[0].SessionBinding=="missing-shared-session"&&
             parsed.AdditionalMaps[0].IndependentActivationMetadataComplete,
             "real Store reader recognizes independent sixth map without borrowing session");
+        using(var expandedDoc=JsonDocument.Parse(result.ClusterJson))
+        {
+            var owners=parsed.Maps.Select(m=>new LocalMap{
+                Id=m.MapId,Name=m.MapKey,
+                HistoricalStoreProtected=true,
+                HistoricalMapKey=m.MapKey,
+                HistoricalArchiveSha256=parsed.OriginalFourFilesTag,
+                InstallationPath=m.OriginalRoot
+            }).ToArray();
+            Check(DesktopClusterRegistryBridge.SelectedOriginalFivePreserved(
+                    parsed,expandedDoc.RootElement,owners,root),
+                "future-map inspector accepts expanded 6+ current roster while protecting original five");
+            owners[0].InstallationPath=extraRoot;
+            Check(!DesktopClusterRegistryBridge.SelectedOriginalFivePreserved(
+                    parsed,expandedDoc.RootElement,owners,root),
+                "future-map inspector refuses a changed original map installation path");
+        }
         var current=LegacyStoreV1OriginalImport.Inspect(local);
         Check(current.Maps.Length==5&&current.AdditionalMaps.Length==1&&
             current.AdditionalMaps[0].LaunchState=="source-launch-matched",
