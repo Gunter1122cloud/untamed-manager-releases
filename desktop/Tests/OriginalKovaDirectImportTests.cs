@@ -222,9 +222,9 @@ internal static class OriginalKovaDirectImportTests
                 // Exact separately-activated source shape seen on Event:
                 // active + backup ID but NO sharedSession field. Prove it is
                 // visible without ever granting the old writer authority.
-                var independent=System.Text.Json.Nodes.JsonNode.Parse(expandedStore)!;
-                independent["maps"]![extraId]!.AsObject().Remove("sharedSession");
-                File.WriteAllText(sfile,independent.ToJsonString());
+                var independentSourceWithoutSession=System.Text.Json.Nodes.JsonNode.Parse(expandedStore)!;
+                independentSourceWithoutSession["maps"]![extraId]!.AsObject().Remove("sharedSession");
+                File.WriteAllText(sfile,independentSourceWithoutSession.ToJsonString());
                 try
                 {
                     var sessionless=LegacyStoreV1OriginalImport.Inspect(local);
@@ -235,11 +235,11 @@ internal static class OriginalKovaDirectImportTests
                           missing.LaunchState=="source-launch-matched"&&
                           sessionless.Maps.Length==5,
                         "separately activated source remains an unselected, untrusted candidate");
-                    bool denied=false;
+                    bool deniedMissingSharedSession=false;
                     try{_=LegacyStoreV1PinnedSource.RequireSupplemental(sessionless,Guid.Parse(extraId));}
                     catch(InvalidDataException ex) when(ex.Message=="UM-STORE-EXTRA-SESSION-MISMATCH")
-                    {denied=true;}
-                    Check(denied,
+                    {deniedMissingSharedSession=true;}
+                    Check(deniedMissingSharedSession,
                         "source without sharedSession is not silently promoted to original Store writer");
                 }
                 finally {File.WriteAllText(sfile,expandedStore);}
