@@ -47,10 +47,16 @@ public static class FutureStoreBackupVerifier
            manifest.CreatedUtc<DateTimeOffset.UtcNow.AddHours(-6)||
            manifest.Files.Count==0)
             throw new InvalidDataException("UM-FUTURE-BACKUP-WORLD-SCOPE-OR-AGE");
+        // A valid world from ANOTHER map is never a valid conversion source.
+        // Use the existing native ASA save-layout resolver (including a
+        // source-owned alternate save directory) instead of matching any .ark.
+        var layout=AsaSaveLayoutResolver.Resolve(map);
+        string expectedWorld=Path.GetRelativePath(
+            Path.GetFullPath(map.InstallationPath),layout.WorldFile)
+            .Replace('\\','/');
         bool world=manifest.Files.Any(f=>
-            f.Size>0&&f.Path.Replace('\\','/').StartsWith(
-                "ShooterGame/Saved/",StringComparison.OrdinalIgnoreCase)&&
-            f.Path.EndsWith(".ark",StringComparison.OrdinalIgnoreCase));
+            f.Size>0&&string.Equals(f.Path.Replace('\\','/'),expectedWorld,
+                StringComparison.OrdinalIgnoreCase));
         if(!world)
             throw new InvalidDataException("UM-FUTURE-BACKUP-WORLD-NOT-FOUND");
         // Require a SECOND process identity observation after all backup

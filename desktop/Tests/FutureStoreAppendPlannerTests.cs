@@ -264,7 +264,7 @@ internal static class FutureStoreAppendPlannerTests
         // Reuse the actual stopped-world backup pipeline rather than
         // accepting any 64-character hash as a pre-conversion backup.
         string worldInstall=Path.Combine(root,"offline-world-to-convert");
-        string worldFiles=Path.Combine(worldInstall,"ShooterGame","Saved","SavedArks");
+        string worldFiles=Path.Combine(worldInstall,"ShooterGame","Saved","SavedArks","FutureGen2_WP");
         string iniFiles=Path.Combine(worldInstall,"ShooterGame","Saved","Config","WindowsServer");
         Directory.CreateDirectory(worldFiles);
         Directory.CreateDirectory(iniFiles);
