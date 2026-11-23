@@ -161,6 +161,83 @@ internal static class FutureStoreAppendPlannerTests
               launchText,peerText})==before&&
               result.OriginalRosterHash!=result.NewRosterHash,
             "the original inputs stay unchanged and new roster has distinct fingerprint");
+        // The durable conversion journal is a LOCAL crash-safety guard,
+        // not a license to execute an actual ASA conversion. A second
+        // invocation must never repeat an uncertain one-shot conversion.
+        string manager=Path.Combine(root,"manager-profile");
+        Directory.CreateDirectory(manager);
+        var entry=FutureStoreConversionJournal.Begin(manager,extraId,
+            VaultProtocol.ClusterId,new string('C',64));
+        Check(entry.Phase=="prepared"&&!entry.AutoRetryAllowed&&
+            !entry.StoreWriterCertified,
+            "prepared journal never grants automatic retry or Store writer authority");
+        Check(FutureStoreConversionJournal.Inspect(manager,extraId)?.OperationId==
+              entry.OperationId,
+            "conversion intent survives a Manager process restart");
+        bool duplicateBeginDenied=false;
+        try{_=FutureStoreConversionJournal.Begin(manager,extraId,
+                VaultProtocol.ClusterId,new string('C',64));}
+        catch(InvalidOperationException){duplicateBeginDenied=true;}
+        Check(duplicateBeginDenied,
+            "interrupted or already-created conversion intent cannot be silently restarted");
+        var backup=FutureStoreConversionJournal.Advance(manager,extraId,
+            entry.OperationId,"prepared","backupVerified",new string('D',64));
+        var attempted=FutureStoreConversionJournal.Advance(manager,extraId,
+            entry.OperationId,"backupVerified","conversionAttempted");
+        Check(backup.BackupManifestSha256==new string('D',64)&&
+              attempted.Phase=="conversionAttempted"&&
+              !attempted.AutoRetryAllowed,
+            "one-shot conversion attempt is durably recorded before external Process.Start");
+        bool replayDenied=false;
+        try{_=FutureStoreConversionJournal.Advance(manager,extraId,
+                entry.OperationId,"backupVerified","conversionAttempted");}
+        catch(InvalidOperationException){replayDenied=true;}
+        Check(replayDenied,"conversion command cannot be replayed after attempt");
+        var uncertain=FutureStoreConversionJournal.Advance(manager,extraId,
+            entry.OperationId,"conversionAttempted","needsOperator");
+        Check(uncertain.Phase=="needsOperator"&&
+              FutureStoreConversionJournal.Inspect(manager,extraId)?.Phase=="needsOperator",
+            "uncertain Store conversion remains blocked durably for operator review");
+        bool recoveredWithoutWitness=false;
+        try{_=FutureStoreConversionJournal.Advance(manager,extraId,
+                entry.OperationId,"needsOperator","conversionVerified",new string('F',64));}
+        catch(InvalidOperationException){recoveredWithoutWitness=true;}
+        Check(recoveredWithoutWitness,
+            "uncertain conversion cannot jump directly to a claimed success");
+        // A second independent candidate may finish the isolated state
+        // machine; this proves journal transitions, not conversion itself.
+        Guid another=Guid.NewGuid();
+        var completedIntent=FutureStoreConversionJournal.Begin(manager,another,
+            VaultProtocol.ClusterId,new string('1',64));
+        var sequence=new[]{
+            ("prepared","backupVerified",new string('2',64)),
+            ("backupVerified","conversionAttempted",""),
+            ("conversionAttempted","conversionVerified",new string('3',64)),
+            ("conversionVerified","appendStaged",new string('4',64)),
+            ("appendStaged","appendCommitted",new string('5',64))
+        };
+        foreach(var (beforePhase,afterPhase,sha) in sequence)
+            FutureStoreConversionJournal.Advance(manager,another,
+                completedIntent.OperationId,beforePhase,afterPhase,sha);
+        var committed=FutureStoreConversionJournal.Inspect(manager,another);
+        Check(committed?.Phase=="appendCommitted"&&
+              committed.ResultingSourceSha256==new string('5',64)&&
+              !committed.StoreWriterCertified,
+            "stage receipts never self-certify actual ASA conversion or Store ownership");
+        bool invalidTransitionDenied=false;
+        try{_=FutureStoreConversionJournal.Advance(manager,another,
+                completedIntent.OperationId,"appendCommitted","prepared");}
+        catch(InvalidOperationException){invalidTransitionDenied=true;}
+        Check(invalidTransitionDenied,
+            "completed journal cannot revert to conversion intent");
+        File.WriteAllText(Path.Combine(manager,"future-store-conversions",
+            another.ToString("N")+".json.next"),"interrupted");
+        bool interruptedDenied=false;
+        try{_=FutureStoreConversionJournal.Inspect(manager,another);}
+        catch(IOException){interruptedDenied=true;}
+        Check(interruptedDenied,
+            "crashed staged journal publication refuses to treat old bytes as current");
+
         Check(Denied(()=>Build(evidence:witness with{
                 PreConversionBackupSha256="unknown"})),
             "missing verifiable pre-conversion backup evidence denied");
