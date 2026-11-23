@@ -382,10 +382,10 @@ internal static class FutureStoreAppendPlannerTests
                 AttemptedUtc=witness.PreparedUtc.AddMinutes(-1)})),
             "forged conversion chronology denied");
         Check(Denied(()=>Build(evidence:witness with{
-                MapId:Guid.Parse(ids[0])})),
+                MapId=Guid.Parse(ids[0])})),
             "original map GUID cannot be reused");
         Check(Denied(()=>Build(evidence:witness with{
-                MapKey:levels[0]})),
+                MapKey=levels[0]})),
             "original map level cannot silently be rebound");
         Check(Denied(()=>Build(port:7777)),
             "original ASA Game port collision denied");
