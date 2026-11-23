@@ -126,6 +126,21 @@ internal static class OriginalStoreExpandedDonePeerTests
         }
 
         var six=five.Concat(Members("Extra",1)).ToArray();
+        var independentId=Guid.Parse(six[5].GetProperty("id").GetString()!);
+        string independentMap=six[5].GetProperty("map").GetString()!;
+        string independentRoot=six[5].GetProperty("root").GetString()!;
+        Check(LegacyStoreV1LiveReadGate.MatchesIndependentLocalPeerOwner(
+            JsonSerializer.SerializeToElement(six),independentId,independentMap,independentRoot),
+            "independently converted extra map belongs to the exact local expanded DONE peer");
+        Check(!LegacyStoreV1LiveReadGate.MatchesIndependentLocalPeerOwner(
+            JsonSerializer.SerializeToElement(five),independentId,independentMap,independentRoot),
+            "old five-map DONE peer cannot claim separately converted sixth map");
+        Check(!LegacyStoreV1LiveReadGate.MatchesIndependentLocalPeerOwner(
+            JsonSerializer.SerializeToElement(six),independentId,independentMap,@"C:\foreign-root"),
+            "mismatched independent root is never an owned peer map");
+        Check(!LegacyStoreV1LiveReadGate.MatchesIndependentLocalPeerOwner(
+            JsonSerializer.SerializeToElement(six),independentId,independentMap+"_FORGED",independentRoot),
+            "mismatched independent level is never an owned peer map");
         JsonElement Roster(JsonElement[] members)=>
             JsonSerializer.SerializeToElement(new{
                 id=VaultProtocol.ClusterId,mode="shared",path=Shared,members
