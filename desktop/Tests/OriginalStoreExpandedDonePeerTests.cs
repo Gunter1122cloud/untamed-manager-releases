@@ -126,6 +126,35 @@ internal static class OriginalStoreExpandedDonePeerTests
         }
 
         var six=five.Concat(Members("Extra",1)).ToArray();
+        JsonElement Roster(JsonElement[] members)=>
+            JsonSerializer.SerializeToElement(new{
+                id=VaultProtocol.ClusterId,mode="shared",path=Shared,members
+            });
+        var originalPin=Roster(five);
+        var sixCurrent=Roster(six);
+        Check(LegacyStoreV1LocalReader.MatchesAppendOnlyRoster(
+            sixCurrent,originalPin,historical),
+            "later independent sixth map leaves the original five local owners immutable");
+        var seventh=Members("Future",1);
+        var seven=six.Concat(seventh).ToArray();
+        Check(LegacyStoreV1LocalReader.MatchesAppendOnlyRoster(
+            Roster(seven),sixCurrent,historical),
+            "new seventh map does not break the already pinned sixth map");
+        Check(!LegacyStoreV1LocalReader.MatchesAppendOnlyRoster(
+            Roster(seven.Skip(1).Concat(new[]{seven[0]}).ToArray()),sixCurrent,historical),
+            "reordering existing owners is not an append-only Store change");
+        var rewritten=six.ToArray();
+        rewritten[5]=JsonSerializer.SerializeToElement(new{
+            id=six[5].GetProperty("id").GetString(),
+            map=six[5].GetProperty("map").GetString(),
+            root=@"C:\forged-owner-root"});
+        Check(!LegacyStoreV1LocalReader.MatchesAppendOnlyRoster(
+            Roster(rewritten.Concat(seventh).ToArray()),sixCurrent,historical),
+            "rewriting an earlier independently pinned root blocks later additions");
+        Check(!LegacyStoreV1LocalReader.MatchesAppendOnlyRoster(
+            Roster(seven),sixCurrent,new[]{
+                historical[0],historical[0],historical[2],historical[3],historical[4]}),
+            "duplicate original selection cannot authorize append-only roster");
         var valid=Done(localDevice,session,six,historical);
         var verified=Verified(valid,localDevice,session);
         var remote=Verified(Done(remoteDevice,session,remoteFive,
