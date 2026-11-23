@@ -129,6 +129,19 @@ public static class LegacyStoreV1LiveReadGate
             throw new IOException("UM-STORE-LIVE-SHARED-CHANGED");
     }
 
+    internal static bool MatchesIndependentLocalPeerOwner(
+        JsonElement members,Guid addedId,string addedMap,string addedRoot)
+    {
+        if(members.ValueKind!=JsonValueKind.Array||addedId==Guid.Empty||
+           string.IsNullOrWhiteSpace(addedMap)||string.IsNullOrWhiteSpace(addedRoot))
+            return false;
+        var matches=members.EnumerateArray().Where(m=>
+            Guid.TryParse(Text(m,"id"),out var value)&&value==addedId).ToArray();
+        return matches.Length==1&&Str(matches[0],"map",addedMap)&&
+               NormalRoot(Text(matches[0],"root")).Equals(
+                   NormalRoot(addedRoot),StringComparison.OrdinalIgnoreCase);
+    }
+
     // Used by the real read-only live preflight AND isolated regression
     // fixtures. The two DONE records may have extra current members, but
     // each has exactly FIVE selected historical map GUIDs. No selection,
@@ -298,14 +311,8 @@ public static class LegacyStoreV1LiveReadGate
                           Need(peer,"config"),cluster,selection))
                         throw new InvalidDataException("UM-STORE-EXTRA-INDEPENDENT-LOCAL-PEER-DIVERGED");
                     var peerMembers=Need(peer,"members");
-                    if(peerMembers.ValueKind!=JsonValueKind.Array)
-                        throw new InvalidDataException("UM-STORE-EXTRA-INDEPENDENT-PEER-MEMBERS");
-                    var matches=peerMembers.EnumerateArray().Where(m=>
-                        Guid.TryParse(Text(m,"id"),out var value)&&value==independentId).ToArray();
-                    if(matches.Length!=1||
-                       !Str(matches[0],"map",extraRow.MapKey)||
-                       !NormalRoot(Text(matches[0],"root")).Equals(
-                          NormalRoot(extraRow.OriginalRoot),StringComparison.OrdinalIgnoreCase))
+                    if(!MatchesIndependentLocalPeerOwner(peerMembers,
+                        independentId,extraRow.MapKey,extraRow.OriginalRoot))
                         throw new InvalidDataException("UM-STORE-EXTRA-INDEPENDENT-LOCAL-OWNER");
                     independentlyOwnedByLocalPeer=true;
                 }
