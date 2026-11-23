@@ -266,7 +266,7 @@ internal static class FutureStoreAppendPlannerTests
             escrowStart.OperationId);
         Check(unchanged.BeforeFileSha256.Length==5&&
               unchanged.AfterFileSha256.Length==5&&
-              string.Join("\\n",unchangedSource)==before,
+              string.Join("\n",unchangedSource)==before,
             "staged files read back with exact byte hashes and original sources unchanged");
         Check(Denied(()=>FutureStoreAppendEscrow.Stage(manager,escrowMapId,
                 escrowStart.OperationId,unchangedSource,Build())),
