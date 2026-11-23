@@ -860,6 +860,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                             mapId=m.MapId,mapKey=m.MapKey,
                             active=m.Active,sessionMatches=m.SessionMatches,
                             sessionBinding=m.SessionBinding,
+                            independentActivationMetadataComplete=m.IndependentActivationMetadataComplete,
                             backupIdentityPresent=m.BackupIdentityPresent,
                             gamePort=m.GamePort,queryPort=m.QueryPort,
                             enabledMods=m.EnabledMods?.Length,passiveMods=m.PassiveMods?.Length,
