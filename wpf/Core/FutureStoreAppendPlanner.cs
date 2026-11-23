@@ -76,7 +76,8 @@ public static class FutureStoreAppendPlanner
         key.All(c=>char.IsAsciiLetterOrDigit(c)||c is '_' or '-' or '.');
     private static int Port(JsonObject row,string name)
     {
-        if(row[name] is not JsonValue v||!v.TryGetValue<int>(out var port)||
+        int port=0;
+        if(row[name] is not JsonValue v||!v.TryGetValue<int>(out port)||
            port is <1024 or >65535)Deny("UM-FUTURE-STORE-PORT-"+name);
         return port;
     }
@@ -185,11 +186,14 @@ public static class FutureStoreAppendPlanner
             string id=Id(map,"id"),key=Text(map,"map"),path=Text(map,"root");
             if(!SafeMap(key)||!ids.Add(id)||!keys.Add(key)||!roots.Add(path)||
                !records.TryGetPropertyValue(id,out var rawRecord)||
-               rawRecord is not JsonObject record||
-               Text(record,"phase")!="active"||
-               Text(record,"map")!=key||Text(record,"root")!=path||
-               Id(record,"backupId")==Guid.Empty.ToString("D"))
+               rawRecord is not JsonObject)
                 Deny("UM-FUTURE-STORE-RECORD-INVALID");
+            var record=rawRecord as JsonObject ??
+                throw new InvalidDataException("UM-FUTURE-STORE-RECORD-INVALID");
+            if(Text(record,"phase")!="active"||
+               Text(record,"map")!=key||Text(record,"root")!=path)
+                Deny("UM-FUTURE-STORE-RECORD-INVALID");
+            _=Id(record,"backupId");
             if(selectedIds.Contains(id,StringComparer.OrdinalIgnoreCase) &&
                Id(record,"sharedSession")!=session)
                 Deny("UM-FUTURE-STORE-ORIGINAL-SESSION-INVALID");
