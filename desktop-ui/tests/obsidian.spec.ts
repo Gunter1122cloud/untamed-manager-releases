@@ -1867,14 +1867,17 @@ test.beforeEach(async ({ page }) => {
         case "historical.originalList": return {
           sourceVerified:true,originalFourFilesUnchanged:true,
           evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY",
-          additionalMaps:["supplementalEvent","supplementalEventNoSession","supplementalEventForeignSession"].includes(
+          additionalMaps:["supplementalEvent","supplementalEventNoSession","supplementalEventForeignSession","supplementalEventIndependent"].includes(
             new URLSearchParams(window.location.search).get("fixture")??"")?[
             {mapId:eventId,mapKey:"Asa_N_Chill_Hub",active:true,
              sessionMatches:new URLSearchParams(window.location.search).get("fixture")==="supplementalEvent",
              sessionBinding:new URLSearchParams(window.location.search).get("fixture")==="supplementalEvent"?
                "original-session-matched":
-               new URLSearchParams(window.location.search).get("fixture")==="supplementalEventNoSession"?
+               ["supplementalEventNoSession","supplementalEventIndependent"].includes(
+                 new URLSearchParams(window.location.search).get("fixture")??"")?
                "missing-shared-session":"foreign-or-invalid-session",
+             independentActivationMetadataComplete:
+               new URLSearchParams(window.location.search).get("fixture")==="supplementalEventIndependent",
              backupIdentityPresent:true,
              gamePort:7809,queryPort:27046,enabledMods:2,passiveMods:0,launchState:"source-launch-matched",registered:eventRegistered,
              selectedHistoricalOwner:false,storeWriterAuthorized:false}
@@ -4676,6 +4679,20 @@ test("foreign supplemental Store session is rejected with a distinct explanation
     "00000000-0000-4000-8000-000000009002");
   await expect(wizard).toContainText("Másik clusterhez tartozó rekord");
   await expect(wizard.getByRole("button",{name:"Store-forrás natív ellenőrzése"})).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as any).__UNTAMED_EVENT_REGISTER_CALLS__())).toBe(0);
+});
+
+test("independent Store map with complete native metadata offers gated two-stage preview",async({page})=>{
+  await page.goto("/?fixture=supplementalEventIndependent");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Új map hozzáadása",exact:true}).click();
+  const wizard=page.getByRole("region",{name:"Jövőbeli mapok hozzáadási varázslója"});
+  await wizard.getByRole("combobox",{name:"Felderített Store-map"}).selectOption(
+    "00000000-0000-4000-8000-000000009002");
+  await expect(wizard).toContainText("Külön aktivált Store-rekord");
+  expect(await page.evaluate(()=>(window as any).__UNTAMED_EVENT_REGISTER_CALLS__())).toBe(0);
+  await wizard.getByRole("button",{name:"Store-forrás natív ellenőrzése"}).click();
+  await expect(wizard.getByRole("region",{name:"Kiegészítő Store-map jóváhagyása"})).toBeVisible();
   expect(await page.evaluate(()=>(window as any).__UNTAMED_EVENT_REGISTER_CALLS__())).toBe(0);
 });
 
