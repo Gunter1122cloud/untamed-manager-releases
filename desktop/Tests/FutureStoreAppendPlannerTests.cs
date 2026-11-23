@@ -363,7 +363,7 @@ internal static class FutureStoreAppendPlannerTests
                 gateRoot,backupMapId)?.Phase=="conversionAttempted",
             "crash/reentry cannot reserve a second one-shot conversion");
         File.AppendAllText(Path.Combine(realPackage,"data","ShooterGame",
-            "Saved","SavedArks","FutureGen2_WP.ark"),"tamper");
+            "Saved","SavedArks","FutureGen2_WP","FutureGen2_WP.ark"),"tamper");
         bool tamperedBackupDenied=false;
         try{_=FutureStoreBackupVerifier.Verify(offlineMap,stopped,
                 created.PackageDirectory,()=>stopped);}
