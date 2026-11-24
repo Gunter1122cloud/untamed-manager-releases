@@ -82,12 +82,18 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     private readonly Func<LocalMap,bool> safeMap;
     private readonly string folder,path,mutexName;
     private readonly SemaphoreSlim tickGate=new(1,1);
+    private readonly SemaphoreSlim dispatchLane=new(1,1);
+    // Accessed only under tickGate. One active worker per registered map,
+    // across every schedule kind and every retry delay.
+    private readonly Dictionary<Guid,Task> activeMapWorkers=new();
     private int updateFrozen;
     // Host calls only under the native updater dispatch gate. No active
     // scheduled copy or lifecycle may be interrupted to update the Manager.
     internal bool TryFreezeForManagerUpdate()
     {
         if(!tickGate.Wait(0))return false;
+        if(activeMapWorkers.Values.Any(task=>!task.IsCompleted))
+        {tickGate.Release();return false;}
         Volatile.Write(ref updateFrozen,1);
         return true;
     }
@@ -757,7 +763,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         return fallback;
     }
 
-    private async Task<string> RunHistoricalAsync(ScheduledAsaOperation job,Guid runId,CancellationToken ct)
+    private async Task<string> RunHistoricalAsync(ScheduledAsaOperation job,Guid runId,
+        ScheduledAsaDispatchLane lane,CancellationToken ct)
     {
         var map=Owned(job.MapId);
         if(!HistoricalEligible(map)||Fingerprint(map)!=job.Fingerprint)
@@ -788,7 +795,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             x.Fingerprint==job.Fingerprint&&x.LastStatus=="claimed-no-auto-retry"))&&
             HistoricalEligible(Owned(job.MapId))&&Fingerprint(Owned(job.MapId))==job.Fingerprint;
         using var startupRetry=save?null:ScheduledRestartRetryScope.Enter(
-            new ScheduledRestartRetryPermit(job.MapId,runId,RetryStillApproved,ct));
+            new ScheduledRestartRetryPermit(job.MapId,runId,RetryStillApproved,ct,lane.BackoffAsync));
         var begun=Decode(await handle(Message(prefix+"Apply",new{token=pre.GetProperty("token").GetGuid()})));
         if(!begun.GetProperty("started").GetBoolean()||
            begun.GetProperty("automaticRetry").GetBoolean()||
@@ -1036,8 +1043,13 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         throw new InvalidOperationException("UM-ASA-SCHEDULE-RESTART-TIMED_OUT");
     }
 
-    public async Task<ScheduledAsaOperation[]> TickOnceAsync(DateTimeOffset now,
-        CancellationToken token=default)
+    public Task<ScheduledAsaOperation[]> TickOnceAsync(DateTimeOffset now,
+        CancellationToken token=default)=>DispatchTickAsync(now,true,token);
+
+    // The production timer keeps dispatching newly due MAPS during a known
+    // CurseForge backoff. Explicit tests/callers can await this tick's work.
+    internal async Task<ScheduledAsaOperation[]> DispatchTickAsync(DateTimeOffset now,
+        bool waitForWorkers,CancellationToken token=default)
     {
         if(Volatile.Read(ref disposed)!=0)throw new ObjectDisposedException(GetType().Name);
         if(RuntimeState=="journal-write-needs-operator")
@@ -1047,9 +1059,44 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         try
         {
             now=now.ToUniversalTime();
+            foreach(var done in activeMapWorkers.Where(x=>x.Value.IsCompleted).ToArray())
+            {
+                activeMapWorkers.Remove(done.Key);
+                await done.Value; // Observe all worker faults, including journal writes.
+            }
             ReconcileEventTerminals();
             var due=Locked(()=>Read().Jobs.Where(x=>x.Enabled&&x.NextDueUtc<=now)
                 .OrderBy(x=>x.NextDueUtc).ThenBy(x=>x.MapId).ToArray());
+            var queued=new List<Task>();
+            foreach(var group in due.GroupBy(x=>x.MapId))
+            {
+                if(activeMapWorkers.ContainsKey(group.Key))continue;
+                var mapDue=group.ToArray();
+                var task=Task.Run(()=>RunDueMapAsync(mapDue,now,token));
+                activeMapWorkers.Add(group.Key,task);queued.Add(task);
+            }
+            if(waitForWorkers)
+            {
+                try{await Task.WhenAll(queued);}
+                finally
+                {
+                    foreach(var done in activeMapWorkers.Where(x=>x.Value.IsCompleted).ToArray())
+                        if(queued.Contains(done.Value))activeMapWorkers.Remove(done.Key);
+                }
+            }
+            return Snapshot();
+        }
+        finally{tickGate.Release();}
+    }
+
+    private async Task RunDueMapAsync(ScheduledAsaOperation[] due,DateTimeOffset now,
+        CancellationToken token)
+    {
+            // One host lane for native RCON/Start operations; backoff alone
+            // yields it while the current map worker retains its slot.
+            using var lane=await ScheduledAsaDispatchLane.EnterAsync(dispatchLane,token);
+            if(RuntimeState=="journal-write-needs-operator")
+                throw new InvalidOperationException("UM-ASA-SCHEDULE-OPERATOR-REVIEW-REQUIRED");
             foreach(var observed in due)
             {
                 token.ThrowIfCancellationRequested();
@@ -1132,7 +1179,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                         ScheduleEvent(claimId,observed,"started","in-progress","NATIVE_PREFLIGHT_PASSED");
                         using var origin=DiscordOperationEvents.EnterOrigin("scheduler",claimId,maps:new[]{map.Id},action:observed.Kind,suppress:true);
                         evidence=map.HistoricalStoreProtected?
-                            await RunHistoricalAsync(observed,claimId,token):await runner(map.Id,observed.Kind,token);
+                            await RunHistoricalAsync(observed,claimId,lane,token):await runner(map.Id,observed.Kind,token);
                         status="executed-no-fsync-or-client-certification";
                     }
                     else status="config-or-store-blocked";
@@ -1225,9 +1272,6 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     }
                 }
             }
-            return Snapshot();
-        }
-        finally{tickGate.Release();}
     }
     // Manager startup is NOT a delayed execution window: old unclaimed
     // due times are advanced before arming the timer. A crash after a claim
@@ -1271,7 +1315,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 {
                     try
                     {
-                        await TickOnceAsync(DateTimeOffset.UtcNow,cancel.Token);
+                        await DispatchTickAsync(DateTimeOffset.UtcNow,false,cancel.Token);
                         if(RuntimeState=="journal-write-needs-operator")break;
                         Volatile.Write(ref runtimeState,"active");
                     }
@@ -1286,6 +1330,13 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             catch(OperationCanceledException){/* Manager closing, never replay. */}
             finally
             {
+                // No new tick after cancellation. Observe existing workers;
+                // their durable claims remain the authority on interruption.
+                Task[] workers;
+                await tickGate.WaitAsync();
+                try{workers=activeMapWorkers.Values.ToArray();}
+                finally{tickGate.Release();}
+                try{await Task.WhenAll(workers);}catch{/* individual receipts retained */}
                 if(RuntimeState!="journal-write-needs-operator")
                     Volatile.Write(ref runtimeState,"stopped");
             }

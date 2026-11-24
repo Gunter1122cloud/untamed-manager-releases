@@ -1,12 +1,14 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace UntamedDesktop;
 
 // Native-only capability. No WebView parameter can grant automatic retry.
 // Flows to the existing restart worker; never persists a replay authority.
 internal sealed record ScheduledRestartRetryPermit(Guid MapId,Guid RunId,
-    Func<bool> StillApproved,CancellationToken Cancellation)
+    Func<bool> StillApproved,CancellationToken Cancellation,
+    Func<TimeSpan,CancellationToken,Task> Backoff)
 {
     internal void Demand(Guid mapId)
     {
@@ -32,4 +34,32 @@ internal static class ScheduledRestartRetryScope
     };
     internal static bool CanRetry(int attempt,string? code)=>
         attempt is >=1 and <4&&code==RestartModServiceFailureProbe.TransientCurseForge;
+}
+
+// The host still starts one scheduled operation at a time. Release the
+// host dispatch lane only during a known startup retry delay; keep the
+// map's worker and durable claim alive, then reacquire before any new Start.
+internal sealed class ScheduledAsaDispatchLane : IDisposable
+{
+    private readonly SemaphoreSlim gate;
+    private bool held;
+    private ScheduledAsaDispatchLane(SemaphoreSlim gate){this.gate=gate;held=true;}
+    internal static async Task<ScheduledAsaDispatchLane> EnterAsync(
+        SemaphoreSlim gate,CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        return new(gate);
+    }
+    internal async Task BackoffAsync(TimeSpan delay,CancellationToken ct)
+    {
+        if(!held)throw new InvalidOperationException("UM-SCHEDULE-DISPATCH-LANE-NOT-HELD");
+        held=false;gate.Release();
+        await Task.Delay(delay,ct);
+        await gate.WaitAsync(ct);
+        held=true;
+    }
+    public void Dispose()
+    {
+        if(held){held=false;gate.Release();}
+    }
 }

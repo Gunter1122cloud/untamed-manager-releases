@@ -589,7 +589,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             // From here a failure is a retry gate failure, not
                             // another diagnosis of the previous CurseForge log.
                             attemptedStartUtc=null;
-                            await Task.Delay(delay,retryPermit.Cancellation);
+                            await retryPermit.Backoff(delay,retryPermit.Cancellation);
                             retryPermit.Demand(original.Id);
                             bool Stopped()
                             {
