@@ -454,6 +454,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                                 "ASA API Loader indult; gyermek PID és RCON ellenőrzése",
                                 receipt.Started.Pid);
                             bool childVerified=false;
+                            bool childEverSeen=false;
+                            int missingLoader=0;
                             // Large modded ASA worlds can need the full
                             // native ten-minute Loader-child startup window.
                             // This is observation only, never an auto-restart.
@@ -463,6 +465,18 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                             {
                                 closingToken.ThrowIfCancellationRequested();
                                 var family=cluster.Check(currentMap);
+                                bool sameLoader=family.LoaderIdentity is {Pid:>0} seenLoader&&
+                                    seenLoader.Pid==receipt.Started.Pid&&
+                                    seenLoader.StartedUtc==receipt.Started.StartedUtc;
+                                if(sameLoader)missingLoader=0;
+                                else if(++missingLoader>=3)
+                                    throw new InvalidOperationException(
+                                        "UM-ASA-RESTART-LOADER-EXITED-BEFORE-READY");
+                                if(family.Identity is {Pid:>0} seenChild&&
+                                   seenChild.Pid!=approved.Pid)childEverSeen=true;
+                                else if(childEverSeen)
+                                    throw new InvalidOperationException(
+                                        "UM-ASA-RESTART-CHILD-EXITED-BEFORE-READY");
                                 if(family.Running&&!family.ConfirmedStopped&&
                                    family.LoaderIdentity is {Pid:>0} loader&&
                                    loader.Pid==receipt.Started.Pid&&
