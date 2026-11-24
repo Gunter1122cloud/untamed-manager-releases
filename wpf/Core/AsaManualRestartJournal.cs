@@ -15,7 +15,8 @@ public enum AsaRestartPhase { Stopping, Starting, Completed, NeedsOperator, Oper
 /// Does not contain passwords, character IDs or full filesystem paths.
 /// </summary>
 public sealed record AsaRestartRecord(int Schema,Guid Id,Guid MapId,string Resource,
-    int OldPid,int NewPid,AsaRestartPhase Phase,DateTimeOffset ChangedUtc);
+    int OldPid,int NewPid,AsaRestartPhase Phase,DateTimeOffset ChangedUtc,
+    Guid? ScheduledRunId=null,int StartupAttempt=1);
 
 public sealed class AsaManualRestartJournal
 {
@@ -59,7 +60,8 @@ public sealed class AsaManualRestartJournal
         if(snapshot==null||snapshot.Schema!=1||snapshot.Id==Guid.Empty||
            snapshot.MapId==Guid.Empty||snapshot.Resource!=key||
            !Enum.IsDefined(snapshot.Phase)||
-           snapshot.OldPid<=0||snapshot.NewPid<0)
+           snapshot.OldPid<=0||snapshot.NewPid<0||snapshot.StartupAttempt is <1 or >4||
+           snapshot.ScheduledRunId==Guid.Empty)
             throw new InvalidDataException("UM-ASA-RESTART-JOURNAL-IDENTITY");
         return snapshot;
     }
@@ -93,7 +95,15 @@ public sealed class AsaManualRestartJournal
         finally{mutex.Release();}
     }
 
-    public AsaRestartRecord Begin(Guid mapId,int oldPid)
+    public AsaRestartRecord Begin(Guid mapId,int oldPid)=>BeginCore(mapId,oldPid,null);
+
+    internal AsaRestartRecord BeginScheduled(Guid mapId,int oldPid,Guid runId)
+    {
+        if(runId==Guid.Empty)throw new InvalidDataException("UM-RESTART-SCHEDULE-ID");
+        return BeginCore(mapId,oldPid,runId);
+    }
+
+    private AsaRestartRecord BeginCore(Guid mapId,int oldPid,Guid? runId)
     {
         if(mapId==Guid.Empty||oldPid<=0)
             throw new InvalidDataException("UM-ASA-RESTART-JOURNAL-MAP");
@@ -102,7 +112,7 @@ public sealed class AsaManualRestartJournal
             if(prior!=null&&prior.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed))
                 throw new IOException("UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR");
             var record=new AsaRestartRecord(1,Guid.NewGuid(),mapId,key,
-                oldPid,0,AsaRestartPhase.Stopping,DateTimeOffset.UtcNow);
+                oldPid,0,AsaRestartPhase.Stopping,DateTimeOffset.UtcNow,runId,1);
             Write(record);
             return record;
         });
@@ -290,6 +300,33 @@ public sealed class AsaManualRestartJournal
                 ChangedUtc=DateTimeOffset.UtcNow};
             Write(reviewed);
             return reviewed;
+        });
+    }
+
+    // Called only by the active native scheduler with the installation
+    // operation lease held. Never resume an interrupted old Start token.
+    internal AsaRestartRecord ClaimScheduledRetry(Guid id,Guid runId,int failedAttempt,
+        Func<bool> verifyStopped)
+    {
+        ArgumentNullException.ThrowIfNull(verifyStopped);
+        return Exclusive(()=>{
+            var old=Observe()??throw new InvalidDataException("UM-RESTART-RETRY-JOURNAL-MISSING");
+            if(runId==Guid.Empty||old.Id!=id||old.ScheduledRunId!=runId||
+               old.Phase!=AsaRestartPhase.Starting||old.NewPid<=0||
+               old.StartupAttempt!=failedAttempt||failedAttempt is <1 or >=4)
+                throw new InvalidOperationException("UM-RESTART-RETRY-CLAIM-INVALID");
+            if(!verifyStopped())throw new InvalidOperationException("UM-RESTART-RETRY-FAMILY-OR-PORT-BUSY");
+            string audit=Path.Combine(folder,key+"-"+id.ToString("N")+
+                "-startup-"+failedAttempt+".failed.json");
+            using(var output=new FileStream(audit,FileMode.CreateNew,FileAccess.Write,
+                FileShare.None,4096,FileOptions.WriteThrough))
+            {
+                output.Write(File.ReadAllBytes(path));output.Flush(true);
+            }
+            if(!verifyStopped())throw new InvalidOperationException("UM-RESTART-RETRY-FAMILY-OR-PORT-BUSY");
+            var next=old with{NewPid=0,StartupAttempt=failedAttempt+1,
+                ChangedUtc=DateTimeOffset.UtcNow};
+            Write(next);return next;
         });
     }
 
