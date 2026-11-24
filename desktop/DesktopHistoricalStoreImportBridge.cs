@@ -1626,9 +1626,16 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     LegacyStoreV1ProcessObserver.MatchesOriginalApiLoaderChild(
                         child.CommandLine,map.ExecutablePath,child.Pid,child.ParentPid,
                         child.StartedUtc!.Value,parent.CommandLine,loader,parent.Pid,parent.StartedUtc!.Value,map);
-                if(!exactParent||!exactChild||child.ParentPid!=parent.Pid||
-                   parent.StartedUtc>child.StartedUtc)
-                    throw new InvalidDataException("UM-STORE-EXTRA-LOADER-PID-OR-LAUNCH-MISMATCH");
+                if(child.ParentPid!=parent.Pid)
+                    throw new InvalidDataException("UM-STORE-EXTRA-LOADER-PARENT-PID-MISMATCH");
+                if(parent.StartedUtc>child.StartedUtc)
+                    throw new InvalidDataException("UM-STORE-EXTRA-LOADER-PROCESS-EPOCH-MISMATCH");
+                if(!exactParent)
+                    throw new InvalidDataException("UM-STORE-EXTRA-LOADER-LAUNCH-"+
+                        LegacyStoreV1ProcessObserver.DescribeSupplementalLaunchMismatch(
+                            parent.CommandLine,loader,launch.Arguments));
+                if(!exactChild)
+                    throw new InvalidDataException("UM-STORE-EXTRA-ASA-CHILD-LAUNCH-MISMATCH");
                 map.ApiLoaderPath=loader;
             }
             else if(!LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(

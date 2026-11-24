@@ -897,6 +897,21 @@ internal static class OriginalKovaDirectImportTests
                   LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
                     observedCommand,exe,edited),
                 "confirmed runtime port/mod/cluster edits retain original GUID but reattach against Obsidian settings without Kova");
+            var alternate=editedLaunch.Arguments.ToArray();
+            (alternate[1],alternate[2])=(alternate[2],alternate[1]);
+            alternate[3]="\""+alternate[3]+"\"";
+            string alternateCommand="\""+exe+"\" "+string.Join(" ",alternate);
+            Check(!LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(alternateCommand,exe,edited),
+                "historical original five retain strict canonical command grammar");
+            edited.HistoricalSupplementalSource=true;
+            Check(LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(alternateCommand,exe,edited)&&
+                !LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(alternateCommand+" -converttostore",exe,edited)&&
+                !LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(alternateCommand.Replace("-Port=7781","-Port=7782"),exe,edited)&&
+                !LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(alternateCommand.Replace("987654321,123456789","123456789,987654321"),exe,edited)&&
+                LegacyStoreV1ProcessObserver.DescribeSupplementalLaunchMismatch(
+                    alternateCommand.Replace("-Port=7781","-Port=7782"),exe,editedLaunch.Arguments)=="GAME-PORT",
+                "supplemental equivalence accepts harmless quoting/order but rejects actual ports, mod order and conversion changes");
+            edited.HistoricalSupplementalSource=false;
             edited.HistoricalRuntimeTransferDirectory=
                 @"\\synthetic-nonexistent\other-transfer";
             Check(!LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
