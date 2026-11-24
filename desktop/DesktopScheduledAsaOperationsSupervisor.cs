@@ -1148,6 +1148,38 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                         });
                         var persisted=Locked(()=>Read().History.SingleOrDefault(x=>x.RunId==claimId));
                         if(persisted!=null)PublishTerminal(persisted,false);
+                        // Persist the incident independently from Discord
+                        // delivery. A webhook failure cannot delay native
+                        // recovery or erase the original failed schedule claim.
+                        if(observed.Kind=="Restart")
+                        {
+                            try
+                            {
+                                if(status=="executed-no-fsync-or-client-certification")
+                                {
+                                    var prior=ScheduledRestartOutageLedger.Read(
+                                        folder,observed.MapId);
+                                    if(prior?.Offline==true)
+                                        ScheduledRestartOutageLedger.Record(folder,
+                                            observed.MapId,prior.RunId,prior.MapName,
+                                            prior.OutageStartedUtc,prior.Error,
+                                            prior.Attempts,"NEW_INSTANCE_READY",
+                                            DateTimeOffset.UtcNow);
+                                }
+                                else
+                                    ScheduledRestartOutageLedger.Record(folder,
+                                        observed.MapId,claimId,Owned(observed.MapId).Name,
+                                        now,string.IsNullOrWhiteSpace(evidence)?
+                                            "UM-SCHEDULE-RESTART-FAILED":evidence,
+                                        1,"CHECK_STOPPED_FAMILY_AND_JOURNALS_THEN_MANUAL_START");
+                            }
+                            catch
+                            {
+                                // Never turn a successful ASA restart into
+                                // failure just because notification storage
+                                // is damaged, full or unavailable.
+                            }
+                        }
                         DesktopDiscordNotifications.Record(cluster,observed.MapId,"schedule",status!="executed-no-fsync-or-client-certification");
                     }
                     catch
