@@ -408,7 +408,7 @@ public sealed class UntamedOperationCoordinator
     /// </summary>
     internal void ReviewStoppedOriginalPaired(string installation,
         Guid expectedOperation,Guid expectedMapId,Guid expectedRestartId,
-        int oldPid,Func<bool> verifyStopped)
+        int oldPid,Func<bool> verifyStopped,int attemptedNewPid=0)
     {
         ArgumentNullException.ThrowIfNull(verifyStopped);
         if(expectedOperation==Guid.Empty||expectedMapId==Guid.Empty||
@@ -436,9 +436,10 @@ public sealed class UntamedOperationCoordinator
             var observed=restart.Observe();
             if(observed==null||observed.Id!=expectedRestartId||
                observed.MapId!=expectedMapId||observed.OldPid!=oldPid||
-               observed.NewPid!=0||
+               observed.NewPid!=attemptedNewPid||
                observed.Phase is not (AsaRestartPhase.NeedsOperator or
-                   AsaRestartPhase.Stopping or AsaRestartPhase.OperatorReviewed))
+                   AsaRestartPhase.Stopping or AsaRestartPhase.Starting or
+                   AsaRestartPhase.OperatorReviewed))
                 throw new InvalidOperationException(
                     "UM-RECOVERY-STOPPED-RESTART-JOURNAL-CHANGED");
             if(observed.Phase!=AsaRestartPhase.OperatorReviewed&&
@@ -474,7 +475,8 @@ public sealed class UntamedOperationCoordinator
             // The original Restart ID is reviewed, never marked Completed.
             // If the process reappears before the common journal commit, the
             // common NeedsOperator state still blocks Start / Stop / RCON.
-            restart.ReviewOriginalOldPid(expectedMapId,expectedRestartId,oldPid);
+            restart.ReviewOriginalStoppedFamily(expectedMapId,expectedRestartId,
+                oldPid,attemptedNewPid);
             if(!verifyStopped())
                 throw new UnauthorizedAccessException(
                     "UM-RECOVERY-STOPPED-PROOF-CHANGED");
