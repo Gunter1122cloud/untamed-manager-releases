@@ -103,19 +103,10 @@ public sealed class DesktopAsaLifecycleJournalBridge
            state.LoaderIdentity!=null)
             throw new InvalidOperationException(
                 "UM-RECOVERY-STOPPED-PROCESS-NOT-VERIFIED");
-        // A stopped map must not inherit a live RCON owner. Absence is
-        // checked again under the installation-wide operation semaphore.
-        try
-        {
-            if(IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners()
-                .Any(p=>p.Port==map.RconPort))
-                throw new InvalidOperationException(
-                    "UM-RECOVERY-STOPPED-RCON-STILL-LISTENING");
-        }
-        catch(NetworkInformationException)
-        {
-            throw new IOException("UM-RECOVERY-STOPPED-RCON-OWNERSHIP-UNKNOWN");
-        }
+        // Require all local ASA UDP game/query and TCP RCON ports free;
+        // repeat under the same installation-wide operation semaphore.
+        if(!AsaLocalPortPreflight.CanStart(map))
+            throw new InvalidOperationException("UM-RECOVERY-STOPPED-PORTS-NOT-FREE");
         string legacy=Path.Combine(Environment.GetFolderPath(
             Environment.SpecialFolder.ApplicationData),"Kova");
         string profile=LegacyStoreV1PinnedSource.PreferredProfile(

@@ -191,7 +191,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         {
             jobsByMap.TryGetValue(mapId,out var tracked);
             running=tracked?.State is "queued" or "running"?tracked:null;
-            localNeedsOperator=tracked?.State=="needsOperator";
+            localNeedsOperator=tracked?.State=="needsOperator"&&
+                entry?.Phase!=AsaRestartPhase.OperatorReviewed;
         }
         bool pendingRestart=journalDiagnosis.RestartUnreadable||
             entry!=null&&entry.Phase is not
@@ -585,6 +586,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                                     "RETRY_AFTER_"+delay.TotalMinutes+"_MINUTES");
                             }
                             catch{/* A notification receipt failure must not interrupt recovery. */}
+                            // From here a failure is a retry gate failure, not
+                            // another diagnosis of the previous CurseForge log.
+                            attemptedStartUtc=null;
                             await Task.Delay(delay,retryPermit.Cancellation);
                             retryPermit.Demand(original.Id);
                             bool Stopped()

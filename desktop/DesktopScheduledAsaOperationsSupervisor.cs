@@ -1190,11 +1190,19 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                                             DateTimeOffset.UtcNow);
                                 }
                                 else
+                                {
+                                    var prior=ScheduledRestartOutageLedger.Read(folder,observed.MapId);
+                                    var receipt=new AsaManualRestartJournal(
+                                        Owned(observed.MapId).InstallationPath).Observe();
+                                    int attempts=receipt?.ScheduledRunId==claimId?
+                                        receipt.StartupAttempt:1;
                                     ScheduledRestartOutageLedger.Record(folder,
                                         observed.MapId,claimId,Owned(observed.MapId).Name,
-                                        now,string.IsNullOrWhiteSpace(evidence)?
+                                        prior?.RunId==claimId?prior.OutageStartedUtc:now,
+                                        string.IsNullOrWhiteSpace(evidence)?
                                             "UM-SCHEDULE-RESTART-FAILED":evidence,
-                                        1,"CHECK_STOPPED_FAMILY_AND_JOURNALS_THEN_MANUAL_START");
+                                        attempts,"CHECK_STOPPED_FAMILY_AND_JOURNALS_THEN_MANUAL_START");
+                                }
                             }
                             catch
                             {
