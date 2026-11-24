@@ -200,6 +200,96 @@ public sealed class AsaManualRestartJournal
         });
     }
 
+    /// <summary>
+    /// Record the new ASA child PID BEFORE certifying readiness. Interrupted
+    /// startup must retain which attempted child has to be proven gone.
+    /// Never marks Restart Completed or grants permission to start again.
+    /// </summary>
+    public AsaRestartRecord RecordNewAsaPid(Guid expectedId,int newPid)
+    {
+        if(expectedId==Guid.Empty||newPid<=0)
+            throw new InvalidDataException("UM-RESTART-NEW-PID");
+        return Exclusive(()=>{
+            var old=Observe()??throw new InvalidDataException(
+                "UM-RESTART-NEW-PID-JOURNAL-MISSING");
+            if(old.Id!=expectedId||old.Phase!=AsaRestartPhase.Starting||
+               old.NewPid!=0||newPid==old.OldPid)
+                throw new InvalidOperationException(
+                    "UM-RESTART-NEW-PID-ALREADY-CLAIMED");
+            var recorded=old with{NewPid=newPid,ChangedUtc=DateTimeOffset.UtcNow};
+            Write(recorded);
+            return recorded;
+        });
+    }
+
+    /// <summary>
+    /// Audited operator review after BOTH old and attempted new ASA/Loader
+    /// families have independently been proven STOPPED and the RCON listener
+    /// absent. Unlike the running-original review this accepts a previously
+    /// recorded new PID, including a failed API-child startup. It does NOT
+    /// dispatch a restart and cannot be used by an automatic retry loop.
+    /// </summary>
+    internal AsaRestartRecord ReviewOriginalStoppedFamily(
+        Guid expectedMap,Guid expectedId,int oldPid,int attemptedNewPid)
+    {
+        if(expectedMap==Guid.Empty||expectedId==Guid.Empty||oldPid<=0||
+           attemptedNewPid<0||attemptedNewPid==oldPid)
+            throw new InvalidDataException("UM-RESTART-STOPPED-REVIEW-IDENTITY");
+        return Exclusive(()=>{
+            var old=Observe()??throw new InvalidDataException(
+                "UM-RESTART-STOPPED-REVIEW-MISSING");
+            if(old.MapId!=expectedMap||old.Id!=expectedId||
+               old.OldPid!=oldPid||old.NewPid!=attemptedNewPid)
+                throw new InvalidOperationException(
+                    "UM-RESTART-STOPPED-REVIEW-ATTEMPT-CHANGED");
+            string audit=Path.Combine(folder,key+"-"+old.Id.ToString("N")+
+                ".operator-reviewed.json");
+            if(old.Phase==AsaRestartPhase.OperatorReviewed)
+            {
+                if(!File.Exists(audit)||
+                   (File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0)
+                    throw new InvalidDataException("UM-RESTART-STOPPED-REVIEW-AUDIT-MISSING");
+                var archived=JsonSerializer.Deserialize<AsaRestartRecord>(
+                    File.ReadAllBytes(audit),Json);
+                if(archived==null||archived.Id!=old.Id||
+                   archived.MapId!=old.MapId||archived.Resource!=old.Resource||
+                   archived.OldPid!=old.OldPid||
+                   archived.NewPid!=attemptedNewPid||
+                   archived.Phase is not (AsaRestartPhase.Stopping or
+                       AsaRestartPhase.Starting or AsaRestartPhase.NeedsOperator))
+                    throw new InvalidDataException("UM-RESTART-STOPPED-REVIEW-AUDIT-MISMATCH");
+                return old;
+            }
+            if(old.Phase is not (AsaRestartPhase.Stopping or
+                AsaRestartPhase.Starting or AsaRestartPhase.NeedsOperator))
+                throw new UnauthorizedAccessException(
+                    "UM-RESTART-STOPPED-REVIEW-PHASE");
+            if(DateTimeOffset.UtcNow-old.ChangedUtc<TimeSpan.FromMinutes(3))
+                throw new InvalidOperationException("UM-RESTART-STOPPED-REVIEW-TOO-RECENT");
+            byte[] original=File.ReadAllBytes(path);
+            if(File.Exists(audit))
+            {
+                if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+                   !CryptographicOperations.FixedTimeEquals(
+                       SHA256.HashData(File.ReadAllBytes(audit)),
+                       SHA256.HashData(original)))
+                    throw new InvalidDataException(
+                        "UM-RESTART-STOPPED-REVIEW-AUDIT-MISMATCH");
+            }
+            else
+            {
+                using var file=new FileStream(audit,FileMode.CreateNew,
+                    FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough);
+                file.Write(original);
+                file.Flush(true);
+            }
+            var reviewed=old with{Phase=AsaRestartPhase.OperatorReviewed,
+                ChangedUtc=DateTimeOffset.UtcNow};
+            Write(reviewed);
+            return reviewed;
+        });
+    }
+
     public void DemandNoPending()
     {
         var current=Observe();
