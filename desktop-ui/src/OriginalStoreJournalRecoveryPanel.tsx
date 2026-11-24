@@ -40,6 +40,11 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
         await managerBridge.originalStoreLifecycleRecoveryPreview(mapId);
       if(currentMap.current!==mapId)return;
       const stopped=proof.reviewMode==="stopped";
+      const replacement=proof.reviewMode==="replacement";
+      if(replacement&&(!proof.restartId||!proof.currentRunningPid||
+          proof.currentRunningPid<=0||proof.currentRunningPid===proof.restartOldPid||
+          proof.currentRunningPid===proof.restartNewPid))
+        throw new Error("UM-RECOVERY-REPLACEMENT-OWNER-NOT-VERIFIED");
       if(!proof.token||proof.pid<=0||
          proof.mapId.toLowerCase()!==mapId.toLowerCase()||
          (!stopped&&(!proof.exactWindowsProcessVerified||
@@ -85,8 +90,8 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
          result.processStopped||result.rconCommandSent||
          result.noAutomaticRetry!==true||
          (proof.restartId&&(!result.restartJournalAudited||
-           (stopped?result.oldStoppedPid!==proof.pid:
-             result.oldRunningPid!==proof.pid)||
+           (replacement?result.currentRunningPid!==proof.currentRunningPid||result.reviewMode!=="replacement":
+             stopped?result.oldStoppedPid!==proof.pid:result.oldRunningPid!==proof.pid)||
            result.restartMarkedSuccessful!==false))||
          (stopped&&result.reviewMode!=="stopped")||
          (proof.historicalSourceReapprovalRequired&&
@@ -124,7 +129,7 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
         {" · "}{journal.changedUtc??"időpont nem olvasható"}
         {" · "}{journal.blockingCode??"ismeretlen blokkoló"}.
         A gomb frissen ellenőrzi a Store-forrást és a naplók azonosítóját.
-        Futó régi ASA esetén a pontos PID-et és RCON-tulajdonost,
+        Futó régi vagy külön újraindított ASA esetén a pontos PID-et és RCON-tulajdonost,
         leállított régi ASA esetén a teljes folyamatcsalád és RCON-listener
         hiányát ellenőrzi. Ezután kizárólag a Manager naplóit rendezi.</p>
       {journal.restartJournalExists&&<div className="warning-inline">

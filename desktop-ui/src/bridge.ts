@@ -515,7 +515,7 @@ export type OriginalStoreLifecycleRecoveryPreview = {
   rconPort:number;expiresUtc:string;
   restartId?:string|null;restartPhase?:string|null;restartOldPid?:number|null;
   restartNewPid?:number|null;pairedJournals?:number;
-  reviewMode?:"running"|"stopped";
+  reviewMode?:"running"|"stopped"|"replacement";currentRunningPid?:number|null;
   exactWindowsProcessVerified:boolean;stoppedWindowsProcessVerified?:boolean;
   rconListenerAbsent?:boolean;historicalSelectedOwnerVerified?:boolean;
   originalStoreSessionVerified:boolean;
@@ -535,7 +535,7 @@ export type OriginalStoreLifecycleRecoveryReceipt = {
   previousOutcomeStillUnknown:true;originalJournalAudited:boolean;
   restartJournalAudited?:boolean;pairedJournalsReviewed?:number;
   restartMarkedSuccessful?:false;oldRunningPid?:number|null;
-  oldStoppedPid?:number|null;reviewMode?:"running"|"stopped";
+  oldStoppedPid?:number|null;reviewMode?:"running"|"stopped"|"replacement";currentRunningPid?:number|null;
   storeBytesModified:false;processStarted:false;processStopped:false;
   rconCommandSent:false;noAutomaticRetry:true;newOperationRequiresFreshApproval:true;
   historicalSourceReapprovedForJournalOnly?:boolean;
