@@ -35,6 +35,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         public string State="queued",Step="preflight";
         public bool OldProcessStopped,PreExitSaveObserved,PreExitWorldMetadataObserved;
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
+        public RestartStartupProof? Readiness;
     }
 
     private readonly ClusterService cluster;
@@ -156,7 +157,15 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             oldProcessStopped=job.OldProcessStopped,
             preExitSaveLogAndWorldObserved=job.PreExitSaveObserved,
             preExitWorldMetadataObserved=job.PreExitWorldMetadataObserved,
-            readyCertified=false,gameClientRejoinVerified=false,
+            readyCertified=job.Readiness?.Ready(job.UseApi)??false,
+            loaderRunning=job.Readiness?.LoaderRunning??false,
+            asaRunning=job.Readiness?.AsaRunning??false,
+            asaApiDllLoaded=job.Readiness?.ApiDllLoaded??false,
+            pluginLoadingComplete=job.Readiness?.PluginsLoaded??false,
+            rconResponding=job.Readiness?.RconResponding??false,
+            joinAdvertised=job.Readiness?.JoinAdvertised??false,
+            readinessFailureCode=job.Readiness?.Reason,
+            gameClientRejoinVerified=false,
             finalDoExitSaveCertified=false,automaticRetry=false,
             forceKill=false,storeTouched=false,
             evidence="ORIGINAL_STORE_V1_NATIVE_MANUAL_RESTART_JOB"
@@ -435,8 +444,12 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                              StringComparison.OrdinalIgnoreCase))
                             throw new InvalidDataException(
                                 "UM-ORIGINAL-RESTART-NEW-PID-INVALID");
+                        // Record attempted process before game readiness; this
+                        // remains in Restart-v1 even if CurseForge/ASA exits.
+                        restart.RecordNewAsaPid(record.Id,started.Pid);
                         int verifiedNewServerPid=started.Pid;
                         var verifiedNewStartedUtc=started.StartedUtc;
+                        ProcessIdentity verifiedChildIdentity=started;
                         if(original.StartWithAsaApi)
                         {
                             Update(job,"running",
@@ -463,6 +476,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                                             original.Id,observed);
                                     verifiedNewServerPid=apiChild.Pid;
                                     verifiedNewStartedUtc=apiChild.StartedUtc;
+                                    verifiedChildIdentity=apiChild;
                                     verified=true;
                                     break;
                                 }
@@ -472,14 +486,35 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                                 throw new InvalidOperationException(
                                     "UM-ORIGINAL-RESTART-API-CHILD-NOT-VERIFIED");
                         }
+                        // A launched PID or an owned listener is NOT a ready
+                        // ASA. Require current-run log, API DLL/plugins and
+                        // actual authenticated RCON response before success.
+                        if(nativeLauncher)
+                        {
+                            var expectedLoader=original.StartWithAsaApi?started:null;
+                            var readiness=await RestartStartupReadiness.WaitAsync(
+                                async token=>{
+                                    var proof=await RestartStartupReadiness.ObserveAsync(
+                                        original,verifiedChildIdentity,expectedLoader,
+                                        inspectFamily,owner,token);
+                                    lock(sync)job.Readiness=proof;
+                                    return proof;
+                                },original.StartWithAsaApi,
+                                TimeSpan.FromMinutes(10),TimeSpan.FromSeconds(2),
+                                CancellationToken.None);
+                            if(!readiness.Ready(original.StartWithAsaApi))
+                                throw new InvalidOperationException(readiness.Reason);
+                        }
                         restart.Change(record.Id,AsaRestartPhase.Completed,
                             verifiedNewServerPid);
-                        Update(job,"completed",original.StartWithAsaApi?
-                            "Új ASA API gyermek PID és RCON tulajdonlás igazolt; játékbeli készenlét még nem":
-                            "Új eredeti ASA PID létrejött; játékbeli készenlét nem igazolt",
+                        Update(job,"completed",nativeLauncher?
+                            "Új ASA PID, API/plugin, join és RCON válasz igazolt":
+                            "Izolált új PID; éles készenlét nem igazolt",
                             newPid:verifiedNewServerPid,newStartedUtc:verifiedNewStartedUtc);
                         events.Emit("new-process","verified-local","NEW_PID_OBSERVED");
-                        events.Emit("terminal","limited","RESTART_NEW_PID_READINESS_UNVERIFIED");
+                        events.Emit("terminal",nativeLauncher?"verified-local":"limited",
+                            nativeLauncher?"RESTART_NEW_INSTANCE_READINESS_VERIFIED":
+                                "RESTART_SYNTHETIC_PID_ONLY");
                     }
                     catch(Exception ex)
                     {
