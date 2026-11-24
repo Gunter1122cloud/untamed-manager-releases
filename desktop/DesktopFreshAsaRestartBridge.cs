@@ -35,6 +35,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         public bool PreExitSaveEvidenceObserved,PreExitWorldMetadataObserved;
         public bool ApiChildAndRconVerified;
         public DateTimeOffset Changed=DateTimeOffset.UtcNow;
+        public RestartStartupProof? Readiness;
     }
     private readonly ClusterService cluster;
     private readonly bool nativeRunner;
@@ -178,7 +179,15 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             preExitWorldMetadataObserved=item.PreExitWorldMetadataObserved,
             newProcessRole=item.NewProcessRole,
             changedUtc=item.Changed,
-            saveCompleteProven=false,readinessCertified=false,
+            saveCompleteProven=false,
+            readinessCertified=item.Readiness?.Ready(item.NewProcessRole=="loaderParent")??false,
+            loaderRunning=item.Readiness?.LoaderRunning??false,
+            asaRunning=item.Readiness?.AsaRunning??false,
+            asaApiDllLoaded=item.Readiness?.ApiDllLoaded??false,
+            pluginLoadingComplete=item.Readiness?.PluginsLoaded??false,
+            rconResponding=item.Readiness?.RconResponding??false,
+            joinAdvertised=item.Readiness?.JoinAdvertised??false,
+            readinessFailureCode=item.Readiness?.Reason,
             preExitSaveEvidenceObserved=item.PreExitSaveEvidenceObserved,
             finalDoExitSaveCertified=false,gameClientRejoinVerified=false,
             killPerformed=false,storeTouched=false,
@@ -432,7 +441,11 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                             receipt.Stop.PreExitWorldMetadataObserved;
                         events.Emit("save-result",job.PreExitSaveEvidenceObserved?"verified-local":"limited",job.PreExitSaveEvidenceObserved?"LOCAL_SAVE_LOG_WORLD":job.PreExitWorldMetadataObserved?"LOCAL_WORLD_METADATA_LOG_UNVERIFIED":"SAVE_EVIDENCE_UNVERIFIED");
                         events.Emit("stop-result","verified-local","OLD_PROCESS_STOPPED");
+                        if(nativeRunner)
+                            restartJournal.RecordNewAsaPid(persisted.Id,
+                                receipt.Started.Pid);
                         int verifiedAsaPid=receipt.Started.Pid;
+                        ProcessIdentity verifiedChild=receipt.Started;
                         if(nativeRunner&&currentMap.StartWithAsaApi)
                         {
                             // A loader parent alone is NOT a successful ASA
@@ -462,6 +475,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                                    portOwner(currentMap.RconPort,child.Pid))
                                 {
                                     verifiedAsaPid=child.Pid;
+                                    verifiedChild=child;
                                     childVerified=true;
                                     break;
                                 }
@@ -473,15 +487,33 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                             job.ApiChildAndRconVerified=true;
                         }
                         job.NewAsaServerPid=verifiedAsaPid;
+                        if(nativeRunner)
+                        {
+                            var expectedLoader=currentMap.StartWithAsaApi?
+                                receipt.Started:null;
+                            var ready=await RestartStartupReadiness.WaitAsync(
+                                async token=>{
+                                    var proof=await RestartStartupReadiness.ObserveAsync(
+                                        currentMap,verifiedChild,expectedLoader,
+                                        cluster.Check,portOwner,token);
+                                    lock(sync)job.Readiness=proof;
+                                    return proof;
+                                },currentMap.StartWithAsaApi,
+                                TimeSpan.FromMinutes(10),TimeSpan.FromSeconds(2),
+                                closingToken);
+                            if(!ready.Ready(currentMap.StartWithAsaApi))
+                                throw new InvalidOperationException(ready.Reason);
+                        }
                         restartJournal.Change(persisted.Id,AsaRestartPhase.Completed,
                             verifiedAsaPid);
-                        Change(job,"completed",
-                            job.NewProcessRole=="loaderParent"?
-                                "Új ASA gyermek PID és RCON ellenőrizve; játékbeli készenlét még nem":
-                                "Új ASA Windows-folyamat indult; játékbeli készenlét még nem",
+                        Change(job,"completed",nativeRunner?
+                                "ASA API/plugin, join és RCON kész; új PID ellenőrizve":
+                                "Izolált új PID; éles készenlét nem igazolt",
                             receipt.Started.Pid);
                         events.Emit("new-process",job.NewProcessRole=="loaderParent"&&!job.ApiChildAndRconVerified?"limited":"verified-local",job.NewProcessRole=="loaderParent"&&!job.ApiChildAndRconVerified?"LOADER_ONLY_OBSERVED":"NEW_PID_OBSERVED");
-                        events.Emit("terminal","limited","RESTART_NEW_PID_READINESS_UNVERIFIED");
+                        events.Emit("terminal",nativeRunner?"verified-local":"limited",
+                            nativeRunner?"RESTART_NEW_INSTANCE_READINESS_VERIFIED":
+                                "RESTART_SYNTHETIC_PID_ONLY");
                         if(nativeRunner&&currentMap.StartWithAsaApi)
                             FreshStoreApiPairObserver.Begin(
                                 cluster,currentMap.Id,receipt.Started,closingToken);
