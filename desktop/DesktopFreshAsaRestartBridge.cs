@@ -37,6 +37,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         public DateTimeOffset Changed=DateTimeOffset.UtcNow;
         public RestartStartupProof? Readiness;
         public string? FailureCode;
+        public int StartupAttempts=1;
+        public bool StartupRetriesEnabled;
     }
     private readonly ClusterService cluster;
     private readonly bool nativeRunner;
@@ -190,6 +192,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             joinAdvertised=item.Readiness?.JoinAdvertised??false,
             readinessFailureCode=item.Readiness?.Reason,
             failureCode=item.FailureCode,
+            startupAttempts=item.StartupAttempts,startupRetriesEnabled=item.StartupRetriesEnabled,
             preExitSaveEvidenceObserved=item.PreExitSaveEvidenceObserved,
             finalDoExitSaveCertified=false,gameClientRejoinVerified=false,
             killPerformed=false,storeTouched=false,
@@ -413,12 +416,16 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     // A failed Restart-v1 Begin() is a PRE-MUTATION
                     // refusal; never strand the generic operation journal
                     // if another durable Restart already blocks the action.
-                    persisted=restartJournal.Begin(currentMap.Id,approved.Pid);
+                    var permit=nativeRunner?ScheduledRestartRetryScope.Current:null;
+                    permit?.Demand(currentMap.Id);
+                    persisted=permit==null?restartJournal.Begin(currentMap.Id,approved.Pid):
+                        restartJournal.BeginScheduled(currentMap.Id,approved.Pid,permit.RunId);
                     prepareLease.MarkMutationStarted();
                     prepareLease.Complete();
                 }
+                var retryPermit=nativeRunner?ScheduledRestartRetryScope.Current:null;
                 var job=new Job{
-                    MapId=currentMap.Id,OldPid=approved.Pid,
+                    MapId=currentMap.Id,OldPid=approved.Pid,StartupRetriesEnabled=retryPermit!=null,
                     NewProcessRole=currentMap.StartWithAsaApi?"loaderParent":"asaServer"
                 };
                 var events=new DiscordOperationEvents.NativeRun(cluster,job.Id,new[]{currentMap.Id},"Restart");
@@ -430,8 +437,21 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     DateTimeOffset? attemptedStartUtc=null;
                     try
                     {
-                        var receipt=await execute(currentMap.Id,observed,persisted.Id,
-                            stage=>Change(job,"running",stage));
+                        void DemandRetrySource(Guid mapId)
+                        {
+                            retryPermit?.Demand(mapId);
+                            if(!ReferenceEquals(Owned(mapId),currentMap)||
+                               currentMap.InstallationPath!=approved.Root||
+                               currentMap.Arguments!=approved.Args||
+                               currentMap.RconPort!=approved.RconPort||
+                               DesktopFreshAsaStartBridge.IniFingerprint(currentMap)!=approved.IniFingerprint||
+                               AsaReadyProbe.ApprovedLaunchBinariesFingerprint(currentMap)!=approved.BinariesFingerprint)
+                                throw new InvalidOperationException("UM-RESTART-RETRY-LAUNCH-CONFIG-CHANGED");
+                        }
+                        (AsaGracefulStopReceipt Stop,ProcessIdentity Started) receipt;
+                        using(var boundary=retryPermit==null?null:RecoveryNativeStartBoundary.Pin(DemandRetrySource))
+                            receipt=await execute(currentMap.Id,observed,persisted.Id,
+                                stage=>Change(job,"running",stage));
                         attemptedStartUtc=receipt.Started.StartedUtc;
                         if(!receipt.Stop.ConfirmedStopped||
                            receipt.Stop.MapId!=currentMap.Id ||
@@ -445,6 +465,12 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                             receipt.Stop.PreExitWorldMetadataObserved;
                         events.Emit("save-result",job.PreExitSaveEvidenceObserved?"verified-local":"limited",job.PreExitSaveEvidenceObserved?"LOCAL_SAVE_LOG_WORLD":job.PreExitWorldMetadataObserved?"LOCAL_WORLD_METADATA_LOG_UNVERIFIED":"SAVE_EVIDENCE_UNVERIFIED");
                         events.Emit("stop-result","verified-local","OLD_PROCESS_STOPPED");
+                        for(int attempt=1;;attempt++)
+                        {
+                        lock(sync){job.StartupAttempts=attempt;job.Readiness=null;
+                            job.FailureCode=null;job.ApiChildAndRconVerified=false;job.NewAsaServerPid=0;}
+                        try
+                        {
                         if(nativeRunner)
                             restartJournal.RecordNewAsaPid(persisted.Id,
                                 receipt.Started.Pid);
@@ -536,6 +562,50 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                         if(nativeRunner&&currentMap.StartWithAsaApi)
                             FreshStoreApiPairObserver.Begin(
                                 cluster,currentMap.Id,receipt.Started,closingToken);
+                        break;
+                        }
+                        catch(Exception) when(retryPermit!=null&&attemptedStartUtc.HasValue&&
+                            ScheduledRestartRetryScope.CanRetry(attempt,
+                                RestartModServiceFailureProbe.Inspect(currentMap,attemptedStartUtc.Value)))
+                        {
+                            var delay=ScheduledRestartRetryScope.DelayAfter(attempt);
+                            lock(sync)job.FailureCode=RestartModServiceFailureProbe.TransientCurseForge;
+                            Change(job,"running","CurseForge nem elérhető; következő indítás "+
+                                delay.TotalMinutes+" perc múlva");
+                            try
+                            {
+                                ScheduledRestartOutageLedger.Record(cluster.Store.Root,currentMap.Id,
+                                    retryPermit.RunId,currentMap.Name,persisted.ChangedUtc,
+                                    RestartModServiceFailureProbe.TransientCurseForge,attempt,
+                                    "RETRY_AFTER_"+delay.TotalMinutes+"_MINUTES");
+                            }
+                            catch{/* Notification failure is independent of recovery. */}
+                            attemptedStartUtc=null;
+                            await retryPermit.Backoff(delay,retryPermit.Cancellation);
+                            DemandRetrySource(currentMap.Id);
+                            bool Stopped()
+                            {
+                                DemandRetrySource(currentMap.Id);
+                                var check=cluster.Check(currentMap);
+                                return check.ConfirmedStopped&&!check.Running&&
+                                    check.Identity==null&&check.LoaderIdentity==null&&
+                                    AsaLocalPortPreflight.CanStart(currentMap);
+                            }
+                            using(var lease=cluster.Operations.Acquire(currentMap.InstallationPath,
+                                UntamedOperationKind.Launch))
+                            {
+                                restartJournal.ClaimScheduledRetry(persisted.Id,
+                                    retryPermit.RunId,attempt,Stopped);
+                                lease.Complete();
+                            }
+                            using(var boundary=RecoveryNativeStartBoundary.Pin(DemandRetrySource))
+                                receipt=(receipt.Stop,cluster.LaunchFreshAsa(currentMap.Id,true,persisted.Id));
+                            attemptedStartUtc=receipt.Started.StartedUtc;
+                            if(receipt.Started.Pid<=0||receipt.Started.Pid==approved.Pid||
+                               receipt.Started.StartedUtc<=approved.StartedUtc)
+                                throw new InvalidOperationException("UM-ASA-RESTART-RETRY-IDENTITY");
+                        }
+                        }
                     }
                     catch(Exception ex)
                     {

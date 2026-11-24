@@ -25,7 +25,7 @@ internal static class RestartModServiceFailureProbe
            attemptedStartUtc==default)return null;
         var report=AsaHistoricalLogReader.InspectLines(lines,null);
         if(report.OpenUtc is not { } opened ||
-           opened<attemptedStartUtc.AddMinutes(-2)||
+           opened<attemptedStartUtc.AddSeconds(-2)||
            opened>attemptedStartUtc.AddMinutes(2))
             return null; // old run's mod failure MUST NOT be attributed here
         int last=-1;
@@ -55,7 +55,7 @@ internal static class RestartModServiceFailureProbe
                     LogFilePath=Path.Combine(map.InstallationPath,
                         "ShooterGame","Saved","Logs","ShooterGame.log")}:map;
             var snapshot=LocalLogCenter.Read(logMap,1_048_576,4000);
-            if(snapshot.LastModifiedUtc<attemptedStartUtc.AddMinutes(-2))
+            if(snapshot.LastModifiedUtc<attemptedStartUtc.AddSeconds(-2))
                 return null;
             return Classify(snapshot.Lines.Select(x=>x.Content).ToArray(),
                 attemptedStartUtc);

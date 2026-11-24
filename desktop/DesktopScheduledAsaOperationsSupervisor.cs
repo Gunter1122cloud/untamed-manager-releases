@@ -1021,7 +1021,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         // loader-child/RCON handshake may consume another two. Do not mark
         // the scheduled restart failed while its native one-shot job is still
         // within those guarded limits. The operation remains serialized.
-        for(int n=0;n<750;n++)
+        for(int n=0;n<2850;n++)
         {
             ct.ThrowIfCancellationRequested();
             await Task.Delay(TimeSpan.FromSeconds(2),ct);
@@ -1178,6 +1178,14 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     {
                         ScheduleEvent(claimId,observed,"started","in-progress","NATIVE_PREFLIGHT_PASSED");
                         using var origin=DiscordOperationEvents.EnterOrigin("scheduler",claimId,maps:new[]{map.Id},action:observed.Kind,suppress:true);
+                        bool RetryStillApproved()=>Locked(()=>Read().Jobs.Any(x=>
+                            x.MapId==observed.MapId&&x.Kind==observed.Kind&&
+                            x.Enabled&&x.Revision==observed.Revision&&x.Fingerprint==observed.Fingerprint&&
+                            x.LastClaimedUtc==now&&x.LastStatus=="claimed-no-auto-retry"))&&
+                            Eligible(Owned(observed.MapId))&&Fingerprint(Owned(observed.MapId))==observed.Fingerprint;
+                        using var freshRetry=map.HistoricalStoreProtected||observed.Kind!="Restart"?null:
+                            ScheduledRestartRetryScope.Enter(new ScheduledRestartRetryPermit(
+                                map.Id,claimId,RetryStillApproved,token,lane.BackoffAsync));
                         evidence=map.HistoricalStoreProtected?
                             await RunHistoricalAsync(observed,claimId,lane,token):await runner(map.Id,observed.Kind,token);
                         status="executed-no-fsync-or-client-certification";
