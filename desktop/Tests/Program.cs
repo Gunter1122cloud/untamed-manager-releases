@@ -212,6 +212,7 @@ await LocalAsaApiModeTests.Run(root);
 await ManualOnlySteamScheduleTests.Run(root);
 await OriginalStoreStoppedJournalRecoveryTests.Run(root);
 await RestartStartupReadinessTests.Run();
+ScheduledRestartOutageLedgerTests.Run(root);
  await HistoricalAsaApiModeTests.Run(root);
  SteamProtectedFileCoverageTests.Run(root);
  await HistoricalLocalConfigGuardTests.Run(root);
