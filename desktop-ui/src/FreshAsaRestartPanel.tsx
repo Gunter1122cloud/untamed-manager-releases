@@ -90,11 +90,11 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
               " → új Loader PID "+state.newPid+
               " → új ASA gyermek PID "+(state.newAsaServerPid??"nem igazolt")+
               (state.apiChildAndRconVerified?
-               ". A gyermek és az RCON tulajdonlása igazolt; játékkészültség és fsync nem.":
+               ". Az ASA játékosfogadása és RCON-válasza igazolt; fsync nem.":
                ". A gyermek / RCON és a játékosbelépés külön ellenőrizendő."):
             "Normál ASA újraindítás befejeződött: "+
               state.oldPid+" → "+state.newPid+
-              ". A játék/RCON készenlét és a lemezre mentés független bizonyítása külön ellenőrzést igényel.";
+              ". A játékosfogadás és az RCON-válasz ellenőrzött; fsync és a tényleges játékosbelépés nem.";
           latestRestart.set(mapId,summary);
           setMessage(summary);
           onRestarted().catch(()=>{});
@@ -255,6 +255,16 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     </div>}
     {status&&<div className="warning-inline" role="status"><Shield size={17}/>
       <span>Újraindítás: {status.state} · {status.stage}</span>
+    </div>}
+    {status&&<div className="details-line" role="status"
+      aria-label="Natív restart készültségi jelek">
+      <span>Loader: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.loaderRunning?"fut":"nem igazolt"}</span>
+      <span>ASA: {status.asaRunning?"fut":"nem igazolt"}</span>
+      <span>AsaApi.dll: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.asaApiDllLoaded?"betöltve":"nem igazolt"}</span>
+      <span>Pluginok: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.pluginLoadingComplete?"betöltve":"nem igazolt"}</span>
+      <span>RCON: {status.rconResponding?"válaszol":"nem igazolt"}</span>
+      <span>Játékosfogadás: {status.joinAdvertised?"kész":"nem igazolt"}</span>
+      {status.failureCode&&<b>Hiba: {status.failureCode}</b>}
     </div>}
     {message&&<div className="success-inline" role="status"><CheckCircle2 size={17}/>{message}</div>}
     {error&&<div className="error-inline" role="alert"><AlertTriangle size={17}/>{error}</div>}

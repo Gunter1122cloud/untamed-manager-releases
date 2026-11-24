@@ -582,7 +582,10 @@ export type FreshAsaRestartStatus = {
   stage:string;oldPid:number;newPid:number;changedUtc:string;
   newProcessRole?:"asaServer"|"loaderParent";
   newAsaServerPid?:number;apiChildAndRconVerified?:boolean;
-  saveCompleteProven:false;readinessCertified:false;
+  saveCompleteProven:false;readinessCertified:boolean;
+  loaderRunning?:boolean;asaRunning?:boolean;asaApiDllLoaded?:boolean;
+  pluginLoadingComplete?:boolean;rconResponding?:boolean;joinAdvertised?:boolean;
+  readinessFailureCode?:string|null;failureCode?:string|null;
   preExitSaveEvidenceObserved:boolean;preExitWorldMetadataObserved?:boolean;
   finalDoExitSaveCertified:false;
   gameClientRejoinVerified:false;
@@ -1232,7 +1235,10 @@ export type HistoricalRestartStatus = {
   launchMode:"asaApiLoader"|"directAsa";
   oldProcessStopped:boolean;preExitSaveLogAndWorldObserved:boolean;
   preExitWorldMetadataObserved?:boolean;
-  readyCertified:false;gameClientRejoinVerified:false;
+  readyCertified:boolean;gameClientRejoinVerified:false;
+  loaderRunning?:boolean;asaRunning?:boolean;asaApiDllLoaded?:boolean;
+  pluginLoadingComplete?:boolean;rconResponding?:boolean;joinAdvertised?:boolean;
+  readinessFailureCode?:string|null;failureCode?:string|null;
   finalDoExitSaveCertified:false;automaticRetry:false;
   forceKill:false;storeTouched:false;
   evidence:"ORIGINAL_STORE_V1_NATIVE_MANUAL_RESTART_JOB";
