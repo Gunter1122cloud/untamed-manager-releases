@@ -605,10 +605,10 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             {
                                 if(!Stopped())throw new InvalidOperationException(
                                     "UM-RESTART-RETRY-FAMILY-OR-PORT-BUSY");
+                                restart.ClaimScheduledRetry(record.Id,retryPermit.RunId,attempt,Stopped);
                                 var plan=LegacyStoreV1NativeStartPlanner.Prepare(cluster,original,record.Id);
                                 if(plan.Fingerprint!=initialLaunchFingerprint)
                                     throw new InvalidOperationException("UM-RESTART-RETRY-LAUNCH-CONFIG-CHANGED");
-                                restart.ClaimScheduledRetry(record.Id,retryPermit.RunId,attempt,Stopped);
                                 lease.Complete();
                             }
                         }

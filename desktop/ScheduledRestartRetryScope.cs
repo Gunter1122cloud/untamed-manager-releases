@@ -50,11 +50,15 @@ internal sealed class ScheduledAsaDispatchLane : IDisposable
         await gate.WaitAsync(ct);
         return new(gate);
     }
-    internal async Task BackoffAsync(TimeSpan delay,CancellationToken ct)
+    internal Task BackoffAsync(TimeSpan delay,CancellationToken ct)=>
+        BackoffAsync(token=>Task.Delay(delay,token),ct);
+
+    // The test seam supplies only the waiting task; it cannot dispatch ASA.
+    internal async Task BackoffAsync(Func<CancellationToken,Task> wait,CancellationToken ct)
     {
         if(!held)throw new InvalidOperationException("UM-SCHEDULE-DISPATCH-LANE-NOT-HELD");
         held=false;gate.Release();
-        await Task.Delay(delay,ct);
+        await wait(ct);
         await gate.WaitAsync(ct);
         held=true;
     }

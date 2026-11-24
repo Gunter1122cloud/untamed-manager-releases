@@ -364,7 +364,7 @@ public sealed class AsaManualRestartJournal
            (current==null||current.Phase is
                (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed)))return;
         if(restartId==null||current==null||current.Id!=restartId.Value||
-           current.Phase!=AsaRestartPhase.Starting)
+           current.Phase!=AsaRestartPhase.Starting||current.NewPid!=0)
             throw new InvalidOperationException(
                 "UM-ASA-RESTART-JOURNAL-START-UNAUTHORIZED");
     }

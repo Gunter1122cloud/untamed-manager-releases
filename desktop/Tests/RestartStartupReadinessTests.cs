@@ -21,6 +21,33 @@ internal static class RestartStartupReadinessTests
 
     public static async Task Run(string root)
     {
+        // Exact production host-lane implementation. A retry delay releases
+        // only the host dispatch lane, not its durable per-map claim.
+        using(var gate=new SemaphoreSlim(1,1))
+        using(var astra=await ScheduledAsaDispatchLane.EnterAsync(gate,CancellationToken.None))
+        {
+            var delayDone=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var backoff=astra.BackoffAsync(_=>delayDone.Task,CancellationToken.None);
+            using(var island=await ScheduledAsaDispatchLane.EnterAsync(gate,CancellationToken.None))
+            {
+                delayDone.SetResult(true);
+                Check(!backoff.IsCompleted&&gate.CurrentCount==0,
+                    "another map can run during Astra backoff but retry must wait for host lane");
+            }
+            await backoff.WaitAsync(TimeSpan.FromSeconds(5));
+            Check(gate.CurrentCount==0,
+                "retry reacquires the serialized host lane before another Start");
+        }
+        using(var gate=new SemaphoreSlim(1,1))
+        using(var cancel=new CancellationTokenSource())
+        using(var lane=await ScheduledAsaDispatchLane.EnterAsync(gate,CancellationToken.None))
+        {
+            var backoff=lane.BackoffAsync(token=>Task.Delay(Timeout.Infinite,token),cancel.Token);
+            cancel.Cancel();
+            try{await backoff;throw new InvalidOperationException("retry cancellation ignored");}
+            catch(OperationCanceledException){}
+            Check(gate.CurrentCount==1,"cancelled backoff leaves host lane available");
+        }
         // Durable retry authorization belongs only to the original scheduled
         // slot. The test reopens the journal rather than sharing object state.
         string install=Path.Combine(root,"scheduled-startup-retry-journal");
@@ -31,6 +58,10 @@ internal static class RestartStartupReadinessTests
         var claim=journal.BeginScheduled(map,10001,run);
         journal.Change(claim.Id,AsaRestartPhase.Starting);
         journal.RecordNewAsaPid(claim.Id,20001);
+        bool replayDenied=false;
+        try{journal.DemandAuthorizedStart(claim.Id);}
+        catch(InvalidOperationException){replayDenied=true;}
+        Check(replayDenied,"a recorded Start PID consumes the old launch authority");
         bool Refused(Action action)
         {
             try{action();return false;}

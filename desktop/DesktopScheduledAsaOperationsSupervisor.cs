@@ -1021,7 +1021,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         // loader-child/RCON handshake may consume another two. Do not mark
         // the scheduled restart failed while its native one-shot job is still
         // within those guarded limits. The operation remains serialized.
-        for(int n=0;n<180;n++)
+        for(int n=0;n<750;n++)
         {
             ct.ThrowIfCancellationRequested();
             await Task.Delay(TimeSpan.FromSeconds(2),ct);
