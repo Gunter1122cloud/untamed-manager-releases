@@ -166,6 +166,108 @@ internal static class OriginalStoreStoppedJournalRecoveryTests
         Check(!replay.GetProperty("ok").GetBoolean(),
             "consumed stopped-owner approval cannot be replayed");
 
+        // HP / Astraeos, 2026-11-24: the *new* ASA/Loader may launch
+        // and then exit BEFORE join readiness. NewPid is nonzero and no
+        // live RCON listener exists, but the operator must still be able
+        // to audit the stopped family without a dead-PID RCON proof.
+        string failedInstall=Path.Combine(testRoot,"astra-mod-outage-restart");
+        Directory.CreateDirectory(failedInstall);
+        await using(var failedCluster=new ClusterService("astra-mod-outage-test",
+            Path.Combine(testRoot,"astra-mod-outage-profile"),
+            _=>new ProcessCheck(false,"stopped synthetic",null,true)))
+        {
+            var failedMap=new LocalMap{
+                Id=Guid.NewGuid(),Name="Astraeos",InstallationPath=failedInstall,
+                HistoricalStoreProtected=true,HistoricalArchiveSha256=new string('A',64),
+                HistoricalMapKey="Astraeos_WP",RconPort=37085,
+                AutoStart=false,MonitorRcon=true
+            };
+            failedCluster.AddMap(failedMap);
+            using(var lease=failedCluster.Operations.Acquire(failedInstall,
+                UntamedOperationKind.Launch))
+                lease.MarkMutationStarted();
+            string failedKey=UntamedOperationCoordinator.ResourceKey(failedInstall);
+            string failedCommon=Path.Combine(UntamedOperationCoordinator.DefaultRoot,
+                failedKey+".json");
+            var failedOperation=failedCluster.Operations.Observe(failedInstall)!;
+            File.WriteAllText(failedCommon,JsonSerializer.Serialize(failedOperation with{
+                UpdatedUtc=DateTimeOffset.UtcNow.AddMinutes(-12)
+            }));
+            const int failedOldPid=41005,attemptedNewPid=42007;
+            var failedRestart=new AsaManualRestartJournal(failedInstall);
+            var failedClaim=failedRestart.Begin(failedMap.Id,failedOldPid);
+            failedRestart.Change(failedClaim.Id,AsaRestartPhase.Starting);
+            failedRestart.RecordNewAsaPid(failedClaim.Id,attemptedNewPid);
+            failedRestart.Change(failedClaim.Id,AsaRestartPhase.NeedsOperator);
+            Check(failedRestart.Observe()?.NewPid==attemptedNewPid,
+                "a failed new ASA/Loader PID is retained in NeedsOperator");
+            string failedRestartFile=Path.Combine(
+                UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
+                failedKey+".json");
+            File.WriteAllText(failedRestartFile,JsonSerializer.Serialize(
+                failedRestart.Observe()! with{
+                    ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-12)
+                }));
+            string failedRestartOriginal=File.ReadAllText(failedRestartFile);
+            bool noFamily=true;
+            var failedBridge=new DesktopAsaLifecycleJournalBridge(failedCluster,
+                _=>throw new InvalidOperationException(
+                    "UM-ORIGINAL-STOP-PID-RCON-NOT-OWNED"),
+                (id,pid)=>{
+                    if(!noFamily||id!=failedMap.Id||pid!=failedOldPid)
+                        throw new InvalidOperationException(
+                            "UM-RECOVERY-STOPPED-PROCESS-NOT-VERIFIED");
+                    return new DesktopAsaLifecycleJournalBridge.StoppedProof(
+                        failedMap,pid,new string('D',64));
+                });
+            var outagePreview=await Call(failedBridge,
+                "servers.lifecycleRecoveryPreview",failedMap.Id);
+            Check(outagePreview.GetProperty("ok").GetBoolean()&&
+                  outagePreview.GetProperty("data").GetProperty("reviewMode")
+                    .GetString()=="stopped"&&
+                  outagePreview.GetProperty("data").GetProperty("restartNewPid")
+                    .GetInt32()==attemptedNewPid,
+                "stopped Astra after failed new ASA bypasses dead old PID/RCON proof");
+            string outageToken=outagePreview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            noFamily=false;
+            var outageRace=await Call(failedBridge,
+                "servers.lifecycleRecoveryApply",failedMap.Id,new{
+                    token=outageToken,confirm=true,ackUnknownOutcome=true,
+                    typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+                });
+            Check(!outageRace.GetProperty("ok").GetBoolean()&&
+                  File.ReadAllText(failedRestartFile)==failedRestartOriginal,
+                "a reappearing ASA/Loader blocks stopped-journal repair");
+            noFamily=true;
+            outagePreview=await Call(failedBridge,
+                "servers.lifecycleRecoveryPreview",failedMap.Id);
+            outageToken=outagePreview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            var recoveredOutage=await Call(failedBridge,
+                "servers.lifecycleRecoveryApply",failedMap.Id,new{
+                    token=outageToken,confirm=true,ackUnknownOutcome=true,
+                    typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+                });
+            Check(recoveredOutage.GetProperty("ok").GetBoolean()&&
+                  recoveredOutage.GetProperty("data").GetProperty("reviewMode")
+                    .GetString()=="stopped"&&
+                  !recoveredOutage.GetProperty("data").GetProperty("processStarted")
+                    .GetBoolean()&&
+                  !recoveredOutage.GetProperty("data").GetProperty("rconCommandSent")
+                    .GetBoolean()&&
+                  failedRestart.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+                  failedRestart.Observe()?.NewPid==attemptedNewPid,
+                "failed new-child journal is audited without replay or fake restart success");
+            string auditFile=Path.Combine(
+                UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
+                failedKey+"-"+failedClaim.Id.ToString("N")+".operator-reviewed.json");
+            Check(File.ReadAllText(auditFile)==failedRestartOriginal&&
+                  failedCluster.Operations.Observe(failedInstall)?.Phase==
+                    UntamedOperationPhase.OperatorReviewed,
+                "failed new-child restart original journal bytes survive separate audit");
+        }
+
         // Separate exact #2961 branch: a consistent expanded local source
         // cannot silently replace the original approved five-map hash. The
         // second operator consent is mandatory for the journal review alone.
