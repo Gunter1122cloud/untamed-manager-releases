@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using UntamedManager.Core;
 using System.Threading;
 using System.Threading.Tasks;
 using UntamedDesktop;
@@ -17,8 +19,52 @@ internal static class RestartStartupReadinessTests
         bool plugins,bool rcon,bool join,string reason="WAITING")=>
         new(42887,DateTimeOffset.UtcNow,loader,asa,dll,plugins,rcon,join,reason);
 
-    public static async Task Run()
+    public static async Task Run(string root)
     {
+        // Durable retry authorization belongs only to the original scheduled
+        // slot. The test reopens the journal rather than sharing object state.
+        string install=Path.Combine(root,"scheduled-startup-retry-journal");
+        string journals=Path.Combine(root,"scheduled-startup-retry-receipts");
+        Directory.CreateDirectory(install);
+        var journal=new AsaManualRestartJournal(install,journals);
+        Guid map=Guid.NewGuid(),run=Guid.NewGuid();
+        var claim=journal.BeginScheduled(map,10001,run);
+        journal.Change(claim.Id,AsaRestartPhase.Starting);
+        journal.RecordNewAsaPid(claim.Id,20001);
+        bool Refused(Action action)
+        {
+            try{action();return false;}
+            catch(InvalidOperationException){return true;}
+        }
+        Check(Refused(()=>journal.ClaimScheduledRetry(claim.Id,run,1,()=>false)),
+            "occupied port, orphan loader or manually launched family blocks retry");
+        Check(Refused(()=>journal.ClaimScheduledRetry(claim.Id,Guid.NewGuid(),1,()=>true)),
+            "unrelated schedule slot cannot retry");
+        Check(ScheduledRestartRetryScope.DelayAfter(1)==TimeSpan.FromMinutes(1)&&
+              ScheduledRestartRetryScope.DelayAfter(2)==TimeSpan.FromMinutes(3)&&
+              ScheduledRestartRetryScope.DelayAfter(3)==TimeSpan.FromMinutes(5),
+            "three bounded retry intervals are 1/3/5 minutes");
+        Check(!ScheduledRestartRetryScope.CanRetry(1,RestartModServiceFailureProbe.RequiredModsFailed)&&
+              !ScheduledRestartRetryScope.CanRetry(4,RestartModServiceFailureProbe.TransientCurseForge),
+            "nontransient mod errors and exhausted attempts cannot retry");
+        for(int attempt=1;attempt<=3;attempt++)
+        {
+            var reserved=journal.ClaimScheduledRetry(claim.Id,run,attempt,()=>true);
+            Check(reserved.StartupAttempt==attempt+1&&reserved.NewPid==0,
+                "retry claim persisted before dispatch");
+            var reopened=new AsaManualRestartJournal(install,journals);
+            Check(reopened.Observe()?.StartupAttempt==attempt+1&&
+                  Refused(()=>reopened.ClaimScheduledRetry(claim.Id,run,attempt,()=>true)),
+                "reopened Manager cannot claim an already consumed attempt");
+            journal.RecordNewAsaPid(claim.Id,20001+attempt);
+        }
+        Check(Refused(()=>journal.ClaimScheduledRetry(claim.Id,run,4,()=>true)),
+            "four total starts maximum, no infinite restart loop");
+        journal.Change(claim.Id,AsaRestartPhase.NeedsOperator);
+        Check(journal.Observe()?.StartupAttempt==4&&
+              Directory.GetFiles(journals,"*.failed.json").Length==3,
+            "failed attempts preserved after retry exhaustion");
+
         var pidOnly=Proof(true,true,false,false,false,false);
         Check(!pidOnly.Ready(true)&&!pidOnly.Ready(false),
             "an ASA child PID alone never certifies restart");
