@@ -125,7 +125,10 @@ public sealed class AsaManualRestartJournal
                    (current.Phase!=AsaRestartPhase.Starting||newPid<=0)))
                 throw new InvalidOperationException("UM-ASA-RESTART-JOURNAL-OUT-OF-ORDER");
             var nextRecord=current with {
-                Phase=next,NewPid=newPid,ChangedUtc=DateTimeOffset.UtcNow
+                Phase=next,
+                NewPid=next==AsaRestartPhase.NeedsOperator&&newPid==0?
+                    current.NewPid:newPid,
+                ChangedUtc=DateTimeOffset.UtcNow
             };
             Write(nextRecord);
             return nextRecord;
