@@ -805,6 +805,10 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             if(state is "needsOperator" or "notDispatched" or "reviewed")
                 throw new InvalidOperationException("UM-SCHEDULE-HISTORICAL-NEEDS-REVIEW");
             if(state!="completed")continue;
+            if(!save&&(!result.TryGetProperty("readyCertified",out var startupReady)||
+               startupReady.ValueKind!=JsonValueKind.True))
+                throw new InvalidOperationException(
+                    "UM-SCHEDULE-HISTORICAL-RESTART-READINESS-NOT-CERTIFIED");
             bool log=result.GetProperty("preExitSaveLogAndWorldObserved").GetBoolean();
             bool meta=result.GetProperty("preExitWorldMetadataObserved").GetBoolean();
             if(log==meta)throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-SAVE-EVIDENCE");
@@ -821,7 +825,9 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                !result.GetProperty("oldProcessStopped").GetBoolean()||
                result.GetProperty("oldPid").GetInt32()!=oldPid||pid<=0||pid==oldPid)
                 throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-RESTART-RECEIPT");
-            if(!job.PostRestartWipe)return evidence+"_RESTART_NEW_PID";
+            ScheduleEvent(runId,job,"readiness","verified-local",
+                "NEW_ASA_API_PLUGIN_JOIN_RCON_READY",id);
+            if(!job.PostRestartWipe)return evidence+"_RESTART_VERIFIED_READY";
             DateTimeOffset started=result.GetProperty("newStartedUtc").GetDateTimeOffset();
             // Bind the wipe to the exact new PID/start time. Wait on freshly
             // observed own listener and current-run join advertising, never
@@ -994,7 +1000,13 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 Message("servers.restartStatus",new {jobId})));
             var state=current.GetProperty("state").GetString();
             if(state=="completed")
-                return "RESTART_NEW_WINDOWS_PID_OBSERVED_READINESS_UNVERIFIED";
+            {
+                if(!current.TryGetProperty("readinessCertified",out var ready)||
+                   ready.ValueKind!=JsonValueKind.True)
+                    throw new InvalidOperationException(
+                        "UM-ASA-SCHEDULE-RESTART-READINESS-NOT-CERTIFIED");
+                return "RESTART_NEW_ASA_API_PLUGIN_JOIN_RCON_VERIFIED";
+            }
             if(state=="needsOperator")
                 throw new InvalidOperationException("UM-ASA-SCHEDULE-RESTART-NEEDS_OPERATOR");
         }
