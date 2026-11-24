@@ -667,6 +667,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                                     retryPermit.RunId,currentMap.Name,persisted.ChangedUtc,
                                     RestartModServiceFailureProbe.TransientCurseForge,attempt,
                                     "RETRY_AFTER_"+delay.TotalMinutes+"_MINUTES");
+                                DesktopDiscordNotifications.Record(cluster,currentMap.Id,"schedule",true);
                             }
                             catch{/* Notification failure is independent of recovery. */}
                             attemptedStartUtc=null;

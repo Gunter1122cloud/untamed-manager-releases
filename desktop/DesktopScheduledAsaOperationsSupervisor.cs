@@ -882,7 +882,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 await Task.Delay(TimeSpan.FromSeconds(2),ct);
             }
             if(!ready)throw new InvalidOperationException("UM-SCHEDULE-WIPE-NOT-READY");
-            ScheduleEvent(runId,job,"readiness","verified-local","OWN_LISTENER_AND_JOIN_ADVERTISED",id);
+            // The readiness event was already published for this exact
+            // native instance. Do not emit a duplicate before the wipe.
             // A disabled or edited job may finish its in-progress Restart,
             // but it must not send a newly pending wipe.
             bool WipeStillEnabled()=>Locked(()=>Read().Jobs.Any(x=>x.MapId==job.MapId&&
@@ -1246,17 +1247,24 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                                 }
                                 else
                                 {
+                                    var map=Owned(observed.MapId);
                                     var prior=ScheduledRestartOutageLedger.Read(folder,observed.MapId);
-                                    var receipt=new AsaManualRestartJournal(
-                                        Owned(observed.MapId).InstallationPath).Observe();
-                                    int attempts=receipt?.ScheduledRunId==claimId?
-                                        receipt.StartupAttempt:1;
-                                    ScheduledRestartOutageLedger.Record(folder,
-                                        observed.MapId,claimId,Owned(observed.MapId).Name,
-                                        prior?.RunId==claimId?prior.OutageStartedUtc:now,
-                                        string.IsNullOrWhiteSpace(evidence)?
-                                            "UM-SCHEDULE-RESTART-FAILED":evidence,
-                                        attempts,"CHECK_STOPPED_FAMILY_AND_JOURNALS_THEN_MANUAL_START");
+                                    var receipt=new AsaManualRestartJournal(map.InstallationPath).Observe();
+                                    // A preflight refusal or failed post-ready
+                                    // wipe is NOT an offline server incident.
+                                    var check=map.HistoricalStoreProtected?
+                                        LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(map,cluster.Config.LocalMaps):
+                                        cluster.Check(map);
+                                    if(check.ConfirmedStopped&&!check.Running&&
+                                       check.Identity==null&&check.LoaderIdentity==null&&
+                                       receipt?.ScheduledRunId==claimId&&
+                                       receipt.Phase!=AsaRestartPhase.Completed)
+                                        ScheduledRestartOutageLedger.Record(folder,
+                                            observed.MapId,claimId,map.Name,
+                                            prior?.RunId==claimId?prior.OutageStartedUtc:now,
+                                            string.IsNullOrWhiteSpace(evidence)?
+                                                "UM-SCHEDULE-RESTART-FAILED":evidence,
+                                            receipt.StartupAttempt,"CHECK_STOPPED_FAMILY_AND_JOURNALS_THEN_MANUAL_START");
                                 }
                             }
                             catch

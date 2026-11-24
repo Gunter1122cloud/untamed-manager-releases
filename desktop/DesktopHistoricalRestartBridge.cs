@@ -584,6 +584,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                                     retryPermit.RunId,original.Name,record.ChangedUtc,
                                     RestartModServiceFailureProbe.TransientCurseForge,attempt,
                                     "RETRY_AFTER_"+delay.TotalMinutes+"_MINUTES");
+                                DesktopDiscordNotifications.Record(cluster,original.Id,"schedule",true);
                             }
                             catch{/* A notification receipt failure must not interrupt recovery. */}
                             // From here a failure is a retry gate failure, not
