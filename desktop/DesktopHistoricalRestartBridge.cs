@@ -35,6 +35,10 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         public string State="queued",Step="preflight";
         public bool OldProcessStopped,PreExitSaveObserved,PreExitWorldMetadataObserved;
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
+        public RestartStartupProof? Readiness;
+        public string? FailureCode;
+        public int StartupAttempts=1;
+        public bool StartupRetriesEnabled;
     }
 
     private readonly ClusterService cluster;
@@ -156,7 +160,17 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             oldProcessStopped=job.OldProcessStopped,
             preExitSaveLogAndWorldObserved=job.PreExitSaveObserved,
             preExitWorldMetadataObserved=job.PreExitWorldMetadataObserved,
-            readyCertified=false,gameClientRejoinVerified=false,
+            readyCertified=job.Readiness?.Ready(job.UseApi)??false,
+            loaderRunning=job.Readiness?.LoaderRunning??false,
+            asaRunning=job.Readiness?.AsaRunning??false,
+            asaApiDllLoaded=job.Readiness?.ApiDllLoaded??false,
+            pluginLoadingComplete=job.Readiness?.PluginsLoaded??false,
+            rconResponding=job.Readiness?.RconResponding??false,
+            joinAdvertised=job.Readiness?.JoinAdvertised??false,
+            readinessFailureCode=job.Readiness?.Reason,
+            failureCode=job.FailureCode,
+            startupAttempts=job.StartupAttempts,startupRetriesEnabled=job.StartupRetriesEnabled,
+            gameClientRejoinVerified=false,
             finalDoExitSaveCertified=false,automaticRetry=false,
             forceKill=false,storeTouched=false,
             evidence="ORIGINAL_STORE_V1_NATIVE_MANUAL_RESTART_JOB"
@@ -177,7 +191,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         {
             jobsByMap.TryGetValue(mapId,out var tracked);
             running=tracked?.State is "queued" or "running"?tracked:null;
-            localNeedsOperator=tracked?.State=="needsOperator";
+            localNeedsOperator=tracked?.State=="needsOperator"&&
+                entry?.Phase!=AsaRestartPhase.OperatorReviewed;
         }
         bool pendingRestart=journalDiagnosis.RestartUnreadable||
             entry!=null&&entry.Phase is not
@@ -368,18 +383,23 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     // marking the generic operation mutating. A rejected
                     // Begin() sends no ASA/RCON bytes and must not create a
                     // second false NeedsOperator Launch journal.
-                    record=restart.Begin(original.Id,approved.Pid);
+                    var retry=ScheduledRestartRetryScope.Current;
+                    retry?.Demand(original.Id);
+                    record=retry==null?restart.Begin(original.Id,approved.Pid):
+                        restart.BeginScheduled(original.Id,approved.Pid,retry.RunId);
                     lease.MarkMutationStarted();
                     lease.Complete();
                 }
+                var retryPermit=nativeLauncher?ScheduledRestartRetryScope.Current:null;
                 var job=new Job{MapId=original.Id,OldPid=approved.Pid,
-                    UseApi=original.StartWithAsaApi};
+                    UseApi=original.StartWithAsaApi,StartupRetriesEnabled=retryPermit!=null};
                 var events=new DiscordOperationEvents.NativeRun(cluster,job.Id,new[]{original.Id},"Restart");
                 events.Emit("claimed","in-progress","NATIVE_RESTART_JOURNAL_PREPARED");
                 lock(sync)jobsByMap[original.Id]=job;
                 _=Task.Run(async()=>{
                     events.Emit("started","in-progress","NATIVE_RESTART_EXECUTION_STARTED");
                     Update(job,"running","SaveWorld → stabil világfájl → DoExit");
+                    DateTimeOffset? attemptedStartUtc=null;
                     try
                     {
                         var stopped=await stop(original.Id,approved.Pid,
@@ -421,11 +441,34 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             modLease.Complete();
                         }
                         restart.Change(record.Id,AsaRestartPhase.Starting);
+                        string? initialLaunchFingerprint=null;
+                        for(int attempt=1;;attempt++)
+                        {
+                        retryPermit?.Demand(original.Id);
+                        attemptedStartUtc=null;
+                        lock(sync){job.StartupAttempts=attempt;job.Readiness=null;job.FailureCode=null;}
+                        try
+                        {
+                        if(retryPermit!=null)
+                        {
+                            var plan=LegacyStoreV1NativeStartPlanner.Prepare(cluster,original,record.Id);
+                            initialLaunchFingerprint??=plan.Fingerprint;
+                            if(plan.Fingerprint!=initialLaunchFingerprint)
+                                throw new InvalidOperationException("UM-RESTART-RETRY-LAUNCH-CONFIG-CHANGED");
+                        }
                         // Start uses the SAME selected original mode. For
                         // API mode Process.Start yields ONLY a Loader parent,
                         // never an already verified ASA child.
-                        var started=await Task.Run(()=>start(original.Id,record.Id,
-                            stage=>Update(job,"running",stage)));
+                        ProcessIdentity started;
+                        using(var boundary=retryPermit==null?null:RecoveryNativeStartBoundary.Pin(mapId=>{
+                            retryPermit.Demand(mapId);
+                            var fresh=LegacyStoreV1NativeStartPlanner.Prepare(cluster,original,record.Id);
+                            if(fresh.Fingerprint!=initialLaunchFingerprint)
+                                throw new InvalidOperationException("UM-RESTART-RETRY-LAUNCH-CONFIG-CHANGED");
+                        }))
+                            started=await Task.Run(()=>start(original.Id,record.Id,
+                                stage=>Update(job,"running",stage)));
+                        attemptedStartUtc=started.StartedUtc;
                         string expectedExecutable=original.StartWithAsaApi?
                             original.ApiLoaderPath:original.ExecutablePath;
                         if(started.Pid<=0||started.Pid==approved.Pid||
@@ -435,13 +478,21 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                              StringComparison.OrdinalIgnoreCase))
                             throw new InvalidDataException(
                                 "UM-ORIGINAL-RESTART-NEW-PID-INVALID");
+                        // Record attempted process before game readiness; this
+                        // remains in Restart-v1 even if CurseForge/ASA exits.
+                        restart.RecordNewAsaPid(record.Id,started.Pid);
                         int verifiedNewServerPid=started.Pid;
                         var verifiedNewStartedUtc=started.StartedUtc;
+                        ProcessIdentity verifiedChildIdentity=started;
+                        Update(job,"running","Új folyamat elindult; készültség ellenőrzése",
+                            newPid:started.Pid,newStartedUtc:started.StartedUtc);
                         if(original.StartWithAsaApi)
                         {
                             Update(job,"running",
                                 "ASA API Loader elindult; ASA gyermek PID és RCON ellenőrzése");
                             bool verified=false;
+                            bool childEverSeen=false;
+                            int missingLoader=0;
                             // Original Store-v1 Loader/ASA readiness must
                             // use the same ten-minute observer window as fresh
                             // ASA; timeout still requires manual review.
@@ -450,6 +501,18 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             while(DateTimeOffset.UtcNow<limit)
                             {
                                 var observed=inspectFamily(original);
+                                bool sameLoader=observed.LoaderIdentity is {Pid:>0} seenLoader&&
+                                    seenLoader.Pid==started.Pid&&
+                                    seenLoader.StartedUtc==started.StartedUtc;
+                                if(sameLoader)missingLoader=0;
+                                else if(++missingLoader>=3)
+                                    throw new InvalidOperationException(
+                                        "UM-ORIGINAL-RESTART-LOADER-EXITED-BEFORE-READY");
+                                if(observed.Identity is {Pid:>0} seenChild&&
+                                   seenChild.Pid!=approved.Pid)childEverSeen=true;
+                                else if(childEverSeen)
+                                    throw new InvalidOperationException(
+                                        "UM-ORIGINAL-RESTART-ASA-EXITED-BEFORE-READY");
                                 if(observed.Running&&
                                    observed.Identity is {Pid:>0} apiChild&&
                                    observed.LoaderIdentity is {Pid:>0} parent&&
@@ -463,6 +526,10 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                                             original.Id,observed);
                                     verifiedNewServerPid=apiChild.Pid;
                                     verifiedNewStartedUtc=apiChild.StartedUtc;
+                                    verifiedChildIdentity=apiChild;
+                                    attemptedStartUtc=apiChild.StartedUtc;
+                                    Update(job,"running","ASA gyermek PID és RCON port ellenőrizve",
+                                        newPid:apiChild.Pid,newStartedUtc:apiChild.StartedUtc);
                                     verified=true;
                                     break;
                                 }
@@ -472,23 +539,94 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                                 throw new InvalidOperationException(
                                     "UM-ORIGINAL-RESTART-API-CHILD-NOT-VERIFIED");
                         }
+                        // A launched PID or an owned listener is NOT a ready
+                        // ASA. Require current-run log, API DLL/plugins and
+                        // actual authenticated RCON response before success.
+                        if(nativeLauncher)
+                        {
+                            var expectedLoader=original.StartWithAsaApi?started:null;
+                            var readiness=await RestartStartupReadiness.WaitAsync(
+                                async token=>{
+                                    var proof=await RestartStartupReadiness.ObserveAsync(
+                                        original,verifiedChildIdentity,expectedLoader,
+                                        inspectFamily,owner,token);
+                                    lock(sync)job.Readiness=proof;
+                                    return proof;
+                                },original.StartWithAsaApi,
+                                TimeSpan.FromMinutes(10),TimeSpan.FromSeconds(2),
+                                retryPermit?.Cancellation??CancellationToken.None);
+                            if(!readiness.Ready(original.StartWithAsaApi))
+                                throw new InvalidOperationException(readiness.Reason);
+                        }
                         restart.Change(record.Id,AsaRestartPhase.Completed,
                             verifiedNewServerPid);
-                        Update(job,"completed",original.StartWithAsaApi?
-                            "Új ASA API gyermek PID és RCON tulajdonlás igazolt; játékbeli készenlét még nem":
-                            "Új eredeti ASA PID létrejött; játékbeli készenlét nem igazolt",
+                        Update(job,"completed",nativeLauncher?
+                            "Új ASA PID, API/plugin, join és RCON válasz igazolt":
+                            "Izolált új PID; éles készenlét nem igazolt",
                             newPid:verifiedNewServerPid,newStartedUtc:verifiedNewStartedUtc);
                         events.Emit("new-process","verified-local","NEW_PID_OBSERVED");
-                        events.Emit("terminal","limited","RESTART_NEW_PID_READINESS_UNVERIFIED");
+                        events.Emit("terminal",nativeLauncher?"verified-local":"limited",
+                            nativeLauncher?"RESTART_NEW_INSTANCE_READINESS_VERIFIED":
+                                "RESTART_SYNTHETIC_PID_ONLY");
+                        break;
+                        }
+                        catch(Exception) when(retryPermit!=null&&attemptedStartUtc.HasValue&&
+                            ScheduledRestartRetryScope.CanRetry(attempt,
+                                RestartModServiceFailureProbe.Inspect(original,attemptedStartUtc.Value)))
+                        {
+                            var delay=ScheduledRestartRetryScope.DelayAfter(attempt);
+                            lock(sync)job.FailureCode=RestartModServiceFailureProbe.TransientCurseForge;
+                            Update(job,"running","CurseForge nem elérhető; következő indítás "+
+                                delay.TotalMinutes+" perc múlva");
+                            try
+                            {
+                                ScheduledRestartOutageLedger.Record(cluster.Store.Root,original.Id,
+                                    retryPermit.RunId,original.Name,record.ChangedUtc,
+                                    RestartModServiceFailureProbe.TransientCurseForge,attempt,
+                                    "RETRY_AFTER_"+delay.TotalMinutes+"_MINUTES");
+                                DesktopDiscordNotifications.Record(cluster,original.Id,"schedule",true);
+                            }
+                            catch{/* A notification receipt failure must not interrupt recovery. */}
+                            // From here a failure is a retry gate failure, not
+                            // another diagnosis of the previous CurseForge log.
+                            attemptedStartUtc=null;
+                            await retryPermit.Backoff(delay,retryPermit.Cancellation);
+                            retryPermit.Demand(original.Id);
+                            bool Stopped()
+                            {
+                                retryPermit.Demand(original.Id);
+                                var check=LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
+                                    original,cluster.Config.LocalMaps);
+                                return check.ConfirmedStopped&&!check.Running&&
+                                    check.Identity==null&&check.LoaderIdentity==null&&
+                                    AsaLocalPortPreflight.CanStart(original);
+                            }
+                            using(var lease=cluster.Operations.Acquire(original.InstallationPath,
+                                UntamedOperationKind.Launch))
+                            {
+                                if(!Stopped())throw new InvalidOperationException(
+                                    "UM-RESTART-RETRY-FAMILY-OR-PORT-BUSY");
+                                restart.ClaimScheduledRetry(record.Id,retryPermit.RunId,attempt,Stopped);
+                                var plan=LegacyStoreV1NativeStartPlanner.Prepare(cluster,original,record.Id);
+                                if(plan.Fingerprint!=initialLaunchFingerprint)
+                                    throw new InvalidOperationException("UM-RESTART-RETRY-LAUNCH-CONFIG-CHANGED");
+                                lease.Complete();
+                            }
+                        }
+                        }
                     }
                     catch(Exception ex)
                     {
+                        string code=(attemptedStartUtc is { } since?
+                            RestartModServiceFailureProbe.Inspect(original,since):null)
+                            ??NativeLifecycleFailureCode.From(ex);
                         try{restart.Change(record.Id,AsaRestartPhase.NeedsOperator);}
-                        catch{/* Durable previous state remains; never clear a journal. */}
+                        catch{/* Preserve the original durable failed receipt. */}
+                        lock(sync)job.FailureCode=code;
                         Update(job,"needsOperator",
-                            "Store-v1 Restart megszakadt ["+NativeLifecycleFailureCode.From(ex)+
-                            "]: helyi PID és tartós napló kézi ellenőrzése szükséges");
-                        events.Emit("terminal","uncertain",NativeLifecycleFailureCode.From(ex));
+                            "Store-v1 Restart sikertelen ["+code+
+                            "]: naplóellenőrzés és biztonságos új indítás szükséges");
+                        events.Emit("terminal","uncertain",code);
                     }
                 });
                 return Ok(id,new{

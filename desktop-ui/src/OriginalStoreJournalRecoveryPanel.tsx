@@ -47,7 +47,7 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
            !(proof.originalStoreSessionVerified||proof.approvedObsidianSourcePinned)))||
          (stopped&&(!proof.stoppedWindowsProcessVerified||
            !proof.rconListenerAbsent||!proof.historicalSelectedOwnerVerified||
-           proof.pairedJournals!==2||!proof.restartId||
+           !proof.restartId||(proof.pairedJournals??0)<1||(proof.pairedJournals??0)>2||
            proof.exactWindowsProcessVerified||proof.rconListenerOwnerVerified))||
          (proof.historicalSourceReapprovalRequired&&
            (!stopped||!proof.historicalApprovedFourFilesSha256||
@@ -58,7 +58,8 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
          !proof.previousOperationWillNotBeRetried||
          (proof.pairedJournals===2&&!proof.restartId)||
          (proof.restartId&&(proof.restartOldPid!==proof.pid||
-           proof.restartNewPid!==0)))
+           proof.restartNewPid===proof.pid||
+           proof.restartNewPid==null||proof.restartNewPid<0)))
         throw new Error("UM-RECOVERY-PREVIEW-OWNER-NOT-VERIFIED");
       setVerifiedPid(proof.pid);
       if(proof.historicalSourceReapprovalRequired&&!approveChangedSource){

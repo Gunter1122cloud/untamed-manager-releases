@@ -554,18 +554,21 @@ export type AsaRestartJournalStatus = {
 };
 export type FreshAsaRestartReviewPreview = {
   token:string;mapId:string;mapName:string;
-  oldPid:number;oldStartedUtc:string;journalId:string;phase:string;
-  exactOldProcessVerified:true;rconOwnerVerified:true;
+  oldPid:number;oldStartedUtc:string|null;journalId:string;phase:string;
+  exactOldProcessVerified:boolean;rconOwnerVerified:boolean;
+  stoppedFamilyVerified?:boolean;portsFree?:boolean;attemptedNewPid?:number;
   previousOutcomeUnknown:true;restartWillNotReplay:true;
   serverStarted:false;serverStopped:false;rconSent:false;
-  evidence:"FRESH_ASA_OLD_RUNNING_PID_LOCAL_RESTART_REVIEW_PREVIEW";
+  evidence:"FRESH_ASA_OLD_RUNNING_PID_LOCAL_RESTART_REVIEW_PREVIEW"|
+    "FRESH_ASA_STOPPED_FAMILY_RESTART_REVIEW_PREVIEW";
 };
 export type FreshAsaRestartReviewReceipt = {
   mapId:string;oldPid:number;state:"operatorReviewed";
   previousOutcomeUnknown:true;newRestartSucceeded:false;
   serverStarted:false;serverStopped:false;rconSent:false;
   originalJournalAudited:true;nextActionRequiresNewApproval:true;
-  evidence:"FRESH_ASA_OLD_RUNNING_PID_RESTART_JOURNAL_AUDITED";
+  evidence:"FRESH_ASA_OLD_RUNNING_PID_RESTART_JOURNAL_AUDITED"|
+    "FRESH_ASA_STOPPED_FAMILY_RESTART_JOURNAL_AUDITED";
 };
 export type FreshAsaRestartPreview = {
   token:string;mapId:string;mapName:string;currentPid:number;
@@ -582,7 +585,10 @@ export type FreshAsaRestartStatus = {
   stage:string;oldPid:number;newPid:number;changedUtc:string;
   newProcessRole?:"asaServer"|"loaderParent";
   newAsaServerPid?:number;apiChildAndRconVerified?:boolean;
-  saveCompleteProven:false;readinessCertified:false;
+  saveCompleteProven:false;readinessCertified:boolean;
+  loaderRunning?:boolean;asaRunning?:boolean;asaApiDllLoaded?:boolean;
+  pluginLoadingComplete?:boolean;rconResponding?:boolean;joinAdvertised?:boolean;
+  readinessFailureCode?:string|null;failureCode?:string|null;
   preExitSaveEvidenceObserved:boolean;preExitWorldMetadataObserved?:boolean;
   finalDoExitSaveCertified:false;
   gameClientRejoinVerified:false;
@@ -1232,7 +1238,10 @@ export type HistoricalRestartStatus = {
   launchMode:"asaApiLoader"|"directAsa";
   oldProcessStopped:boolean;preExitSaveLogAndWorldObserved:boolean;
   preExitWorldMetadataObserved?:boolean;
-  readyCertified:false;gameClientRejoinVerified:false;
+  readyCertified:boolean;gameClientRejoinVerified:false;
+  loaderRunning?:boolean;asaRunning?:boolean;asaApiDllLoaded?:boolean;
+  pluginLoadingComplete?:boolean;rconResponding?:boolean;joinAdvertised?:boolean;
+  readinessFailureCode?:string|null;failureCode?:string|null;
   finalDoExitSaveCertified:false;automaticRetry:false;
   forceKill:false;storeTouched:false;
   evidence:"ORIGINAL_STORE_V1_NATIVE_MANUAL_RESTART_JOB";

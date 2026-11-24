@@ -397,6 +397,52 @@ public sealed class UntamedOperationCoordinator
     }
 
     /// <summary>
+    /// When the generic launch receipt is already closed but Restart-v1
+    /// remains pending, allow a stopped-family, operator-approved journal
+    /// review without inventing a still-running old PID/RCON listener.
+    /// </summary>
+    internal void ReviewStoppedOriginalRestartOnly(string installation,
+        Guid expectedMapId,Guid expectedRestartId,int oldPid,
+        int attemptedNewPid,Func<bool> verifyStopped)
+    {
+        ArgumentNullException.ThrowIfNull(verifyStopped);
+        if(expectedMapId==Guid.Empty||expectedRestartId==Guid.Empty||
+           oldPid<=0||attemptedNewPid<0||attemptedNewPid==oldPid)
+            throw new InvalidDataException("UM-RECOVERY-STOPPED-RESTART-ONLY-ID");
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,
+            "Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))
+            throw new IOException("UM-RECOVERY-OPERATION-STILL-OWNED");
+        try
+        {
+            var operation=Read(Path.Combine(stateRoot,key+".json"),key);
+            if(operation?.Phase is UntamedOperationPhase.Prepared or
+                UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
+                throw new InvalidOperationException(
+                    "UM-RECOVERY-PAIRED-LAUNCH-REVIEW-REQUIRED");
+            var restart=new AsaManualRestartJournal(installation);
+            var state=restart.Observe();
+            if(state==null||state.Id!=expectedRestartId||
+               state.MapId!=expectedMapId||state.OldPid!=oldPid||
+               state.NewPid!=attemptedNewPid||state.Phase is not
+                   (AsaRestartPhase.Stopping or AsaRestartPhase.Starting or
+                    AsaRestartPhase.NeedsOperator or AsaRestartPhase.OperatorReviewed))
+                throw new InvalidOperationException(
+                    "UM-RECOVERY-STOPPED-RESTART-ONLY-CHANGED");
+            if(!verifyStopped())
+                throw new UnauthorizedAccessException(
+                    "UM-RECOVERY-STOPPED-PROOF-CHANGED");
+            restart.ReviewOriginalStoppedFamily(expectedMapId,
+                expectedRestartId,oldPid,attemptedNewPid);
+            if(!verifyStopped())
+                throw new UnauthorizedAccessException(
+                    "UM-RECOVERY-STOPPED-PROOF-CHANGED");
+        }
+        finally{semaphore.Release();}
+    }
+
+    /// <summary>
     /// Explicit review of a paired original Store-v1 Launch / Restart-v1
     /// journal AFTER the old ASA/Loader has been proved fully stopped.
     /// This is deliberately separate from running-PID recovery. The native
@@ -408,7 +454,7 @@ public sealed class UntamedOperationCoordinator
     /// </summary>
     internal void ReviewStoppedOriginalPaired(string installation,
         Guid expectedOperation,Guid expectedMapId,Guid expectedRestartId,
-        int oldPid,Func<bool> verifyStopped)
+        int oldPid,Func<bool> verifyStopped,int attemptedNewPid=0)
     {
         ArgumentNullException.ThrowIfNull(verifyStopped);
         if(expectedOperation==Guid.Empty||expectedMapId==Guid.Empty||
@@ -436,9 +482,10 @@ public sealed class UntamedOperationCoordinator
             var observed=restart.Observe();
             if(observed==null||observed.Id!=expectedRestartId||
                observed.MapId!=expectedMapId||observed.OldPid!=oldPid||
-               observed.NewPid!=0||
+               observed.NewPid!=attemptedNewPid||
                observed.Phase is not (AsaRestartPhase.NeedsOperator or
-                   AsaRestartPhase.Stopping or AsaRestartPhase.OperatorReviewed))
+                   AsaRestartPhase.Stopping or AsaRestartPhase.Starting or
+                   AsaRestartPhase.OperatorReviewed))
                 throw new InvalidOperationException(
                     "UM-RECOVERY-STOPPED-RESTART-JOURNAL-CHANGED");
             if(observed.Phase!=AsaRestartPhase.OperatorReviewed&&
@@ -474,7 +521,8 @@ public sealed class UntamedOperationCoordinator
             // The original Restart ID is reviewed, never marked Completed.
             // If the process reappears before the common journal commit, the
             // common NeedsOperator state still blocks Start / Stop / RCON.
-            restart.ReviewOriginalOldPid(expectedMapId,expectedRestartId,oldPid);
+            restart.ReviewOriginalStoppedFamily(expectedMapId,expectedRestartId,
+                oldPid,attemptedNewPid);
             if(!verifyStopped())
                 throw new UnauthorizedAccessException(
                     "UM-RECOVERY-STOPPED-PROOF-CHANGED");

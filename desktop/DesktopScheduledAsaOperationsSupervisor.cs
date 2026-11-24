@@ -82,12 +82,18 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     private readonly Func<LocalMap,bool> safeMap;
     private readonly string folder,path,mutexName;
     private readonly SemaphoreSlim tickGate=new(1,1);
+    private readonly SemaphoreSlim dispatchLane=new(1,1);
+    // Accessed only under tickGate. One active worker per registered map,
+    // across every schedule kind and every retry delay.
+    private readonly Dictionary<Guid,Task> activeMapWorkers=new();
     private int updateFrozen;
     // Host calls only under the native updater dispatch gate. No active
     // scheduled copy or lifecycle may be interrupted to update the Manager.
     internal bool TryFreezeForManagerUpdate()
     {
         if(!tickGate.Wait(0))return false;
+        if(activeMapWorkers.Values.Any(task=>!task.IsCompleted))
+        {tickGate.Release();return false;}
         Volatile.Write(ref updateFrozen,1);
         return true;
     }
@@ -743,7 +749,22 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     private void ScheduleEvent(Guid runId,ScheduledAsaOperation job,string phase,string result,string evidence,Guid? nativeJob=null)=>
         eventStream.Record(runId,new[]{job.MapId},job.Kind,"scheduler",null,phase,result,evidence,DateTimeOffset.UtcNow,job.NextDueUtc,nativeJob);
 
-    private async Task<string> RunHistoricalAsync(ScheduledAsaOperation job,Guid runId,CancellationToken ct)
+    private static string RestartFailureCode(JsonElement status,string fallback)
+    {
+        if(status.TryGetProperty("failureCode",out var field)&&
+           field.ValueKind==JsonValueKind.String)
+        {
+            string? code=field.GetString();
+            if(code!=null&&System.Text.RegularExpressions.Regex.IsMatch(code,
+                @"\AUM-[A-Z0-9_-]{3,110}\z",
+                System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+                TimeSpan.FromMilliseconds(100)))return code;
+        }
+        return fallback;
+    }
+
+    private async Task<string> RunHistoricalAsync(ScheduledAsaOperation job,Guid runId,
+        ScheduledAsaDispatchLane lane,CancellationToken ct)
     {
         var map=Owned(job.MapId);
         if(!HistoricalEligible(map)||Fingerprint(map)!=job.Fingerprint)
@@ -769,6 +790,12 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-PREVIEW");
         int oldPid=pre.GetProperty("pid").GetInt32();
         ct.ThrowIfCancellationRequested();
+        bool RetryStillApproved()=>Locked(()=>Read().Jobs.Any(x=>x.MapId==job.MapId&&
+            x.Kind==job.Kind&&x.Enabled&&x.Revision==job.Revision&&
+            x.Fingerprint==job.Fingerprint&&x.LastStatus=="claimed-no-auto-retry"))&&
+            HistoricalEligible(Owned(job.MapId))&&Fingerprint(Owned(job.MapId))==job.Fingerprint;
+        using var startupRetry=save?null:ScheduledRestartRetryScope.Enter(
+            new ScheduledRestartRetryPermit(job.MapId,runId,RetryStillApproved,ct,lane.BackoffAsync));
         var begun=Decode(await handle(Message(prefix+"Apply",new{token=pre.GetProperty("token").GetGuid()})));
         if(!begun.GetProperty("started").GetBoolean()||
            begun.GetProperty("automaticRetry").GetBoolean()||
@@ -777,7 +804,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-APPLY");
         Guid id=begun.GetProperty("jobId").GetGuid();
         ScheduleEvent(runId,job,"native-dispatched","in-progress","NATIVE_JOB_ACCEPTED",id);
-        var limit=DateTimeOffset.UtcNow.AddMinutes(16);
+        // Four bounded startup attempts plus the 1/3/5-minute backoffs.
+        var limit=DateTimeOffset.UtcNow.AddMinutes(save?16:95);
         bool savePublished=false,stopPublished=false,newPidPublished=false;
         while(DateTimeOffset.UtcNow<limit)
         {
@@ -803,8 +831,13 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             {ScheduleEvent(runId,job,"new-process","verified-local","NEW_PID_OBSERVED",id);newPidPublished=true;}
             string? state=result.GetProperty("state").GetString();
             if(state is "needsOperator" or "notDispatched" or "reviewed")
-                throw new InvalidOperationException("UM-SCHEDULE-HISTORICAL-NEEDS-REVIEW");
+                throw new InvalidOperationException(RestartFailureCode(result,
+                    "UM-SCHEDULE-HISTORICAL-NEEDS-REVIEW"));
             if(state!="completed")continue;
+            if(!save&&(!result.TryGetProperty("readyCertified",out var startupReady)||
+               startupReady.ValueKind!=JsonValueKind.True))
+                throw new InvalidOperationException(
+                    "UM-SCHEDULE-HISTORICAL-RESTART-READINESS-NOT-CERTIFIED");
             bool log=result.GetProperty("preExitSaveLogAndWorldObserved").GetBoolean();
             bool meta=result.GetProperty("preExitWorldMetadataObserved").GetBoolean();
             if(log==meta)throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-SAVE-EVIDENCE");
@@ -821,7 +854,9 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                !result.GetProperty("oldProcessStopped").GetBoolean()||
                result.GetProperty("oldPid").GetInt32()!=oldPid||pid<=0||pid==oldPid)
                 throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-RESTART-RECEIPT");
-            if(!job.PostRestartWipe)return evidence+"_RESTART_NEW_PID";
+            ScheduleEvent(runId,job,"readiness","verified-local",
+                "NEW_ASA_API_PLUGIN_JOIN_RCON_READY",id);
+            if(!job.PostRestartWipe)return evidence+"_RESTART_VERIFIED_READY";
             DateTimeOffset started=result.GetProperty("newStartedUtc").GetDateTimeOffset();
             // Bind the wipe to the exact new PID/start time. Wait on freshly
             // observed own listener and current-run join advertising, never
@@ -847,7 +882,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 await Task.Delay(TimeSpan.FromSeconds(2),ct);
             }
             if(!ready)throw new InvalidOperationException("UM-SCHEDULE-WIPE-NOT-READY");
-            ScheduleEvent(runId,job,"readiness","verified-local","OWN_LISTENER_AND_JOIN_ADVERTISED",id);
+            // The readiness event was already published for this exact
+            // native instance. Do not emit a duplicate before the wipe.
             // A disabled or edited job may finish its in-progress Restart,
             // but it must not send a newly pending wipe.
             bool WipeStillEnabled()=>Locked(()=>Read().Jobs.Any(x=>x.MapId==job.MapId&&
@@ -986,7 +1022,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         // loader-child/RCON handshake may consume another two. Do not mark
         // the scheduled restart failed while its native one-shot job is still
         // within those guarded limits. The operation remains serialized.
-        for(int n=0;n<180;n++)
+        for(int n=0;n<2850;n++)
         {
             ct.ThrowIfCancellationRequested();
             await Task.Delay(TimeSpan.FromSeconds(2),ct);
@@ -994,15 +1030,27 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 Message("servers.restartStatus",new {jobId})));
             var state=current.GetProperty("state").GetString();
             if(state=="completed")
-                return "RESTART_NEW_WINDOWS_PID_OBSERVED_READINESS_UNVERIFIED";
+            {
+                if(!current.TryGetProperty("readinessCertified",out var ready)||
+                   ready.ValueKind!=JsonValueKind.True)
+                    throw new InvalidOperationException(
+                        "UM-ASA-SCHEDULE-RESTART-READINESS-NOT-CERTIFIED");
+                return "RESTART_NEW_ASA_API_PLUGIN_JOIN_RCON_VERIFIED";
+            }
             if(state=="needsOperator")
-                throw new InvalidOperationException("UM-ASA-SCHEDULE-RESTART-NEEDS_OPERATOR");
+                throw new InvalidOperationException(RestartFailureCode(current,
+                    "UM-ASA-SCHEDULE-RESTART-NEEDS_OPERATOR"));
         }
         throw new InvalidOperationException("UM-ASA-SCHEDULE-RESTART-TIMED_OUT");
     }
 
-    public async Task<ScheduledAsaOperation[]> TickOnceAsync(DateTimeOffset now,
-        CancellationToken token=default)
+    public Task<ScheduledAsaOperation[]> TickOnceAsync(DateTimeOffset now,
+        CancellationToken token=default)=>DispatchTickAsync(now,true,token);
+
+    // The production timer keeps dispatching newly due MAPS during a known
+    // CurseForge backoff. Explicit tests/callers can await this tick's work.
+    internal async Task<ScheduledAsaOperation[]> DispatchTickAsync(DateTimeOffset now,
+        bool waitForWorkers,CancellationToken token=default)
     {
         if(Volatile.Read(ref disposed)!=0)throw new ObjectDisposedException(GetType().Name);
         if(RuntimeState=="journal-write-needs-operator")
@@ -1012,9 +1060,44 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         try
         {
             now=now.ToUniversalTime();
+            foreach(var done in activeMapWorkers.Where(x=>x.Value.IsCompleted).ToArray())
+            {
+                activeMapWorkers.Remove(done.Key);
+                await done.Value; // Observe all worker faults, including journal writes.
+            }
             ReconcileEventTerminals();
             var due=Locked(()=>Read().Jobs.Where(x=>x.Enabled&&x.NextDueUtc<=now)
                 .OrderBy(x=>x.NextDueUtc).ThenBy(x=>x.MapId).ToArray());
+            var queued=new List<Task>();
+            foreach(var group in due.GroupBy(x=>x.MapId))
+            {
+                if(activeMapWorkers.ContainsKey(group.Key))continue;
+                var mapDue=group.ToArray();
+                var task=Task.Run(()=>RunDueMapAsync(mapDue,now,token));
+                activeMapWorkers.Add(group.Key,task);queued.Add(task);
+            }
+            if(waitForWorkers)
+            {
+                try{await Task.WhenAll(queued);}
+                finally
+                {
+                    foreach(var done in activeMapWorkers.Where(x=>x.Value.IsCompleted).ToArray())
+                        if(queued.Contains(done.Value))activeMapWorkers.Remove(done.Key);
+                }
+            }
+            return Snapshot();
+        }
+        finally{tickGate.Release();}
+    }
+
+    private async Task RunDueMapAsync(ScheduledAsaOperation[] due,DateTimeOffset now,
+        CancellationToken token)
+    {
+            // One host lane for native RCON/Start operations; backoff alone
+            // yields it while the current map worker retains its slot.
+            using var lane=await ScheduledAsaDispatchLane.EnterAsync(dispatchLane,token);
+            if(RuntimeState=="journal-write-needs-operator")
+                throw new InvalidOperationException("UM-ASA-SCHEDULE-OPERATOR-REVIEW-REQUIRED");
             foreach(var observed in due)
             {
                 token.ThrowIfCancellationRequested();
@@ -1096,8 +1179,16 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     {
                         ScheduleEvent(claimId,observed,"started","in-progress","NATIVE_PREFLIGHT_PASSED");
                         using var origin=DiscordOperationEvents.EnterOrigin("scheduler",claimId,maps:new[]{map.Id},action:observed.Kind,suppress:true);
+                        bool RetryStillApproved()=>Locked(()=>Read().Jobs.Any(x=>
+                            x.MapId==observed.MapId&&x.Kind==observed.Kind&&
+                            x.Enabled&&x.Revision==observed.Revision&&x.Fingerprint==observed.Fingerprint&&
+                            x.LastClaimedUtc==now&&x.LastStatus=="claimed-no-auto-retry"))&&
+                            Eligible(Owned(observed.MapId))&&Fingerprint(Owned(observed.MapId))==observed.Fingerprint;
+                        using var freshRetry=map.HistoricalStoreProtected||observed.Kind!="Restart"?null:
+                            ScheduledRestartRetryScope.Enter(new ScheduledRestartRetryPermit(
+                                map.Id,claimId,RetryStillApproved,token,lane.BackoffAsync));
                         evidence=map.HistoricalStoreProtected?
-                            await RunHistoricalAsync(observed,claimId,token):await runner(map.Id,observed.Kind,token);
+                            await RunHistoricalAsync(observed,claimId,lane,token):await runner(map.Id,observed.Kind,token);
                         status="executed-no-fsync-or-client-certification";
                     }
                     else status="config-or-store-blocked";
@@ -1136,6 +1227,53 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                         });
                         var persisted=Locked(()=>Read().History.SingleOrDefault(x=>x.RunId==claimId));
                         if(persisted!=null)PublishTerminal(persisted,false);
+                        // Persist the incident independently from Discord
+                        // delivery. A webhook failure cannot delay native
+                        // recovery or erase the original failed schedule claim.
+                        if(observed.Kind=="Restart")
+                        {
+                            try
+                            {
+                                if(status=="executed-no-fsync-or-client-certification")
+                                {
+                                    var prior=ScheduledRestartOutageLedger.Read(
+                                        folder,observed.MapId);
+                                    if(prior?.Offline==true)
+                                        ScheduledRestartOutageLedger.Record(folder,
+                                            observed.MapId,prior.RunId,prior.MapName,
+                                            prior.OutageStartedUtc,prior.Error,
+                                            prior.Attempts,"NEW_INSTANCE_READY",
+                                            DateTimeOffset.UtcNow);
+                                }
+                                else
+                                {
+                                    var map=Owned(observed.MapId);
+                                    var prior=ScheduledRestartOutageLedger.Read(folder,observed.MapId);
+                                    var receipt=new AsaManualRestartJournal(map.InstallationPath).Observe();
+                                    // A preflight refusal or failed post-ready
+                                    // wipe is NOT an offline server incident.
+                                    var check=map.HistoricalStoreProtected?
+                                        LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(map,cluster.Config.LocalMaps):
+                                        cluster.Check(map);
+                                    if(check.ConfirmedStopped&&!check.Running&&
+                                       check.Identity==null&&check.LoaderIdentity==null&&
+                                       receipt?.ScheduledRunId==claimId&&
+                                       receipt.Phase!=AsaRestartPhase.Completed)
+                                        ScheduledRestartOutageLedger.Record(folder,
+                                            observed.MapId,claimId,map.Name,
+                                            prior?.RunId==claimId?prior.OutageStartedUtc:now,
+                                            string.IsNullOrWhiteSpace(evidence)?
+                                                "UM-SCHEDULE-RESTART-FAILED":evidence,
+                                            receipt.StartupAttempt,"CHECK_STOPPED_FAMILY_AND_JOURNALS_THEN_MANUAL_START");
+                                }
+                            }
+                            catch
+                            {
+                                // Never turn a successful ASA restart into
+                                // failure just because notification storage
+                                // is damaged, full or unavailable.
+                            }
+                        }
                         DesktopDiscordNotifications.Record(cluster,observed.MapId,"schedule",status!="executed-no-fsync-or-client-certification");
                     }
                     catch
@@ -1150,9 +1288,6 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     }
                 }
             }
-            return Snapshot();
-        }
-        finally{tickGate.Release();}
     }
     // Manager startup is NOT a delayed execution window: old unclaimed
     // due times are advanced before arming the timer. A crash after a claim
@@ -1196,7 +1331,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 {
                     try
                     {
-                        await TickOnceAsync(DateTimeOffset.UtcNow,cancel.Token);
+                        await DispatchTickAsync(DateTimeOffset.UtcNow,false,cancel.Token);
                         if(RuntimeState=="journal-write-needs-operator")break;
                         Volatile.Write(ref runtimeState,"active");
                     }
@@ -1211,6 +1346,13 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             catch(OperationCanceledException){/* Manager closing, never replay. */}
             finally
             {
+                // No new tick after cancellation. Observe existing workers;
+                // their durable claims remain the authority on interruption.
+                Task[] workers;
+                await tickGate.WaitAsync();
+                try{workers=activeMapWorkers.Values.ToArray();}
+                finally{tickGate.Release();}
+                try{await Task.WhenAll(workers);}catch{/* individual receipts retained */}
                 if(RuntimeState!="journal-write-needs-operator")
                     Volatile.Write(ref runtimeState,"stopped");
             }

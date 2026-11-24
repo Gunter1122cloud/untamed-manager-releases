@@ -143,6 +143,29 @@ public sealed class DesktopDiscordNotifications : IDisposable
         var mapName=cluster.Config.LocalMaps.FirstOrDefault(x=>x.Id==map)?.Name;
         string content="Obsidian Command | "+Safe(cluster.Config.LocalHostName)+" | "+
             (map.HasValue?Safe(mapName??"Helyi map")+" | ":"")+Safe(severity)+" | "+code;
+        if(code=="schedule-needs-review"&&map.HasValue)
+        {
+            try
+            {
+                var outage=ScheduledRestartOutageLedger.Read(root,map.Value);
+                if(outage?.Offline==true)
+                {
+                    // Discord has a 2,000-char message limit; only bounded
+                    // symbolic codes and safe, plain non-pinging strings.
+                    content="Obsidian Command | RESTART OFFLINE | "+
+                        Safe(cluster.Config.LocalHostName)+" | "+Safe(outage.MapName)+
+                        " | Kiesés: "+outage.OutageStartedUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")+
+                        " | Hiba: "+Safe(outage.Error)+
+                        " | Próbálkozások: "+outage.Attempts+
+                        " | Következő lépés: "+Safe(outage.NextStep);
+                }
+            }
+            catch
+            {
+                // A missing/broken local incident receipt never prevents the
+                // generic durable schedule warning from being delivered.
+            }
+        }
         return JsonSerializer.Serialize(new{content,allowed_mentions=new{parse=Array.Empty<string>()}});
     }
     private async Task<Settings> Deliver(Settings claim,string payload,CancellationToken ct)

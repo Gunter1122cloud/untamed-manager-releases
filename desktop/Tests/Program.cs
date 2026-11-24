@@ -211,6 +211,8 @@ cluster.AddMap(map);
 await LocalAsaApiModeTests.Run(root);
 await ManualOnlySteamScheduleTests.Run(root);
 await OriginalStoreStoppedJournalRecoveryTests.Run(root);
+await RestartStartupReadinessTests.Run(root);
+ScheduledRestartOutageLedgerTests.Run(root);
  await HistoricalAsaApiModeTests.Run(root);
  SteamProtectedFileCoverageTests.Run(root);
  await HistoricalLocalConfigGuardTests.Run(root);

@@ -220,9 +220,19 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted,refreshRe
       </div>}
       {job&&<div className="details-line" role="status">
         <span><RefreshCw size={15}/> {job.state==="running"?"Folyamatban":
-          job.state==="completed"?"Új folyamat elindult":
+          job.state==="completed"?"Új ASA kész":
           job.state==="needsOperator"?"Kézi ellenőrzés szükséges":"Sorban áll"}</span>
         <b>{job.step}</b>
+      </div>}
+      {job&&<div className="details-line" role="status"
+        aria-label="Natív restart készültségi jelek">
+        <span>Loader: {job.launchMode==="directAsa"?"nem szükséges":job.loaderRunning?"fut":"nem igazolt"}</span>
+        <span>ASA: {job.asaRunning?"fut":"nem igazolt"}</span>
+        <span>AsaApi.dll: {job.launchMode==="directAsa"?"nem szükséges":job.asaApiDllLoaded?"betöltve":"nem igazolt"}</span>
+        <span>Pluginok: {job.launchMode==="directAsa"?"nem szükséges":job.pluginLoadingComplete?"betöltve":"nem igazolt"}</span>
+        <span>RCON: {job.rconResponding?"válaszol":"nem igazolt"}</span>
+        <span>Játékosfogadás: {job.joinAdvertised?"kész":"nem igazolt"}</span>
+        {job.failureCode&&<b>Hiba: {job.failureCode}</b>}
       </div>}
       {job?.state==="completed"&&<div className="success-inline">
         <CheckCircle2 size={17}/> Régi PID {job.oldPid} → új PID {job.newPid}
