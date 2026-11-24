@@ -37,6 +37,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
         public RestartStartupProof? Readiness;
         public string? FailureCode;
+        public int StartupAttempts=1;
+        public bool StartupRetriesEnabled;
     }
 
     private readonly ClusterService cluster;
@@ -167,6 +169,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             joinAdvertised=job.Readiness?.JoinAdvertised??false,
             readinessFailureCode=job.Readiness?.Reason,
             failureCode=job.FailureCode,
+            startupAttempts=job.StartupAttempts,startupRetriesEnabled=job.StartupRetriesEnabled,
             gameClientRejoinVerified=false,
             finalDoExitSaveCertified=false,automaticRetry=false,
             forceKill=false,storeTouched=false,
@@ -379,12 +382,16 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     // marking the generic operation mutating. A rejected
                     // Begin() sends no ASA/RCON bytes and must not create a
                     // second false NeedsOperator Launch journal.
-                    record=restart.Begin(original.Id,approved.Pid);
+                    var retry=ScheduledRestartRetryScope.Current;
+                    retry?.Demand(original.Id);
+                    record=retry==null?restart.Begin(original.Id,approved.Pid):
+                        restart.BeginScheduled(original.Id,approved.Pid,retry.RunId);
                     lease.MarkMutationStarted();
                     lease.Complete();
                 }
+                var retryPermit=nativeLauncher?ScheduledRestartRetryScope.Current:null;
                 var job=new Job{MapId=original.Id,OldPid=approved.Pid,
-                    UseApi=original.StartWithAsaApi};
+                    UseApi=original.StartWithAsaApi,StartupRetriesEnabled=retryPermit!=null};
                 var events=new DiscordOperationEvents.NativeRun(cluster,job.Id,new[]{original.Id},"Restart");
                 events.Emit("claimed","in-progress","NATIVE_RESTART_JOURNAL_PREPARED");
                 lock(sync)jobsByMap[original.Id]=job;
@@ -433,11 +440,33 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             modLease.Complete();
                         }
                         restart.Change(record.Id,AsaRestartPhase.Starting);
+                        string? initialLaunchFingerprint=null;
+                        for(int attempt=1;;attempt++)
+                        {
+                        retryPermit?.Demand(original.Id);
+                        attemptedStartUtc=null;
+                        lock(sync){job.StartupAttempts=attempt;job.Readiness=null;job.FailureCode=null;}
+                        try
+                        {
+                        if(retryPermit!=null)
+                        {
+                            var plan=LegacyStoreV1NativeStartPlanner.Prepare(cluster,original,record.Id);
+                            initialLaunchFingerprint??=plan.Fingerprint;
+                            if(plan.Fingerprint!=initialLaunchFingerprint)
+                                throw new InvalidOperationException("UM-RESTART-RETRY-LAUNCH-CONFIG-CHANGED");
+                        }
                         // Start uses the SAME selected original mode. For
                         // API mode Process.Start yields ONLY a Loader parent,
                         // never an already verified ASA child.
-                        var started=await Task.Run(()=>start(original.Id,record.Id,
-                            stage=>Update(job,"running",stage)));
+                        ProcessIdentity started;
+                        using(var boundary=retryPermit==null?null:RecoveryNativeStartBoundary.Pin(mapId=>{
+                            retryPermit.Demand(mapId);
+                            var fresh=LegacyStoreV1NativeStartPlanner.Prepare(cluster,original,record.Id);
+                            if(fresh.Fingerprint!=initialLaunchFingerprint)
+                                throw new InvalidOperationException("UM-RESTART-RETRY-LAUNCH-CONFIG-CHANGED");
+                        }))
+                            started=await Task.Run(()=>start(original.Id,record.Id,
+                                stage=>Update(job,"running",stage)));
                         attemptedStartUtc=started.StartedUtc;
                         string expectedExecutable=original.StartWithAsaApi?
                             original.ApiLoaderPath:original.ExecutablePath;
@@ -524,7 +553,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                                     return proof;
                                 },original.StartWithAsaApi,
                                 TimeSpan.FromMinutes(10),TimeSpan.FromSeconds(2),
-                                CancellationToken.None);
+                                retryPermit?.Cancellation??CancellationToken.None);
                             if(!readiness.Ready(original.StartWithAsaApi))
                                 throw new InvalidOperationException(readiness.Reason);
                         }
@@ -538,6 +567,48 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         events.Emit("terminal",nativeLauncher?"verified-local":"limited",
                             nativeLauncher?"RESTART_NEW_INSTANCE_READINESS_VERIFIED":
                                 "RESTART_SYNTHETIC_PID_ONLY");
+                        break;
+                        }
+                        catch(Exception) when(retryPermit!=null&&attemptedStartUtc.HasValue&&
+                            ScheduledRestartRetryScope.CanRetry(attempt,
+                                RestartModServiceFailureProbe.Inspect(original,attemptedStartUtc.Value)))
+                        {
+                            var delay=ScheduledRestartRetryScope.DelayAfter(attempt);
+                            lock(sync)job.FailureCode=RestartModServiceFailureProbe.TransientCurseForge;
+                            Update(job,"running","CurseForge nem elérhető; következő indítás "+
+                                delay.TotalMinutes+" perc múlva");
+                            try
+                            {
+                                ScheduledRestartOutageLedger.Record(cluster.Store.Root,original.Id,
+                                    retryPermit.RunId,original.Name,record.ChangedUtc,
+                                    RestartModServiceFailureProbe.TransientCurseForge,attempt,
+                                    "RETRY_AFTER_"+delay.TotalMinutes+"_MINUTES");
+                            }
+                            catch{/* A notification receipt failure must not interrupt recovery. */}
+                            await Task.Delay(delay,retryPermit.Cancellation);
+                            retryPermit.Demand(original.Id);
+                            bool Stopped()
+                            {
+                                retryPermit.Demand(original.Id);
+                                var check=LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
+                                    original,cluster.Config.LocalMaps);
+                                return check.ConfirmedStopped&&!check.Running&&
+                                    check.Identity==null&&check.LoaderIdentity==null&&
+                                    AsaLocalPortPreflight.CanStart(original);
+                            }
+                            using(var lease=cluster.Operations.Acquire(original.InstallationPath,
+                                UntamedOperationKind.Launch))
+                            {
+                                if(!Stopped())throw new InvalidOperationException(
+                                    "UM-RESTART-RETRY-FAMILY-OR-PORT-BUSY");
+                                var plan=LegacyStoreV1NativeStartPlanner.Prepare(cluster,original,record.Id);
+                                if(plan.Fingerprint!=initialLaunchFingerprint)
+                                    throw new InvalidOperationException("UM-RESTART-RETRY-LAUNCH-CONFIG-CHANGED");
+                                restart.ClaimScheduledRetry(record.Id,retryPermit.RunId,attempt,Stopped);
+                                lease.Complete();
+                            }
+                        }
+                        }
                     }
                     catch(Exception ex)
                     {
