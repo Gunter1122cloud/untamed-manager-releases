@@ -23,7 +23,7 @@ public sealed class DesktopAsaLifecycleJournalBridge
     private sealed record Pending(Guid Token,Guid MapId,Guid Operation,
         int Pid,DateTimeOffset StartedUtc,string SourceSha,string ProfileJson,
         Guid? RestartId,string? RestartSnapshot,bool RestartOnly,DateTimeOffset ExpiresUtc,
-        bool StoppedReview=false,bool SourceReapprovalRequired=false,
+        int AttemptedNewPid=0,bool StoppedReview=false,bool SourceReapprovalRequired=false,
         string CurrentSourceHash="",string PreviousSourceHash="");
     internal sealed record StoppedProof(LocalMap Map,int OldPid,string SourceSha,
         bool SourceReapprovalRequired=false,string CurrentSourceHash="",
@@ -93,7 +93,7 @@ public sealed class DesktopAsaLifecycleJournalBridge
     {
         var map=Owned(mapId);
         if(!map.HistoricalStoreProtected||map.Id==Guid.Empty||oldPid<=0||
-           map.AutoStart||map.MonitorRcon||map.RconPort is <1024 or >65535||
+           map.AutoStart||map.RconPort is <1024 or >65535||
            map.HistoricalArchiveSha256?.Length!=64||
            !map.HistoricalArchiveSha256.All(Uri.IsHexDigit))
             throw new InvalidDataException("UM-RECOVERY-STOPPED-MAP-NOT-APPROVED");
@@ -226,11 +226,12 @@ public sealed class DesktopAsaLifecycleJournalBridge
                 bool restartOnlyReviewable=!journalUnreadable&&
                     map.HistoricalStoreProtected&&
                     !PendingPhase(old)&&restart?.Phase is
-                        (AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator)&&
-                    restart.NewPid==0;
+                        (AsaRestartPhase.Stopping or AsaRestartPhase.Starting or
+                         AsaRestartPhase.NeedsOperator);
                 bool restartReviewable=restart==null||restart.Phase is
                     (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed or
-                     AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator);
+                     AsaRestartPhase.Stopping or AsaRestartPhase.Starting or
+                     AsaRestartPhase.NeedsOperator);
                 if(method=="servers.lifecycleJournal")
                     return Ok(id,new{
                         mapId=map.Id,mapName=map.Name,
@@ -285,18 +286,31 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         return Error(id,"UM-RECOVERY-RESTART-PHASE-NOT-REVIEWABLE");
                     LegacyStoreV1GracefulStop.Owned? running=null;
                     StoppedProof? stopped=null;
-                    if(stoppedReviewEnabled&&isOriginalPending&&
-                       restart?.OldPid>0&&restart.NewPid==0&&
+                    if(stoppedReviewEnabled&&
+                       (isOriginalPending||restartOnlyReviewable)&&
+                       restart?.OldPid>0&&
                        restart.Phase is (AsaRestartPhase.Stopping or
-                           AsaRestartPhase.NeedsOperator or AsaRestartPhase.OperatorReviewed))
+                           AsaRestartPhase.Starting or AsaRestartPhase.NeedsOperator or
+                           AsaRestartPhase.OperatorReviewed))
                     {
-                        // A failed running proof is NOT a stopped proof.
-                        // The independent stopped witness must establish
-                        // Windows process-family absence and absent RCON.
-                        try{running=await Task.Run(()=>Proof(mapId));}
+                        // A new child may have started then CRASHED; its
+                        // recorded PID does not require a dead RCON owner.
+                        // A running unrelated/new child cannot authorize the
+                        // OLD restart review. Independently prove full
+                        // process-family AND RCON-listener absence instead.
+                        try
+                        {
+                            running=await Task.Run(()=>Proof(mapId));
+                            if(running.Process.Pid!=restart.OldPid)
+                                throw new InvalidOperationException(
+                                    "UM-RECOVERY-NEW-PID-NOT-OLD-OWNER");
+                        }
                         catch(Exception ex) when(ex is InvalidDataException or
                             InvalidOperationException or UnauthorizedAccessException or IOException)
-                        {stopped=await Task.Run(()=>VerifyStopped(mapId,restart.OldPid));}
+                        {
+                            running=null;
+                            stopped=await Task.Run(()=>VerifyStopped(mapId,restart.OldPid));
+                        }
                     }
                     else running=await Task.Run(()=>Proof(mapId));
                     int oldPid=stopped?.OldPid??running!.Process.Pid;
@@ -306,7 +320,7 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         cluster.Store.Root,map);
                     if(restart!=null&&restart.Phase is not AsaRestartPhase.Completed &&
                        (restart.MapId!=mapId||restart.OldPid!=oldPid||
-                        restart.NewPid!=0))
+                        restart.NewPid==oldPid||restart.NewPid<0))
                         return Error(id,"UM-RECOVERY-RESTART-OLD-PID-MISMATCH");
                     var token=Guid.NewGuid();
                     pending=new(token,mapId,old?.Operation??Guid.Empty,
@@ -315,6 +329,7 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         restart?.Phase==AsaRestartPhase.Completed?null:
                             JsonSerializer.Serialize(restart),
                         restartOnlyReviewable,DateTimeOffset.UtcNow.AddMinutes(3),
+                        AttemptedNewPid:restart?.NewPid??0,
                         StoppedReview:stopped!=null,
                         SourceReapprovalRequired:stopped?.SourceReapprovalRequired==true,
                         CurrentSourceHash:stopped?.CurrentSourceHash??"",
@@ -415,10 +430,15 @@ public sealed class DesktopAsaLifecycleJournalBridge
                 if(pinned.StoppedReview)
                 {
                     if(pinned.RestartId is not Guid stoppedRestart)
-                        return Error(id,"UM-RECOVERY-STOPPED-PAIRED-RESTART-REQUIRED");
-                    cluster.Operations.ReviewStoppedOriginalPaired(
-                        map.InstallationPath,pinned.Operation,mapId,
-                        stoppedRestart,pinned.Pid,CheckPinned);
+                        return Error(id,"UM-RECOVERY-STOPPED-RESTART-REQUIRED");
+                    if(pinned.RestartOnly)
+                        cluster.Operations.ReviewStoppedOriginalRestartOnly(
+                            map.InstallationPath,mapId,stoppedRestart,pinned.Pid,
+                            pinned.AttemptedNewPid,CheckPinned);
+                    else
+                        cluster.Operations.ReviewStoppedOriginalPaired(
+                            map.InstallationPath,pinned.Operation,mapId,
+                            stoppedRestart,pinned.Pid,CheckPinned,pinned.AttemptedNewPid);
                 }
                 else if(pinned.RestartOnly)
                 {
