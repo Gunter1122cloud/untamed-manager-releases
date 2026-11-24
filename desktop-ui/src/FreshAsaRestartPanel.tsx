@@ -176,8 +176,10 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
       const proof=await managerBridge.freshAsaRestartReviewPreview(requested);
       if(!belongs(requested))return;
       if(proof.mapId.toLowerCase()!==mapId.toLowerCase()||
-         proof.oldPid<=0||!proof.exactOldProcessVerified||
-         !proof.rconOwnerVerified||!proof.previousOutcomeUnknown||
+         proof.oldPid<=0||
+         !(proof.exactOldProcessVerified&&proof.rconOwnerVerified||
+           proof.stoppedFamilyVerified===true&&proof.portsFree===true)||
+         !proof.previousOutcomeUnknown||
          !proof.restartWillNotReplay)
         throw new Error("UM-ASA-RESTART-REVIEW-PROOF-INCOMPLETE");
       const saved=await managerBridge.freshAsaRestartReviewApply(proof.token);
@@ -196,8 +198,10 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
       setAuditConfirmed(true);setNeedsLocalReview(false);setStatus(null);
       setDurable(previous=>previous?{...previous,
         phase:"OperatorReviewed",needsOperatorReview:false}:previous);
-      const summary="Az eredeti, még futó ASA PID "+proof.oldPid+
-        " igazolt. A megszakadt Restart naplója auditálva; sem Stop, "+
+      const summary=(proof.stoppedFamilyVerified?
+        "Az ASA és Loader leállása, valamint a portok szabadsága igazolt. ":
+        "Az eredeti, még futó ASA PID "+proof.oldPid+" igazolt. ")+
+        "A megszakadt Restart naplója auditálva; sem Stop, "+
         "sem Start, sem RCON-parancs nem történt. Új művelet külön jóváhagyással indítható.";
       latestRestart.set(mapId,summary);
       setMessage(summary);
@@ -242,13 +246,14 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     {showRecovery&&<div className="historical-preview" role="region"
       aria-label="Megszakadt helyi Restart rendezése">
       <p><b>Korábbi Restart megszakadt.</b> Régi PID: {durable?.oldPid??"ismeretlen"},
-        fázis: {durable?.phase??"bizonytalan"}. A gomb kizárólag akkor rendezi a
-        Manager helyi naplóját, ha az eredeti ASA még pontosan azonosítható
-        és az RCON-portot is ugyanaz a PID birtokolja.</p>
+        fázis: {durable?.phase??"bizonytalan"}. A gomb akkor rendezi a
+        helyi naplót, ha az eredeti ASA és RCON-tulajdonosa igazolt, vagy
+        a teljes ASA/Loader folyamatcsalád leállt és minden helyi port szabad.</p>
       <button type="button" className="primary" disabled={busy||!!jobId}
         onClick={()=>{void recover();}}>
         {busy?"Régi ASA és napló ellenőrzése…":
-          "Futó régi ASA ellenőrzése és Restart-napló rendezése"}
+          running?"Futó régi ASA ellenőrzése és Restart-napló rendezése":
+            "Leállt ASA/Loader ellenőrzése és Restart-napló rendezése"}
       </button>
       <p className="muted small">Nincs régi parancs újraküldése, automatikus újraindítás
         vagy sikeresnek minősített korábbi Restart.</p>

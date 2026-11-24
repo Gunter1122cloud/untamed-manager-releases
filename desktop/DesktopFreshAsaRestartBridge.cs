@@ -24,7 +24,9 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         DateTimeOffset Created);
     private sealed record ReviewApproval(Guid Token,Guid MapId,Guid JournalId,
         int OldPid,DateTimeOffset OldStartedUtc,string ProfileSnapshot,
-        string RestartSnapshot,DateTimeOffset ExpiresUtc);
+        string RestartSnapshot,DateTimeOffset ExpiresUtc,
+        bool StoppedFamily=false,int AttemptedNewPid=0,Guid? PairedOperation=null,
+        string? IniFingerprint=null,string? BinariesFingerprint=null);
     private sealed class Job
     {
         public Guid Id=Guid.NewGuid();
@@ -151,6 +153,36 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                 (expectedStart==null||existing.StartedUtc==expectedStart);
         }
         catch(Exception){return false;}
+    }
+
+    // Unlike running-old-PID recovery, a failed new startup needs no
+    // dead RCON owner. Confirm absence of BOTH ASA and Loader and free ports.
+    private bool ReviewStoppedFamily(LocalMap map,AsaRestartRecord record)
+    {
+        if(record.MapId!=map.Id||record.OldPid<=0||record.NewPid==record.OldPid||
+           map.AutoStart||map.Maintenance||HasActive(map.Id)||
+           record.Phase is not (AsaRestartPhase.Stopping or AsaRestartPhase.Starting or
+               AsaRestartPhase.NeedsOperator or AsaRestartPhase.OperatorReviewed))return false;
+        try
+        {
+            if(FreshStoreEnrollmentPolicy.IsEnrolled(map))
+                FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+            else
+            {
+                FreshAsaInstallationSafety.Demand(cluster,map);
+                if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
+                   AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments)||
+                   AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments))return false;
+            }
+            new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
+            var state=cluster.Check(map);
+            return AsaReadyProbe.IsRegisteredServerBinary(map)&&
+                AsaRconConfigurationEvidence.Matches(map)&&
+                !KovaCompatibleWorldBackup.InstallationRecoveryRequired(map)&&
+                state.ConfirmedStopped&&!state.Running&&state.Identity==null&&
+                state.LoaderIdentity==null&&AsaLocalPortPreflight.CanStart(map);
+        }
+        catch{return false;}
     }
 
     private static bool ReadGuid(JsonElement data,string name,out Guid value)
@@ -281,12 +313,38 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
                     var saved=new AsaManualRestartJournal(map.InstallationPath).Observe();
-                    if(saved==null||saved.MapId!=mapId||saved.NewPid!=0||
-                       saved.Phase is not
-                           (AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator))
+                    if(saved==null||saved.MapId!=mapId||HasActive(mapId)||
+                       saved.Phase is not (AsaRestartPhase.Stopping or AsaRestartPhase.Starting or AsaRestartPhase.NeedsOperator))
                         return Fail(id,"UM-ASA-RESTART-REVIEW-NOT-ELIGIBLE");
                     if(DateTimeOffset.UtcNow-saved.ChangedUtc<TimeSpan.FromMinutes(3))
                         return Fail(id,"UM-RESTART-REVIEW-TOO-RECENT");
+                    if(ReviewStoppedFamily(map,saved))
+                    {
+                        var general=cluster.Operations.Observe(map.InstallationPath);
+                        Guid? paired=null;
+                        if(general?.Phase is UntamedOperationPhase.Prepared or
+                            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
+                        {
+                            if(general.Kind!=UntamedOperationKind.Launch)
+                                return Fail(id,"UM-ASA-RESTART-REVIEW-GENERAL-PENDING");
+                            paired=general.Operation;
+                        }
+                        reviewPending=new(Guid.NewGuid(),map.Id,saved.Id,saved.OldPid,
+                            default,JsonSerializer.Serialize(map),JsonSerializer.Serialize(saved),
+                            DateTimeOffset.UtcNow.AddMinutes(3),true,saved.NewPid,paired,
+                            DesktopFreshAsaStartBridge.IniFingerprint(map),
+                            AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map));
+                        return Ok(id,new{
+                            token=reviewPending.Token,mapId=map.Id,mapName=map.Name,
+                            oldPid=saved.OldPid,oldStartedUtc=(DateTimeOffset?)null,
+                            journalId=saved.Id,phase=saved.Phase.ToString(),
+                            exactOldProcessVerified=false,rconOwnerVerified=false,
+                            stoppedFamilyVerified=true,portsFree=true,attemptedNewPid=saved.NewPid,
+                            previousOutcomeUnknown=true,restartWillNotReplay=true,
+                            serverStarted=false,serverStopped=false,rconSent=false,
+                            evidence="FRESH_ASA_STOPPED_FAMILY_RESTART_REVIEW_PREVIEW"
+                        });
+                    }
                     if(!ReviewOwner(map,saved))
                         return Fail(id,"UM-ASA-RESTART-REVIEW-OLD-PID-NOT-RUNNING");
                     var oldProcess=Eligible(map,allowPendingRestart:true);
@@ -320,6 +378,37 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     if(owned==null)return Fail(id,"UM-MAP-NOT-OWNED");
                     var journal=new AsaManualRestartJournal(owned.InstallationPath);
                     var reviewSnapshot=journal.Observe();
+                    if(reviewPermit.StoppedFamily)
+                    {
+                        bool SameStopped()
+                        {
+                            var fresh=journal.Observe();
+                            return fresh!=null&&fresh.Id==reviewPermit.JournalId&&
+                                fresh.OldPid==reviewPermit.OldPid&&fresh.NewPid==reviewPermit.AttemptedNewPid&&
+                                JsonSerializer.Serialize(owned)==reviewPermit.ProfileSnapshot&&
+                                DesktopFreshAsaStartBridge.IniFingerprint(owned)==reviewPermit.IniFingerprint&&
+                                AsaReadyProbe.ApprovedLaunchBinariesFingerprint(owned)==reviewPermit.BinariesFingerprint&&
+                                ReviewStoppedFamily(owned,fresh);
+                        }
+                        if(reviewSnapshot==null||
+                           JsonSerializer.Serialize(reviewSnapshot)!=reviewPermit.RestartSnapshot||!SameStopped())
+                            return Fail(id,"UM-ASA-RESTART-REVIEW-SOURCE-CHANGED");
+                        if(reviewPermit.PairedOperation is Guid paired)
+                            cluster.Operations.ReviewStoppedOriginalPaired(owned.InstallationPath,
+                                paired,owned.Id,reviewPermit.JournalId,reviewPermit.OldPid,
+                                SameStopped,reviewPermit.AttemptedNewPid);
+                        else
+                            cluster.Operations.ReviewStoppedOriginalRestartOnly(owned.InstallationPath,
+                                owned.Id,reviewPermit.JournalId,reviewPermit.OldPid,
+                                reviewPermit.AttemptedNewPid,SameStopped);
+                        return Ok(id,new{
+                            mapId=owned.Id,oldPid=reviewPermit.OldPid,state="operatorReviewed",
+                            previousOutcomeUnknown=true,newRestartSucceeded=false,
+                            serverStarted=false,serverStopped=false,rconSent=false,
+                            originalJournalAudited=true,nextActionRequiresNewApproval=true,
+                            evidence="FRESH_ASA_STOPPED_FAMILY_RESTART_JOURNAL_AUDITED"
+                        });
+                    }
                     if(reviewSnapshot==null||reviewSnapshot.Id!=reviewPermit.JournalId||
                        JsonSerializer.Serialize(reviewSnapshot)!=reviewPermit.RestartSnapshot||
                        !ReviewOwner(owned,reviewSnapshot,reviewPermit.OldStartedUtc,

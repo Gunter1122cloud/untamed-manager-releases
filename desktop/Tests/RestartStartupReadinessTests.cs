@@ -120,6 +120,8 @@ internal static class RestartStartupReadinessTests
         Check(RestartModServiceFailureProbe.Classify(modFailure,today)==
             RestartModServiceFailureProbe.TransientCurseForge,
             "current-run CurseForge serverUnreachable is classed as transient");
+        Check(RestartModServiceFailureProbe.Classify(modFailure,today.AddMinutes(1))==null,
+            "the previous one-minute retry log cannot authorize another Start");
         Check(RestartModServiceFailureProbe.Classify(modFailure,
             today.AddHours(-3))==null,
             "stale CurseForge mod failure cannot authorize another restart");
