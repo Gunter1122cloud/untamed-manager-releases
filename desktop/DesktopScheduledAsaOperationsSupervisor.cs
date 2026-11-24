@@ -743,6 +743,20 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     private void ScheduleEvent(Guid runId,ScheduledAsaOperation job,string phase,string result,string evidence,Guid? nativeJob=null)=>
         eventStream.Record(runId,new[]{job.MapId},job.Kind,"scheduler",null,phase,result,evidence,DateTimeOffset.UtcNow,job.NextDueUtc,nativeJob);
 
+    private static string RestartFailureCode(JsonElement status,string fallback)
+    {
+        if(status.TryGetProperty("failureCode",out var field)&&
+           field.ValueKind==JsonValueKind.String)
+        {
+            string? code=field.GetString();
+            if(code!=null&&System.Text.RegularExpressions.Regex.IsMatch(code,
+                @"\AUM-[A-Z0-9_-]{3,110}\z",
+                System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+                TimeSpan.FromMilliseconds(100)))return code;
+        }
+        return fallback;
+    }
+
     private async Task<string> RunHistoricalAsync(ScheduledAsaOperation job,Guid runId,CancellationToken ct)
     {
         var map=Owned(job.MapId);
@@ -803,7 +817,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             {ScheduleEvent(runId,job,"new-process","verified-local","NEW_PID_OBSERVED",id);newPidPublished=true;}
             string? state=result.GetProperty("state").GetString();
             if(state is "needsOperator" or "notDispatched" or "reviewed")
-                throw new InvalidOperationException("UM-SCHEDULE-HISTORICAL-NEEDS-REVIEW");
+                throw new InvalidOperationException(RestartFailureCode(result,
+                    "UM-SCHEDULE-HISTORICAL-NEEDS-REVIEW"));
             if(state!="completed")continue;
             if(!save&&(!result.TryGetProperty("readyCertified",out var startupReady)||
                startupReady.ValueKind!=JsonValueKind.True))
@@ -1008,7 +1023,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 return "RESTART_NEW_ASA_API_PLUGIN_JOIN_RCON_VERIFIED";
             }
             if(state=="needsOperator")
-                throw new InvalidOperationException("UM-ASA-SCHEDULE-RESTART-NEEDS_OPERATOR");
+                throw new InvalidOperationException(RestartFailureCode(current,
+                    "UM-ASA-SCHEDULE-RESTART-NEEDS_OPERATOR"));
         }
         throw new InvalidOperationException("UM-ASA-SCHEDULE-RESTART-TIMED_OUT");
     }

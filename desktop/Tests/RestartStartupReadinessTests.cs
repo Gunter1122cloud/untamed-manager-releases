@@ -32,6 +32,24 @@ internal static class RestartStartupReadinessTests
             "no advertising-for-join means not ready");
         Check(!Proof(false,true,true,true,true,true).Ready(true),
             "orphaned Loader never certifies API mode");
+        // A failure from yesterday's ASA run must not be mistaken for
+        // this new restart; the parser is pinned to the latest log-open.
+        DateTimeOffset today=DateTimeOffset.UtcNow;
+        string Open(DateTimeOffset at)=>"["+at.UtcDateTime.ToString("yyyy.MM.dd-HH.mm.ss")+
+            ":000] Log file open";
+        var modFailure=new[]{Open(today),
+            "[ASA] Error querying server mods: ApiError: Failed (serverUnreachable)",
+            "[ASA] Requested mods failed to load on server."};
+        Check(RestartModServiceFailureProbe.Classify(modFailure,today)==
+            RestartModServiceFailureProbe.TransientCurseForge,
+            "current-run CurseForge serverUnreachable is classed as transient");
+        Check(RestartModServiceFailureProbe.Classify(modFailure,
+            today.AddHours(-3))==null,
+            "stale CurseForge mod failure cannot authorize another restart");
+        Check(RestartModServiceFailureProbe.Classify(new[]{Open(today),
+            "Requested mods failed to load on server."},today)==
+            RestartModServiceFailureProbe.RequiredModsFailed,
+            "non-network mod failure stays distinct and is not transient");
         int attempts=0;
         var late=await RestartStartupReadiness.WaitAsync(_=>
         {

@@ -36,6 +36,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         public bool OldProcessStopped,PreExitSaveObserved,PreExitWorldMetadataObserved;
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
         public RestartStartupProof? Readiness;
+        public string? FailureCode;
     }
 
     private readonly ClusterService cluster;
@@ -165,6 +166,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             rconResponding=job.Readiness?.RconResponding??false,
             joinAdvertised=job.Readiness?.JoinAdvertised??false,
             readinessFailureCode=job.Readiness?.Reason,
+            failureCode=job.FailureCode,
             gameClientRejoinVerified=false,
             finalDoExitSaveCertified=false,automaticRetry=false,
             forceKill=false,storeTouched=false,
@@ -389,6 +391,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                 _=Task.Run(async()=>{
                     events.Emit("started","in-progress","NATIVE_RESTART_EXECUTION_STARTED");
                     Update(job,"running","SaveWorld → stabil világfájl → DoExit");
+                    DateTimeOffset? attemptedStartUtc=null;
                     try
                     {
                         var stopped=await stop(original.Id,approved.Pid,
@@ -435,6 +438,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         // never an already verified ASA child.
                         var started=await Task.Run(()=>start(original.Id,record.Id,
                             stage=>Update(job,"running",stage)));
+                        attemptedStartUtc=started.StartedUtc;
                         string expectedExecutable=original.StartWithAsaApi?
                             original.ApiLoaderPath:original.ExecutablePath;
                         if(started.Pid<=0||started.Pid==approved.Pid||
@@ -493,6 +497,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                                     verifiedNewServerPid=apiChild.Pid;
                                     verifiedNewStartedUtc=apiChild.StartedUtc;
                                     verifiedChildIdentity=apiChild;
+                                    attemptedStartUtc=apiChild.StartedUtc;
                                     Update(job,"running","ASA gyermek PID és RCON port ellenőrizve",
                                         newPid:apiChild.Pid,newStartedUtc:apiChild.StartedUtc);
                                     verified=true;
@@ -536,12 +541,16 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     }
                     catch(Exception ex)
                     {
+                        string code=(attemptedStartUtc is { } since?
+                            RestartModServiceFailureProbe.Inspect(original,since):null)
+                            ??NativeLifecycleFailureCode.From(ex);
                         try{restart.Change(record.Id,AsaRestartPhase.NeedsOperator);}
-                        catch{/* Durable previous state remains; never clear a journal. */}
+                        catch{/* Preserve the original durable failed receipt. */}
+                        lock(sync)job.FailureCode=code;
                         Update(job,"needsOperator",
-                            "Store-v1 Restart megszakadt ["+NativeLifecycleFailureCode.From(ex)+
-                            "]: helyi PID és tartós napló kézi ellenőrzése szükséges");
-                        events.Emit("terminal","uncertain",NativeLifecycleFailureCode.From(ex));
+                            "Store-v1 Restart sikertelen ["+code+
+                            "]: naplóellenőrzés és biztonságos új indítás szükséges");
+                        events.Emit("terminal","uncertain",code);
                     }
                 });
                 return Ok(id,new{

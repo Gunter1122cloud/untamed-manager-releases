@@ -36,6 +36,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         public bool ApiChildAndRconVerified;
         public DateTimeOffset Changed=DateTimeOffset.UtcNow;
         public RestartStartupProof? Readiness;
+        public string? FailureCode;
     }
     private readonly ClusterService cluster;
     private readonly bool nativeRunner;
@@ -188,6 +189,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             rconResponding=item.Readiness?.RconResponding??false,
             joinAdvertised=item.Readiness?.JoinAdvertised??false,
             readinessFailureCode=item.Readiness?.Reason,
+            failureCode=item.FailureCode,
             preExitSaveEvidenceObserved=item.PreExitSaveEvidenceObserved,
             finalDoExitSaveCertified=false,gameClientRejoinVerified=false,
             killPerformed=false,storeTouched=false,
@@ -425,10 +427,12 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                 _=Task.Run(async()=>{
                     events.Emit("started","in-progress","NATIVE_RESTART_EXECUTION_STARTED");
                     Change(job,"running","SaveWorld → DoExit");
+                    DateTimeOffset? attemptedStartUtc=null;
                     try
                     {
                         var receipt=await execute(currentMap.Id,observed,persisted.Id,
                             stage=>Change(job,"running",stage));
+                        attemptedStartUtc=receipt.Started.StartedUtc;
                         if(!receipt.Stop.ConfirmedStopped||
                            receipt.Stop.MapId!=currentMap.Id ||
                            receipt.Stop.Pid!=approved.Pid ||
@@ -490,6 +494,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                                 {
                                     verifiedAsaPid=child.Pid;
                                     verifiedChild=child;
+                                    attemptedStartUtc=child.StartedUtc;
                                     childVerified=true;
                                     break;
                                 }
@@ -534,12 +539,15 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     }
                     catch(Exception ex)
                     {
+                        string code=(attemptedStartUtc is { } since?
+                            RestartModServiceFailureProbe.Inspect(currentMap,since):null)
+                            ??NativeLifecycleFailureCode.From(ex);
                         try{restartJournal.Change(persisted.Id,AsaRestartPhase.NeedsOperator);}
-                        catch{/* Keep the original pending journal; never clear it. */}
+                        catch{/* Preserve the original pending journal. */}
+                        lock(sync)job.FailureCode=code;
                         Change(job,"needsOperator",
-                            "Restart interrupted ["+NativeLifecycleFailureCode.From(ex)+
-                            "]: inspect local process and operation journal");
-                        events.Emit("terminal","uncertain",NativeLifecycleFailureCode.From(ex));
+                            "Restart failed ["+code+"] — inspect stopped family and journal");
+                        events.Emit("terminal","uncertain",code);
                     }
                 });
                 return Ok(id,new{
