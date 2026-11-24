@@ -450,11 +450,15 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         int verifiedNewServerPid=started.Pid;
                         var verifiedNewStartedUtc=started.StartedUtc;
                         ProcessIdentity verifiedChildIdentity=started;
+                        Update(job,"running","Új folyamat elindult; készültség ellenőrzése",
+                            newPid:started.Pid,newStartedUtc:started.StartedUtc);
                         if(original.StartWithAsaApi)
                         {
                             Update(job,"running",
                                 "ASA API Loader elindult; ASA gyermek PID és RCON ellenőrzése");
                             bool verified=false;
+                            bool childEverSeen=false;
+                            int missingLoader=0;
                             // Original Store-v1 Loader/ASA readiness must
                             // use the same ten-minute observer window as fresh
                             // ASA; timeout still requires manual review.
@@ -463,6 +467,18 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             while(DateTimeOffset.UtcNow<limit)
                             {
                                 var observed=inspectFamily(original);
+                                bool sameLoader=observed.LoaderIdentity is {Pid:>0} seenLoader&&
+                                    seenLoader.Pid==started.Pid&&
+                                    seenLoader.StartedUtc==started.StartedUtc;
+                                if(sameLoader)missingLoader=0;
+                                else if(++missingLoader>=3)
+                                    throw new InvalidOperationException(
+                                        "UM-ORIGINAL-RESTART-LOADER-EXITED-BEFORE-READY");
+                                if(observed.Identity is {Pid:>0} seenChild&&
+                                   seenChild.Pid!=approved.Pid)childEverSeen=true;
+                                else if(childEverSeen)
+                                    throw new InvalidOperationException(
+                                        "UM-ORIGINAL-RESTART-ASA-EXITED-BEFORE-READY");
                                 if(observed.Running&&
                                    observed.Identity is {Pid:>0} apiChild&&
                                    observed.LoaderIdentity is {Pid:>0} parent&&
@@ -477,6 +493,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                                     verifiedNewServerPid=apiChild.Pid;
                                     verifiedNewStartedUtc=apiChild.StartedUtc;
                                     verifiedChildIdentity=apiChild;
+                                    Update(job,"running","ASA gyermek PID és RCON port ellenőrizve",
+                                        newPid:apiChild.Pid,newStartedUtc:apiChild.StartedUtc);
                                     verified=true;
                                     break;
                                 }
