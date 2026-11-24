@@ -783,6 +783,12 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-PREVIEW");
         int oldPid=pre.GetProperty("pid").GetInt32();
         ct.ThrowIfCancellationRequested();
+        bool RetryStillApproved()=>Locked(()=>Read().Jobs.Any(x=>x.MapId==job.MapId&&
+            x.Kind==job.Kind&&x.Enabled&&x.Revision==job.Revision&&
+            x.Fingerprint==job.Fingerprint&&x.LastStatus=="claimed-no-auto-retry"))&&
+            HistoricalEligible(Owned(job.MapId))&&Fingerprint(Owned(job.MapId))==job.Fingerprint;
+        using var startupRetry=save?null:ScheduledRestartRetryScope.Enter(
+            new ScheduledRestartRetryPermit(job.MapId,runId,RetryStillApproved,ct));
         var begun=Decode(await handle(Message(prefix+"Apply",new{token=pre.GetProperty("token").GetGuid()})));
         if(!begun.GetProperty("started").GetBoolean()||
            begun.GetProperty("automaticRetry").GetBoolean()||
@@ -791,7 +797,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-APPLY");
         Guid id=begun.GetProperty("jobId").GetGuid();
         ScheduleEvent(runId,job,"native-dispatched","in-progress","NATIVE_JOB_ACCEPTED",id);
-        var limit=DateTimeOffset.UtcNow.AddMinutes(16);
+        // Four bounded startup attempts plus the 1/3/5-minute backoffs.
+        var limit=DateTimeOffset.UtcNow.AddMinutes(save?16:95);
         bool savePublished=false,stopPublished=false,newPidPublished=false;
         while(DateTimeOffset.UtcNow<limit)
         {
