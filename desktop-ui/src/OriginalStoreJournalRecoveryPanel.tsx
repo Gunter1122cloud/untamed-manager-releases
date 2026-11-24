@@ -47,7 +47,7 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
            !(proof.originalStoreSessionVerified||proof.approvedObsidianSourcePinned)))||
          (stopped&&(!proof.stoppedWindowsProcessVerified||
            !proof.rconListenerAbsent||!proof.historicalSelectedOwnerVerified||
-           !proof.restartId||proof.pairedJournals<1||proof.pairedJournals>2||
+           !proof.restartId||(proof.pairedJournals??0)<1||(proof.pairedJournals??0)>2||
            proof.exactWindowsProcessVerified||proof.rconListenerOwnerVerified))||
          (proof.historicalSourceReapprovalRequired&&
            (!stopped||!proof.historicalApprovedFourFilesSha256||
