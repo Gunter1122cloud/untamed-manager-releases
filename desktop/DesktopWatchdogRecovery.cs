@@ -635,9 +635,9 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     // Freeze independent automatic lanes before final source
                     // proof. Existing native launch also acquires the map's
                     // machine-wide installation lease and rechecks all ports.
-                    // Never launch a second recovery while the first still
-                    // has a durable pending receipt, even for a different map.
-                    if(cluster.Config.LocalMaps.Any(other=>other.Id!=map.Id&&(Read(other.Id)?.Status is "claimed" or "awaitingReady")))continue;
+                    // Readiness is per-map. A different map's pending receipt
+                    // does not own this installation. Actual dispatch remains
+                    // serialized by the host gate and native installation lease.
                     if(!tryEnterMaintenanceLane()){Write(row with{Evidence="RECOVERY_NATIVE_LANE_BUSY"});continue;}
                     try
                     {
