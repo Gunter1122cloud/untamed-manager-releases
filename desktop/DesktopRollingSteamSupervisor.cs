@@ -334,7 +334,14 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                     throw new InvalidOperationException("UM-ROLLING-BUILD-OR-BACKUP-UNVERIFIED");
                 return;
             }
-            if(status is not ("running" or "queued"))throw new InvalidOperationException("UM-ROLLING-UPDATE-NEEDS-REVIEW");
+            if(status is not ("running" or "queued"))
+            {
+                var code=r.TryGetProperty("errorCode",out var error)&&error.ValueKind==JsonValueKind.String?
+                    error.GetString():null;
+                throw new InvalidOperationException(code!=null?
+                    NativeLifecycleFailureCode.From(new InvalidOperationException(code)):
+                    "UM-ROLLING-UPDATE-NEEDS-REVIEW");
+            }
             await delay(TimeSpan.FromSeconds(3),ct);
         }
         throw new TimeoutException("UM-ROLLING-UPDATE-TIMEOUT");
