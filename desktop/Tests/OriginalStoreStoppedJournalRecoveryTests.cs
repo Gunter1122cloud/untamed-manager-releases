@@ -166,6 +166,34 @@ internal static class OriginalStoreStoppedJournalRecoveryTests
         Check(!replay.GetProperty("ok").GetBoolean(),
             "consumed stopped-owner approval cannot be replayed");
 
+        // Automatic stopped-family recovery of a new failed paired launch.
+        using(var lease=cluster.Operations.Acquire(installation,UntamedOperationKind.Launch))
+            lease.MarkMutationStarted();
+        var autoCommon=cluster.Operations.Observe(installation)!;
+        File.WriteAllText(common,JsonSerializer.Serialize(autoCommon with{UpdatedUtc=DateTimeOffset.UtcNow.AddMinutes(-12)}));
+        string autoCommonBytes=File.ReadAllText(common);
+        var autoStopped=restarts.Begin(map.Id,oldPid);
+        restarts.Change(autoStopped.Id,AsaRestartPhase.Starting);
+        restarts.RecordNewAsaPid(autoStopped.Id,oldPid+1);
+        restarts.Change(autoStopped.Id,AsaRestartPhase.NeedsOperator);
+        File.WriteAllText(restartFile,JsonSerializer.Serialize(restarts.Observe()! with{
+            ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-12)
+        }));
+        string autoRestartBytes=File.ReadAllText(restartFile);
+        stopped=false;
+        Check(!bridge.TryReconcileStopped(map)&&File.ReadAllText(common)==autoCommonBytes&&
+            File.ReadAllText(restartFile)==autoRestartBytes,"no automatic recovery without confirmed stopped family");
+        stopped=true;
+        Check(bridge.TryReconcileStopped(map)&&
+            cluster.Operations.Observe(installation)?.Phase==UntamedOperationPhase.OperatorReviewed&&
+            restarts.Observe()?.Phase==AsaRestartPhase.OperatorReviewed,
+            "verified stopped paired Launch and Restart reconcile without typed approval or replay");
+        Check(File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,
+            key+"-"+autoCommon.Operation.ToString("N")+".operator-reviewed.json"))==autoCommonBytes&&
+            File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
+                key+"-"+autoStopped.Id.ToString("N")+".operator-reviewed.json"))==autoRestartBytes&&
+            !bridge.TryReconcileStopped(map),"automatic stopped reconciliation archives both originals and is idempotent");
+
         // HP / Astraeos, 2026-11-24: the *new* ASA/Loader may launch
         // and then exit BEFORE join readiness. NewPid is nonzero and no
         // live RCON listener exists, but the operator must still be able

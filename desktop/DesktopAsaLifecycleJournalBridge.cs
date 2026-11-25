@@ -128,6 +128,13 @@ public sealed class DesktopAsaLifecycleJournalBridge
             return new DesktopRestartReconciler.Witness(proof.Process,proof.LoaderIdentity,proof.SourceSha);
         });
 
+    internal bool TryReconcileStopped(LocalMap map)=>
+        map.HistoricalStoreProtected&&DesktopRestartReconciler.TryReconcileStopped(cluster,map,record=>{
+            var witness=VerifyStopped(map.Id,record.OldPid);
+            // Source replacement is not routine runtime reconciliation.
+            return witness.SourceReapprovalRequired?null:witness.SourceSha;
+        });
+
     private StoppedProof ProductionStoppedProof(Guid mapId,int oldPid)
     {
         var map=Owned(mapId);

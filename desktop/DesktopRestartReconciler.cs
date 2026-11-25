@@ -79,13 +79,69 @@ internal static class DesktopRestartReconciler
                 record.Id,record.OldPid,record.NewPid,Verify);
             return true;
         }
-        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
-            InvalidOperationException or ArgumentException or JsonException or NotSupportedException)
+        catch(Exception ex) when(IsRecoverable(ex))
         {
             // Leave the unresolved receipt intact on failed preflight. The
             // existing journal diagnostics still expose its actual blocker.
             return false;
         }
+    }
+
+    private static bool IsRecoverable(Exception ex)=>ex is IOException or InvalidDataException or
+        UnauthorizedAccessException or InvalidOperationException or ArgumentException or
+        JsonException or NotSupportedException;
+
+    // Inspired by phase-specific job recovery: the stopped family is a
+    // verified runtime state, not a successful historical stop or restart.
+    // Only restart-only and paired Launch receipts are supported here.
+    // No start is issued; any later Start must be a new explicit or already
+    // configured scheduled operation through the regular native gates.
+    internal static bool TryReconcileStopped(ClusterService cluster,LocalMap map,
+        Func<AsaRestartRecord,string?> observeStopped)
+    {
+        try
+        {
+            if(map.Maintenance||map.AutoStart)return false;
+            var journal=new AsaManualRestartJournal(map.InstallationPath);
+            var record=journal.Observe();
+            var general=cluster.Operations.Observe(map.InstallationPath);
+            bool paired=general?.Phase is UntamedOperationPhase.Prepared or
+                UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator;
+            if(paired&&general!.Kind!=UntamedOperationKind.Launch)return false;
+            if(record==null||record.MapId!=map.Id||record.NewPid==record.OldPid||
+                (record.Phase!=AsaRestartPhase.NeedsOperator&&
+                 !(paired&&record.Phase==AsaRestartPhase.OperatorReviewed))||
+                (record.Phase!=AsaRestartPhase.OperatorReviewed&&
+                 DateTimeOffset.UtcNow-record.ChangedUtc<TimeSpan.FromMinutes(3)))return false;
+            new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
+            bool SaveClear()=>!map.HistoricalStoreProtected||
+                LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id)?.Phase is not
+                    ("prepared" or "needsOperator");
+            if(!SaveClear())return false;
+            string profile=JsonSerializer.Serialize(map);
+            string? source=observeStopped(record);
+            if(string.IsNullOrWhiteSpace(source))return false;
+            bool Verify()
+            {
+                var current=journal.Observe();
+                if(current==null||!ReferenceEquals(cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==map.Id),map)||
+                   JsonSerializer.Serialize(map)!=profile||cluster.Operations.Observe(map.InstallationPath)!=general)
+                    return false;
+                if(current!=record&&(current.Phase!=AsaRestartPhase.OperatorReviewed||
+                    current!=(record with{Phase=AsaRestartPhase.OperatorReviewed,ChangedUtc=current.ChangedUtc})))
+                    return false;
+                new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
+                return SaveClear()&&observeStopped(current)==source;
+            }
+            if(paired)
+                cluster.Operations.ReviewStoppedOriginalPaired(map.InstallationPath,general!.Operation,
+                    map.Id,record.Id,record.OldPid,Verify,record.NewPid);
+            else
+                cluster.Operations.ReviewStoppedOriginalRestartOnly(map.InstallationPath,map.Id,
+                    record.Id,record.OldPid,record.NewPid,Verify);
+            return true;
+        }
+        catch(Exception ex) when(IsRecoverable(ex)){return false;}
     }
 }
 

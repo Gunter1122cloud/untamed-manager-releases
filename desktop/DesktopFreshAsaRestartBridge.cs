@@ -267,6 +267,11 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             return new DesktopRestartReconciler.Witness(state.Identity!,state.LoaderIdentity,source);
         });
 
+    internal bool TryReconcileStopped(LocalMap map)=>
+        !map.HistoricalStoreProtected&&!HasActive(map.Id)&&DesktopRestartReconciler.TryReconcileStopped(cluster,map,record=>
+            ReviewStoppedFamily(map,record)?DesktopFreshAsaStartBridge.IniFingerprint(map)+":"+
+                AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map):null);
+
     // Unlike running-old-PID recovery, a failed new startup needs no
     // dead RCON owner. Confirm absence of BOTH ASA and Loader and free ports.
     private bool ReviewStoppedFamily(LocalMap map,AsaRestartRecord record)
