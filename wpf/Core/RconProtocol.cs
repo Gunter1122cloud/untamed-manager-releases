@@ -1,6 +1,8 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -222,6 +224,147 @@ public static class RconProtocol
         }
         throw new InvalidDataException("Read-only RCON completion not proven");
     }
+    // Persistent, per-map read session. Mutating/lifecycle commands keep their
+    // existing independently authenticated, one-shot dispatch boundary.
+    private static readonly ConcurrentDictionary<Guid,OwnedReadSession> ReadSessions=new();
+    private static readonly Timer ReadSessionSweep=new(_=>{
+        foreach(var session in ReadSessions.Values)
+            session.ExpireIdle();
+    },null,TimeSpan.FromSeconds(30),TimeSpan.FromSeconds(30));
+
+    internal static Task<string> ExecuteOwnedReadAsync(Guid mapId,int pid,DateTimeOffset startedUtc,
+        int port,string password,string command,Action verifyOwner,CancellationToken ct)
+    {
+        if(mapId==Guid.Empty||pid<=0||startedUtc==default||port is <1 or >65535||
+           string.IsNullOrEmpty(password)||password.Contains('\0')||Encoding.UTF8.GetByteCount(password)>4000||
+           command is not ("ListPlayers" or "GetChat" or "GetGameLog"))
+            throw new InvalidDataException("UM-RCON-SESSION-INPUT");
+        ArgumentNullException.ThrowIfNull(verifyOwner);
+        return ReadSessions.GetOrAdd(mapId,static _=>new OwnedReadSession())
+            .Execute(pid,startedUtc,port,password,command,verifyOwner,ct);
+    }
+    private sealed class OwnedReadSession
+    {
+        private readonly SemaphoreSlim lane=new(1,1);
+        private TcpClient? client;
+        private int pid,port,nextId;
+        private DateTimeOffset epoch,lastUsed;
+        private string? credentialHash;
+        private int trailingCommand,trailingBarrier;
+        private void Reset()
+        {
+            client?.Dispose();client=null;credentialHash=null;
+            trailingCommand=trailingBarrier=0;
+        }
+        internal void ExpireIdle()
+        {
+            if(!lane.Wait(0))return;
+            try{if(client!=null&&DateTimeOffset.UtcNow-lastUsed>TimeSpan.FromSeconds(45))Reset();}
+            finally{lane.Release();}
+        }
+        private async Task Connect(int p,DateTimeOffset started,int endpoint,string password,string hash,
+            CancellationToken ct)
+        {
+            Reset();
+            client=new TcpClient(AddressFamily.InterNetwork);
+            await client.ConnectAsync(IPAddress.Loopback,endpoint,ct);
+            var stream=client.GetStream();
+            int challenge=Random.Shared.Next(1000,1000000);
+            await WritePacket(stream,challenge,3,password,ct);
+            for(int i=0;i<3;i++)
+            {
+                var packet=await ReadPacket(stream,ct);
+                if(packet.Id==-1)throw new UnauthorizedAccessException("Wrong RCON password");
+                if(packet.Id==challenge&&packet.Type==2)
+                {
+                    pid=p;epoch=started;port=endpoint;credentialHash=hash;
+                    nextId=challenge+4;return;
+                }
+            }
+            throw new IOException("RCON login response invalid");
+        }
+        internal async Task<string> Execute(int p,DateTimeOffset started,int endpoint,string password,
+            string command,Action verifyOwner,CancellationToken ct)
+        {
+            using var deadline=CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(TimeSpan.FromSeconds(8));
+            await lane.WaitAsync(deadline.Token);
+            try
+            {
+                string hash=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(password)));
+                for(int attempt=0;;attempt++)
+                {
+                    bool dispatchAttempted=false;
+                    try
+                    {
+                        verifyOwner();
+                        if(client==null||pid!=p||epoch!=started||port!=endpoint||credentialHash!=hash||
+                           DateTimeOffset.UtcNow-lastUsed>TimeSpan.FromSeconds(45)||nextId>int.MaxValue-4)
+                            await Connect(p,started,endpoint,password,hash,deadline.Token);
+                        verifyOwner();deadline.Token.ThrowIfCancellationRequested();
+                        var stream=client!.GetStream();
+                        int id=nextId++,barrier=nextId++;
+                        dispatchAttempted=true;
+                        await WritePacket(stream,id,2,command,deadline.Token);
+                        bool barrierSent=false,sawCurrent=false;
+                        var responses=new List<string>();int bytes=0;
+                        for(int i=0;i<256;i++)
+                        {
+                            var packet=await ReadPacket(stream,deadline.Token);
+                            if(packet.Id==-1)throw new UnauthorizedAccessException("RCON response rejected");
+                            if(packet.Type!=0)throw new InvalidDataException("Unexpected RCON response packet");
+                            // The previous ListPlayers barrier may itself be
+                            // multipart. TCP order lets us drain its trailing
+                            // packets before the first current response.
+                            if(!sawCurrent&&(packet.Id==trailingCommand||packet.Id==trailingBarrier)&&packet.Id!=0)
+                                continue;
+                            sawCurrent=true;
+                            if(packet.Id==id)
+                            {
+                                bytes=checked(bytes+Encoding.UTF8.GetByteCount(packet.Body));
+                                if(bytes>250_000)throw new InvalidDataException("Oversized read-only RCON response");
+                                responses.Add(packet.Body);
+                                if(command=="ListPlayers"&&responses.Count==1&&
+                                   System.Text.RegularExpressions.Regex.IsMatch(packet.Body.Trim(),
+                                      @"\ANo Players Connected\.?\z",System.Text.RegularExpressions.RegexOptions.IgnoreCase|
+                                      System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+                                {
+                                    trailingCommand=id;trailingBarrier=0;
+                                    verifyOwner();lastUsed=DateTimeOffset.UtcNow;return packet.Body;
+                                }
+                                if(!barrierSent)
+                                {
+                                    barrierSent=true;
+                                    await WritePacket(stream,barrier,2,"ListPlayers",deadline.Token);
+                                }
+                            }
+                            else if(packet.Id==barrier&&barrierSent)
+                            {
+                                var answer=string.Concat(responses);
+                                if(responses.Count==0||(command=="ListPlayers"&&string.IsNullOrWhiteSpace(answer)))
+                                    throw new InvalidDataException("Incomplete read-only RCON response");
+                                trailingCommand=0;trailingBarrier=barrier;
+                                verifyOwner();lastUsed=DateTimeOffset.UtcNow;return answer;
+                            }
+                            else throw new InvalidDataException("Unmatched RCON reply ID");
+                        }
+                        throw new InvalidDataException("Read-only RCON completion not proven");
+                    }
+                    catch(Exception ex) when(attempt==0&&!deadline.IsCancellationRequested&&
+                        (!dispatchAttempted||command=="ListPlayers")&&
+                        (ex is IOException or SocketException)&&ex is not InvalidDataException)
+                    {
+                        // GetChat/GetGameLog can consume buffered entries:
+                        // never repeat them after a possibly delivered request.
+                        Reset();await Task.Delay(150,deadline.Token);
+                    }
+                    catch{Reset();throw;}
+                }
+            }
+            finally{lane.Release();}
+        }
+    }
+
     private sealed record Packet(int Id,int Type,string Body);
     private static async Task WritePacket(Stream stream,int id,int type,string body,CancellationToken ct)
     {

@@ -20,6 +20,7 @@ public sealed class DesktopRconReadOnlyBridge
 {
     private readonly ClusterService cluster;
     private readonly Func<int,int,bool> ownsPort;
+    private readonly bool useOwnedReadSession;
     private readonly Func<string,int,string,string,Action,CancellationToken,Task<string>> send;
     // One stalled ASA must not hold the RCON lane of any other local map.
     // SaveWorld and its evidence checks stay serialized within their own map.
@@ -37,6 +38,7 @@ public sealed class DesktopRconReadOnlyBridge
     {
         this.cluster=cluster??throw new ArgumentNullException(nameof(cluster));
         ownsPort=portOwner??RconPortOwnership.IsOwnedListener;
+        useOwnedReadSession=dispatch==null;
         send=dispatch==null
             ?async(host,port,password,command,recheck,ct)=>{
                 if(command=="SaveWorld")
@@ -249,8 +251,10 @@ public sealed class DesktopRconReadOnlyBridge
                         lease.MarkMutationStarted();
                     }
                 }
-                string answer=await send("127.0.0.1",map.RconPort,password,command,
-                    AuthorizeDispatch,timeout.Token);
+                string answer=useOwnedReadSession&&method!="rcon.saveWorld"?
+                    await RconProtocol.ExecuteOwnedReadAsync(map.Id,identity.Pid,identity.StartedUtc,
+                        map.RconPort,password,command,VerifyOwned,timeout.Token):
+                    await send("127.0.0.1",map.RconPort,password,command,AuthorizeDispatch,timeout.Token);
                 var after=cluster.Check(map);
                 if(!after.Running || after.Identity==null ||
                    after.Identity.Pid!=identity.Pid ||

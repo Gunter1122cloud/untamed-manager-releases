@@ -21,7 +21,7 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
     private readonly Func<LocalMap,ProcessCheck> inspect;
     private readonly Func<LocalMap,string> sourceEpoch;
     private readonly Func<int,int,bool> owner;
-    private readonly Func<string,int,string,string,CancellationToken,Task<string>> send;
+    private readonly Func<string,int,string,string,CancellationToken,Task<string>>? send;
     // Each map has a separate RCON request lane: an unresponsive ASA on one
     // map must never block players/logs from another locally owned map.
     // Requests to the SAME map remain serialized to avoid reordering replies.
@@ -50,7 +50,7 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
         sourceEpoch=sourceEpochProof??(
             map=>LegacyStoreV1GracefulStop.OriginalSource(cluster,map));
         owner=portOwner??RconPortOwnership.IsOwnedListener;
-        send=dispatch??RconProtocol.Execute;
+        send=dispatch;
     }
 
     private static bool ReadGuid(JsonElement item,string property,out Guid id)
@@ -161,8 +161,16 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
                 if(!string.Equals(approvedEpoch,dispatchEpoch,StringComparison.Ordinal))
                     return Error(id,"UM-ORIGINAL-RCON-SOURCE-EPOCH-CHANGED");
                 string password=SecureStore.Unprotect(ownedMap.RconPasswordProtected);
-                string response=await send("127.0.0.1",ownedMap.RconPort,
-                    password,command,deadline.Token);
+                void VerifyOwner()
+                {
+                    var (m,process,epoch)=Require(mapId);
+                    if(!ReferenceEquals(m,ownedMap)||!Identical(expected,process)||epoch!=approvedEpoch)
+                        throw new InvalidOperationException("UM-ORIGINAL-RCON-SESSION-OWNER-CHANGED");
+                }
+                string response=send==null?
+                    await RconProtocol.ExecuteOwnedReadAsync(mapId,expected.Pid,expected.StartedUtc,
+                        ownedMap.RconPort,password,command,VerifyOwner,deadline.Token):
+                    await send("127.0.0.1",ownedMap.RconPort,password,command,deadline.Token);
                 var (after,observed,completedEpoch)=Require(mapId);
                 if(!ReferenceEquals(after,ownedMap)||!Identical(expected,observed))
                     return Error(id,"UM-ORIGINAL-RCON-POST-DISPATCH-CHANGED");
