@@ -18,7 +18,9 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
   const [error,setError]=useState("");
   const [receipt,setReceipt]=useState(false);
   const [verifiedPid,setVerifiedPid]=useState<number|null>(null);
-  const [verifiedReplacement,setVerifiedReplacement]=useState<{asa:number;loader:number|null}|null>(null);
+  const [verifiedReplacement,setVerifiedReplacement]=useState<{
+    asa:number;loader:number|null;asaStarted:string|null;loaderStarted:string|null
+  }|null>(null);
   const [changedSource,setChangedSource]=
     useState<OriginalStoreLifecycleRecoveryPreview|null>(null);
   const inFlight=useRef(false);
@@ -46,10 +48,11 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
           proof.currentRunningPid<=0||proof.currentRunningPid===proof.restartOldPid||
           proof.currentRunningPid===proof.restartNewPid||
           proof.replacementStartEpochVerified!==true||
+          !proof.currentRunningStartedUtc||
           proof.launchParametersVerified!==true||
           !proof.rconListenerOwnerVerified||
           (proof.loaderRequired===true&&(!proof.currentLoaderPid||
-            proof.currentLoaderPid<=0))))
+            proof.currentLoaderPid<=0||!proof.currentLoaderStartedUtc))))
         throw new Error("UM-RECOVERY-REPLACEMENT-OWNER-NOT-VERIFIED");
       if(!proof.token||proof.pid<=0||
          proof.mapId.toLowerCase()!==mapId.toLowerCase()||
@@ -75,7 +78,9 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
       setVerifiedPid(proof.pid);
       setVerifiedReplacement(replacement?{
         asa:proof.currentRunningPid!,
-        loader:proof.currentLoaderPid??null
+        loader:proof.currentLoaderPid??null,
+        asaStarted:proof.currentRunningStartedUtc??null,
+        loaderStarted:proof.currentLoaderStartedUtc??null
       }:null);
       if(proof.historicalSourceReapprovalRequired&&!approveChangedSource){
         setChangedSource(proof);
@@ -192,7 +197,9 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
       </p>}
       {verifiedReplacement&&!receipt&&<p className="muted small" role="status">
         Külön indított jelenlegi ASA PID: {verifiedReplacement.asa}
-        {" · "}Loader PID: {verifiedReplacement.loader??"nem szükséges"}.
+        {" · "}indult: {verifiedReplacement.asaStarted??"ismeretlen"}
+        {" · "}Loader PID: {verifiedReplacement.loader??"nem szükséges"}
+        {verifiedReplacement.loaderStarted&&" · Loader indult: "+verifiedReplacement.loaderStarted}.
         Mindkét folyamat és a hozzájuk tartozó indítási bizonyíték újraellenőrzésre kerül.
       </p>}
       {receipt&&<div className="success-inline" role="status"><CheckCircle2 size={16}/>
