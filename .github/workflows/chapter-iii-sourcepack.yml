@@ -1,4 +1,4 @@
-name: Inspect Chapter III press-kit folder manifests
+name: Chapter III official trailer assets
 on:
   push:
     branches: ['media/chapter-iii-sourcepack']
@@ -7,40 +7,32 @@ on:
 permissions:
   contents: read
 jobs:
-  inspect:
+  collect:
     if: github.ref == 'refs/heads/media/chapter-iii-sourcepack'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
-      - name: Fetch public Dropbox folder pages (metadata only)
+      - name: Download only the press-kit Trailer subfolders
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p debug
-          curl -fL --retry 2 -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36' 'https://www.dropbox.com/scl/fo/si5q3wva0tkn38fm2oslv/AC-bKdq9vg9xpkc0W7xuuwQ?rlkey=fz35z7tvnqppxdx8b89y4l8h7&dl=0' -o debug/astraeos.html
-          curl -fL --retry 2 -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36' 'https://www.dropbox.com/scl/fo/noqpi9macywaku3r783wh/ADoMjehyN95oXsihYyatfyU?rlkey=xhaypm1tp64hzphz51s7lqrl9&dl=0' -o debug/tides.html
-          python3 - <<'PY'
-          import pathlib,re,json
-          for p in pathlib.Path("debug").glob("*.html"):
-              s=p.read_text(errors="ignore")
-              print("\n###",p.name,"bytes",len(s))
-              pats=[
-                r'[^"\\/<>]{1,120}\\.(?:mp4|mov|webm|m4v|zip)',
-                r'"(?:name|filename|fileName|display_name)"\\s*:\\s*"[^"]{1,200}"',
-                r'"(?:id|file_id|fileId)"\\s*:\\s*"[^"]{5,100}"',
-                r'https?[^"\\s<>]{0,300}(?:mp4|mov|webm|m4v)[^"\\s<>]{0,100}'
-              ]
-              for pat in pats:
-                  hits=re.findall(pat,s,re.I)
-                  print("PATTERN",pat,"COUNT",len(hits))
-                  for h in hits[:80]: print(h[:400])
-              for key in ["shared_folder","folder_entries","entries","files","preview_url","download_url","file_id"]:
-                  i=s.find(key)
-                  if i>=0: print("CONTEXT",key,s[max(0,i-300):i+900].replace("\\n"," ")[:1200])
-          PY
-      - name: Upload folder manifest pages for inspection
+          sudo apt-get update -qq
+          sudo apt-get install -y unzip ffmpeg
+          mkdir -p ChapterIII_Official_Trailers/{Astraeos_Heaven_Abyss,Astraeos_Mega_Update}
+          curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 300 --max-filesize 2000000000 -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/si5q3wva0tkn38fm2oslv/ANTgjeu014P3rYMDG5WOIq4/Trailer?rlkey=fz35z7tvnqppxdx8b89y4l8h7&dl=1' -o /tmp/astraeos_heaven.zip
+          curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 300 --max-filesize 2000000000 -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/noqpi9macywaku3r783wh/AMtC9gh8Js1c2LTjexSKckg/Trailer?rlkey=xhaypm1tp64hzphz51s7lqrl9&dl=1' -o /tmp/astraeos_mega.zip
+          echo '--- HEAVEN / ABYSS ---'
+          unzip -l /tmp/astraeos_heaven.zip | tail -n 30
+          echo '--- MEGA UPDATE ---'
+          unzip -l /tmp/astraeos_mega.zip | tail -n 30
+          unzip -oq /tmp/astraeos_heaven.zip -d ChapterIII_Official_Trailers/Astraeos_Heaven_Abyss
+          unzip -oq /tmp/astraeos_mega.zip -d ChapterIII_Official_Trailers/Astraeos_Mega_Update
+          find ChapterIII_Official_Trailers -type f -printf '%p %s bytes\n'
+      - name: Upload high-resolution original trailer assets
         uses: actions/upload-artifact@v4
         with:
-          name: ChapterIII_Dropbox_Manifests
-          path: debug/
+          name: ChapterIII_Official_Trailers
+          path: ChapterIII_Official_Trailers/
+          if-no-files-found: error
+          compression-level: 0
           retention-days: 7
