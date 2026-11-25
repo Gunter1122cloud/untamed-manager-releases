@@ -57,6 +57,30 @@ static bool IsError(JsonElement value,string code)=>
     !value.GetProperty("ok").GetBoolean() &&
     value.GetProperty("error").GetString()==code;
 
+// Native -usestore local runtime must not need a live peer DONE marker
+// or a fixed ten-map roster when the registered local source is unchanged.
+{
+    var id=Guid.NewGuid();
+    string install=Path.Combine(root,"native-store-local-source-fixture");
+    var m=new LocalMap{Id=id,Name="Native Store",InstallationPath=install,
+        HistoricalStoreProtected=true,HistoricalMapKey="TheIsland_WP",
+        HistoricalArchiveSha256=new string('A',64)};
+    var row=new LegacyStoreV1OriginalMap(id,"TheIsland_WP",install,7777,27015,
+        Array.Empty<string>(),Array.Empty<string>());
+    var source=new LegacyStoreV1OriginalLocalSelection(new string('A',64),
+        new string('B',64),new[]{row}){CurrentLocalMemberCount=1};
+    LegacyStoreV1PinnedSource.DemandRegisteredLocalRuntimeSource(m,source);
+    bool changed=false;
+    try{LegacyStoreV1PinnedSource.DemandRegisteredLocalRuntimeSource(m,
+        source with{FourFilesSha256=new string('C',64),SelectedHistoricalSubsetOfExpandedRoster=true});}
+    catch(InvalidDataException){changed=true;}
+    Check(changed,"local runtime rejects changed original identity, even for expanded roster");
+    bool foreign=false;
+    try{LegacyStoreV1PinnedSource.DemandRegisteredLocalRuntimeSource(m,
+        source with{Maps=new[]{row with{MapId=Guid.NewGuid()}}});}
+    catch(InvalidDataException){foreign=true;}
+    Check(foreign,"local runtime rejects source belonging to another map");
+}
 OriginalStoreExpandedDonePeerTests.Run();
 LocalLogCenterBoundedTests.Run();
 await HostedResourcesTests.RunAsync();
