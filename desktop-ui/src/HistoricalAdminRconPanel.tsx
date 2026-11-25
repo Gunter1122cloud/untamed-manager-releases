@@ -1,3 +1,4 @@
+import {recordRconEvent} from "./state/rconHistory";
 import {useEffect,useRef,useState,type FormEvent} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,Send,Shield} from "lucide-react";
 import {managerBridge,type HistoricalAdminRconPreview,
@@ -88,6 +89,7 @@ export function HistoricalAdminRconPanel({mapId,running,initialAction="broadcast
          result.originalStoreMetadataWritten)
         throw new Error("UM-STORE-ADMIN-SEND-RECEIPT-MISMATCH");
       setReply(result);
+      recordRconEvent(requested,result.action,"dispatch");
     }catch(e){
       if(belongs(requested,epoch))
         setError(safeAdminRconDenial(e)??

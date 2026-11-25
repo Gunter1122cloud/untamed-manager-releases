@@ -1,3 +1,5 @@
+import {RconHistoryPanel} from "./RconHistoryPanel";
+import {recordRconEvent} from "./state/rconHistory";
 import {useCallback,useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,RefreshCw,Shield,Terminal,Users,Save} from "lucide-react";
 import {managerBridge,type RconStatus,type RconPlayers,type RconReadLog,type RconWorldSave,type RconSaveStatus,type RconAdminPreview,type RconAdminResult,type RconConfigStatus,type RconConfigPreview} from "./bridge";
@@ -125,6 +127,7 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
       if(reply.mapId.toLowerCase()!==requested.toLowerCase()||!reply.readOnly)
         throw new Error("UM-RCON-PLAYERS-MAP-MISMATCH");
       setResult(reply);
+      recordRconEvent(requested,"ListPlayers","reply");
     }catch{if(belongs(requested,epoch))
       setError("A helyi ASA játékoslista válasza vagy mapazonosítója nem igazolható.");}
     finally{if(belongs(requested,epoch))setBusy(false);}
@@ -142,6 +145,7 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
          response.command!==(type==="game"?"GetGameLog":"GetChat")||!response.readOnly)
         throw new Error("UM-RCON-LOG-MAP-MISMATCH");
       setReadLog(response);
+      recordRconEvent(requested,type==="game"?"GetGameLog":"GetChat","reply");
     }catch{
       if(belongs(requested,epoch))
         setError("Az ASA napló/chat RCON-válasz mapazonossága nem igazolható.");
@@ -158,6 +162,7 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
          !receipt.rconCommandDispatched)
         throw new Error("UM-RCON-SAVE-RECEIPT-MAP-MISMATCH");
       setSaveReceipt(receipt);
+      recordRconEvent(requested,"SaveWorld","dispatch");
     }catch{
       if(belongs(requested,epoch))
         setError("A SaveWorld kiküldésének eredménye nem igazolható. A parancs már célba érhetett; ne ismételd meg ellenőrzés nélkül.");
@@ -214,12 +219,14 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
          !receipt.commandSent||receipt.storeWriterTouched)
         throw new Error("UM-RCON-ADMIN-RECEIPT-MISMATCH");
       setAdminReceipt(receipt);
+      recordRconEvent(requested,receipt.action,"dispatch");
     }catch{
       if(belongs(requested,epoch))
         setError("Az adminparancs eredménye nem igazolható. A TCP-küldés megtörténhetett; ismétlés előtt ellenőrizd a mapot. Automatikus újraküldés nincs.");
     }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   return <div className="uk-rcon-page">
+    <RconHistoryPanel mapId={mapId} disabled={busy||!status?.permitted} onRead={kind=>{if(kind==="ListPlayers")void list();else void queryReadLog(kind==="GetGameLog"?"game":"chat");}}/>
     <div className="page-intro"><span className="eyebrow">UNTAMED ASA / LOCAL RCON</span>
       <h1>RCON konzol</h1>
       <p>Valódi ListPlayers, SaveWorld, Broadcast, szerver-chat, vad dinó törlés
