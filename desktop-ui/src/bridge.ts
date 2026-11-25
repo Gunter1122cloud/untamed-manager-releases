@@ -587,7 +587,8 @@ export type FreshAsaRestartStatus = {
   newAsaServerPid?:number;apiChildAndRconVerified?:boolean;
   saveCompleteProven:false;readinessCertified:boolean;
   loaderRunning?:boolean;asaRunning?:boolean;asaApiDllLoaded?:boolean;
-  pluginLoadingComplete?:boolean;rconResponding?:boolean;joinAdvertised?:boolean;
+  asaApiLogInitialized?:boolean;pluginLoadingComplete?:boolean;
+  pluginLogInitialized?:boolean;rconResponding?:boolean;joinAdvertised?:boolean;
   readinessFailureCode?:string|null;failureCode?:string|null;
   preExitSaveEvidenceObserved:boolean;preExitWorldMetadataObserved?:boolean;
   finalDoExitSaveCertified:false;
@@ -1240,7 +1241,8 @@ export type HistoricalRestartStatus = {
   preExitWorldMetadataObserved?:boolean;
   readyCertified:boolean;gameClientRejoinVerified:false;
   loaderRunning?:boolean;asaRunning?:boolean;asaApiDllLoaded?:boolean;
-  pluginLoadingComplete?:boolean;rconResponding?:boolean;joinAdvertised?:boolean;
+  asaApiLogInitialized?:boolean;pluginLoadingComplete?:boolean;
+  pluginLogInitialized?:boolean;rconResponding?:boolean;joinAdvertised?:boolean;
   readinessFailureCode?:string|null;failureCode?:string|null;
   finalDoExitSaveCertified:false;automaticRetry:false;
   forceKill:false;storeTouched:false;

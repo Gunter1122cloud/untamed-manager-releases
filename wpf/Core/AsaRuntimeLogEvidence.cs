@@ -14,7 +14,7 @@ namespace UntamedManager.Core;
 /// </summary>
 internal static class AsaRuntimeLogEvidence
 {
-    internal sealed record Proof(bool JoinAdvertised,bool ApiInitialized);
+    internal sealed record Proof(bool JoinAdvertised,bool ApiInitialized,bool PluginsInitialized);
 
     private static readonly Regex ApiTime=new(
         @"(?<ts>\d{2}/\d{2}/\d{2} \d{2}:\d{2}) \[API\]",
@@ -23,7 +23,7 @@ internal static class AsaRuntimeLogEvidence
     internal static Proof Inspect(LocalMap map,ProcessIdentity server,
         ProcessIdentity? loader)
     {
-        bool advertised=false,apiInitialized=false;
+        bool advertised=false,apiInitialized=false,pluginsInitialized=false;
         try
         {
             // New map registrations do not necessarily populate LogFilePath.
@@ -82,7 +82,7 @@ internal static class AsaRuntimeLogEvidence
                         continue;
                     // The timestamp *on the positive load line*, not merely
                     // the file's LastWriteTime, must be from this loader run.
-                    bool loaded=false,hooks=false;
+                    bool loaded=false,hooks=false,pluginsComplete=false;
                     // Real ArkApi logs can initialize hooks BEFORE printing
                     // "API was successfully loaded"; other versions may emit
                     // the reverse order. Do not require one particular order.
@@ -98,9 +98,11 @@ internal static class AsaRuntimeLogEvidence
                             StringComparison.Ordinal);
                         bool isHooks=line.Contains("Initialized hooks",
                             StringComparison.Ordinal);
+                        bool isPluginsComplete=line.Contains("Loaded all plugins",
+                            StringComparison.Ordinal);
                         bool sessionStart=line.TrimEnd().EndsWith("Loading...",
                             StringComparison.Ordinal);
-                        if(!isLoad&&!isHooks&&!sessionStart)continue;
+                        if(!isLoad&&!isHooks&&!isPluginsComplete&&!sessionStart)continue;
                         var match=ApiTime.Match(line);
                         if(!match.Success ||
                            !DateTime.TryParseExact(match.Groups["ts"].Value,
@@ -110,23 +112,29 @@ internal static class AsaRuntimeLogEvidence
                         var at=new DateTimeOffset(when,TimeSpan.Zero);
                         if(at<loader.StartedUtc.AddMinutes(-2) ||
                            at>DateTimeOffset.UtcNow.AddMinutes(2))continue;
-                        if(sessionStart){loaded=false;hooks=false;}
+                        if(sessionStart){loaded=false;hooks=false;pluginsComplete=false;}
                         else if(isLoad)
                         {
                             // Repeated load means a NEW attempt without a
                             // corresponding fresh hook marker yet.
-                            if(loaded)hooks=false;
+                            if(loaded){hooks=false;pluginsComplete=false;}
                             loaded=true;
                         }
                         else if(isHooks)
                         {
                             // A second hook marker after a completed pair
                             // starts a new initialization attempt.
-                            if(hooks)loaded=false;
+                            if(hooks){loaded=false;pluginsComplete=false;}
                             hooks=true;
                         }
+                        if(isPluginsComplete)pluginsComplete=true;
                     }
-                    if(loaded&&hooks) {apiInitialized=true;break;}
+                    if(loaded&&hooks)
+                    {
+                        apiInitialized=true;
+                        if(pluginsComplete)pluginsInitialized=true;
+                        break;
+                    }
                 }
                 catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
                     InvalidDataException or ArgumentException or NotSupportedException)
@@ -136,7 +144,7 @@ internal static class AsaRuntimeLogEvidence
                 }
             }
         }
-        return new(advertised,apiInitialized);
+        return new(advertised,apiInitialized,pluginsInitialized);
     }
 
     private static string[] Tail(string path,int bytes)

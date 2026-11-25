@@ -19,9 +19,12 @@ internal sealed record RestartStartupProof(
     bool PluginsLoaded,bool RconResponding,bool JoinAdvertised,
     string Reason)
 {
+    internal bool ApiLogInitialized {get;init;}
+    internal bool PluginLogInitialized {get;init;}
     internal bool Ready(bool apiMode)=>
         AsaRunning&&RconResponding&&JoinAdvertised&&
-        (!apiMode||(LoaderRunning&&ApiDllLoaded&&PluginsLoaded));
+        (!apiMode||(LoaderRunning&&ApiDllLoaded&&ApiLogInitialized&&
+            PluginsLoaded&&PluginLogInitialized));
 }
 
 internal static class RestartStartupReadiness
@@ -39,16 +42,18 @@ internal static class RestartStartupReadiness
         {
             string root=Path.GetFullPath(map.InstallationPath);
             string folder=Path.Combine(root,"ShooterGame","Binaries","Win64","ArkApi","Plugins");
-            if(!Directory.Exists(folder))return false;
+            // An absent/empty Plugins directory is a valid empty plugin set;
+            // the current-run ArkApi log separately proves plugin initialization.
+            if(!Directory.Exists(folder))return true;
+            var expected=Directory.GetDirectories(folder).Select(dir=>
+                Path.Combine(dir,Path.GetFileName(dir)+".dll"))
+                .Where(File.Exists).ToArray();
+            if(expected.Length==0)return true;
             var loaded=AsaApiModuleEvidence.ObserveLoadedPaths(map,child);
             if(loaded==null)return false;
             // Named plugin DLL in its own enabled plugin directory is a
             // concrete installed plugin entry; helper DLLs are not counted
-            // as separate plugins. Check ALL such entries, not just one.
-            var expected=Directory.GetDirectories(folder).Select(dir=>
-                Path.Combine(dir,Path.GetFileName(dir)+".dll"))
-                .Where(File.Exists).ToArray();
-            foreach(var file in expected)
+            // as separate plugins. Check ALL such entries.
             {
                 if((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0||
                    !loaded.Contains(Path.GetFullPath(file)))
@@ -80,9 +85,15 @@ internal static class RestartStartupReadiness
                     "UM-RESTART-API-LOADER-EXITED-OR-REPLACED");
         var runtime=AsaRuntimeLogEvidence.Inspect(map,expectedChild,
             map.StartWithAsaApi?expectedLoader:null);
-        bool api=!map.StartWithAsaApi||
-            runtime.ApiInitialized&&AsaApiModuleEvidence.IsLoaded(map,expectedChild);
-        bool plugins=api&&LoadedPlugins(map,expectedChild);
+        // Keep OS module evidence, current-run API log evidence and plugin
+        // completion evidence separate. The old combined boolean reported
+        // "DLL not loaded" even when only the log timestamp/parser was late.
+        bool apiDll=!map.StartWithAsaApi||
+            AsaApiModuleEvidence.IsLoaded(map,expectedChild);
+        bool apiLog=!map.StartWithAsaApi||runtime.ApiInitialized;
+        bool plugins=!map.StartWithAsaApi||
+            apiDll&&LoadedPlugins(map,expectedChild);
+        bool pluginLog=!map.StartWithAsaApi||runtime.PluginsInitialized;
         bool rcon=false;
         if(portOwner(map.RconPort,expectedChild.Pid))
         {
@@ -108,12 +119,18 @@ internal static class RestartStartupReadiness
                 // Late RCON or temporary network response is NOT readiness.
             }
         }
+        string reason=!runtime.JoinAdvertised?"UM-RESTART-JOIN-NOT-ADVERTISED":
+            !apiDll?"UM-RESTART-ASA-API-DLL-NOT-LOADED":
+            !apiLog?"UM-RESTART-ASA-API-LOG-NOT-INITIALIZED":
+            !plugins?"UM-RESTART-PLUGIN-DLL-NOT-LOADED":
+            !pluginLog?"UM-RESTART-PLUGIN-LOG-NOT-INITIALIZED":
+            !rcon?"UM-RESTART-RCON-NOT-RESPONDING":"UM-RESTART-READY";
         return new(expectedChild.Pid,expectedChild.StartedUtc,
-            loader,asa,api,plugins,rcon,runtime.JoinAdvertised,
-            !runtime.JoinAdvertised?"UM-RESTART-JOIN-NOT-ADVERTISED":
-            !api?"UM-RESTART-ASA-API-NOT-LOADED":
-            !plugins?"UM-RESTART-PLUGINS-NOT-LOADED":
-            !rcon?"UM-RESTART-RCON-NOT-RESPONDING":"UM-RESTART-READY");
+            loader,asa,apiDll,plugins,rcon,runtime.JoinAdvertised,reason)
+        {
+            ApiLogInitialized=apiLog,
+            PluginLogInitialized=pluginLog
+        };
     }
 
     internal static async Task<RestartStartupProof> WaitAsync(

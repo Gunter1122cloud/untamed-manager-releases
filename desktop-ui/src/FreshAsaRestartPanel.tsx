@@ -266,7 +266,9 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
       <span>Loader: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.loaderRunning?"fut":"nem igazolt"}</span>
       <span>ASA: {status.asaRunning?"fut":"nem igazolt"}</span>
       <span>AsaApi.dll: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.asaApiDllLoaded?"betöltve":"nem igazolt"}</span>
-      <span>Pluginok: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.pluginLoadingComplete?"betöltve":"nem igazolt"}</span>
+      <span>API-napló: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.asaApiLogInitialized?"sikeres":"nem igazolt"}</span>
+      <span>Plugin DLL-ek: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.pluginLoadingComplete?"betöltve":"nem igazolt"}</span>
+      <span>Plugin-napló: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.pluginLogInitialized?"sikeres":"nem igazolt"}</span>
       <span>RCON: {status.rconResponding?"válaszol":"nem igazolt"}</span>
       <span>Játékosfogadás: {status.joinAdvertised?"kész":"nem igazolt"}</span>
       {status.failureCode&&<b>Hiba: {status.failureCode}</b>}
