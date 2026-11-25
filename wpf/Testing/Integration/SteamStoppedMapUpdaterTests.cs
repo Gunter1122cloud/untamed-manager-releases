@@ -52,7 +52,15 @@ public static class SteamStoppedMapUpdaterTests
         string test=Path.Combine(sandbox,"stopped-steam-"+Guid.NewGuid().ToString("N"));
         string fakeSteamPath=Path.Combine(test,"steamcmd","steamcmd.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(fakeSteamPath)!);
-        File.WriteAllText(fakeSteamPath,"SteamCMD placeholder, never launched");
+        // Inert PE header only; the separately compiled FakeSteamCMD is the only child.
+        byte[] steamPeFixture=new byte[512];
+        steamPeFixture[0]=(byte)'M';steamPeFixture[1]=(byte)'Z';
+        BitConverter.GetBytes(0x80).CopyTo(steamPeFixture,0x3c);
+        steamPeFixture[0x80]=(byte)'P';steamPeFixture[0x81]=(byte)'E';
+        BitConverter.GetBytes((ushort)0x014c).CopyTo(steamPeFixture,0x84);
+        BitConverter.GetBytes((ushort)1).CopyTo(steamPeFixture,0x86);
+        BitConverter.GetBytes((ushort)0x00e0).CopyTo(steamPeFixture,0x94);
+        File.WriteAllBytes(fakeSteamPath,steamPeFixture);
         string install=Path.Combine(test,"asa-island");
         Prepare(install);
         string beforeWorld=File.ReadAllText(Path.Combine(install,"ShooterGame",
