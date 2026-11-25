@@ -88,7 +88,8 @@ internal static class AsaRuntimeLogEvidenceTests
             Line("Loaded all plugins")
         })+"\r\n",new UTF8Encoding(false));
         var stale=AsaRuntimeLogEvidence.Inspect(map,server,
-            loader with{StartedUtc=DateTimeOffset.UtcNow.AddMinutes(8)});
+            new ProcessIdentity{Pid=loader.Pid,ExecutablePath=loader.ExecutablePath,
+                Arguments=loader.Arguments,StartedUtc=DateTimeOffset.UtcNow.AddMinutes(8)});
         Check(!stale.ApiInitialized&&!stale.PluginsInitialized,
             "positive API log markers predating the exact Loader start epoch are rejected");
 

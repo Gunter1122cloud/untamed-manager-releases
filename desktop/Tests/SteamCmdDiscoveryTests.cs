@@ -176,6 +176,89 @@ internal static class SteamCmdDiscoveryTests
                 "accepted SteamCMD path survives a second complete Manager reload");
         }
 
+        // Native single-map bridge regression. Only the process observer
+        // and executor are synthetic: real stop guard, planner and tokens.
+        string guardInstall=Path.Combine(root,"running-family-guard");
+        string guardExe=Path.Combine(guardInstall,"ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(guardExe)!);
+        File.WriteAllBytes(guardExe,new byte[]{0x4d,0x5a,0x90,0});
+        string manifest=Path.Combine(guardInstall,"steamapps","appmanifest_2430930.acf");
+        Directory.CreateDirectory(Path.GetDirectoryName(manifest)!);
+        File.WriteAllText(manifest,"\"AppState\"\n{\n\"appid\" \"2430930\"\n\"buildid\" \"123456\"\n}\n");
+        byte[] originalManifest=File.ReadAllBytes(manifest);
+        byte[] originalExe=File.ReadAllBytes(guardExe);
+        var stopped=new ProcessCheck(false,"synthetic stopped",null,true);
+        var asa=new ProcessIdentity{Pid=2272,StartedUtc=DateTimeOffset.UtcNow.AddMinutes(-1),
+            ExecutablePath=guardExe};
+        var loader=new ProcessIdentity{Pid=18336,StartedUtc=asa.StartedUtc.AddMinutes(-1),
+            ExecutablePath=Path.Combine(Path.GetDirectoryName(guardExe)!,"AsaApiLoader.exe")};
+        var blockedStates=new[]{
+            new ProcessCheck(true,"ASA only",asa),
+            new ProcessCheck(false,"Loader only",null,false,loader),
+            new ProcessCheck(true,"ASA and Loader",asa,false,loader),
+            new ProcessCheck(false,"uncertain",null,false),
+            new ProcessCheck(false,"contradictory stopped plus ASA",asa,true),
+            new ProcessCheck(false,"contradictory stopped plus Loader",null,true,loader)
+        };
+        var observed=stopped;
+        Guid blockedMapId=Guid.Empty;
+        int plans=0,executions=0;
+        await using(var guarded=new ClusterService("steam-running-family",Path.Combine(root,"running-family-profile"),
+            m=>m.Id==blockedMapId?observed:stopped))
+        {
+            var target=new LocalMap{Id=Guid.NewGuid(),Name="Astraeos",InstallationPath=guardInstall,
+                ExecutablePath=guardExe,AutoStart=false};
+            guarded.AddMap(target);
+            guarded.UpdateSettings(c=>c.SteamCmdExecutable=first);
+            using var guardBridge=new DesktopStoppedSteamUpdateBridge(guarded,
+                plan:m=>{
+                    plans++;
+                    return SteamUpdateDryRun.Plan(first,m.InstallationPath,
+                        guarded.Config.LocalMaps.ToArray(),guarded.Check,1024);
+                },execute:(_,_)=>{
+                    executions++;
+                    throw new InvalidOperationException("UM-TEST-UNEXPECTED-STEAM-EXECUTION");
+                });
+            foreach(var state in blockedStates)
+            {
+                blockedMapId=target.Id;
+                observed=stopped;
+                var pre=await Call(guardBridge.HandleAsync,"steam.stoppedPreview",new{mapId=target.Id});
+                Check(pre.GetProperty("ok").GetBoolean(),"fully stopped family permits a fresh read-only preview");
+                observed=state;
+                int plansBefore=plans;
+                var deniedPreview=await Call(guardBridge.HandleAsync,"steam.stoppedPreview",new{mapId=target.Id});
+                var deniedDirect=await Call(guardBridge.HandleAsync,"steam.stoppedStart",new{mapId=target.Id});
+                var deniedApply=await Call(guardBridge.HandleAsync,"steam.stoppedApply",new{
+                    token=pre.GetProperty("data").GetProperty("token").GetString(),confirm=true});
+                Check(!deniedPreview.GetProperty("ok").GetBoolean()&&
+                    deniedPreview.GetProperty("error").GetString()=="UM-STEAM-STOPPED-ONLY"&&
+                    !deniedDirect.GetProperty("ok").GetBoolean()&&
+                    deniedDirect.GetProperty("error").GetString()=="UM-STEAM-STOPPED-ONLY"&&
+                    !deniedApply.GetProperty("ok").GetBoolean()&&
+                    deniedApply.GetProperty("error").GetString()=="UM-STEAM-PREFLIGHT-CHANGED"&&
+                    plans==plansBefore&&executions==0,
+                    state.Status+": preview, direct update and stale approval all denied before executor");
+                var dryRun=SteamUpdateDryRun.Plan(first,guardInstall,
+                    guarded.Config.LocalMaps.ToArray(),guarded.Check,1024);
+                Check(!dryRun.DryRunAllowed&&dryRun.Reason.Contains("running",StringComparison.OrdinalIgnoreCase),
+                    state.Status+": Core dry-run fails closed even with contradictory stop evidence");
+            }
+            var sibling=new LocalMap{Id=Guid.NewGuid(),Name="Shared ASA sibling",
+                InstallationPath=guardInstall,ExecutablePath=guardExe,AutoStart=false};
+            guarded.AddMap(sibling);
+            blockedMapId=sibling.Id;
+            observed=blockedStates[1];
+            var shared=await Call(guardBridge.HandleAsync,"steam.stoppedStart",new{mapId=target.Id});
+            Check(!shared.GetProperty("ok").GetBoolean()&&
+                shared.GetProperty("error").GetString()=="UM-STEAM-STOPPED-ONLY"&&executions==0,
+                "a stopped selected map cannot update binaries shared with a running Loader sibling");
+            Check(File.ReadAllBytes(manifest).SequenceEqual(originalManifest)&&
+                File.ReadAllBytes(guardExe).SequenceEqual(originalExe)&&
+                SteamCmdPreflight.Inspect(first).Sha256==before.Sha256,
+                "every refusal preserves executable, manifest and SteamCMD bytes");
+        }
+
         string diagnosticInstall=Path.Combine(root,"diagnostic-asa");
         string diagnosticExe=Path.Combine(diagnosticInstall,"ShooterGame",
             "Binaries","Win64","ArkAscendedServer.exe");
