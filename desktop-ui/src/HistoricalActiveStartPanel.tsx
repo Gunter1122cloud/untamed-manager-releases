@@ -14,6 +14,7 @@ import {managerBridge,type HistoricalActiveStartPreview,
 // never become an automatic second Start after a React view remount.
 const acceptedHistoricalStarts=new Set<string>();
 const uncertainHistoricalStarts=new Set<string>();
+const uncertainHistoricalStartAt=new Map<string,number>();
 const uncertainHistoricalModes=new Set<string>();
 
 export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted,refreshRevision=0}:{
@@ -62,10 +63,12 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted,refresh
         throw new Error("UM-STORE-START-STATUS-OTHER-MAP");
       if(belongs(requested,generation)){
         setState(fresh);
+        const uncertainSince=uncertainHistoricalStartAt.get(requested)??0;
         if(fresh.confirmedStopped&&!fresh.running&&!fresh.loaderPid&&
-           (!automatic||(!startUncertain&&!modeUncertain&&!!(state?.running||state?.loaderPid)))){
+           (!uncertainSince||Date.now()-uncertainSince>=15_000)){
           acceptedHistoricalStarts.delete(requested);
           uncertainHistoricalStarts.delete(requested);
+          uncertainHistoricalStartAt.delete(requested);
           uncertainHistoricalModes.delete(requested);
           setStartAccepted(false);setStartUncertain(false);
           setModeUncertain(false);
@@ -236,6 +239,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted,refresh
         throw new Error("UM-STORE-START-RECEIPT-INVALID");
       acceptedHistoricalStarts.add(requested);
       uncertainHistoricalStarts.delete(requested);
+      uncertainHistoricalStartAt.delete(requested);
       if(!belongs(requested,generation))return;
       setStartAccepted(true);setStartUncertain(false);
       setNotice(receipt.processRole==="loaderParent"?
@@ -257,6 +261,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted,refresh
       if(belongs(requested,generation))void verifyExistingControl(requested);
     }catch(e){
       uncertainHistoricalStarts.add(requested);
+      uncertainHistoricalStartAt.set(requested,Date.now());
       if(!belongs(requested,generation))return;
       setStartUncertain(true);
       const code=e instanceof Error?e.message:"";
@@ -268,8 +273,8 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted,refresh
       };
       setError((details[code]??"Az indítás eredménye nem igazolható, "+
         "vagy az eredeti állapot megváltozott.")+
-        " A szerver már elindulhatott. Nincs automatikus újrapróbálás; "+
-        "az állapotfrissítés és a helyi Windows PID/Store-napló ellenőrzése szükséges.");
+        " A szerver már elindulhatott. A Manager automatikusan újraellenőrzi a folyamatot, "+
+        "és igazolt leállás után ismét engedélyezi az Indítást.");
     }finally{if(belongs(requested,generation))setBusy(false);}
   };
   return <section className="glass panel historical-active-start"
