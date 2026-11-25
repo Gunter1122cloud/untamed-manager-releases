@@ -387,8 +387,9 @@ public sealed class ObsidianWindow : Form
         _restartReconciliation=new DesktopRestartReconciliationSupervisor(_bridge.LocalCluster,_bridgeGate,
             TryEnterWatchdogLane,ReleaseRecoveryLane,()=>_updateHandoff||_suppressScheduledMutations,
             map=>map.HistoricalStoreProtected?
-                (_lifecycleJournal.TryReconcileCurrentOwner(map)||_lifecycleJournal.TryReconcileStopped(map)):
-                (_freshRestart.TryReconcileCurrentOwner(map)||_freshRestart.TryReconcileStopped(map)||
+                (_historicalStop.TryReconcileSaveReceipt(map)||_lifecycleJournal.TryReconcileCurrentOwner(map)||
+                 _lifecycleJournal.TryReconcileOldOwner(map)||_lifecycleJournal.TryReconcileStopped(map)):
+                (_freshRestart.TryReconcileCurrentOwner(map)||_freshRestart.TryReconcileOldOwner(map)||_freshRestart.TryReconcileStopped(map)||
                  _freshStop.TryReconcileStoppedReceipt(map)));
         _asaDiscovery = new DesktopAutomaticAsaDiscoverySupervisor(_bridge.LocalCluster);
         _bridge.AttachAutomaticAsaDiscovery(_asaDiscovery);

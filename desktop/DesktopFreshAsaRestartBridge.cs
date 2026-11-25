@@ -268,6 +268,17 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             return new DesktopRestartReconciler.Witness(state.Identity!,state.LoaderIdentity,source);
         });
 
+    internal bool TryReconcileOldOwner(LocalMap map)=>
+        !map.HistoricalStoreProtected&&!HasActive(map.Id)&&DesktopRestartReconciler.TryReconcileOldOwner(cluster,map,record=>{
+            var identity=Eligible(map,allowPendingRestart:true,review:true);
+            var state=reviewObserve(map);
+            if(!state.Running||state.ConfirmedStopped||!SameProcessIdentity(state.Identity,identity)||
+                map.StartWithAsaApi!=(state.LoaderIdentity!=null)||!portOwner(map.RconPort,identity.Pid))
+                throw new InvalidOperationException("UM-RECONCILE-OLD-OWNER-CHANGED");
+            return new DesktopRestartReconciler.Witness(identity,state.LoaderIdentity,
+                DesktopFreshAsaStartBridge.IniFingerprint(map)+":"+AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map));
+        });
+
     internal bool TryReconcileStopped(LocalMap map)=>
         !map.HistoricalStoreProtected&&!HasActive(map.Id)&&DesktopRestartReconciler.TryReconcileStopped(cluster,map,record=>
             ReviewStoppedFamily(map,record)?DesktopFreshAsaStartBridge.IniFingerprint(map)+":"+
