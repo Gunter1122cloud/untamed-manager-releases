@@ -34,6 +34,9 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
     private readonly Func<bool> enterLane;
     private readonly Action leaveLane;
     private readonly Func<bool> frozen;
+    private readonly Func<int,int,bool> ownsPort;
+    private readonly Func<TimeSpan,CancellationToken,Task> delay;
+    private readonly DesktopRconAdminBridge? isolatedChat;
     private readonly string root,path,owner,mutexName;
     private readonly CancellationTokenSource closing=new();
     private int started,disposed,busy;
@@ -42,8 +45,20 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
 
     internal DesktopRollingSteamSupervisor(ClusterService cluster,DesktopLifecycleBatchBridge lifecycle,
         DesktopStoppedSteamUpdateBridge steam,SemaphoreSlim hostGate,Func<bool> enterLane,
-        Action leaveLane,Func<bool> frozen)
+        Action leaveLane,Func<bool> frozen):
+        this(cluster,lifecycle,steam,hostGate,enterLane,leaveLane,frozen,null,null,null){}
+    // Isolated native CI can replace the clock and RCON boundary together.
+    // The shipping constructor always uses actual listeners and minute waits.
+    internal DesktopRollingSteamSupervisor(ClusterService cluster,DesktopLifecycleBatchBridge lifecycle,
+        DesktopStoppedSteamUpdateBridge steam,SemaphoreSlim hostGate,Func<bool> enterLane,
+        Action leaveLane,Func<bool> frozen,DesktopRconAdminBridge? isolatedChat,
+        Func<int,int,bool>? isolatedOwner,Func<TimeSpan,CancellationToken,Task>? isolatedDelay)
     {
+        if((isolatedChat!=null)!=(isolatedOwner!=null)||(isolatedChat!=null)!=(isolatedDelay!=null))
+            throw new ArgumentException("Isolated rolling witnesses must be supplied together");
+        this.isolatedChat=isolatedChat;
+        ownsPort=isolatedOwner??RconPortOwnership.IsOwnedListener;
+        delay=isolatedDelay??((duration,token)=>Task.Delay(duration,token));
         this.cluster=cluster;this.lifecycle=lifecycle;this.steam=steam;this.hostGate=hostGate;
         this.enterLane=enterLane;this.leaveLane=leaveLane;this.frozen=frozen;
         root=Path.TrimEndingDirectorySeparator(Path.GetFullPath(cluster.Store.Root));
@@ -239,7 +254,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                 throw new InvalidOperationException("UM-ROLLING-LIFECYCLE-NOT-VERIFIED");
             }
             if(status!="running")throw new InvalidOperationException("UM-ROLLING-LIFECYCLE-NEEDS-REVIEW");
-            await Task.Delay(TimeSpan.FromSeconds(2),ct);
+            await delay(TimeSpan.FromSeconds(2),ct);
         }
         throw new TimeoutException("UM-ROLLING-LIFECYCLE-TIMEOUT");
     }
@@ -272,14 +287,14 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                 return;
             }
             if(status is not ("running" or "queued"))throw new InvalidOperationException("UM-ROLLING-UPDATE-NEEDS-REVIEW");
-            await Task.Delay(TimeSpan.FromSeconds(3),ct);
+            await delay(TimeSpan.FromSeconds(3),ct);
         }
         throw new TimeoutException("UM-ROLLING-UPDATE-TIMEOUT");
     }
     private async Task WarnAsync(Setting setting,LocalMap map,ProcessCheck initial,CancellationToken ct)
     {
         var identity=initial.Identity??throw new InvalidOperationException("UM-ROLLING-OWNER");
-        var fresh=new DesktopRconAdminBridge(cluster);
+        var fresh=isolatedChat??new DesktopRconAdminBridge(cluster);
         using var historical=map.HistoricalStoreProtected?new DesktopHistoricalRconAdminBridge(cluster):null;
         bool StillApproved()
         {
@@ -303,7 +318,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             if(sent.GetProperty("mapId").GetGuid()!=map.Id||sent.GetProperty("command").GetString()!="ServerChat "+message||
                !Yes(sent,"oneShot")||!Yes(sent,"commandSent"))throw new InvalidOperationException("UM-ROLLING-CHAT-SEND");
         }
-        await AsaShutdownCountdown.RunAsync(true,StillApproved,Send,ct);
+        await AsaShutdownCountdown.RunAsync(true,StillApproved,Send,ct,delay);
     }
     private async Task RunMapAsync(Setting setting,string target,CancellationToken ct)
     {
@@ -313,7 +328,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
         if(!Newer(target,installed))return;
         var initial=Observe(map);
         bool running=initial.Running&&!initial.ConfirmedStopped&&initial.Identity is {Pid:>0}&&
-            RconPortOwnership.IsOwnedListener(map.RconPort,initial.Identity.Pid);
+            ownsPort(map.RconPort,initial.Identity.Pid);
         if(!running&&!Stopped(initial))throw new InvalidOperationException("UM-ROLLING-PROCESS-UNCERTAIN");
         var diagnostic=Decode(await steam.HandleAsync(Message("steam.stoppedDiagnostics",new{mapId=map.Id})));
         if(Yes(diagnostic,"journalBlocked")||Yes(diagnostic,"historicalBlocked")||!Yes(diagnostic,"steamCmdFound")||
@@ -344,7 +359,14 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                 var stopped=Observe(map);
                 if(!Stopped(stopped))throw new InvalidOperationException("UM-ROLLING-START-STATE-CHANGED");
                 Stage("starting");await LifecycleAsync(map,"start",ct,stopped);
+                var restarted=Observe(map);
+                if(!restarted.Running||restarted.ConfirmedStopped||restarted.Identity is not {Pid:>0} child||
+                   Same(initial.Identity,child)||!ownsPort(map.RconPort,child.Pid)||
+                   map.StartWithAsaApi!=(restarted.LoaderIdentity is {Pid:>0}))
+                    throw new InvalidOperationException("UM-ROLLING-START-PROOF-CHANGED");
             }
+            else if(!Stopped(Observe(map)))
+                throw new InvalidOperationException("UM-ROLLING-STOPPED-MAP-STATE-CHANGED");
             SetRun(run with{State="completed",Stage="verified",ChangedUtc=DateTimeOffset.UtcNow});
         }
         catch(Exception ex)
@@ -378,9 +400,16 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                 var map=Owned(setting.MapId);
                 if(latest==null)
                 {
-                    var report=await AsaSteamBuildCatalog.CheckAsync(cluster.Config.SteamCmdExecutable,
-                        map.InstallationPath,"public",TimeSpan.FromSeconds(90),ct);
-                    latest=report.AvailableBuild;
+                    // Reuse the native read-only build endpoint so the same
+                    // checked receipt and isolated Steam metadata witness are
+                    // exercised by both UI and automatic maintenance.
+                    var report=Decode(await steam.HandleAsync(Message("steam.publishedBuild",new{mapId=map.Id})));
+                    ct.ThrowIfCancellationRequested();
+                    if(report.GetProperty("mapId").GetGuid()!=map.Id||
+                       report.GetProperty("downloadStarted").GetBoolean()||
+                       report.GetProperty("serverStopped").GetBoolean())
+                        throw new InvalidOperationException("UM-ROLLING-PUBLISHED-BUILD-SCOPE");
+                    latest=report.GetProperty("availableBuild").GetString();
                     if(string.IsNullOrWhiteSpace(latest))return;
                 }
                 await RunMapAsync(setting,latest,ct); // no parallel map mutations
