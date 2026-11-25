@@ -34,6 +34,7 @@ public sealed class DesktopIniBridge : IDisposable
         public required DateTimeOffset OpenedUtc {get;init;}
         public string? PreviewedContent {get;set;}
         public ConfigPreview? Preview {get;set;}
+        public bool DraftOnly {get;init;}
     }
     public DesktopIniBridge(ClusterService source)=>
         cluster=source??throw new ArgumentNullException(nameof(source));
@@ -106,7 +107,8 @@ public sealed class DesktopIniBridge : IDisposable
             id=requestId.ToString("D");
             string? method=methodValue.GetString();
             if(method is not ("ini.open" or "ini.preview" or "ini.rebasePreview" or
-                "ini.save" or "ini.close" or "ini.createGamePreview" or "ini.createGameApply"))
+                "ini.save" or "ini.close" or "ini.createGamePreview" or "ini.createGameApply" or
+                "ini.openDraft" or "ini.stageDraft" or "ini.pendingStatus" or "ini.pendingDiscard"))
                 return Fail(id,"UM-METHOD-DENIED");
 
             await gate.WaitAsync();
@@ -190,8 +192,24 @@ public sealed class DesktopIniBridge : IDisposable
                         evidence="FRESH_GAME_INI_DURABLE_CREATE_NEW_VERIFIED"
                     });
                 }
-                if(method=="ini.open")
+                if(method is "ini.pendingStatus" or "ini.pendingDiscard")
                 {
+                    if(!GetGuid(data,"mapId",out var pendingId))return Fail(id,"UM-INI-INVALID-REQUEST");
+                    string pendingFile=data.TryGetProperty("file",out var requestedFile)?requestedFile.GetString()??"":"Game.ini";
+                    if(pendingFile is not ("Game.ini" or "GameUserSettings.ini"))return Fail(id,"UM-INI-INVALID-FILE");
+                    var map=Owned(pendingId);
+                    if(map==null||map.ObservedReadOnlyImported)return Fail(id,"UM-MAP-NOT-OWNED");
+                    if(method=="ini.pendingDiscard")
+                    {
+                        if(!data.TryGetProperty("confirm",out var confirm)||confirm.ValueKind!=JsonValueKind.True)
+                            return Fail(id,"UM-INI-DRAFT-APPROVAL");
+                        PendingGameIni.Discard(cluster,map,pendingFile);
+                    }
+                    return Ok(id,PendingGameIni.Status(cluster,map,pendingFile));
+                }
+                if(method is "ini.open" or "ini.openDraft")
+                {
+                    bool draftOnly=method=="ini.openDraft";
                     if(!GetGuid(data,"mapId",out var mapId) ||
                        !data.TryGetProperty("file",out var fileField) ||
                        fileField.ValueKind!=JsonValueKind.String)
@@ -202,10 +220,15 @@ public sealed class DesktopIniBridge : IDisposable
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
                     if(map.ObservedReadOnlyImported)return Fail(id,"UM-LIVE-OBSERVED-MAP-READONLY");
-                    var check=map.HistoricalStoreProtected?
-                        HistoricalLocalConfigGuard.DemandStopped(cluster,map):cluster.Check(map);
-                    if(!check.ConfirmedStopped || check.Running || map.Maintenance)
-                        return Fail(id,"UM-INI-STOP-REQUIRED");
+                    ProcessCheck? check=null;
+                    if(draftOnly)PendingGameIni.DemandEligible(cluster,map);
+                    else
+                    {
+                        check=map.HistoricalStoreProtected?
+                            HistoricalLocalConfigGuard.DemandStopped(cluster,map):cluster.Check(map);
+                        if(!check.ConfirmedStopped||check.Running||map.Maintenance)
+                            return Fail(id,"UM-INI-STOP-REQUIRED");
+                    }
 
                     // A never-started SteamCMD installation legitimately has no Saved tree.
                     // Classify absence before SafeConfigEditor path checks, without creating
@@ -230,20 +253,20 @@ public sealed class DesktopIniBridge : IDisposable
                     if(!File.Exists(path))
                         return Fail(id,!executablePresent?"UM-INI-SERVER-EXE-MISSING":
                             file=="Game.ini"?"UM-INI-GAME-MISSING":"UM-INI-GUS-MISSING");
-                    var snapshot=SafeConfigEditor.Read(path,map.InstallationPath,
-                        ConfigKind.GameIni,check,map.Maintenance);
+                    var snapshot=draftOnly?SafeConfigEditor.ReadGameDraft(path,map.InstallationPath):
+                        SafeConfigEditor.Read(path,map.InstallationPath,ConfigKind.GameIni,check!,map.Maintenance);
                     foreach(var existing in opened.Where(x=>x.Value.MapId==mapId)
                         .Select(x=>x.Key).ToArray())opened.Remove(existing);
                     if(opened.Count>=5)return Fail(id,"UM-INI-TOO-MANY-DOCUMENTS");
                     var token=Guid.NewGuid();
                     opened[token]=new(){
                         Token=token,MapId=mapId,Snapshot=snapshot,
-                        OpenedUtc=DateTimeOffset.UtcNow};
+                        OpenedUtc=DateTimeOffset.UtcNow,DraftOnly=draftOnly};
                     return Ok(id,new{
                         token,mapId,file,content=snapshot.Text,
                         encoding=snapshot.EncodingId,
                         sha256=snapshot.Sha256,bytes=snapshot.Bytes,
-                        evidence="STOPPED_LOCAL_INI_SNAPSHOT"
+                        evidence=draftOnly?"LOCAL_GAME_INI_DRAFT_SNAPSHOT":"STOPPED_LOCAL_INI_SNAPSHOT"
                     });
                 }
                 if(!GetGuid(data,"token",out var tokenId) ||
@@ -279,6 +302,17 @@ public sealed class DesktopIniBridge : IDisposable
                         evidence="HASHED_IN_MEMORY_PREVIEW"
                     });
                 }
+                if(method=="ini.stageDraft")
+                {
+                    if(openedFile.PreviewedContent==null||openedFile.Preview?.Changed!=true||
+                       Path.GetFileName(openedFile.Snapshot.Path) is not ("Game.ini" or "GameUserSettings.ini")||
+                       !data.TryGetProperty("confirm",out var consent)||consent.ValueKind!=JsonValueKind.True)
+                        return Fail(id,"UM-INI-DRAFT-APPROVAL");
+                    PendingGameIni.Stage(cluster,owned,openedFile.Snapshot,openedFile.PreviewedContent);
+                    opened.Remove(tokenId);
+                    return Ok(id,PendingGameIni.Status(cluster,owned,Path.GetFileName(openedFile.Snapshot.Path)));
+                }
+                if(openedFile.DraftOnly)return Fail(id,"UM-INI-DRAFT-NO-LIVE-SAVE");
                 if(method=="ini.rebasePreview")
                 {
                     if(!data.TryGetProperty("content",out var rebasedField) ||

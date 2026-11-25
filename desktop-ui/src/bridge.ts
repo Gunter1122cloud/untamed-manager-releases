@@ -862,7 +862,7 @@ export type ScheduledStoppedBackupState={
   mapId:string;mapName:string;enabled:boolean;
   intervalMinutes:number|null;nextDueUtc:string|null;
   lastAttemptUtc:string|null;lastStatus:string;lastPoint:string|null;
-  runnerState:string;storeProtected:boolean;canSchedule?:boolean;fullLocal?:boolean;
+  runnerState:string;storeProtected:boolean;canSchedule?:boolean;fullLocal?:boolean;profilesOnly?:boolean;
   automaticRestoreAllowed:false;automaticServerStopAllowed:false;
   evidence:"PERSISTED_OPT_IN_STOPPED_NONSTORE_WORLD_BACKUPS";
 };
@@ -983,11 +983,12 @@ export type ModDraftSave = {
   disabled: string[]; evidence: "CONFIGURED_ONLY_PENDING_REAL_RESTART";
 };
 
+export type PendingGameIniStatus={mapId:string;state:"none"|"queued"|"conflict"|"applied"|"unavailable";nextSha256?:string|null};
 export type IniFile = "Game.ini" | "GameUserSettings.ini";
 export type IniDocument = {
   token: string; mapId: string; file: IniFile; content: string;
   encoding: string; sha256: string; bytes: number;
-  evidence: "STOPPED_LOCAL_INI_SNAPSHOT";
+  evidence: "STOPPED_LOCAL_INI_SNAPSHOT"|"LOCAL_GAME_INI_DRAFT_SNAPSHOT";
 };
 export type IniPreview = {
   previewToken: string; changed: boolean; oldLines: number; newLines: number;
@@ -1116,7 +1117,7 @@ export type FreshStoreEnrollmentStatus = {
 export type FreshStoreEnrollmentPreview = {
   token:string;mapId:string;mapName:string;clusterId:string;
   gamePort:number;queryPort:number;steamBuild:string;
-  transferIdentityCheckedLocally:true;remoteIdentityCertified:false;
+  transferIdentityCheckedLocally:true;remoteIdentityCertified:boolean;
   conversionPerformed:false;serverStarted:false;originalStoreTouched:false;
   automaticRetry:false;evidence:string;
 };
@@ -1536,7 +1537,7 @@ export type InitialMapStatus = {
 };
 export type InitialMapPreview = {
   token:string; mapId:string; mapName:string; sessionName:string;
-  mapLevel:string; gamePort:number; queryPort:number; requiresCustomLevel:boolean;
+  mapLevel:string; gamePort:number; queryPort:number; requiresCustomLevel:boolean; mapModId?:string;mapModName?:string|null;remaster?:boolean;
   rconEnabled:false; serverStartRequested:false; configuredArgumentsLength:number;
   evidence:"INITIAL_MAP_PROFILE_PREVIEW_NO_WRITES";
 };
@@ -1565,6 +1566,7 @@ export type FreshInstallReceipt = {
 export type LocalImportPreview = {
   importToken:string; name:string; folderName:string;
   exeFound:true; apiLoaderDetected:boolean; portsConfigured:false;
+  rootResolvedFromNestedFolder?:boolean;
   evidence:"LOCAL_BINARY_LAYOUT_PROBED_NO_MUTATION";
 };
 export type LocalImportReceipt = {
@@ -1783,7 +1785,16 @@ export type ConfiguredMods = {
   evidence: "CONFIGURED_ONLY";
 };
 
-type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
+export type HostedResourceKind="AdminListURL"|"BanListURL"|"BadWordListURL"|"BadWordWhiteListURL"|"CustomDynamicConfigUrl"|"CustomNotificationURL"|"CustomLiveTuningUrl";
+export type NativePlayerActivityStatus={enabled:boolean;records:import("./state/playerActivity").PlayerRecord[];storageError:boolean;persistent:boolean};
+export type HostedResourcesStatus={running:boolean;port:number;resources:Array<{kind:string;url:string;bytes:number}>;loopbackOnly:true;persistent:boolean;persistenceError?:boolean};
+
+export type ModRepairStatus={mapId:string;modId:string;folders:string[];diskOnly:true;runtimeVerified:false};
+export type ModRepairPreview=ModRepairStatus&{token:string};
+export type ModRepairReceipt={mapId:string;modId:string;quarantined:number;remainingFolders:number;serverStarted:false;downloadVerified:false};
+export type RelocationPreview={token:string;mapId:string;files:number;bytes:number;freeBytes:number;sourceRetained:true};
+export type RelocationReceipt={mapId:string;files:number;bytes:number;sourceRetained:true;profileSwitched:true;serverStarted:false};
+type WireRequest = { id: string; method: "servers.relocationPreview" | "servers.relocationApply" | "mods.localRepairPreview" | "mods.localRepairApply" | "mods.localRepairStatus" | "resources.status" | "resources.publish" | "resources.stop" | "activity.status" | "activity.setEnabled" | "activity.clear" | "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
   "operations.scheduleCreate" | "operations.scheduleDisable" | "operations.watchdogStart" |
   "notifications.status" | "notifications.save" | "notifications.clear" | "notifications.test" |
   "recovery.status" | "recovery.arm" | "recovery.disarm" | "recovery.suspend" |
@@ -1812,6 +1823,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "cluster.multiHostRestoreRecoveryApply" |
   "plugins.jsonOpen" | "plugins.jsonPreview" | "plugins.jsonSave" | "plugins.jsonClose" |
   "cluster.restoreLabPreview" | "cluster.restoreLabApply" | "cluster.restoreLabStatus" |
+  "ini.openDraft" | "ini.stageDraft" | "ini.pendingStatus" | "ini.pendingDiscard" |
   "ini.open" | "ini.preview" | "ini.rebasePreview" | "ini.save" | "ini.close" |
   "ini.createGamePreview" | "ini.createGameApply" |
   "servers.runningLocal" | "servers.inspectLocal" | "servers.importLocal" |
@@ -1881,11 +1893,11 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;useSharedPayloadCache?:boolean;
    confirm?: boolean; ackUnknownOutcome?:boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; runId?:string; journalId?:string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
-  kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
+  kind?:ReadOnlyScheduleKind|NativeScheduleKind|HostedResourceKind;port?:number;frequency?:NativeScheduleFrequency;
   intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;postRestartWipe?:boolean;wipeDelaySeconds?:number;delaySeconds?:number;
   timeZoneId?:string;dayMinutes?:number[];onceAtLocal?:string;
   keepFutureRestart?:boolean;
-  gamePort?: number; queryPort?: number; customLevel?: string; archive?: string; command?: string;
+  gamePort?: number; queryPort?: number; customLevel?: string; mapModId?:string; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; apiRiskAccepted?:boolean; channel?: "stable"|"preview";
   assetName?:string;transactionId?:string;
@@ -1896,7 +1908,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   sourceMap?: string;destinationMap?: string; profileId?: string;
   hostId?:string;hostName?:string;mapIds?:string[];affectedMaps?:string[];
   clusterId?:string;transferDirectory?:string;transferRoot?:string;
-  backupDirectory?:string; fullLocal?:boolean; keepLatest?:number; protect?:boolean; stoppedUseApi?:boolean };
+  backupDirectory?:string; fullLocal?:boolean; profilesOnly?:boolean; keepLatest?:number; protect?:boolean; stoppedUseApi?:boolean };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -1918,6 +1930,7 @@ const pending = new Map<string, {
 const webview = window.chrome?.webview;
 
 function timeoutFor(method: WireRequest["method"]): number {
+  if (method === "servers.relocationApply") return 60 * 60_000;
   if (method === "steam.prepareExecutable") return 6 * 60_000; // bounded Valve toolkit download
   if (method === "updates.prepare") return 10 * 60_000; // verified GitHub installer download
   if (method === "store.inspectArchive" || method === "store.compareArchives" ||
@@ -1981,6 +1994,17 @@ export const managerBridge = {
     request<ClusterMembershipReceipt>("cluster.membership.apply",{token,confirm:true}),
   historicalExpansionInspect: (mapId:string,clusterId:string) =>
     request<HistoricalExpansionReadiness>("cluster.historicalExpansionInspect",{mapId,clusterId}),
+  relocationPreview:(mapId:string,root:string)=>request<RelocationPreview>("servers.relocationPreview",{mapId,root}),
+  relocationApply:(token:string)=>request<RelocationReceipt>("servers.relocationApply",{token,confirm:true}),
+  modRepairStatus:(mapId:string,modId:string)=>request<ModRepairStatus>("mods.localRepairStatus",{mapId,modId}),
+  modRepairPreview:(mapId:string,modId:string)=>request<ModRepairPreview>("mods.localRepairPreview",{mapId,modId}),
+  modRepairApply:(token:string)=>request<ModRepairReceipt>("mods.localRepairApply",{token,confirm:true}),
+  activityStatus:()=>request<NativePlayerActivityStatus>("activity.status"),
+  activitySetEnabled:(enabled:boolean)=>request<NativePlayerActivityStatus>("activity.setEnabled",{enabled,confirm:true}),
+  activityClear:()=>request<NativePlayerActivityStatus>("activity.clear",{confirm:true}),
+  hostedResourcesStatus:()=>request<HostedResourcesStatus>("resources.status"),
+  hostedResourcesPublish:(kind:HostedResourceKind,content:string,port:number)=>request<HostedResourcesStatus>("resources.publish",{kind,content,port,confirm:true}),
+  hostedResourcesStop:()=>request<HostedResourcesStatus>("resources.stop",{confirm:true}),
   lanStatus: () => request<LanStatus>("lan.status"),
   lanPreview: (listenPort:number,hostId:string,hostName:string,peerAddress:string,
     peerPort:number,pairingKey:string,peerAction:"upsert"|"remove"="upsert") =>
@@ -2248,8 +2272,8 @@ export const managerBridge = {
     }),
   backupScheduleStatus: (mapId:string) =>
     request<ScheduledStoppedBackupState>("backup.scheduleStatus",{mapId}),
-  backupScheduleCreate: (mapId:string,intervalMinutes:number,fullLocal=false) =>
-    request<ScheduledStoppedBackupState>("backup.scheduleCreate",{mapId,intervalMinutes,confirm:true,fullLocal}),
+  backupScheduleCreate: (mapId:string,intervalMinutes:number,fullLocal=false,profilesOnly=false) =>
+    request<ScheduledStoppedBackupState>("backup.scheduleCreate",{mapId,intervalMinutes,confirm:true,fullLocal,profilesOnly}),
   backupScheduleDisable: (mapId:string) =>
     request<ScheduledStoppedBackupState>("backup.scheduleDisable",{mapId,confirm:true}),
   backupRetentionPreview:(mapId:string,keepLatest:number)=>request<{mapId:string;keepLatest:number;points:Array<{point:string;eligible:boolean;protected:boolean;verified:boolean;createdUtc:string;bytes:number;reason:string}>;quarantine:Array<{point:string;status:string}>;evidence:"VERIFIED_MANAGED_BACKUP_RETENTION_PREVIEW"}>("backup.retentionPreview",{mapId,keepLatest}),
@@ -2374,6 +2398,10 @@ export const managerBridge = {
   offlineRestoreLabStatus: (jobId:string) =>
     request<OfflineAsaRestoreStatus>("cluster.restoreLabStatus",{jobId}),
   iniOpen: (mapId: string, file: IniFile) => request<IniDocument>("ini.open", { mapId, file }),
+  iniOpenDraft:(mapId:string,file:IniFile="Game.ini")=>request<IniDocument>("ini.openDraft",{mapId,file}),
+  iniStageDraft:(token:string)=>request<PendingGameIniStatus>("ini.stageDraft",{token,confirm:true}),
+  iniPendingStatus:(mapId:string,file:IniFile="Game.ini")=>request<PendingGameIniStatus>("ini.pendingStatus",{mapId,file}),
+  iniPendingDiscard:(mapId:string,file:IniFile="Game.ini")=>request<PendingGameIniStatus>("ini.pendingDiscard",{mapId,file,confirm:true}),
   iniCreateGamePreview: (mapId:string) =>
     request<IniGameCreatePreview>("ini.createGamePreview",{mapId}),
   iniCreateGameApply: (token:string) =>
@@ -2430,8 +2458,8 @@ export const managerBridge = {
   initialStatus: (mapId:string) =>
     request<InitialMapStatus>("servers.initialStatus", {mapId}),
   initialPreview: (mapId:string, sessionName:string, gamePort:number, queryPort:number,
-      customLevel:string="") =>
-    request<InitialMapPreview>("servers.initialPreview", {mapId, sessionName, gamePort, queryPort, customLevel}),
+      customLevel:string="",mapModId:string="") =>
+    request<InitialMapPreview>("servers.initialPreview", {mapId, sessionName, gamePort, queryPort, customLevel,mapModId}),
   initialApply: (token:string) =>
     request<InitialMapReceipt>("servers.initialApply", {token, confirm:true}),
   historicalLaunchEvidence: (archive:string,mapId:string,command:string) =>

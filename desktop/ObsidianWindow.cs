@@ -99,6 +99,20 @@ public sealed class ObsidianWindow : Form
         if(_scheduledBackups.TryFreezeForManagerUpdate())return true;
         _nativeSchedules.ReleaseManagerUpdateFreeze();return false;
     }
+    // Discord is not a Manager update: reserve only the selected maps
+    // against active/queued native scheduled workers and batch targets.
+    // The outer host gate still serializes approval/config publication.
+    private bool TryEnterDiscordLane(Guid[] maps)
+    {
+        if(!_lifecycleBatch.CanDispatchDiscord(maps)||!_nativeSchedules.TryReserveDiscord(maps))return false;
+        if(_scheduledBackups.TryReserveDiscord(maps))return true;
+        _nativeSchedules.ReleaseDiscord();return false;
+    }
+    private void ReleaseDiscordLane()
+    {
+        _scheduledBackups.ReleaseDiscord();
+        _nativeSchedules.ReleaseDiscord();
+    }
     private bool NativeWorkerBusy()=>_freshStop.RecoveryLaneBusy()||_historicalStop.RecoveryLaneBusy()||
         _freshRestart.RecoveryLaneBusy()||_historicalRestart.RecoveryLaneBusy()||
         _steamUpdate.RecoveryLaneBusy()||_steamBatch.RecoveryLaneBusy()||
@@ -162,7 +176,7 @@ public sealed class ObsidianWindow : Form
             // Exact read-only methods must stay responsive while an owner
             // is running an approved SteamCMD/backup/other lengthy mutation.
             // Each native bridge retains its own per-operation coordination.
-            "dashboard.snapshot" or "servers.runningLocal" or
+            "dashboard.snapshot" or "servers.runningLocal" or "activity.status" or "activity.setEnabled" or "activity.clear" or
             "servers.lifecycleJournal" or
             "servers.lifecycleRecoveryPreview" or
             "operations.snapshot" or "operations.map" or "operations.lifecycleBatchCurrent" or "notifications.status" or
@@ -256,6 +270,8 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopReadOnlyBridge _bridge;
     private readonly DesktopCredentialBridge _credentials;
     private readonly DesktopModDraftBridge _modDrafts;
+    private readonly DesktopModRepairBridge _modRepair;
+    private readonly DesktopInstallationRelocationBridge _relocation;
     private readonly DesktopModCopyBridge _modCopy;
     private readonly DesktopModProfileBridge _modProfiles;
     private readonly DesktopOfflineAsaArchiveBridge _offlineClusterArchive;
@@ -266,6 +282,9 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopPluginZipBridge _pluginZip;
     private readonly DesktopAsaApiCoreBridge _apiCore;
     private readonly DesktopIniBridge _iniEditor;
+    private readonly DesktopHostedResourcesBridge _hostedResources;
+    private readonly DesktopPlayerActivityBridge _playerActivity;
+    private readonly System.Windows.Forms.Timer _playerActivityTimer=new(){Interval=30000};
     private readonly DesktopLocalMapRegistryBridge _mapRegistry;
     private readonly DesktopRunningAsaRegistrationBridge _runningAsaRegistration;
     private readonly DesktopRunningAsaAdoptionBridge _runningAsaAdoption;
@@ -341,6 +360,8 @@ public sealed class ObsidianWindow : Form
         _credentials = new DesktopCredentialBridge(_bridge.LocalCluster);
         _updateInstall = new DesktopObsidianUpdateInstallBridge(_bridge.LocalCluster);
         _modDrafts = new DesktopModDraftBridge(_bridge.LocalCluster);
+        _modRepair = new DesktopModRepairBridge(_bridge.LocalCluster);
+        _relocation = new DesktopInstallationRelocationBridge(_bridge.LocalCluster);
         _modCopy = new DesktopModCopyBridge(_bridge.LocalCluster);
         _modProfiles = new DesktopModProfileBridge(_bridge.LocalCluster);
         _offlineClusterArchive = new DesktopOfflineAsaArchiveBridge();
@@ -351,6 +372,7 @@ public sealed class ObsidianWindow : Form
         _pluginZip = new DesktopPluginZipBridge(_bridge.LocalCluster);
         _apiCore = new DesktopAsaApiCoreBridge(_bridge.LocalCluster);
         _iniEditor = new DesktopIniBridge(_bridge.LocalCluster);
+        _hostedResources = new DesktopHostedResourcesBridge(profileRoot:smokeTest||suppressScheduledMutations?null:_bridge.LocalCluster.Store.Root);
         _mapRegistry = new DesktopLocalMapRegistryBridge(_bridge.LocalCluster);
         _runningAsaRegistration = new DesktopRunningAsaRegistrationBridge(_bridge.LocalCluster);
         _runningAsaAdoption = new DesktopRunningAsaAdoptionBridge(_bridge.LocalCluster);
@@ -369,6 +391,14 @@ public sealed class ObsidianWindow : Form
         _historicalStop = new DesktopHistoricalGracefulStopBridge(_bridge.LocalCluster);
         _historicalRestart = new DesktopHistoricalRestartBridge(_bridge.LocalCluster);
         _rcon = new DesktopRconReadOnlyBridge(_bridge.LocalCluster);
+        _playerActivity=new DesktopPlayerActivityBridge(smokeTest||suppressScheduledMutations?null:_bridge.LocalCluster.Store.Root,_rcon.HandleAsync,_historicalReadOnlyRcon.HandleAsync);
+        _playerActivityTimer.Tick+=async (_,_)=>{
+            if(_updateHandoff||_suppressScheduledMutations){_playerActivity.BreakContinuity();return;}
+            try{
+                var maps=System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Select(System.Linq.Enumerable.Where(_bridge.LocalCluster.Config.LocalMaps,m=>!m.ObservedReadOnlyImported&&!m.Maintenance&&m.RconPort>0&&!string.IsNullOrWhiteSpace(m.RconPasswordProtected)),m=>(m.Id,m.HistoricalStoreProtected)));
+                await _playerActivity.PollAsync(maps);
+            }catch{_playerActivity.BreakContinuity();}
+        };
         _rconAdmin = new DesktopRconAdminBridge(_bridge.LocalCluster);
         _rconConfig = new DesktopRconConfigurationBridge(_bridge.LocalCluster);
         _steamUpdate = new DesktopStoppedSteamUpdateBridge(_bridge.LocalCluster);
@@ -414,7 +444,8 @@ public sealed class ObsidianWindow : Form
         _rollingSteam=new DesktopRollingSteamSupervisor(_bridge.LocalCluster,_lifecycleBatch,_steamUpdate,_bridgeGate,
             ()=>_recovery.CanManagerUpdate()&&TryEnterWatchdogLane(),ReleaseRecoveryLane,()=>_updateHandoff||_suppressScheduledMutations);
         _discordControl = new DesktopDiscordControlApi(_bridge.LocalCluster,_bridgeGate,()=>_updateHandoff,
-            TryEnterRecoveryLane,ReleaseRecoveryLane,DispatchDiscordNative,_asaDiscovery.Snapshot,_nativeSchedules.LegacyOperationHistory);
+            TryEnterRecoveryLane,ReleaseRecoveryLane,DispatchDiscordNative,_asaDiscovery.Snapshot,_nativeSchedules.LegacyOperationHistory,
+            TryEnterDiscordLane,ReleaseDiscordLane);
         _liveMods=new DesktopHistoricalLiveModSync(_bridge.LocalCluster,_bridgeGate,
             ()=>_updateHandoff,TryEnterRecoveryLane,ReleaseRecoveryLane);
         Text = suppressScheduledMutations&&!smokeTest
@@ -438,6 +469,57 @@ public sealed class ObsidianWindow : Form
         _tray.Visible = true;
         var menu = new ContextMenuStrip();
         menu.Items.Add("Megnyitás", null, (_, _) => RestoreWindow());
+        menu.Items.Add("Elrejtés a tálcára",null,(_,_)=>{
+            Hide();ShowInTaskbar=false;
+        });
+        var trayStatus=new ToolStripMenuItem("ASA-folyamatok: még nincs mérés"){Enabled=false};
+        menu.Items.Add(trayStatus);
+        // Reuse the existing WMI discovery snapshot; never trigger a new
+        // probe, or count a Loader as a separate running game server.
+        menu.Opening+=(_,_)=>{
+            var seen=_asaDiscovery.Snapshot();
+            trayStatus.Text=DesktopTrayStatus.Describe(seen);
+        };
+        if(!smokeTest&&!suppressScheduledMutations)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            var login=new ToolStripMenuItem("Windowszal együtt indul (normál mód)")
+                {CheckOnClick=false};
+            void UpdateLogin()
+            {
+                try
+                {
+                    var state=DesktopLoginStartup.Read();
+                    login.Checked=state==DesktopLoginStartup.State.Enabled;
+                    login.Enabled=state!=DesktopLoginStartup.State.OtherInstallation;
+                    login.Text=state==DesktopLoginStartup.State.OtherInstallation?
+                        "Automatikus indulás: másik telepítéshez tartozik":
+                        "Windowszal együtt indul (normál mód)";
+                }
+                catch
+                {
+                    login.Enabled=false;login.Checked=false;
+                    login.Text="Automatikus indulás: nem ellenőrizhető";
+                }
+            }
+            menu.Opening+=(_,_)=>UpdateLogin();
+            login.Click+=(_,_)=>{
+                try
+                {
+                    // Explicit user toggle. No game-process command or
+                    // scheduler settings write is performed here.
+                    DesktopLoginStartup.Set(!login.Checked);
+                }
+                catch
+                {
+                    MessageBox.Show(this,"A Windows indítási beállítás nem módosítható. "+
+                        "Ellenőrizd az Indítópult beállításait és a telepítés helyét.",
+                        "Obsidian — UM-LOGIN-STARTUP",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                }
+                UpdateLogin();
+            };
+            menu.Items.Add(login);
+        }
         if(!smokeTest)
             menu.Items.Add("Discord bot",null,(_,_)=>{
                 RestoreWindow();
@@ -469,6 +551,7 @@ public sealed class ObsidianWindow : Form
                 // Explicit native manual commands remain fully available.
                 if(!_suppressScheduledMutations)
                 {
+                    _playerActivityTimer.Start();
                     _restartReconciliation.Start();
                     _scheduledBackups.Start();
                     _nativeSchedules.Start();
@@ -486,7 +569,13 @@ public sealed class ObsidianWindow : Form
         FormClosing += (_, e) =>
         {
             if(_rollingSteam.Busy&&e.CloseReason==CloseReason.UserClosing&&_reallyExit)
-            {e.Cancel=true;return;}
+            {
+                _reallyExit=false;
+                e.Cancel=true;
+                MessageBox.Show(this,"A SteamCMD művelet még fut. A Manager a háttérben tovább működik.",
+                    "Obsidian Command",MessageBoxButtons.OK,MessageBoxIcon.Information);
+                return;
+            }
             if (!_reallyExit && e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
@@ -496,6 +585,7 @@ public sealed class ObsidianWindow : Form
         };
         FormClosed += (_, _) =>
         {
+            _playerActivityTimer.Stop();_playerActivityTimer.Dispose();_playerActivity.Dispose();
             _restartReconciliation.Dispose();
             _liveMods.Dispose();
             _discordControl.Dispose();
@@ -510,6 +600,7 @@ public sealed class ObsidianWindow : Form
             _notifications.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
+            menu.Dispose();
             _browser.Dispose();
             _localAsaApiMode.Dispose();
             _historicalStore.Dispose();
@@ -535,6 +626,7 @@ public sealed class ObsidianWindow : Form
             _runningAsaRegistration.Dispose();
             _runningAsaAdoption.Dispose();
             _clusterRegistry.Dispose();
+            _hostedResources.Dispose();
             _iniEditor.Dispose();
             _modDrafts.Dispose();
             _modCopy.Dispose();
@@ -621,7 +713,11 @@ public sealed class ObsidianWindow : Form
                 {
                 string? methodName = null;
                 bool credentialRoute = false;
+                bool resourcesRoute = false;
+                bool activityRoute = false;
                 bool draftRoute = false;
+                bool modRepairRoute = false;
+                bool relocationRoute = false;
                 bool modCopyRoute = false;
                 bool modProfileRoute = false;
                 bool offlineClusterArchiveRoute = false;
@@ -685,6 +781,8 @@ public sealed class ObsidianWindow : Form
                             "curseforge.credentialStatus" or
                             "curseforge.credentialSave" or
                             "curseforge.credentialClear";
+                        resourcesRoute = name is "resources.status" or "resources.publish" or "resources.stop";
+                        activityRoute = name is "activity.status" or "activity.setEnabled" or "activity.clear";
                         updateRoute = name is "updates.status" or "updates.check";
                         updateInstallRoute = name is "updates.prepare" or "updates.install";
                         rconRoute = name is "rcon.status" or "rcon.listPlayers" or
@@ -767,11 +865,14 @@ public sealed class ObsidianWindow : Form
                             "cluster.multiHostRestoreRecoveryList" or
                             "cluster.multiHostRestoreRecoveryPreview" or "cluster.multiHostRestoreRecoveryApply" or
                             "cluster.multiHostRestoreStatus" or "cluster.multiHostCancel";
+                        relocationRoute = name is "servers.relocationPreview" or "servers.relocationApply";
+                        modRepairRoute = name is "mods.localRepairPreview" or "mods.localRepairApply" or "mods.localRepairStatus";
                         draftRoute = name is
                             "mods.draftStart" or "mods.draftStage" or
                             "mods.draftUndo" or "mods.draftRedo" or
                             "mods.draftDiscard" or "mods.draftSave";
-                        iniRoute = name is "ini.open" or "ini.preview" or
+                        iniRoute = name is "ini.openDraft" or "ini.stageDraft" or "ini.pendingStatus" or "ini.pendingDiscard" or
+                            "ini.open" or "ini.preview" or
                             "ini.rebasePreview" or "ini.save" or "ini.close" or
                             "ini.createGamePreview" or "ini.createGameApply";
                         registryRoute = name is "servers.inspectLocal" or
@@ -876,6 +977,8 @@ public sealed class ObsidianWindow : Form
                         : travelRoute ? await _travel.HandleAsync(incoming)
                         : rconRoute ? await _rcon.HandleAsync(incoming)
                         : updateRoute ? await _updates.HandleAsync(incoming)
+                        : activityRoute ? await _playerActivity.HandleAsync(incoming)
+                        : resourcesRoute ? await _hostedResources.HandleAsync(incoming)
                         : credentialRoute ? await _credentials.HandleAsync(incoming)
                         : pluginStateRoute ? await _pluginState.HandleAsync(incoming)
                         : multiHostBackupRoute ? await _multiHostBackup.HandleAsync(incoming)
@@ -883,6 +986,8 @@ public sealed class ObsidianWindow : Form
                         : offlineClusterArchiveRoute ? await _offlineClusterArchive.HandleAsync(incoming)
                         : modProfileRoute ? await _modProfiles.HandleAsync(incoming)
                         : modCopyRoute ? await _modCopy.HandleAsync(incoming)
+                        : relocationRoute ? await _relocation.HandleAsync(incoming)
+                        : modRepairRoute ? await _modRepair.HandleAsync(incoming)
                         : draftRoute ? await _modDrafts.HandleAsync(incoming)
                             : iniRoute ? await _iniEditor.HandleAsync(incoming)
                                 : clusterRegistryRoute ? await _clusterRegistry.HandleAsync(incoming)

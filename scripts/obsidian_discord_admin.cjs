@@ -25,11 +25,36 @@ const errors={
  'UM-STORE-NATIVE-PORT-IN-USE':'A map portja használatban van; indítás nem engedélyezett.',
  'UM-STEAM-STOPPED-ONLY':'A manuális szerverfrissítés csak igazoltan leállított mapnál engedélyezett.',
  'UM-DC-PROFILE-CHANGED':'A map beállítása megváltozott. Új előnézet szükséges.',
- 'UM-DC-HOST-BUSY':'A Manager foglalt. Ellenőrizd az állapotot.',
+ 'UM-DC-HOST-BUSY':'A host éppen más parancsot fogad. A kérés nem került kiküldésre; válassz új műveletet.',
+ 'UM-DC-MAP-BUSY':'A kiválasztott mapon még aktív vagy bizonytalan natív művelet van. Másik map választható.',
+ 'UM-DC-READ-BUSY':'A lekérdezési sáv foglalt; a szervervezérlés ettől független.',
+ 'UM-DC-READ-TIMEOUT':'A lekérdezés időkorlátja lejárt; a műveletek állapota ettől még nem változott.',
+ 'UM-DC-REPLY-PENDING':'A válasz még nem érkezett meg. Ellenőrizd a művelet UUID-ját; ne küldd újra.',
+ 'UM-DC-JOB-NOT-FOUND':'A natív nyugta még nem érhető el; a végrehajtás nem igazolt.',
+ 'UM-DC-JOB-NOT-CURRENT':'A natív job már nem a jelenlegi nyugta; a régi eredmény nem igazolt.',
+ 'UM-DC-HANDOFF':'A Manager saját frissítése miatt új parancs most nem adható.',
+ 'UM-DC-NATIVE-UNCERTAIN-NO-REPLAY':'A natív válasz bizonytalan; a műveletet nem ismételjük automatikusan.',
  'UM-DC-APPROVAL':'Lejárt vagy érvénytelen jóváhagyás.',
  'UM-DC-AUTH':'Nincs jogosultság ehhez a művelethez.'
 };
-function describeError(code){return errors[code]??'A művelet állapota nem igazolt. Ellenőrizd a Manager naplóját.';}
+const safeCode=code=>typeof code==='string'&&/^UM-[A-Z0-9_-]{1,150}$/.test(code)?code:null;
+const notDispatched=new Set(['UM-DC-AUTH','UM-DC-ID','UM-DC-APPROVAL','UM-DC-PROFILE-CHANGED','UM-DC-HOST-BUSY','UM-DC-MAP-BUSY','UM-DC-HANDOFF']);
+function describeError(code){return errors[code]??('A művelet állapota nem igazolt. '+(safeCode(code)?code+' · ':'')+'Ellenőrizd a Manager naplóját.');}
+function classifyOperationReply(reply){
+ if(reply?.ok===true)return {state:'native-receipt',mayHaveDispatched:true};
+ const code=safeCode(reply?.error),nativeCode=safeCode(reply?.nativeError);
+ const state=notDispatched.has(code)?'notDispatched':'uncertain-no-replay';
+ return {state,mayHaveDispatched:state!=='notDispatched',errorCode:code??'UM-DC-UNVERIFIED',nativeCode};
+}
+function classifyJobReceipt(data){
+ const state=data?.job?.state??data?.state;
+ if(state==='completed')return 'completed-native';
+ if(state==='notDispatched')return 'notDispatched';
+ if(state==='native-receipt'&&!data?.job)return 'receipt-only';
+ if(state==='claimed-no-replay')return 'claimed-no-replay';
+ if(['needsOperator','needsReview','reviewed','operatorReviewed','failed','cancelled','timedOut','uncertain-no-replay'].includes(state))return 'needs-review';
+ return data?.job?'running':'uncertain-no-replay';
+}
 function buildControlPanel(ids,{hostReady=false,restoreSupported=false}={}){
  const rows=[
  [['start',1,'▶️'],['start-api',3,'🟢'],['start-direct',3,'⚙️'],['stop',4,'⏹️'],['restart',1,'🔄']],
@@ -74,4 +99,4 @@ function validateHostInventory(status,{expectedHostId,expectedMapIds=[]}){
  const missing=expectedMapIds.filter(x=>!present.has(x.toLowerCase()));
  return {ok:missing.length===0,missing,registered:ids.length,discovered:Array.isArray(status.discoveredMaps)?status.discoveredMaps.length:0};
 }
-module.exports={buildControlPanel,buildAudit,describeError,validateHostInventory};
+module.exports={buildControlPanel,buildAudit,describeError,validateHostInventory,classifyOperationReply,classifyJobReceipt};

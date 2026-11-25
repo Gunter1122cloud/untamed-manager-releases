@@ -1,0 +1,2 @@
+# GAME-01 first slice
+Independent named engram draft editor informed by YARK src/shared/ini/engram-named-entries.ts. Edit/add/remove explicit known-field OverrideNamedEngramEntries lines using actual user-provided class names. Preserve index-based entries, unknown syntax, unrelated config and line endings. Refuse ambiguous duplicates and unsupported fields rather than rewriting unknown data. Integrates existing ETag preview/save stopped-map flow. No automatic catalog, invented mod class IDs, runtime proof, or pending-restart persistence yet.

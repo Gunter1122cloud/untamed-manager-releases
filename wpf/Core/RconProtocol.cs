@@ -262,6 +262,15 @@ public static class RconProtocol
             try{if(client!=null&&DateTimeOffset.UtcNow-lastUsed>TimeSpan.FromSeconds(45))Reset();}
             finally{lane.Release();}
         }
+        // A FIN/RST on an otherwise idle TCP connection is observable before
+        // sending any new request. Unread buffered packets are NOT a closure.
+        private bool SocketClosed()
+        {
+            if(client==null)return true;
+            try{return client.Client.Poll(0,SelectMode.SelectRead)&&client.Client.Available==0;}
+            catch(SocketException){return true;}
+            catch(ObjectDisposedException){return true;}
+        }
         private async Task Connect(int p,DateTimeOffset started,int endpoint,string password,string hash,
             CancellationToken ct)
         {
@@ -298,7 +307,7 @@ public static class RconProtocol
                     try
                     {
                         verifyOwner();
-                        if(client==null||pid!=p||epoch!=started||port!=endpoint||credentialHash!=hash||
+                        if(client==null||pid!=p||epoch!=started||port!=endpoint||credentialHash!=hash||SocketClosed()||
                            DateTimeOffset.UtcNow-lastUsed>TimeSpan.FromSeconds(45)||nextId>int.MaxValue-4)
                             await Connect(p,started,endpoint,password,hash,deadline.Token);
                         verifyOwner();deadline.Token.ThrowIfCancellationRequested();

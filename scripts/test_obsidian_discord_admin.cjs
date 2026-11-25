@@ -1,6 +1,6 @@
 'use strict';
 const {test}=require('node:test');const assert=require('node:assert/strict');
-const {buildControlPanel,buildAudit,describeError,validateHostInventory}=require('./obsidian_discord_admin.cjs');
+const {buildControlPanel,buildAudit,describeError,validateHostInventory,classifyOperationReply,classifyJobReceipt}=require('./obsidian_discord_admin.cjs');
 const actions=['start','start-api','start-direct','stop','restart','save','wipe','rcon','players','backup','restore','points','update'];
 const ids=Object.fromEntries(actions.map(x=>[x,'existing:'+x]));
 test('all controls retain existing route IDs and are grouped',()=>{
@@ -24,4 +24,15 @@ test('dynamic host register validation, no hardcoded five; fail missing or dupli
  assert.equal(validateHostInventory({...inventory,maps:inventory.maps.slice(1)},{expectedHostId:'hp',expectedMapIds:ids}).ok,false);
  assert.equal(validateHostInventory({...inventory,maps:[...inventory.maps,inventory.maps[0]]},{expectedHostId:'hp',expectedMapIds:ids}).ok,false);
  assert.equal(validateHostInventory(inventory,{expectedHostId:'wrong',expectedMapIds:ids}).ok,false);
+});
+
+test('busy denial is not dispatched; ambiguous native or transport response is never replayed',()=>{
+ assert.equal(classifyOperationReply({ok:false,error:'UM-DC-MAP-BUSY'}).state,'notDispatched');
+ assert.equal(classifyOperationReply({ok:false,error:'UM-DC-HOST-BUSY'}).mayHaveDispatched,false);
+ assert.equal(classifyOperationReply({ok:false,error:'UM-DC-REPLY-PENDING'}).mayHaveDispatched,true);
+ assert.equal(classifyOperationReply({ok:false,error:'UM-DC-NATIVE-UNCERTAIN-NO-REPLAY',nativeError:'UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR'}).nativeCode,'UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR');
+ assert.equal(classifyOperationReply(null).state,'uncertain-no-replay');
+ assert.equal(classifyJobReceipt({state:'claimed-no-replay'}),'claimed-no-replay');
+ assert.equal(classifyJobReceipt({job:{state:'completed'}}),'completed-native');
+ assert.equal(classifyJobReceipt({job:{state:'failed'}}),'needs-review');
 });

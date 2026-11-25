@@ -532,7 +532,14 @@ public sealed class DesktopWorldBackupBridge
                                 return Fail(id,"UM-BACKUP-SCHEDULE-SCOPE");
                             fullLocal=scope.GetBoolean();
                         }
-                        scheduled.Configure(owned.Id,minutes,fullLocal:fullLocal);
+                        bool profilesOnly=false;
+                        if(root.TryGetProperty("profilesOnly",out var profiles))
+                        {
+                            if(profiles.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                                return Fail(id,"UM-BACKUP-SCHEDULE-SCOPE");
+                            profilesOnly=profiles.GetBoolean();
+                        }
+                        scheduled.Configure(owned.Id,minutes,fullLocal:fullLocal,profilesOnly:profilesOnly);
                     }
                     else if(method=="backup.scheduleDisable")
                     {
@@ -550,7 +557,7 @@ public sealed class DesktopWorldBackupBridge
                         lastAttemptUtc=row?.LastAttemptUtc,
                         lastStatus=row?.LastStatus??"not-configured",
                         lastPoint=row?.LastPoint,
-                        fullLocal=row?.FullLocal??false,
+                        fullLocal=row?.FullLocal??false,profilesOnly=row?.ProfilesOnly??false,
                         runnerState=scheduled.RuntimeState,
                         storeProtected=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(owned),
                         canSchedule=scheduled.CanSchedule(owned),

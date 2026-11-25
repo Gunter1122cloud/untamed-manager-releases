@@ -119,6 +119,8 @@ public static class ModStateController
                 "Passive mods must be a subset of -mods and disabled mods cannot be enabled");
         var passiveSet=new HashSet<string>(passive,StringComparer.Ordinal);
         var active=enabled.Where(id=>!passiveSet.Contains(id)).ToArray();
+        if(!string.IsNullOrEmpty(map.MapModProjectId)&&!active.Contains(map.MapModProjectId,StringComparer.Ordinal))
+            throw new InvalidDataException("UM-MAP-MOD-MUST-BE-ACTIVE");
         return new(active,passive,disabled,map.ModChangesPending){
             EnabledOrder=enabled
         };
@@ -140,6 +142,8 @@ public static class ModStateController
         if(edit.ModId==null || !Regex.IsMatch(edit.ModId,@"\A[0-9]{5,12}\z"))
             throw new InvalidDataException("Invalid project ID");
         var before=Read(map);
+        if(!string.IsNullOrEmpty(map.MapModProjectId)&&edit.ModId==map.MapModProjectId&&edit.Target!=ModMode.Active)
+            throw new InvalidOperationException("UM-MAP-MOD-CANNOT-DISABLE");
         var active=before.Active.ToList();
         var passive=before.Passive.ToList();
         var disabled=before.Disabled.ToList();

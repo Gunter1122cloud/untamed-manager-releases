@@ -104,10 +104,27 @@ async function atomic(file,state){
  }finally{if(fd)await fd.close();await fs.rm(tmp,{force:true});}
 }
 export class OperationFeed {
- constructor({statePath,hosts,channels,botUserId,request,channelFor,onProblem=()=>{},clock=()=>Date.now()}){
+ constructor({statePath,hosts,channels,botUserId,request,channelFor,onProblem=()=>{},clock=()=>Date.now(),ioTimeoutMs=10_000}){
    this.file=statePath;this.hosts=hosts;this.channels=channels;this.bot=botUserId;
    this.request=request;this.channelFor=channelFor;this.onProblem=onProblem;this.clock=clock;
    this.busy=false;this.state=null;
+   if(!Number.isInteger(ioTimeoutMs)||ioTimeoutMs<10||ioTimeoutMs>30_000)throw Error("EVENT_IO_TIMEOUT_INVALID");
+   this.ioTimeoutMs=ioTimeoutMs;this.inflight=new Map();
+ }
+ // Bound external I/O, never the atomic local state writes. Keep the
+ // in-flight key until the real request settles, ignoring late results.
+ async io(key,run){
+   if(this.inflight.has(key))throw Error("EVENT_IO_STILL_PENDING");
+   const pending=Promise.resolve().then(run);
+   this.inflight.set(key,pending);
+   const clear=()=>{if(this.inflight.get(key)===pending)this.inflight.delete(key);};
+   pending.then(clear,clear);
+   let timer;
+   try{
+     return await Promise.race([pending,new Promise((_,reject)=>{
+       timer=setTimeout(()=>reject(Error("EVENT_IO_TIMEOUT")),this.ioTimeoutMs);
+     })]);
+   }finally{clearTimeout(timer);}
  }
  async load(){
    if(this.state)return;
@@ -121,7 +138,7 @@ export class OperationFeed {
  // request exclusion. tick() itself is single-flight.
  async poll(host){
    let old=this.state.hosts[host.id];
-   const page=await this.request(host,"events",{cursor:old?.cursor??null,limit:50});
+   const page=await this.io("host:"+host.id,()=>this.request(host,"events",{cursor:old?.cursor??null,limit:50}));
    validatePage(page,host,old);
    if(old?.cursor===page.nextCursor&&!page.events.length&&!old.lastError)return page.more;
    const next=structuredClone(this.state);
@@ -190,7 +207,7 @@ export class OperationFeed {
    // not prove absence; ambiguous sends NEVER trigger a blind resend.
    let before;
    for(let n=0;n<10;n++){
-     const collection=await channel.messages.fetch({limit:100,...(before?{before}:{})});
+     const collection=await this.io("scan:"+item.channel,()=>channel.messages.fetch({limit:100,...(before?{before}:{})}));
      const rows=[...collection.values()];
      const found=rows.filter(m=>m.author?.id===this.bot&&m.embeds?.some(e=>e.footer?.text?.startsWith(item.marker+" · ")));
      if(found.length>1)throw Error("EVENT_DUPLICATE_DISCORD_MARKER");
@@ -207,11 +224,11 @@ export class OperationFeed {
    let item=this.state.outbox[k];
    if(!item||item.status==="sent")return;
    if(item.retryAt&&this.clock()<item.retryAt)return;
-   const channel=await this.channelFor(item.channel);
+   const channel=await this.io("channel:"+item.channel,()=>this.channelFor(item.channel));
    if(!channel?.messages||typeof channel.send!=="function")throw Error("EVENT_CHANNEL_NOT_SENDABLE");
    let message;
    if(item.messageId){
-     try{message=await channel.messages.fetch(item.messageId);}
+     try{message=await this.io("fetch:"+item.channel,()=>channel.messages.fetch(item.messageId));}
      catch(e){if(e.code!==10008&&e.code!=="10008")throw e;
        // Confirmed unknown-message: do not recreate alerts; repair only the
        // editable admin/backup/update log with a new send intent.
@@ -226,14 +243,14 @@ export class OperationFeed {
    const payload=this.payload(item);
    if(message){
      if(message.author?.id!==this.bot||!message.embeds?.some(e=>e.footer?.text?.startsWith(item.marker+" · ")))throw Error("EVENT_MESSAGE_IDENTITY_MISMATCH");
-     if(!item.kind.startsWith("alert-"))await message.edit(payload);
+     if(!item.kind.startsWith("alert-"))await this.io("mutation:"+k,()=>message.edit(payload));
      await this.updateItem(k,{status:"sent",messageId:message.id,problem:null,retryAt:null,checkedUtc:this.clock()});return;
    }
    await this.updateItem(k,{status:"sending",attemptUtc:new Date(this.clock()).toISOString()});
    try{
      // Discord nonce enforcement is only a bounded server-side dedup aid;
      // it is NOT relied on for exactly-once across arbitrary time gaps.
-     message=await channel.send({...payload,nonce:nonce(k+":"+(item.generation??0)),enforceNonce:true});
+     message=await this.io("mutation:"+k,()=>channel.send({...payload,nonce:nonce(k+":"+(item.generation??0)),enforceNonce:true}));
      await this.updateItem(k,{status:"sent",messageId:message.id,problem:null});
    }catch(e){
      const status=e.status??e.httpStatus;
@@ -250,7 +267,7 @@ export class OperationFeed {
    try{
      await this.load();let after=this.state.hosts[host.id]?.historyCursor??null;
      for(let i=0;i<maxPages;i++){
-       const page=await this.request(host,"scheduleHistory",{afterRunId:after,limit:50});
+       const page=await this.io("host:"+host.id,()=>this.request(host,"scheduleHistory",{afterRunId:after,limit:50}));
        if(page.version!==1||page.hostId!==host.id||page.gap||page.state!=="ok"||!Array.isArray(page.runs))throw Error("EVENT_HISTORY_GAP");
        const next=structuredClone(this.state);next.hosts[host.id]??={};
        for(const row of page.runs){
@@ -311,8 +328,8 @@ export class OperationFeed {
        .sort((a,b)=>(a.checkedUtc??0)-(b.checkedUtc??0)).slice(0,2);
      for(const item of due){
        try{
-         const channel=await this.channelFor(item.channel);
-         const message=await channel.messages.fetch(item.messageId);
+         const channel=await this.io("channel:"+item.channel,()=>this.channelFor(item.channel));
+         const message=await this.io("fetch:"+item.channel,()=>channel.messages.fetch(item.messageId));
          if(message.author?.id!==this.bot||!message.embeds?.some(e=>e.footer?.text?.startsWith(item.marker+" · ")))throw Error("EVENT_MESSAGE_IDENTITY_MISMATCH");
          await this.updateItem(item.key,{checkedUtc:this.clock()});
        }catch(e){

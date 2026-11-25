@@ -58,6 +58,15 @@ static bool IsError(JsonElement value,string code)=>
     value.GetProperty("error").GetString()==code;
 
 OriginalStoreExpandedDonePeerTests.Run();
+LocalLogCenterBoundedTests.Run();
+await HostedResourcesTests.RunAsync();
+await PlayerActivityNativeTests.RunAsync();
+FreshStoreMultiHostTests.Run();
+PlayerProfileBackupTests.Run();
+LocalModRepairTests.Run();
+PendingGameIniTests.Run();
+InstallationRelocationTests.Run();
+MapModIdentityTests.Run();
 
 AsaInitialRconSettings.ValidateExistingAdminPassword("Old7!xx");
 Check(true,"existing ASA INI credentials may be shorter than new credentials");
@@ -711,6 +720,19 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         deniedEvent.RegistrationState=="loader-child-arguments-conflict"&&!deniedEvent.Controllable,
         "conflicting Event parent/child metadata is never published as an exact launch list");
 }
+// Map scope reservations never evict a live same-map worker; unrelated
+// operations can proceed, and every terminal/failure finally releases scope.
+{
+    var scope=new DiscordMapReservation();Guid a=Guid.NewGuid(),b=Guid.NewGuid(),c=Guid.NewGuid();
+    Check(scope.TryBeginWorker(a)&&!scope.TryReserve(new[]{a}),"Discord scope denies same active map");
+    Check(scope.TryReserve(new[]{b})&&scope.HasReservation&&!scope.TryBeginWorker(b)&&scope.TryBeginWorker(c),
+        "Discord scope allows unrelated maps and excludes new same-map schedules");
+    scope.Release();scope.EndWorker(a);scope.EndWorker(c);
+    Check(scope.TryBeginWorker(b),"Discord scope releases after dispatch");
+    scope.EndWorker(b);
+    Check(scope.TryReserve(new[]{a,b}),"Discord scope permits later operations on released maps");
+    scope.Release();
+}
 // Test the exact API authorization/dispatch boundary using an isolated profile.
 // No actual server, network listener, RCON or SteamCMD is invoked.
 {
@@ -810,6 +832,7 @@ LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();
 await RunningAsaRegistrationTests.Run(root);
 await ClusterRegistryTests.Run(root);
+FutureStoreAppendPlannerTests.Run(root);
 await LegacyStorePhysicalTransferTests.Run(root);
 LegacyStoreOriginalLinkTests.Run(root);
 OriginalStoreLiveBatchEvidenceTests.Run(root);
@@ -833,6 +856,7 @@ await LegacyStoreSaveReceiptPairTests.Run(root);
 await FreshStoreEnrollmentTests.Run(root);
 await OwnedAsaKillBridgeTests.Run(root);
 DesktopStartupModeTests.Run();
+DesktopLoginStartupTests.Run();
 // A real SQLite .ark COPY fixture tests the actual metadata reader, not a
 // mocked parser. No server process, production Store writer, or network share.
 {
@@ -2726,8 +2750,64 @@ try
             new{name="Ragnarok",root=Path.Combine(root,"does-not-exist")});
         Check(IsError(invalid,"UM-IMPORT-DIRECTORY-MISSING"),
             "import refuses missing local installation");
+        string diagnosticRoot=Path.Combine(root,"import-health-test");
+        Directory.CreateDirectory(diagnosticRoot);
+        Check(IsError(await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Diagnostic map",root=diagnosticRoot}),"UM-ASA-INSTALL-EMPTY"),
+            "import distinguishes an empty install directory");
+        File.WriteAllText(Path.Combine(diagnosticRoot,"foreign.txt"),"untouched");
+        Check(IsError(await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Diagnostic map",root=diagnosticRoot}),"UM-ASA-INSTALL-FOREIGN"),
+            "import refuses unrelated installation contents");
+        string diagnosticBinaries=Path.Combine(diagnosticRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(diagnosticBinaries);
+        Check(IsError(await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Diagnostic map",root=diagnosticRoot}),"UM-ASA-INSTALL-INCOMPLETE"),
+            "import identifies incomplete ASA installation");
+        string diagnosticExe=Path.Combine(diagnosticBinaries,"ArkAscendedServer.exe");
+        File.WriteAllBytes(diagnosticExe,Array.Empty<byte>());
+        Check(IsError(await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Diagnostic map",root=diagnosticRoot}),"UM-ASA-EXE-EMPTY"),
+            "import refuses empty executable");
+        File.WriteAllText(diagnosticExe,"SYNTHETIC");
+        var diagnosticPreview=await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Diagnostic map",root=diagnosticRoot});
+        IsOk(diagnosticPreview,"nonempty synthetic executable is accepted for profile-only preview");
+        File.WriteAllBytes(diagnosticExe,Array.Empty<byte>());
+        Check(IsError(await Call(importer.HandleAsync,"servers.importLocal",new{
+            importToken=diagnosticPreview.GetProperty("data").GetProperty("importToken").GetString()
+        }),"UM-ASA-EXE-EMPTY"),"apply repeats install diagnostics and rejects changed executable");
+        Check(!cluster.Config.LocalMaps.Any(m=>m.Name=="Diagnostic map")&&
+            File.ReadAllText(Path.Combine(diagnosticRoot,"foreign.txt"))=="untouched",
+            "failed diagnostic import changes neither profile nor unrelated files");
+        // All canonical nested selections resolve to the same installation.
+        foreach(string nested in new[]{Path.Combine(candidate,"ShooterGame"),
+            Path.Combine(candidate,"ShooterGame","Binaries"),binaries})
+        {
+            var nestedPreview=await Call(importer.HandleAsync,"servers.inspectLocal",
+                new{name="Ragnarok",root=nested});
+            IsOk(nestedPreview,"canonical nested ASA folder resolves to installation root");
+            Check(nestedPreview.GetProperty("data").GetProperty("rootResolvedFromNestedFolder").GetBoolean()&&
+                nestedPreview.GetProperty("data").GetProperty("folderName").GetString()==Path.GetFileName(candidate),
+                "nested preview pins canonical installation folder");
+        }
+        string saved=Path.Combine(candidate,"ShooterGame","Saved");
+        File.WriteAllText(saved,"unexpected file");
+        Check(IsError(await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Ragnarok",root=binaries}),"UM-IMPORT-SAVE-LAYOUT-UNVERIFIED"),
+            "invalid Saved path is never treated as empty");
+        File.Delete(saved);
+        string existingWorld=Path.Combine(saved,"SavedArks","CustomFutureSlot");
+        Directory.CreateDirectory(existingWorld);
+        string world=Path.Combine(existingWorld,"Future_WP.ark");
+        File.WriteAllText(world,"world must not be imported as fresh");
+        Check(IsError(await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Ragnarok",root=binaries}),"UM-EXISTING-WORLD-REQUIRES-PRESERVED-IMPORT")&&
+            File.ReadAllText(world)=="world must not be imported as fresh",
+            "nested import detects custom existing worlds without modifying them");
+        Directory.Delete(saved,true);
         var prepared=await Call(importer.HandleAsync,"servers.inspectLocal",
-            new{name="Ragnarok",root=candidate});
+            new{name="Ragnarok",root=binaries});
         IsOk(prepared,"new local ASA installation is probed without modifying it");
         var token=prepared.GetProperty("data").GetProperty("importToken").GetString()!;
         var invalidReinspect=await Call(importer.HandleAsync,"servers.inspectLocal",
@@ -3246,6 +3326,12 @@ try
         catch(InvalidDataException){officialOverride=true;}
         Check(unsafeLevel&&officialOverride,
             "native catalog rejects launch-switch injection and official level override");
+        Check(AsaSteamMapCatalog.LevelForNewInstallation("Astraeos 2","Astraeos_WP")==
+            AsaSteamMapCatalog.LevelFor("Astraeos")&&
+            AsaSteamMapCatalog.LevelForNewInstallation("Extinction 2","Extinction_WP")==
+            AsaSteamMapCatalog.LevelFor("Extinction")&&
+            AsaSteamMapCatalog.LevelForNewInstallation("Future DLC","FutureDLC_WP")=="FutureDLC_WP",
+            "instance display name is independent of known or future level identity");
 
         async Task<SteamFreshInstallReceipt> SyntheticCustomRunner(
             SteamFreshInstallRequest request,LocalMap[] existing,

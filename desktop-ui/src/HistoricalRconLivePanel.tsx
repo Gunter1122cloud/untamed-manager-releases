@@ -1,3 +1,5 @@
+import {RconHistoryPanel} from "./RconHistoryPanel";
+import {recordRconEvent} from "./state/rconHistory";
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,FileText,RefreshCw,Shield,Users} from "lucide-react";
 import {managerBridge,type HistoricalRconLiveStatus,
@@ -68,6 +70,7 @@ export function HistoricalRconLivePanel({mapId,running}:{
          response.command!==command||!response.readOnly||response.storeTouched)
         throw new Error("UM-STORE-RCON-REPLY-IDENTITY-MISMATCH");
       setResult(response);
+      recordRconEvent(requested,command,"reply");
     }catch{
       if(belongs(requested,epoch)){
         setStatus(null);
@@ -111,6 +114,7 @@ export function HistoricalRconLivePanel({mapId,running}:{
         <CheckCircle2 size={16}/> A kiválasztott map helyi ASA PID-je,
         TCP RCON-portja és az INI azonosítva. A kétgépes karakterutazás külön ellenőrzendő.
       </div>}
+      <RconHistoryPanel mapId={mapId} disabled={busy||!status?.permitted} onRead={kind=>{void read(kind==="ListPlayers"?"players":kind==="GetGameLog"?"game":"chat");}}/>
       {result&&<div className="premium-log-view" role="region"
         aria-label="Eredeti Store-v1 RCON válasz">
         <div className="details-line"><span>RCON parancs</span><b>{result.command}</b></div>

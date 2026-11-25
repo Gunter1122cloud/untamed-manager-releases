@@ -44,7 +44,13 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     // All observation requests share one read lane (including the mutable
     // CPU/player sample caches). Only approval and mutation use the host gate.
     private readonly SemaphoreSlim observationGate=new(1,1);
-    private readonly Func<bool> frozen,enterLane;
+    private readonly SemaphoreSlim playerGate=new(1,1);
+    private readonly SemaphoreSlim backupReadGate=new(1,1);
+    private readonly SemaphoreSlim jobGate=new(1,1);
+    private readonly SemaphoreSlim eventGate=new(1,1);
+    private readonly SemaphoreSlim historyGate=new(1,1);
+    private readonly Func<bool> frozen;
+    private readonly Func<Guid[],bool> enterLane;
     private readonly Action leaveLane;
     private readonly Func<string,string,Task<string>> native;
     private readonly Func<DesktopAutomaticAsaDiscoverySupervisor.State>? discovery;
@@ -61,7 +67,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     private readonly string root,settingsPath,auditFolder;
     private readonly CancellationTokenSource closing=new();
     private readonly Dictionary<Guid,Approval> approvals=new();
-    private readonly Dictionary<Guid,CountSample> players=new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid,CountSample> players=new();
     private readonly Dictionary<Guid,CpuSample> cpu=new();
     private Settings? settings;
     private X509Certificate2? certificate;
@@ -70,10 +76,12 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     internal DesktopDiscordControlApi(ClusterService cluster,SemaphoreSlim hostGate,Func<bool> frozen,
         Func<bool> enterLane,Action leaveLane,Func<string,string,Task<string>> native,
         Func<DesktopAutomaticAsaDiscoverySupervisor.State>? discovery=null,
-        Func<Guid?,int,object>? legacySchedules=null)
+        Func<Guid?,int,object>? legacySchedules=null,
+        Func<Guid[],bool>? scopedEnter=null,Action? scopedLeave=null)
     {
         this.cluster=cluster;this.hostGate=hostGate;this.frozen=frozen;
-        this.enterLane=enterLane;this.leaveLane=leaveLane;this.native=native;
+        if((scopedEnter==null)!=(scopedLeave==null))throw new ArgumentException("Paired scoped lane required");
+        this.enterLane=scopedEnter??(_=>enterLane());this.leaveLane=scopedLeave??leaveLane;this.native=native;
         this.discovery=discovery;this.legacySchedules=legacySchedules;
         eventStream=new DiscordOperationEvents(cluster);
         root=Path.Combine(cluster.Store.Root,"discord-control-v1");
@@ -196,7 +204,18 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         using var doc=JsonDocument.Parse(bytes,new JsonDocumentOptions{MaxDepth=12});
         if(!Authorize(settings!,doc.RootElement,DateTimeOffset.UtcNow))return;
         timeout.CancelAfter(Timeout.InfiniteTimeSpan);
-        string reply=await Handle(doc.RootElement,settings!);
+        // A disconnected/slow client cannot hold all four TCP slots forever.
+        // The native task retains its actual lease and durable claim until
+        // it completes. Never cancel/replay a possibly dispatched mutation.
+        var request=doc.RootElement.Clone();
+        Task<string> handling=Handle(request,settings!);
+        string reply;
+        try{reply=await handling.WaitAsync(TimeSpan.FromSeconds(20),closing.Token);}
+        catch(TimeoutException)
+        {
+            reply=Error(Field(request,"kind",32)=="apply"?"UM-DC-REPLY-PENDING":"UM-DC-READ-TIMEOUT");
+            _=handling.ContinueWith(t=>{_=t.Exception;},TaskContinuationOptions.OnlyOnFaulted);
+        }
         if(Encoding.UTF8.GetByteCount(reply)>1_048_576)reply=Error("UM-DC-RESPONSE-LIMIT");
         byte[] output=Encoding.UTF8.GetBytes(reply);
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(header,(uint)output.Length);
@@ -393,7 +412,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             players[id]=new(pid,start,count,now);
             return new{mapId=id,playerCount=count,response,observedUtc=now};
         }
-        catch{players.Remove(id);return new{mapId=id,playerCount=(int?)null,response="",observedUtc=now};}
+        catch{players.TryRemove(id,out _);return new{mapId=id,playerCount=(int?)null,response="",observedUtc=now};}
     }
     private async Task<Approval> Preview(JsonElement request,string actor,string channel)
     {
@@ -476,7 +495,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         approvals.Remove(p.Token);
         if(p.Maps.Select(Owned).Select(Profile).Where((hash,i)=>hash!=p.Profiles[i]).Any())
             return Error("UM-DC-PROFILE-CHANGED");
-        if(!enterLane())return Error("UM-DC-HOST-BUSY");
+        if(!enterLane(p.Maps))return Error("UM-DC-MAP-BUSY");
         try
         {
             var row=new Audit(requestId,DateTimeOffset.UtcNow,actor,p.Action,p.Maps,"claimed-no-replay",null,null,
@@ -522,9 +541,12 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             }
             catch(Exception ex)
             {
+                // Preserve a safe native reason without claiming a failed
+                // response proves no side effect occurred.
+                string reason=Regex.IsMatch(ex.Message,@"\AUM-[A-Z0-9_-]{1,150}\z")?ex.Message:"UM-DC-NATIVE-UNCERTAIN-NO-REPLAY";
                 Finish(row with{State="uncertain-no-replay"});
-                eventStream.Record(row.RequestId,row.Maps,row.Action,"discord",row.Actor,"terminal","uncertain","NATIVE_DISPATCH_UNCERTAIN_NO_REPLAY",DateTimeOffset.UtcNow);
-                return Error(ex.Message.StartsWith("UM-DC-",StringComparison.Ordinal)?"UM-DC-UNCERTAIN-NO-REPLAY":"UM-DC-NATIVE-UNCERTAIN-NO-REPLAY");
+                eventStream.Record(row.RequestId,row.Maps,row.Action,"discord",row.Actor,"terminal","uncertain",reason,DateTimeOffset.UtcNow);
+                return JsonSerializer.Serialize(new{ok=false,error="UM-DC-NATIVE-UNCERTAIN-NO-REPLAY",nativeError=reason,operationId=row.RequestId},Json);
             }
         }
         finally{leaveLane();}
@@ -533,12 +555,16 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     {
         if(!Authorize(cfg,a,DateTimeOffset.UtcNow))return Error("UM-DC-AUTH");
         string requestedKind=Field(a,"kind",32);
-        var lane=requestedKind is "status" or "players" or "job" or "events" or "scheduleHistory" or "backupHistory"
-            ?observationGate:hostGate;
-        if(!await lane.WaitAsync(TimeSpan.FromSeconds(2)))return Error("UM-DC-HOST-BUSY");
+        // A slow player/backup probe must not starve job receipts or events.
+        var lane=requestedKind switch{
+            "status"=>observationGate,"players"=>playerGate,"job"=>jobGate,
+            "events"=>eventGate,"scheduleHistory"=>historyGate,"backupHistory"=>backupReadGate,
+            _=>hostGate};
+        if(!await lane.WaitAsync(TimeSpan.FromSeconds(2)))
+            return Error(ReferenceEquals(lane,hostGate)?"UM-DC-HOST-BUSY":"UM-DC-READ-BUSY");
         try
         {
-            if(frozen()||closing.IsCancellationRequested)return Error("UM-DC-HANDOFF");
+            if(closing.IsCancellationRequested||ReferenceEquals(lane,hostGate)&&frozen())return Error("UM-DC-HANDOFF");
             if(!Authorize(cfg,a,DateTimeOffset.UtcNow))return Error("UM-DC-AUTH");
             Guid id=a.GetProperty("requestId").GetGuid();if(id==Guid.Empty)return Error("UM-DC-ID");
             string actor=Field(a,"userId",25),channel=Field(a,"channelId",25);
@@ -568,7 +594,10 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             }
             if(kind=="job")
             {
-                var row=ReadAudit(a.GetProperty("operationId").GetGuid());
+                Guid operationId=a.GetProperty("operationId").GetGuid();
+                if(operationId==Guid.Empty)return Error("UM-DC-ID");
+                if(!File.Exists(AuditPath(operationId)))return Error("UM-DC-JOB-NOT-FOUND");
+                var row=ReadAudit(operationId);
                 if(row.NativeJobId==null||row.StatusRoute==null)return Ok(row);
                 if(row.StatusRoute is not ("operations.lifecycleBatchCurrent" or "historical.restartStatus" or
                     "servers.restartStatus" or "historical.gracefulStopStatus" or "servers.gracefulStopStatus" or

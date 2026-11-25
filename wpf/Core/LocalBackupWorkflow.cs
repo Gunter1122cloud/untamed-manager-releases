@@ -6,7 +6,7 @@ using System.Linq;
 namespace UntamedManager.Core;
 
 [Flags]
-public enum LocalBackupScope { None=0, WorldAndProfiles=1, Ini=2, Plugins=4 }
+public enum LocalBackupScope { None=0, WorldAndProfiles=1, Ini=2, Plugins=4, PlayerProfiles=8 }
 
 // File-integrity-only backup of explicitly owned local maps. Never accesses Kova Store,
 // cluster shares or SQL, and never claims live ASA save consistency.
@@ -45,7 +45,7 @@ public static class LocalBackupWorkflow
             throw new InvalidDataException("Map identity required");
         RequireStopped(check);
         if(scope==LocalBackupScope.None ||
-           (scope & ~(LocalBackupScope.WorldAndProfiles|LocalBackupScope.Ini|LocalBackupScope.Plugins))!=0)
+           (scope & ~(LocalBackupScope.WorldAndProfiles|LocalBackupScope.Ini|LocalBackupScope.Plugins|LocalBackupScope.PlayerProfiles))!=0)
             throw new InvalidDataException("Unsupported backup scope");
         string root=FixedLocalPath(map.InstallationPath);
         string target=FixedLocalPath(destination);
@@ -57,7 +57,7 @@ public static class LocalBackupWorkflow
         if(Directory.Exists(target)||Directory.Exists(staging)||
            File.Exists(target)||File.Exists(staging))
             throw new IOException("Backup target or interrupted backup already exists");
-        var paths=SelectFiles(root,scope);
+        var paths=SelectFiles(root,scope,map);
         ValidateCriticalSaveLengths(paths,UntamedWorldBackup.HasLiveOrHistoricalStore(map),
             scope.HasFlag(LocalBackupScope.WorldAndProfiles));
         long bytes=0;
@@ -95,7 +95,7 @@ public static class LocalBackupWorkflow
         // SteamCMD/desktop caller passes a FRESH OS process observer, so a
         // process starting during file copy blocks backup publication.
         void Recheck()=>RequireStopped(checkCurrent?.Invoke()??check);
-        if(scope==LocalBackupScope.None || (scope & ~(LocalBackupScope.WorldAndProfiles|LocalBackupScope.Ini|LocalBackupScope.Plugins))!=0)
+        if(scope==LocalBackupScope.None || (scope & ~(LocalBackupScope.WorldAndProfiles|LocalBackupScope.Ini|LocalBackupScope.Plugins|LocalBackupScope.PlayerProfiles))!=0)
             throw new InvalidDataException("Unsupported backup scope");
         var root=FixedLocalPath(map.InstallationPath);
         using var operation=new UntamedOperationCoordinator().Acquire(root,UntamedOperationKind.Backup);
@@ -108,7 +108,7 @@ public static class LocalBackupWorkflow
         FixedLocalPath(staging);
         if(Directory.Exists(target)||Directory.Exists(staging)||File.Exists(target)||File.Exists(staging))
             throw new IOException("Target or interrupted backup already exists");
-        var paths=SelectFiles(root,scope);
+        var paths=SelectFiles(root,scope,map);
         ValidateCriticalSaveLengths(paths,UntamedWorldBackup.HasLiveOrHistoricalStore(map),
             scope.HasFlag(LocalBackupScope.WorldAndProfiles));
         // Fail before staging if this fixed local disk cannot hold the selected files.
@@ -149,7 +149,7 @@ public static class LocalBackupWorkflow
                !System.Security.Cryptography.SHA256.HashData(stream).AsSpan().SequenceEqual(Convert.FromHexString(file.Sha256)))
                 throw new InvalidDataException("Source changed while backing up");
         }
-        var finalPaths=SelectFiles(root,scope);
+        var finalPaths=SelectFiles(root,scope,map);
         if(!paths.Keys.SequenceEqual(finalPaths.Keys,StringComparer.OrdinalIgnoreCase))
             throw new InvalidDataException("Source file set changed while backing up");
         BackupIntegrity.Verify(data,manifest,map.Id);
@@ -238,10 +238,23 @@ public static class LocalBackupWorkflow
             throw new InvalidDataException("UM-BACKUP-VALID-WORLD-MISSING");
     }
 
-    private static SortedDictionary<string,string> SelectFiles(string root,LocalBackupScope scope)
+    private static SortedDictionary<string,string> SelectFiles(string root,LocalBackupScope scope,LocalMap map)
     {
         var paths=new SortedDictionary<string,string>(StringComparer.OrdinalIgnoreCase);
         string saved=Path.Combine(root,"ShooterGame","Saved");
+        if(scope.HasFlag(LocalBackupScope.PlayerProfiles))
+        {
+            // Store-v1 embeds characters in the world. Never certify loose placeholders.
+            if(scope!=LocalBackupScope.PlayerProfiles||UntamedWorldBackup.HasLiveOrHistoricalStore(map)||
+                FreshStoreEnrollmentPolicy.IsEnrolled(map))
+                throw new InvalidDataException("UM-BACKUP-PROFILE-SCOPE-NONSTORE-ONLY");
+            string world=AsaSaveLayoutResolver.Resolve(map).WorldDirectory;
+            foreach(string file in Directory.EnumerateFiles(world,"*",SearchOption.TopDirectoryOnly))
+                if(Path.GetExtension(file).Equals(".arkprofile",StringComparison.OrdinalIgnoreCase))
+                    AddFile(root,file,paths);
+            if(paths.Count==0)throw new InvalidDataException("UM-BACKUP-NO-LOOSE-PLAYER-PROFILES");
+            return paths;
+        }
         if(scope.HasFlag(LocalBackupScope.WorldAndProfiles))
         {
             if(Directory.Exists(saved))

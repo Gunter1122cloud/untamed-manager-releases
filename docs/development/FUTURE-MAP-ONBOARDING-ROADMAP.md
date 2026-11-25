@@ -52,3 +52,7 @@ A Store-indítási jelző és a cluster-regiszter bejegyzése nem bizonyítja a 
 ## Késznek csak akkor tekinthető
 
 Ha az új map ténylegesen telepíthető, regisztrálható, biztonságosan hozzárendelhető, Store-kompatibilitása külön bizonyított, a Manager + Discord jogosultságai helyesek, és újabb mapnál sem kell kódot írni a pályanévhez. Egyetlen UI-kattintás vagy Store flag önmagában nem bizonyítja ezt.
+
+
+## N-host new Store transfer admission
+New nonhistorical empty-map enrollment accepts remote membership only after every registered remote owner returns a fresh authenticated status with exact local member IDs and the same UNC filesystem directory fingerprint. Persist a cluster/directory-bound local admission pin; an admitted map does not require remote uptime for local lifecycle. No raw paths or credentials in evidence, no remote write commands, no conversion or legacy ACTIVE/DONE rewrite. Old local profiles without the pin must prove transfer agreement when remote members appear. Actual ASA character travel and historical-cluster enrollment remain separate.

@@ -243,18 +243,8 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
                 sourceId=VaultReadSnapshot.Text(source,"id");
                 string sourcePath=VaultReadSnapshot.Text(source,"path");
                 var members=source.GetProperty("members").EnumerateArray().ToArray();
-                originalFivePreserved=members.Length==5&&members.All(m=>{
-                    var rawId=VaultReadSnapshot.Text(m,"id");
-                    var key=VaultReadSnapshot.Text(m,"map");
-                    return Guid.TryParse(rawId,out var originalMapId)&&
-                        cluster.Config.LocalMaps.Count(candidate=>
-                            candidate.Id==originalMapId&&
-                            candidate.HistoricalStoreProtected&&
-                            string.Equals(candidate.HistoricalArchiveSha256,
-                                before.OriginalFourFilesTag,StringComparison.OrdinalIgnoreCase)&&
-                            string.Equals(candidate.HistoricalMapKey,key,
-                                StringComparison.Ordinal))==1;
-                });
+                originalFivePreserved=SelectedOriginalFivePreserved(
+                    before,source,cluster.Config.LocalMaps,cluster.Store.Root);
                 if(!originalFivePreserved)
                     warnings.Add("UM-EXPANSION-ORIGINAL-FIVE-NOT-IMPORTED");
                 sourceIdMatches=string.Equals(sourceId,selected,
@@ -319,6 +309,58 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
             newMapStoreEnrollmentAllowed=false,serverStarted=false,
             evidence="READ_ONLY_ORIGINAL_STORE_EXPANSION_PREFLIGHT_NO_WRITER_AUTHORITY"
         };
+    }
+
+    // A later local roster may be 5 + Event + future maps, but it must
+    // preserve EXACTLY the original lock-selected five unchanged. The
+    // previous 'members.Length==5' check incorrectly rejected that state.
+    // Pins for earlier approved imports remain authoritative even if newer
+    // independently converted maps changed the current four-file hash.
+    internal static bool SelectedOriginalFivePreserved(
+        LegacyStoreV1LocalReader.Report report,JsonElement currentCluster,
+        IReadOnlyList<LocalMap> maps,string managerProfileRoot)
+    {
+        if(!report.LocalSnapshotReady||report.Maps.Length!=5||
+           !currentCluster.TryGetProperty("members",out var members)||
+           members.ValueKind!=JsonValueKind.Array||
+           members.GetArrayLength()<5||members.GetArrayLength()>32)
+            return false;
+        var entries=members.EnumerateArray().ToArray();
+        foreach(var historical in report.Maps)
+        {
+            if(!historical.Selected||!historical.Active||
+               !historical.SessionMatches||!historical.BackupIdentityPresent||
+               entries.Count(x=>Guid.TryParse(VaultReadSnapshot.Text(x,"id"),
+                   out var id)&&id==historical.MapId&&
+                   VaultReadSnapshot.Text(x,"map")==historical.MapKey&&
+                   string.Equals(VaultReadSnapshot.Text(x,"root"),
+                       historical.OriginalRoot,StringComparison.OrdinalIgnoreCase))!=1)
+                return false;
+            var candidates=maps.Where(x=>x.Id==historical.MapId).ToArray();
+            if(candidates.Length!=1)return false;
+            var map=candidates[0];
+            if(!map.HistoricalStoreProtected||map.HistoricalSupplementalSource||
+               map.HistoricalMapKey!=historical.MapKey||
+               string.IsNullOrWhiteSpace(map.InstallationPath)||
+               !string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(
+                   map.InstallationPath)),Path.TrimEndingDirectorySeparator(
+                   Path.GetFullPath(historical.OriginalRoot)),
+                   StringComparison.OrdinalIgnoreCase))
+                return false;
+            if(!string.Equals(map.HistoricalArchiveSha256,
+                   report.OriginalFourFilesTag,StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    if(!LegacyStoreV1PinnedSource.HasApprovedLocalSource(
+                        managerProfileRoot,map))return false;
+                }
+                catch(Exception ex) when(ex is IOException or InvalidDataException or
+                    UnauthorizedAccessException or ArgumentException or NotSupportedException)
+                {return false;}
+            }
+        }
+        return true;
     }
 
     private void ExpirePreviews()

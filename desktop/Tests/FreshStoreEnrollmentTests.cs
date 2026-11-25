@@ -718,6 +718,26 @@ internal static class FreshStoreEnrollmentTests
             Reject(()=>FreshStoreEnrollmentPolicy.DemandEnrolled(manager,profileChange),
                 "conversion flag cannot be smuggled into an already enrolled map");
             manager.ReplaceMap(profileChange,enrolled);
+            // Real local copy with the existing enrolled Store metadata kept.
+            // The synthetic manager cannot start an ASA process.
+            string movedRoot=Path.Combine(root,"relocated-new-store");
+            var relocation=new DesktopInstallationRelocationBridge(manager);
+            using var movePreview=JsonDocument.Parse(await relocation.HandleAsync(JsonSerializer.Serialize(new{
+                id=Guid.NewGuid(),method="servers.relocationPreview",mapId,root=movedRoot})));
+            Check(movePreview.RootElement.GetProperty("ok").GetBoolean(),
+                "local enrolled Store relocation can be previewed");
+            using var moveReply=JsonDocument.Parse(await relocation.HandleAsync(JsonSerializer.Serialize(new{
+                id=Guid.NewGuid(),method="servers.relocationApply",
+                token=movePreview.RootElement.GetProperty("data").GetProperty("token").GetGuid(),confirm=true})));
+            Check(moveReply.RootElement.GetProperty("ok").GetBoolean()&&
+                moveReply.RootElement.GetProperty("data").GetProperty("localStoreEnrollmentPreserved").GetBoolean(),
+                "local Store relocation completes and preserves enrollment");
+            Check(enrolled.InstallationPath==movedRoot&&Directory.Exists(installation)&&
+                File.Exists(enrolled.ExecutablePath)&&enrolled.FreshStoreTransferDirectory==transfer&&
+                enrolled.FreshStoreClusterId=="new-local-cluster"&&
+                enrolled.FreshStoreTransferFileId==plan.TransferFileId,
+                "source installation and exact cluster/transfer fingerprint preserved");
+            FreshStoreEnrollmentPolicy.DemandEnrolled(manager,enrolled);
             manager.Registry.CreateCluster("second-local-cluster","Other Synthetic Store",
                 Path.Combine(root,"other-transfer"));
             var reassignment=manager.Registry.PreviewMapAssignments(

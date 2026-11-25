@@ -55,7 +55,10 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
                        !StringField(data,"root",520,out var requestedRoot))
                         return Failure(id,"UM-INVALID-IMPORT");
                     var name=LocalMapNameRules.Normalize(requestedName);
-                    var root=ValidateFixedLocalRoot(requestedRoot);
+                    var selected=ValidateFixedLocalRoot(requestedRoot);
+                    var root=ResolveImportRoot(selected);
+                    var diagnostic=LocalAsaInstallLocator.DiagnoseImport(root);
+                    if(diagnostic!=null)return Failure(id,diagnostic);
                     var found=LocalAsaInstallLocator.Probe(root);
                     if(!found.HasServerExecutable)
                         return Failure(id,"UM-ASA-EXE-MISSING");
@@ -76,6 +79,7 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
                     return Success(id,new {
                         importToken=token,name,folderName=Path.GetFileName(root),
                         exeFound=true,apiLoaderDetected=found.HasApiLoader,
+                        rootResolvedFromNestedFolder=!string.Equals(selected,root,StringComparison.OrdinalIgnoreCase),
                         portsConfigured=false,evidence="LOCAL_BINARY_LAYOUT_PROBED_NO_MUTATION"
                     });
                 }
@@ -84,6 +88,8 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
                    !prepared.Remove(tokenId,out var preview))
                     return Failure(id,"UM-IMPORT-EXPIRED");
                 var checkedRoot=ValidateFixedLocalRoot(preview.Root);
+                var diagnosticAtApply=LocalAsaInstallLocator.DiagnoseImport(checkedRoot);
+                if(diagnosticAtApply!=null)return Failure(id,diagnosticAtApply);
                 var checkedExe=LocalAsaInstallLocator.Probe(checkedRoot).ServerExecutable;
                 if(!string.Equals(checkedExe,preview.ServerExe,
                     StringComparison.OrdinalIgnoreCase))
@@ -107,6 +113,10 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
             finally {gate.Release();}
         }
         catch(DirectoryNotFoundException){return Failure(id,"UM-IMPORT-DIRECTORY-MISSING");}
+        catch(FileNotFoundException){return Failure(id,"UM-IMPORT-DIRECTORY-MISSING");}
+        catch(UnauthorizedAccessException){return Failure(id,"UM-ASA-INSTALL-INACCESSIBLE");}
+        catch(InvalidDataException e) when(e.Message=="UM-IMPORT-SAVE-LAYOUT-UNVERIFIED")
+            {return Failure(id,e.Message);}
         catch(IOException){return Failure(id,"UM-IMPORT-IO-OR-CONFLICT");}
         catch(Exception){return Failure(id,"UM-IMPORT-VALIDATION-FAILED");}
     }
@@ -135,7 +145,9 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
            userPath.Contains('~'))
             throw new InvalidDataException("Only explicit local Windows installation path is supported");
         string root=Path.TrimEndingDirectorySeparator(Path.GetFullPath(userPath));
-        if(!Directory.Exists(root))throw new DirectoryNotFoundException();
+        var rootAttributes=File.GetAttributes(root);
+        if((rootAttributes&FileAttributes.Directory)==0)
+            throw new InvalidDataException("Installation root is not a directory");
         var drive=new DriveInfo(Path.GetPathRoot(root)!);
         if(drive.DriveType!=DriveType.Fixed)
             throw new InvalidDataException("Fixed local drive is required");
@@ -157,13 +169,50 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
             throw new InvalidDataException("Linked ASA executable refused");
         return root;
     }
+    // Accept exactly the three canonical nested ASA directories, not a
+    // recursive search of arbitrary disks or a guessed sibling installation.
+    // Validate both the chosen folder and resolved installation boundary.
+    internal static string ResolveImportRoot(string selected)
+    {
+        if(LocalAsaInstallLocator.Probe(selected).HasServerExecutable)return selected;
+        DirectoryInfo node=new(selected);
+        DirectoryInfo? shooter=
+            node.Name.Equals("ShooterGame",StringComparison.OrdinalIgnoreCase)?node:
+            node.Name.Equals("Binaries",StringComparison.OrdinalIgnoreCase)&&
+            node.Parent?.Name.Equals("ShooterGame",StringComparison.OrdinalIgnoreCase)==true?node.Parent:
+            node.Name.Equals("Win64",StringComparison.OrdinalIgnoreCase)&&
+            node.Parent?.Name.Equals("Binaries",StringComparison.OrdinalIgnoreCase)==true&&
+            node.Parent.Parent?.Name.Equals("ShooterGame",StringComparison.OrdinalIgnoreCase)==true?
+                node.Parent.Parent:null;
+        if(shooter?.Parent==null)return selected;
+        string candidate=ValidateFixedLocalRoot(shooter.Parent.FullName);
+        return LocalAsaInstallLocator.Probe(candidate).HasServerExecutable?candidate:selected;
+    }
+
+    // Do not mistake an unreadable, redirected or linked Saved directory for
+    // an empty installation. This is used at both preview and commit.
+    private static bool SafeExistingDirectory(string path)
+    {
+        FileAttributes attributes;
+        try{attributes=File.GetAttributes(path);}
+        catch(FileNotFoundException){return false;}
+        catch(DirectoryNotFoundException){return false;}
+        if((attributes&FileAttributes.ReparsePoint)!=0||
+           (attributes&FileAttributes.Directory)==0)
+            throw new InvalidDataException("UM-IMPORT-SAVE-LAYOUT-UNVERIFIED");
+        return true;
+    }
+
     internal static bool ExistingWorld(string root)
     {
-        var saved=Path.Combine(root,"ShooterGame","Saved");
+        var shooter=Path.Combine(root,"ShooterGame");
+        if(!SafeExistingDirectory(shooter))return false;
+        var saved=Path.Combine(shooter,"Saved");
+        if(!SafeExistingDirectory(saved))return false;
         foreach(var folder in new[]{"SavedArks","SavedArksLocal"})
         {
             var candidate=Path.Combine(saved,folder);
-            if(Directory.Exists(candidate) &&
+            if(SafeExistingDirectory(candidate) &&
                Directory.EnumerateFileSystemEntries(candidate,"*",SearchOption.TopDirectoryOnly).Any())
                 return true;
         }

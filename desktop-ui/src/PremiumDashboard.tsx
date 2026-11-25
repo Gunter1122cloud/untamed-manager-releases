@@ -6,6 +6,9 @@ import {
 import {dashboardRemotes,managerBridge,type DashboardSnapshot,type PublicMap} from "./bridge";
 import {MapCover} from "./MapArtwork";
 import {ClusterMapGallery} from "./ClusterMapGallery";
+import {LiveTelemetryPanel} from "./LiveTelemetryPanel";
+import {PlayerActivityPanel} from "./PlayerActivityPanel";
+import {parsePlayerList,savePlayerHistory,type PlayerHistory} from "./state/playerActivity";
 
 type Props={
   snapshot:DashboardSnapshot;
@@ -28,14 +31,7 @@ function Metric({icon:Icon,value,label,detail,tone="mint"}:{
 
 /** ASA ListPlayers: never guess zero on errors, unsupported output or stale peers. */
 export function parseAsaPlayerCount(raw:string):number|null {
-  const response=raw.trim();
-  if(/^No Players Connected\.?$/i.test(response))return 0;
-  const lines=response.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
-  if(!lines.length||lines.length>100)return null;
-  // Names may contain punctuation/commas. The server-provided player ID
-  // follows the final comma; no identifiers are stored or rendered here.
-  if(!lines.every(line=>/^\d+\.\s+.+,\s*[A-Za-z0-9]{16,64}$/.test(line)))return null;
-  return lines.length;
+  return parsePlayerList(raw)?.length??null;
 }
 
 function ServerRow({map,host,local,onSelect,playerCount,rconFailures=0}:{
@@ -130,6 +126,37 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
   const peer=useMemo(()=>remotes.flatMap(remote=>remote.maps),[remotes]);
   const [playerCounts,setPlayerCounts]=useState<Record<string,number|null>>({});
   const [rconRetries,setRconRetries]=useState<Record<string,number>>({});
+  const [playerProofs,setPlayerProofs]=useState<Record<string,{count:number;utc:string}>>({});
+  const [activityEnabled,setActivityEnabled]=useState(false);
+  const [activity,setActivity]=useState<PlayerHistory>({records:[]});
+  const [activityError,setActivityError]=useState("");
+  const activityVersion=useRef(0);
+  const activityBusy=useRef(false);
+  const updateActivity=(status:Awaited<ReturnType<typeof managerBridge.activityStatus>>)=>{
+    setActivityEnabled(status.enabled);setActivity({records:status.records});
+    setActivityError(status.storageError?"A helyi titkosított előzmények nem állíthatók helyre vagy nem menthetők. A törlés új üres tárolót hoz létre.":"");
+  };
+  useEffect(()=>{
+    let closed=false;
+    const refresh=async()=>{
+      if(activityBusy.current)return;
+      const version=activityVersion.current;
+      try{const status=await managerBridge.activityStatus();if(!closed&&version===activityVersion.current)updateActivity(status);}
+      catch{if(!closed&&version===activityVersion.current)setActivityError("A natív játékoselőzmény nem ellenőrizhető.");}
+    };
+    void refresh();const timer=window.setInterval(()=>void refresh(),15000);
+    return ()=>{closed=true;window.clearInterval(timer);};
+  },[snapshot.local.hostId]);
+  const changeActivity=async(enabled:boolean,clear=false)=>{
+    if(activityBusy.current)return;
+    activityBusy.current=true;++activityVersion.current;
+    try{
+      updateActivity(clear?await managerBridge.activityClear():await managerBridge.activitySetEnabled(enabled));
+      if(clear&&!savePlayerHistory(snapshot.local.hostId,{records:[]}))setActivityError("A régi WebView-előzmény törlése nem igazolható.");
+    }
+    catch{setActivityError("A játékoselőzmény módosítása sikertelen.");}
+    finally{activityBusy.current=false;}
+  };
   const reconnect=useRef(new Map<string,{failures:number;after:number;count:number|null}>());
   const eligiblePlayers=local.filter(map=>map.running&&!map.observedReadOnlyImported&&
     map.rconConfigured&&!map.maintenance)
@@ -143,7 +170,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
       const colon=item.lastIndexOf(":");
       return {id:item.slice(0,colon),historical:item.slice(colon+1)==="historical"};
     }):[];
-    setPlayerCounts({});setRconRetries({});
+    setPlayerCounts({});setRconRetries({});setPlayerProofs({});
     reconnect.current.clear();
     const refresh=async()=>{
       if(closed||busy||!maps.length)return;
@@ -158,7 +185,22 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
               ?await managerBridge.historicalRconPlayers(map.id)
               :await managerBridge.rconListPlayers(map.id);
             count=answer.mapId.toLowerCase()===map.id.toLowerCase()?parseAsaPlayerCount(answer.response):null;
-          }catch{/* Connection or identity failure is unknown, not a server crash. */}
+            if(!closed){
+              const utc=Date.parse(answer.observedUtc);
+              const verified=count!==null&&Number.isFinite(utc)&&utc<=Date.now()+5000&&Date.now()-utc<=60000;
+              setPlayerProofs(old=>{
+                const next={...old};
+                if(verified&&count!==null)next[map.id]={count,utc:answer.observedUtc};
+                else delete next[map.id];
+                return next;
+              });
+            }
+          }catch{
+            // A failed fresh probe invalidates its previous graph evidence.
+            if(!closed)setPlayerProofs(old=>{
+              const next={...old};delete next[map.id];return next;
+            });
+          }
           if(!closed){
             const failures=count===null?Math.min(5,(previous?.failures??0)+1):0;
             // Fresh native connection on each probe. At most one in flight;
@@ -175,7 +217,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
     void refresh();
     const poll=window.setInterval(()=>{void refresh();},15000);
     return ()=>{closed=true;window.clearInterval(poll);};
-  },[eligiblePlayers]);
+  },[eligiblePlayers,snapshot.local.hostId]);
   const maps=useMemo(()=>{
     const term=query.trim().toLocaleLowerCase("hu-HU");
     return [
@@ -306,5 +348,9 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
         </section>
       </div>
     </div>
+    <LiveTelemetryPanel key={snapshot.local.hostId} snapshot={snapshot}
+      runningMapIds={runningLocal.map(m=>m.id)} playerProofs={playerProofs}/>
+    <PlayerActivityPanel enabled={activityEnabled} onEnabled={v=>{void changeActivity(v);}} data={activity}
+      maps={local} error={activityError} onClear={()=>{void changeActivity(activityEnabled,true);}}/>
   </div>;
 }
