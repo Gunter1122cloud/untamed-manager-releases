@@ -192,8 +192,7 @@ public sealed class DesktopObsidianUpdateInstallBridge
                     foreach(var map in cluster.Config.LocalMaps)
                     {
                         if(string.IsNullOrWhiteSpace(map.InstallationPath))continue;
-                        var op=cluster.Operations.Observe(map.InstallationPath);
-                        if(op?.Phase is UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
+                        if(!cluster.Operations.AllowsManagerHandoff(map.InstallationPath))
                             return Error(id,"UM-UPDATE-LOCAL-OPERATION-PENDING");
                     }
                 }

@@ -169,6 +169,22 @@ public sealed class UntamedOperationCoordinator
         finally{semaphore.Release();}
     }
 
+    // Updating the Manager executable is not an ASA installation mutation.
+    // Allow a terminal unresolved receipt to survive handoff, but never
+    // while another process owns the installation operation semaphore.
+    internal bool AllowsManagerHandoff(string installation)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return false;
+        try
+        {
+            var record=Read(Path.Combine(stateRoot,key+".json"),key);
+            return record?.Phase is not (UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating);
+        }
+        finally{semaphore.Release();}
+    }
+
     public UntamedOperationRecord? Observe(string installation)
     {
         string key=ResourceKey(installation);

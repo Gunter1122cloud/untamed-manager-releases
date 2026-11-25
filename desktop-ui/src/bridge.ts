@@ -2163,7 +2163,7 @@ export const managerBridge = {
   steamRollingSet: (mapId:string,enabled:boolean,apiRiskAccepted:boolean) =>
     request<{mapId:string;enabled:boolean;apiRiskAccepted:boolean;journalBlocker?:string|null}>("steam.rollingSet",{mapId,enabled,apiRiskAccepted,confirm:true}),
   steamRollingReview: (runId:string) =>
-    request<{reviewed:boolean;allDisabled:boolean;noReplay:boolean}>("steam.rollingReview",{runId,confirm:true}),
+    request<{reviewed:boolean;allDisabled:boolean;disabledMapId?:string;noReplay:boolean}>("steam.rollingReview",{runId,confirm:true}),
   steamScheduledStatus: () =>
     request<ScheduledStoppedSteamOverview>("steam.scheduleStatus"),
   steamScheduledSet: (mapId:string,intervalMinutes:number,typedApproval:string) =>

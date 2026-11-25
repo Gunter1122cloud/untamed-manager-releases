@@ -233,10 +233,40 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
             held.Dispose();
         }
     }
-    // A running or uncertain durable batch keeps manager update on hold.
+    // Only a batch without any unresolved dispatch may be closed
+    // automatically. The original receipt remains byte-for-byte archived.
+    private Receipt? CloseIdleBatch()
+    {
+        var previous=Read();
+        if(previous?.State is not ("running" or "needsReview")||
+            previous.Targets.Any(t=>t.State is not ("queued" or "skipped" or "completed")))return previous;
+        string archive=Path.Combine(root,"native-lifecycle-batch-"+previous.JobId.ToString("N")+".abandoned.json");
+        byte[] bytes=File.ReadAllBytes(journal);
+        if(File.Exists(archive))
+        {
+            if((File.GetAttributes(archive)&FileAttributes.ReparsePoint)!=0||
+                !File.ReadAllBytes(archive).SequenceEqual(bytes))throw new InvalidDataException("UM-BATCH-AUDIT-MISMATCH");
+        }
+        else
+        {
+            string tmp=archive+"."+Guid.NewGuid().ToString("N")+".tmp";
+            try
+            {
+                using(var output=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough))
+                {output.Write(bytes);output.Flush(true);}
+                File.Move(tmp,archive);
+            }
+            finally{if(File.Exists(tmp))File.Delete(tmp);}
+        }
+        var closed=previous with{State="reviewed",UpdatedUtc=DateTimeOffset.UtcNow,
+            Targets=previous.Targets.Select(t=>t.State=="queued"?t with{State="skipped",Evidence="ABANDONED_NOT_DISPATCHED"}:t).ToArray()};
+        Write(closed);return closed;
+    }
+    // The outer host also checks native workers before handing off. A
+    // terminal stale receipt does not by itself prevent repairing the UI.
     internal bool CanManagerUpdate()
     {
-        try{using var held=LockOwner();return Read()?.State is not ("running" or "needsReview");}
+        try{using var held=LockOwner();CloseIdleBatch();return true;}
         catch{return false;}
     }
     private static string Message(string method,object fields)
@@ -274,7 +304,7 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                     var current=Read();
                     if(current?.State=="running")
                     {
-                        try{using var stale=LockOwner();current=Read();if(current?.State=="running")current=current with{State="needsReview"};}
+                        try{using var stale=LockOwner();current=CloseIdleBatch();if(current?.State=="running")current=current with{State="needsReview"};}
                         catch(IOException){/* live owner or unavailable, do not replay */}
                     }
                     return Task.FromResult(Ok(id,new{receipt=current,remoteExecutionAllowed=false}));
@@ -296,7 +326,7 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                 if(method=="operations.lifecycleBatchPreview")
                 {
                     using var held=LockOwner();
-                    if(Read()?.State is "running" or "needsReview")
+                    if(CloseIdleBatch()?.State is "running" or "needsReview")
                         return Task.FromResult(Fail(id,"UM-BATCH-PRIOR-REVIEW"));
                     string action=a.GetProperty("action").GetString()??"";
                     int delay=a.GetProperty("delaySeconds").GetInt32();
@@ -322,7 +352,7 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                     var held=LockOwner();
                     try
                     {
-                        var previous=Read();
+                        var previous=CloseIdleBatch();
                         if(previous?.State is "running" or "needsReview")throw new InvalidOperationException("UM-BATCH-PRIOR-REVIEW");
                         if(previous!=null)
                         {

@@ -258,6 +258,14 @@ internal static class RollingSteamMultiMapTests
                 "unvisited map remains online on original build");
             int before=trace.Count;await supervisor.TickOnceAsync();
             Check(trace.Count==before&&entered==1,"uncertain update cannot auto-replay");
+            Guid failedMap=current.GetProperty("mapId").GetGuid();
+            var reviewed=await Call("steam.rollingReview",new{runId=current.GetProperty("id").GetGuid(),confirm=true});
+            Check(reviewed.GetProperty("ok").GetBoolean(),"review archives failed rolling run");
+            var settings=(await Call("steam.rollingStatus",new{})).GetProperty("data").GetProperty("settings");
+            foreach(var m in maps.Take(3))
+                Check(settings.EnumerateArray().Single(x=>x.GetProperty("mapId").GetGuid()==m.Id)
+                    .GetProperty("enabled").GetBoolean()==(m.Id!=failedMap),
+                    "only the failed map loses rolling opt-in");
         }
         foreach(var m in maps)Check(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(saves[m.Id])))==hashes[m.Id],
             "world fixture unchanged "+m.Name);
