@@ -5,6 +5,7 @@ import { asaMapNames } from "./state/asaMapSuggestions";
 import {DownloadsOverview} from "./DownloadsOverview";
 import {ModPlatformAdvisory} from "./ModPlatformAdvisory";
 import {EngramPointsEditor} from "./EngramPointsEditor";
+import {NamedEngramEditor} from "./NamedEngramEditor";
 import {
   AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
   FileText, HardDrive, LayoutDashboard, Layers3, Monitor, CloudDownload, Activity,
@@ -1639,8 +1640,10 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
       </section>}
       {opened && <>
         {file==="Game.ini"&&opened.file===file&&opened.mapId.toLowerCase()===selected.toLowerCase()&&
-          <EngramPointsEditor key={opened.token} content={content} disabled={busy}
-            onDraft={next=>{setContent(next);setPreview(null);setNotice("");}}/>}
+          <><EngramPointsEditor key={opened.token} content={content} disabled={busy}
+            onDraft={next=>{setContent(next);setPreview(null);setNotice("");}}/>
+          <NamedEngramEditor key={"named:"+opened.token} content={content} disabled={busy}
+            onDraft={next=>{setContent(next);setPreview(null);setNotice("");}}/></>}
         <label className="ini-editor-label" htmlFor="ini-contents">Az eredeti fájl szerkeszthető tartalma</label>
         <textarea id="ini-contents" className="ini-editor" spellCheck={false} value={content}
           onChange={e=>{setContent(e.target.value);setPreview(null);}} disabled={busy}/>
