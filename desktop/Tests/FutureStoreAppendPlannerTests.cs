@@ -140,6 +140,47 @@ internal static class FutureStoreAppendPlannerTests
         var changedMove=relocation.AfterImages.ToArray();changedMove[3]=beforeImages[3];
         Check(Denied(()=>HistoricalStoreRelocationPlanner.Verify(beforeImages,relocation with{AfterImages=changedMove})),
             "historical relocation rejects changed proposed launch image");
+        string primaryHost=Guid.NewGuid().ToString("N"),otherHost=Guid.NewGuid().ToString("N"),
+            thirdHost=Guid.NewGuid().ToString("N"),fourthHost=Guid.NewGuid().ToString("N");
+        string pathTag=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(cluster.path.ToLowerInvariant())));
+        string physical=new('A',64),sessionTag=new('B',64);
+        LegacyStoreV1PeerProof Anchor(string dev)=>new(true,true,5,sessionTag,pathTag,dev,false,false,"fixture")
+        {PhysicalDirectoryTag=physical,PhysicalObservedUtc=now,OriginalFourFilesTag=new string('C',64),
+         OriginalMapRosterTag=new string('D',64),OriginalFiveRegisteredInManager=true};
+        var anchorLocal=Anchor(new string('E',64));var anchorRemote=Anchor(new string('F',64));
+        Guid[] remoteIds=Enumerable.Range(0,5).Select(_=>Guid.NewGuid()).ToArray();
+        Guid thirdMap=Guid.NewGuid(),fourthMap=Guid.NewGuid();
+        var registryExpansion=new ClusterRegistrySnapshot
+        {
+            HostRegistry=new HostRegistry
+            {
+                Hosts=new(){new(){HostId=primaryHost,IsLocal=true},new(){HostId=otherHost,IsPaired=true},
+                    new(){HostId=thirdHost,IsPaired=true},new(){HostId=fourthHost,IsPaired=true}},
+                Maps=ids.Select(x=>new RegisteredMap{MapId=Guid.Parse(x),HostId=primaryHost,LocalConfigurationPresent=true})
+                    .Concat(remoteIds.Select(x=>new RegisteredMap{MapId=x,HostId=otherHost}))
+                    .Append(new(){MapId=thirdMap,HostId=thirdHost}).Append(new(){MapId=fourthMap,HostId=fourthHost}).ToList()
+            },
+            ClusterRegistry=new ClusterRegistry{Clusters=new(){new(){ClusterId=VaultProtocol.ClusterId,TransferDirectory=cluster.path}}}
+        };
+        registryExpansion.ClusterRegistry.MapAssignments=registryExpansion.HostRegistry.Maps.Select(x=>
+            new ClusterMapAssignment{MapId=x.MapId,ClusterId=VaultProtocol.ClusterId}).ToList();
+        LanPeerObservation Peer(string host,Guid[] owned,LegacyStoreV1PeerProof? original=null)=>new()
+        {HostId=host,IsFresh=true,StateCode="UM-PEER-ONLINE",Snapshot=new(){HostId=host,ObservedUtc=now,
+            OriginalStoreV1=original,Maps=owned.Select(x=>new PublicMapStatus{Id=x.ToString("D")}).ToList()}};
+        var expansionPeers=new[]{Peer(otherHost,remoteIds,anchorRemote),Peer(thirdHost,new[]{thirdMap}),Peer(fourthHost,new[]{fourthMap})};
+        var extraProofs=new[]{new HistoricalExpansionTransferWitness(thirdHost,physical,new[]{thirdMap},now),
+            new HistoricalExpansionTransferWitness(fourthHost,physical,new[]{fourthMap},now)};
+        var expansion=HistoricalStoreExpansionTopology.Review(registryExpansion,primaryHost,anchorLocal,expansionPeers,extraProofs,now);
+        Check(expansion.ReadyForFurtherReview&&expansion.AdditionalHostCount==2&&!expansion.StoreWriterAuthorized,
+            "four-host historical topology validates separate additional host evidence without writer authority");
+        Check(!HistoricalStoreExpansionTopology.Review(registryExpansion,primaryHost,anchorLocal,expansionPeers,extraProofs.Take(1),now).ReadyForFurtherReview,
+            "historical expansion rejects missing fourth-host evidence");
+        Check(!HistoricalStoreExpansionTopology.Review(registryExpansion,primaryHost,anchorLocal,expansionPeers,
+            new[]{extraProofs[0],extraProofs[1] with{DirectoryTag=new string('9',64)}},now).ReadyForFurtherReview,
+            "historical expansion rejects different physical transfer directory");
+        Check(!HistoricalStoreExpansionTopology.Review(registryExpansion,primaryHost,anchorLocal,expansionPeers,
+            new[]{extraProofs[0],extraProofs[1] with{LocalMapIds=new[]{thirdMap}}},now).ReadyForFurtherReview,
+            "historical expansion rejects duplicate cross-host map evidence");
         FutureStoreAppendInvariant.Verify(beforeImages,afterImages,extraId);
         Check(true,"offline append invariant accepts exactly one new member");
         var forgedCluster=JsonNode.Parse(afterImages[0])!;
