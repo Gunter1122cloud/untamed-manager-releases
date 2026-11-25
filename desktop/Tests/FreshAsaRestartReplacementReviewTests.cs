@@ -41,8 +41,21 @@ internal static class FreshAsaRestartReplacementReviewTests
         Directory.CreateDirectory(bin);
         string server=Path.Combine(bin,"ArkAscendedServer.exe");
         string loader=Path.Combine(bin,"AsaApiLoader.exe");
-        File.WriteAllBytes(server,new byte[]{0x4d,0x5a,0x90,0x00});
-        File.WriteAllBytes(loader,new byte[]{0x4d,0x5a,0x90,0x00});
+        // Same inert PE64 fixture format used by AsaApiLaunchPolicyTests.
+        // Never execute these headers as native programs.
+        byte[] pe=new byte[256];
+        using(var ms=new MemoryStream(pe))
+        using(var w=new BinaryWriter(ms))
+        {
+            w.Write((ushort)0x5A4D);ms.Position=0x3c;w.Write(0x40);
+            ms.Position=0x40;w.Write(0x4550);w.Write((ushort)0x8664);
+            ms.Position=0x58;w.Write((ushort)0x20b);
+        }
+        Directory.CreateDirectory(Path.Combine(bin,"ArkApi","Plugins"));
+        File.WriteAllBytes(server,pe);
+        File.WriteAllBytes(loader,pe);
+        File.WriteAllBytes(Path.Combine(bin,"ArkApi","AsaApi.dll"),pe);
+        File.WriteAllText(Path.Combine(bin,"config.json"),"{}");
         string manifest=Path.Combine(install,"steamapps","appmanifest_2430930.acf");
         Directory.CreateDirectory(Path.GetDirectoryName(manifest)!);
         File.WriteAllText(manifest,"\"AppState\"\r\n{\r\n  \"appid\" \"2430930\"\r\n  \"buildid\" \"12345678\"\r\n}\r\n");
@@ -76,6 +89,14 @@ internal static class FreshAsaRestartReplacementReviewTests
             _=>new ProcessCheck(true,"synthetic exact ASA/Loader family",
                 currentAsa,false,currentLoader));
         cluster.AddMap(map);
+        Check(AsaApiLaunchPolicy.Resolve(map).UseApi,
+            "isolated API fixture passes the production launch file policy");
+        ProcessCheck ObserveFamily(LocalMap requested)
+        {
+            Check(ReferenceEquals(requested,map),"review only observes the registered fixture map");
+            return new ProcessCheck(true,"synthetic exact ASA/Loader family",
+                currentAsa,false,currentLoader);
+        }
         using(var lease=cluster.Operations.Acquire(install,UntamedOperationKind.Launch))
             lease.Complete();
         var restart=new AsaManualRestartJournal(install);
@@ -97,11 +118,11 @@ internal static class FreshAsaRestartReplacementReviewTests
                 return port==rconPort&&pid==replacementPid;
             },
             (_,_,_,_)=>throw new InvalidOperationException(
-                "UM-TEST-UNEXPECTED-ASA-LIFECYCLE-DISPATCH"));
+                "UM-TEST-UNEXPECTED-ASA-LIFECYCLE-DISPATCH"),ObserveFamily);
         var preview=await Call(bridge.HandleAsync,"servers.restartReviewPreview",
             new{mapId=map.Id});
         Check(preview.GetProperty("ok").GetBoolean(),
-            "a separately started, newer API-Loader family can be previewed for audit");
+            "a separately started, newer API-Loader family can be previewed for audit: "+preview.GetRawText());
         var proof=preview.GetProperty("data");
         Check(proof.GetProperty("reviewMode").GetString()=="replacement"&&
               proof.GetProperty("oldPid").GetInt32()==oldPid&&
@@ -115,7 +136,7 @@ internal static class FreshAsaRestartReplacementReviewTests
         var applied=await Call(bridge.HandleAsync,"servers.restartReviewApply",
             new{token,confirm=true});
         Check(applied.GetProperty("ok").GetBoolean(),
-            "explicit approval audits the failed Restart without replaying it");
+            "explicit approval audits the failed Restart without replaying it: "+applied.GetRawText());
         var receipt=applied.GetProperty("data");
         Check(receipt.GetProperty("state").GetString()=="operatorReviewed"&&
               receipt.GetProperty("reviewMode").GetString()=="replacement"&&
@@ -137,8 +158,8 @@ internal static class FreshAsaRestartReplacementReviewTests
               restart.Observe()?.NewPid==0&&
               File.ReadAllText(restartFile)!=originalFailedJournal,
             "the original failed NeedsOperator outcome and NewPid=0 remain preserved in the audit");
-        Check(cluster.Check(map).Identity?.Pid==replacementPid&&
-              cluster.Check(map).LoaderIdentity?.Pid==loaderPid&&
+        Check(ObserveFamily(map).Identity?.Pid==replacementPid&&
+              ObserveFamily(map).LoaderIdentity?.Pid==loaderPid&&
               cluster.Operations.Observe(install)?.Phase==UntamedOperationPhase.Completed&&
               ownerChecks>=2,
             "current ASA/Loader and completed Launch journal remain intact after reconciliation");

@@ -48,6 +48,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     }
     private readonly ClusterService cluster;
     private readonly bool nativeRunner;
+    private readonly Func<LocalMap,ProcessCheck> reviewObserve;
     private readonly CancellationTokenSource closing=new();
     private readonly CancellationToken closingToken;
     private readonly Func<int,int,bool> portOwner;
@@ -69,9 +70,22 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     public DesktopFreshAsaRestartBridge(ClusterService service,
         Func<int,int,bool>? ownsPort=null,
         Func<Guid,ProcessIdentity,Guid,Action<string>,
-            Task<(AsaGracefulStopReceipt Stop,ProcessIdentity Started)>>? runner=null)
+            Task<(AsaGracefulStopReceipt Stop,ProcessIdentity Started)>>? runner=null):
+        this(service,ownsPort,runner,null) { }
+
+    // Only the isolated native test can inject a process witness, and only
+    // alongside an injected lifecycle runner and RCON-owner check. The
+    // production constructor always observes the real Windows process family.
+    internal DesktopFreshAsaRestartBridge(ClusterService service,
+        Func<int,int,bool>? ownsPort,
+        Func<Guid,ProcessIdentity,Guid,Action<string>,
+            Task<(AsaGracefulStopReceipt Stop,ProcessIdentity Started)>>? runner,
+        Func<LocalMap,ProcessCheck>? isolatedReviewObserver)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
+        if(isolatedReviewObserver!=null&&(runner==null||ownsPort==null))
+            throw new ArgumentException("An isolated review observer requires isolated lifecycle and port witnesses");
+        reviewObserve=isolatedReviewObserver??cluster.Check;
         nativeRunner=runner==null;
         closingToken=closing.Token;
         portOwner=ownsPort??RconPortOwnership.IsOwnedListener;
@@ -92,7 +106,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     }
     private LocalMap? Owned(Guid mapId)=>
         cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
-    private ProcessIdentity Eligible(LocalMap map,bool allowPendingRestart=false)
+    private ProcessIdentity Eligible(LocalMap map,bool allowPendingRestart=false,bool review=false)
     {
         bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
         if(newStore)FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
@@ -118,7 +132,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         // A separate interrupted Stop has its own durable one-shot intent.
         // Reject Restart before any new SaveWorld/DoExit or replacement Start.
         new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
-        var state=cluster.Check(map);
+        var state=review?reviewObserve(map):cluster.Check(map);
         if(!ReleaseCapabilityGate.Check(ManagerOperation.RealAsaRestart,true,
             map.Maintenance,state.ConfirmedStopped,state.Running,
             verifiedFreshInstall:true,explicitOperatorApproval:true).Allowed ||
@@ -152,7 +166,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             return false;
         try
         {
-            var existing=Eligible(map,allowPendingRestart:true);
+            var existing=Eligible(map,allowPendingRestart:true,review:true);
             return existing.Pid==record.OldPid&&
                 (expectedStart==null||existing.StartedUtc==expectedStart);
         }
@@ -187,7 +201,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         if(general?.Phase is UntamedOperationPhase.Prepared or
             UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-GENERAL-PENDING");
-        var state=cluster.Check(map);
+        var state=reviewObserve(map);
         if(!state.Running||state.ConfirmedStopped||
            state.Identity is not {Pid:>0} asa)
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-REPLACEMENT-ASA-NOT-RUNNING");
@@ -222,14 +236,14 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-REPLACEMENT-RCON-OWNER");
         // Eligible performs the same strict install, INI, binary, exact WMI
         // command-line and RCON-owner checks as a normal lifecycle preview.
-        var eligible=Eligible(map,allowPendingRestart:true);
+        var eligible=Eligible(map,allowPendingRestart:true,review:true);
         if(eligible.Pid!=asa.Pid||eligible.StartedUtc!=asa.StartedUtc||
            !string.Equals(eligible.ExecutablePath,asa.ExecutablePath,
                 StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-REPLACEMENT-PROCESS-CHANGED");
         // Re-observe the complete family after the eligibility preflight so a
         // Loader swap/reparent or ASA PID reuse cannot slip between proofs.
-        var confirmed=cluster.Check(map);
+        var confirmed=reviewObserve(map);
         if(!confirmed.Running||confirmed.ConfirmedStopped||
            !SameProcessIdentity(confirmed.Identity,asa)||
            !SameProcessIdentity(confirmed.LoaderIdentity,loader)||
@@ -263,7 +277,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                    AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments))return false;
             }
             new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
-            var state=cluster.Check(map);
+            var state=reviewObserve(map);
             return AsaReadyProbe.IsRegisteredServerBinary(map)&&
                 AsaRconConfigurationEvidence.Matches(map)&&
                 !KovaCompatibleWorldBackup.InstallationRecoveryRequired(map)&&
@@ -437,7 +451,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     }
                     if(ReviewOwner(map,saved))
                     {
-                        var oldProcess=Eligible(map,allowPendingRestart:true);
+                        var oldProcess=Eligible(map,allowPendingRestart:true,review:true);
                         reviewPending=new(Guid.NewGuid(),map.Id,saved.Id,
                             oldProcess.Pid,oldProcess.StartedUtc,
                             JsonSerializer.Serialize(map),JsonSerializer.Serialize(saved),
