@@ -296,12 +296,14 @@ public static class SteamStoppedMapUpdater
             DemandSafeLocalInstallation(cluster,selectedMap,originalStoppedObserver);
         var receipts=new List<Receipt>();
         SteamSharedPayloadCache.Package? payload=null;
+        bool cachePreparationAttempted=false;
         if(useSharedPayloadCache&&fakeExecutable!=null)throw new InvalidOperationException("UM-STEAM-CACHE-FIXTURE-DENIED");
         var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
         await queue.ExecuteAsync(selected,cluster.Config.LocalMaps,ObserveStopped,
             async (map,token)=>{
-                if(useSharedPayloadCache&&payload==null)
+                if(useSharedPayloadCache&&!cachePreparationAttempted)
                 {
+                    cachePreparationAttempted=true;
                     queueProgress?.Report(new SteamQueueProgress(1,selected.Length,map.Name,"cache-preparation"));
                     // The clean staging root is not a registered map. The
                     // host-wide queue serializes all SteamCMD preparation.
@@ -311,11 +313,20 @@ public static class SteamStoppedMapUpdater
                     var published=await AsaSteamBuildCatalog.CheckUnderHostLeaseAsync(steamExecutable,map.InstallationPath,
                         "public",ct:token);
                     if(published.AvailableBuild==null)throw new InvalidDataException("UM-STEAM-CACHE-PUBLIC-BUILD-UNKNOWN");
-                    payload=await SteamSharedPayloadCache.PrepareAsync(cluster.Store.Root,cluster.Config.LocalMaps,
-                        published.AvailableBuild,(stage,cancel)=>RunSteamAsync(steamExecutable,stage,timeout,false,
-                            ()=>{_=UntamedOperationCoordinator.ResourceKey(stage);cancel.ThrowIfCancellationRequested();},cancel),token);
-                    queueProgress?.Report(new SteamQueueProgress(1,selected.Length,map.Name,
-                        payload.CacheHit?"cache-hit-verified":"cache-download-verified"));
+                    try
+                    {
+                        payload=await SteamSharedPayloadCache.PrepareAsync(cluster.Store.Root,cluster.Config.LocalMaps,
+                            published.AvailableBuild,(stage,cancel)=>RunSteamAsync(steamExecutable,stage,timeout,false,
+                                ()=>{_=UntamedOperationCoordinator.ResourceKey(stage);cancel.ThrowIfCancellationRequested();},cancel),token);
+                        queueProgress?.Report(new SteamQueueProgress(1,selected.Length,map.Name,
+                            payload.CacheHit?"cache-hit-verified":"cache-download-verified"));
+                    }
+                    catch(Exception ex) when(SteamCmdInvocation.CanUseDirectFallback(ex))
+                    {
+                        // Clean cache preparation failed before destination mutation.
+                        token.ThrowIfCancellationRequested();DemandNoConcurrentSteamCmd();
+                        queueProgress?.Report(new SteamQueueProgress(1,selected.Length,map.Name,"cache-unavailable-direct-validation"));
+                    }
                 }
                 int position=Array.IndexOf(selected,map)+1;
                 var stages=new InlineProgress<SteamMaintenanceStage>(stage=>{
@@ -565,12 +576,7 @@ public static class SteamStoppedMapUpdater
                 WorkingDirectory=Path.GetDirectoryName(exe)!,
                 RedirectStandardOutput=true,RedirectStandardError=true
             };
-            foreach(var arg in new[]{"+force_install_dir",install,"+login","anonymous",
-                "+app_update","2430930","validate","+quit"})
-                psi.ArgumentList.Add(arg);
-            foreach(string key in new[]{"STEAM_USERNAME","STEAM_PASSWORD","MYSQL_PWD",
-                "MARIADB_PWD","UNTAMED_RCON_PASSWORD"})
-                psi.Environment.Remove(key);
+            SteamCmdInvocation.Configure(psi,SteamCmdInvocation.UpdateArguments(install),synthetic);
             if(synthetic)psi.Environment["FAKE_STEAM_REFRESH_BUILD"]="1";
             using var child=Process.Start(psi) ??
                 throw new IOException("SteamCMD child could not be launched");
@@ -596,7 +602,7 @@ public static class SteamStoppedMapUpdater
                    message.Contains("Success! App '2430930' fully installed.",
                        StringComparison.OrdinalIgnoreCase))
                     return;
-                if(ShouldRetryMissingConfiguration(attempt,child.ExitCode,
+                if(SteamCmdInvocation.CanRetryAppUpdate(attempt,child.ExitCode,
                     message+"\n"+error,synthetic))
                 {
                     // Valve's exact initial Missing configuration response
@@ -608,7 +614,7 @@ public static class SteamStoppedMapUpdater
                     continue;
                 }
                 throw new InvalidDataException(
-                    "SteamCMD did not acknowledge a complete ASA update");
+                    SteamCmdInvocation.UpdateFailureCode(message+"\n"+error));
             }
             catch
             {
