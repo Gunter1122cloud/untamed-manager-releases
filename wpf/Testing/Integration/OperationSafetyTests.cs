@@ -44,11 +44,16 @@ public static class OperationSafetyTests
             released.Complete();
         Check(true,"all batch OS leases released even when each journal write fails");
         File.Delete(batchRoot);Directory.Move(batchRoot+"-preserved",batchRoot);
-        Refused(()=>{using var pending=batchCoordinator.Acquire(batchOne,UntamedOperationKind.Configuration);},
-            "failed cleanup retains original pending journal; no implicit recovery");
+        using(var recovered=batchCoordinator.Acquire(batchOne,UntamedOperationKind.Configuration))
+            recovered.Complete();
+        Check(batchCoordinator.Observe(batchOne)!.Phase==UntamedOperationPhase.Completed,
+            "abandoned batch journal is archived and the map operation becomes available again");
         using(var interrupted=a.Acquire(resource,UntamedOperationKind.Update)){interrupted.MarkMutationStarted();}
-        Check(a.Observe(resource)!.Phase==UntamedOperationPhase.NeedsOperator,"failed mutation leaves persistent operator state");
-        Refused(()=>{using var again=a.Acquire(resource,UntamedOperationKind.Update);},"no timeout or automatic journal recovery");
+        Check(a.Observe(resource)!.Phase==UntamedOperationPhase.Recovered,
+            "failed mutation is archived and automatically recovered without operator review");
+        using(var again=a.Acquire(resource,UntamedOperationKind.Update))again.Complete();
+        Check(a.Observe(resource)!.Phase==UntamedOperationPhase.Completed,
+            "new operation can run immediately after automatic recovery");
         string crashResource=Path.Combine(root,"crash-install");Directory.CreateDirectory(crashResource);
         string crashState=Path.Combine(root,"crash-operations"),ready=Path.Combine(root,"coordinator-ready");
         string processPath=Environment.ProcessPath!;
@@ -241,8 +246,8 @@ public static class OperationSafetyTests
                 "new "+selected+" file during copy prevents publishing incomplete backup scope");
             Check(File.ReadAllText(late)=="added while copying"&&File.ReadAllText(Path.Combine(source,"existing.dat"))=="original",
                 "refused backup preserves all original and newly added source data");
-            Check(new UntamedOperationCoordinator().Observe(install)!.Phase==UntamedOperationPhase.NeedsOperator,
-                "changed backup source leaves durable operator state without replay");
+            Check(new UntamedOperationCoordinator().Observe(install)!.Phase==UntamedOperationPhase.Recovered,
+                "changed backup source leaves an archived, non-blocking recovery receipt without replay");
         }
     }
     static void VerifyConfigJson(string root)
