@@ -645,6 +645,7 @@ public sealed class ObsidianWindow : Form
                 bool stoppedSteamRoute = false;
                 bool stoppedSteamBatchRoute = false;
                 bool scheduledSteamRoute = false;
+                bool rollingSteamRoute = false;
                 bool freshStartRoute = false;
                 bool freshStopRoute = false;
                 bool ownedKillRoute = false;
@@ -706,6 +707,7 @@ public sealed class ObsidianWindow : Form
                             "steam.stoppedStatus" or "steam.stoppedCurrent" or "steam.publishedBuild" or "steam.selectExecutable" or "steam.prepareExecutable";
                         stoppedSteamBatchRoute = name is "steam.batchPreview" or "steam.batchApply" or "steam.batchStart" or
                             "steam.batchStatus" or "steam.batchCurrent";
+                        rollingSteamRoute = name is "steam.rollingStatus" or "steam.rollingSet" or "steam.rollingReview";
                         scheduledSteamRoute = name is "steam.scheduleStatus" or "steam.scheduleSet" or
                             "steam.scheduleDisable";
                         travelRoute = name is "travel.capture" or "travel.compare" or "travel.compareRoundTrip";
@@ -820,7 +822,7 @@ public sealed class ObsidianWindow : Form
                         ? NativeErrorResponse(incoming,"UM-UPDATE-MANAGER-HANDOFF")
                         : IsManualOnlyDeniedPluginMethod(methodName)
                         ? NativeErrorResponse(incoming,"UM-PLUGIN-MANUAL-FOLDER-ONLY")
-                        : methodName is "steam.rollingStatus" or "steam.rollingSet" or "steam.rollingReview" ? await _rollingSteam.HandleAsync(incoming)
+                        : rollingSteamRoute ? await _rollingSteam.HandleAsync(incoming)
                         : apiCoreRoute ? await _apiCore.HandleAsync(incoming)
                         : lanRoute ? await _lan.HandleAsync(incoming)
                         : nativeScheduleRoute ? await _nativeSchedules.HandleAsync(incoming)

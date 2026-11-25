@@ -344,7 +344,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             throw;
         }
     }
-    private async Task TickAsync(CancellationToken ct)
+    internal async Task TickOnceAsync(CancellationToken ct=default)
     {
         if(frozen()||!Locked(()=>{var s=Read();return s.Current?.State is not ("running" or "needs-review")&&s.Settings.Any(x=>x.Enabled);}))
             return;
@@ -392,7 +392,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             try
             {
                 while(await timer.WaitForNextTickAsync(closing.Token))
-                    try{await TickAsync(closing.Token);}
+                    try{await TickOnceAsync(closing.Token);}
                     catch(OperationCanceledException) when(closing.IsCancellationRequested){break;}
                     catch{/* durable claimed work is not replayed; preflight-only failures retry next poll */}
             }
