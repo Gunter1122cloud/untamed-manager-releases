@@ -18,6 +18,7 @@ public sealed record ModEditBaseline(string Arguments,string[] DisabledIds,bool 
     // projecting an IN-MEMORY mod draft. Without these, the Mod Center
     // showed a valid Store map but its first staged edit was always refused.
     public string FreshStoreClusterId {get;init;}="";
+    public string MapModProjectId {get;init;}="";
     public string FreshStoreTransferDirectory {get;init;}="";
     public string FreshStoreTransferFileId {get;init;}="";
     public static ModEditBaseline Capture(LocalMap map)
@@ -28,6 +29,7 @@ public sealed record ModEditBaseline(string Arguments,string[] DisabledIds,bool 
             HistoricalEnabledMods=(map.HistoricalEnabledMods??new()).ToArray(),
             HistoricalPassiveMods=(map.HistoricalPassiveMods??new()).ToArray(),
             FreshStoreClusterId=map.FreshStoreClusterId??"",
+            MapModProjectId=map.MapModProjectId??"",
             FreshStoreTransferDirectory=map.FreshStoreTransferDirectory??"",
             FreshStoreTransferFileId=map.FreshStoreTransferFileId??""
         };
@@ -38,6 +40,7 @@ public sealed record ModEditBaseline(string Arguments,string[] DisabledIds,bool 
         Pending==map.ModChangesPending &&
         HistoricalStoreProtected==map.HistoricalStoreProtected &&
         FreshStoreClusterId==(map.FreshStoreClusterId??"") &&
+        MapModProjectId==(map.MapModProjectId??"") &&
         FreshStoreTransferDirectory==(map.FreshStoreTransferDirectory??"") &&
         FreshStoreTransferFileId==(map.FreshStoreTransferFileId??"") &&
         (!HistoricalStoreProtected||
@@ -88,6 +91,7 @@ public sealed class ModDraftSession
         ModChangesPending=_baseline.Pending,
         HistoricalStoreProtected=_baseline.HistoricalStoreProtected,
         FreshStoreClusterId=_baseline.FreshStoreClusterId,
+        MapModProjectId=_baseline.MapModProjectId,
         FreshStoreTransferDirectory=_baseline.FreshStoreTransferDirectory,
         FreshStoreTransferFileId=_baseline.FreshStoreTransferFileId,
         HistoricalEnabledMods=_baseline.HistoricalEnabledMods.ToList(),

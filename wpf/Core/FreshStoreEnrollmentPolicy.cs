@@ -84,6 +84,11 @@ public static class FreshStoreEnrollmentPolicy
             baseline=AsaSteamMapCatalog.LaunchArgumentsForLevel(level,
                 session.Groups["name"].Value,map.GamePort,map.QueryPort);
         }
+        if(!string.IsNullOrEmpty(map.MapModProjectId))
+        {
+            MapModIdentity.DemandLaunch(map);
+            baseline+=MapModIdentity.RemasterSwitch(AsaSaveLayoutResolver.MapToken(map),map.MapModProjectId);
+        }
         if(!arguments.StartsWith(baseline,StringComparison.Ordinal))
             Deny("UM-FRESH-STORE-NATIVE-SETUP-REQUIRED");
         string suffix=arguments[baseline.Length..];

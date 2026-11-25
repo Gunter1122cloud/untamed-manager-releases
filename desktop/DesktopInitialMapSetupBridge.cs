@@ -24,7 +24,7 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
         string BaselineMapName,string Level,string BaselineArguments,int BaselineGame,int BaselineQuery,
         string BaselineExe,string BaselineRoot,string BaselineInstalledLevel,
         bool BaselineUseApi,string BaselineLoaderPath,string BaselineLoaderArguments,
-        string BaselineRconSecret,DateTimeOffset CreatedUtc);
+        string BaselineRconSecret,string BaselineMapModId,string MapModId,string? MapModName,DateTimeOffset CreatedUtc);
 
     public DesktopInitialMapSetupBridge(ClusterService service) =>
         cluster=service ?? throw new ArgumentNullException(nameof(service));
@@ -150,7 +150,24 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                         catch(InvalidDataException)
                         {return Fail(id,"UM-INITIAL-CUSTOM-LEVEL-INVALID");}
                     }
-                    string launch=AsaSteamMapCatalog.LaunchArgumentsForLevel(level,session,game,query);
+                    string mapModId="";string? mapModName=null;
+                    if(args.TryGetProperty("mapModId",out var projectField))
+                    {
+                        if(projectField.ValueKind!=JsonValueKind.String)return Fail(id,"UM-INITIAL-MAP-MOD-ID");
+                        mapModId=projectField.GetString()??"";
+                    }
+                    if(!string.IsNullOrEmpty(mapModId))
+                    {
+                        int project=MapModIdentity.ParseProject(mapModId);
+                        if(string.IsNullOrWhiteSpace(cluster.Config.CurseForgeApiKeyProtected))
+                            return Fail(id,"UM-CURSEFORGE-NO-KEY");
+                        using var http=new System.Net.Http.HttpClient{Timeout=TimeSpan.FromSeconds(22)};
+                        var catalog=new CurseForgeCatalog(http);
+                        var metadata=await catalog.GetAsaModAsync(SecureStore.Unprotect(cluster.Config.CurseForgeApiKeyProtected),project);
+                        MapModIdentity.DemandMapProject(metadata,project);
+                        mapModName=metadata.Name;
+                    }
+                    string launch=MapModIdentity.BuildInitialArguments(level,session,game,query,mapModId);
                     LocalMapPortPolicy.RequireNoConflicts(new LocalMap{
                         Id=map.Id,Name=map.Name,GamePort=game,QueryPort=query
                     },cluster.Config.LocalMaps);
@@ -173,11 +190,11 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     pending[token]=new(token,map.Id,session,game,query,map.Name,level,
                         map.Arguments,map.GamePort,map.QueryPort,map.ExecutablePath,
                         map.InstallationPath,map.FreshInstallMapLevel,map.StartWithAsaApi,
-                        map.ApiLoaderPath,map.ApiLoaderArguments,map.RconPasswordProtected,
+                        map.ApiLoaderPath,map.ApiLoaderArguments,map.RconPasswordProtected,map.MapModProjectId,mapModId,mapModName,
                         DateTimeOffset.UtcNow);
                     return Success(id,new{
                         token,mapId=map.Id,mapName=map.Name,sessionName=session,
-                        mapLevel=level,requiresCustomLevel=!official,
+                        mapLevel=level,requiresCustomLevel=!official,mapModId,mapModName,remaster=!string.IsNullOrEmpty(mapModId)&&AsaSteamMapCatalog.IsOfficialLevel(level),
                         gamePort=game,queryPort=query,
                         rconEnabled=false,serverStartRequested=false,
                         // Avoid sending arbitrary launch arguments into the UI.
@@ -209,7 +226,7 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                    owned.StartWithAsaApi!=saved.BaselineUseApi ||
                    owned.ApiLoaderPath!=saved.BaselineLoaderPath ||
                    owned.ApiLoaderArguments!=saved.BaselineLoaderArguments ||
-                   owned.RconPasswordProtected!=saved.BaselineRconSecret)
+                   owned.RconPasswordProtected!=saved.BaselineRconSecret||owned.MapModProjectId!=saved.BaselineMapModId)
                 {
                     // A stale preview must not authorize a different installed
                     // level, API launch mode or credential profile. Require a
@@ -235,8 +252,10 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     ?? throw new InvalidDataException("Could not prepare local map profile");
                 copy.GamePort=saved.Game;
                 copy.QueryPort=saved.Query;
-                copy.Arguments=AsaSteamMapCatalog.LaunchArgumentsForLevel(
-                    saved.Level,saved.Session,saved.Game,saved.Query);
+                copy.MapModProjectId=saved.MapModId;
+                copy.Arguments=MapModIdentity.BuildInitialArguments(
+                    saved.Level,saved.Session,saved.Game,saved.Query,saved.MapModId);
+                MapModIdentity.DemandLaunch(copy);
                 // No RCON admin password means RCON remains disabled.
                 copy.RconPort=0;
                 copy.AutoStart=false;
