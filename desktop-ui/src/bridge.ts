@@ -1784,6 +1784,7 @@ export type ConfiguredMods = {
   evidence: "CONFIGURED_ONLY";
 };
 
+export type HostedResourceKind="AdminListURL"|"BanListURL"|"BadWordListURL"|"BadWordWhiteListURL"|"CustomDynamicConfigUrl"|"CustomNotificationURL"|"CustomLiveTuningUrl";
 export type HostedResourcesStatus={running:boolean;port:number;resources:Array<{kind:string;url:string;bytes:number}>;loopbackOnly:true;persistent:false};
 
 type WireRequest = { id: string; method: "resources.status" | "resources.publish" | "resources.stop" | "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
@@ -1884,7 +1885,7 @@ type WireRequest = { id: string; method: "resources.status" | "resources.publish
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;useSharedPayloadCache?:boolean;
    confirm?: boolean; ackUnknownOutcome?:boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; runId?:string; journalId?:string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
-  kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
+  kind?:ReadOnlyScheduleKind|NativeScheduleKind|HostedResourceKind;frequency?:NativeScheduleFrequency;
   intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;postRestartWipe?:boolean;wipeDelaySeconds?:number;delaySeconds?:number;
   timeZoneId?:string;dayMinutes?:number[];onceAtLocal?:string;
   keepFutureRestart?:boolean;
@@ -1985,7 +1986,7 @@ export const managerBridge = {
   historicalExpansionInspect: (mapId:string,clusterId:string) =>
     request<HistoricalExpansionReadiness>("cluster.historicalExpansionInspect",{mapId,clusterId}),
   hostedResourcesStatus:()=>request<HostedResourcesStatus>("resources.status"),
-  hostedResourcesPublish:(kind:string,content:string,port:number)=>request<HostedResourcesStatus>("resources.publish",{kind,content,port,confirm:true}),
+  hostedResourcesPublish:(kind:HostedResourceKind,content:string,port:number)=>request<HostedResourcesStatus>("resources.publish",{kind,content,port,confirm:true}),
   hostedResourcesStop:()=>request<HostedResourcesStatus>("resources.stop",{confirm:true}),
   lanStatus: () => request<LanStatus>("lan.status"),
   lanPreview: (listenPort:number,hostId:string,hostName:string,peerAddress:string,
