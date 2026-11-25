@@ -162,7 +162,7 @@ public sealed class ObsidianWindow : Form
             // Exact read-only methods must stay responsive while an owner
             // is running an approved SteamCMD/backup/other lengthy mutation.
             // Each native bridge retains its own per-operation coordination.
-            "dashboard.snapshot" or "servers.runningLocal" or
+            "dashboard.snapshot" or "servers.runningLocal" or "activity.status" or "activity.setEnabled" or "activity.clear" or
             "servers.lifecycleJournal" or
             "servers.lifecycleRecoveryPreview" or
             "operations.snapshot" or "operations.map" or "operations.lifecycleBatchCurrent" or "notifications.status" or
@@ -269,6 +269,8 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopAsaApiCoreBridge _apiCore;
     private readonly DesktopIniBridge _iniEditor;
     private readonly DesktopHostedResourcesBridge _hostedResources;
+    private readonly DesktopPlayerActivityBridge _playerActivity;
+    private readonly System.Windows.Forms.Timer _playerActivityTimer=new(){Interval=30000};
     private readonly DesktopLocalMapRegistryBridge _mapRegistry;
     private readonly DesktopRunningAsaRegistrationBridge _runningAsaRegistration;
     private readonly DesktopRunningAsaAdoptionBridge _runningAsaAdoption;
@@ -375,6 +377,14 @@ public sealed class ObsidianWindow : Form
         _historicalStop = new DesktopHistoricalGracefulStopBridge(_bridge.LocalCluster);
         _historicalRestart = new DesktopHistoricalRestartBridge(_bridge.LocalCluster);
         _rcon = new DesktopRconReadOnlyBridge(_bridge.LocalCluster);
+        _playerActivity=new DesktopPlayerActivityBridge(smokeTest||suppressScheduledMutations?null:_bridge.LocalCluster.Store.Root,_rcon.HandleAsync,_historicalReadOnlyRcon.HandleAsync);
+        _playerActivityTimer.Tick+=async (_,_)=>{
+            if(_updateHandoff||_suppressScheduledMutations){_playerActivity.BreakContinuity();return;}
+            try{
+                var maps=System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Select(System.Linq.Enumerable.Where(_bridge.LocalCluster.Config.LocalMaps,m=>!m.ObservedReadOnlyImported&&!m.Maintenance&&m.RconPort>0&&!string.IsNullOrWhiteSpace(m.RconPasswordProtected)),m=>(m.Id,m.HistoricalStoreProtected)));
+                await _playerActivity.PollAsync(maps);
+            }catch{_playerActivity.BreakContinuity();}
+        };
         _rconAdmin = new DesktopRconAdminBridge(_bridge.LocalCluster);
         _rconConfig = new DesktopRconConfigurationBridge(_bridge.LocalCluster);
         _steamUpdate = new DesktopStoppedSteamUpdateBridge(_bridge.LocalCluster);
@@ -475,6 +485,7 @@ public sealed class ObsidianWindow : Form
                 // Explicit native manual commands remain fully available.
                 if(!_suppressScheduledMutations)
                 {
+                    _playerActivityTimer.Start();
                     _restartReconciliation.Start();
                     _scheduledBackups.Start();
                     _nativeSchedules.Start();
@@ -502,6 +513,7 @@ public sealed class ObsidianWindow : Form
         };
         FormClosed += (_, _) =>
         {
+            _playerActivityTimer.Stop();_playerActivityTimer.Dispose();_playerActivity.Dispose();
             _restartReconciliation.Dispose();
             _liveMods.Dispose();
             _discordControl.Dispose();
@@ -629,6 +641,7 @@ public sealed class ObsidianWindow : Form
                 string? methodName = null;
                 bool credentialRoute = false;
                 bool resourcesRoute = false;
+                bool activityRoute = false;
                 bool draftRoute = false;
                 bool modRepairRoute = false;
                 bool relocationRoute = false;
@@ -696,6 +709,7 @@ public sealed class ObsidianWindow : Form
                             "curseforge.credentialSave" or
                             "curseforge.credentialClear";
                         resourcesRoute = name is "resources.status" or "resources.publish" or "resources.stop";
+                        activityRoute = name is "activity.status" or "activity.setEnabled" or "activity.clear";
                         updateRoute = name is "updates.status" or "updates.check";
                         updateInstallRoute = name is "updates.prepare" or "updates.install";
                         rconRoute = name is "rcon.status" or "rcon.listPlayers" or
@@ -890,6 +904,7 @@ public sealed class ObsidianWindow : Form
                         : travelRoute ? await _travel.HandleAsync(incoming)
                         : rconRoute ? await _rcon.HandleAsync(incoming)
                         : updateRoute ? await _updates.HandleAsync(incoming)
+                        : activityRoute ? await _playerActivity.HandleAsync(incoming)
                         : resourcesRoute ? await _hostedResources.HandleAsync(incoming)
                         : credentialRoute ? await _credentials.HandleAsync(incoming)
                         : pluginStateRoute ? await _pluginState.HandleAsync(incoming)

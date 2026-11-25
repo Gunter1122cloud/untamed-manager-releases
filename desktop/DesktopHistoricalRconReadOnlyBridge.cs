@@ -189,7 +189,7 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
                     password,"[REDACTED]",StringComparison.Ordinal);
                 return Ok(id,new{
                     mapId=ownedMap.Id,mapName=ownedMap.Name,
-                    command,response,observedUtc=DateTimeOffset.UtcNow,
+                    command,response,processPid=expected.Pid,processStartedUtc=expected.StartedUtc,observedUtc=DateTimeOffset.UtcNow,
                     readOnly=true,storeTouched=false,saveCompleteProven=false,
                     evidence="ORIGINAL_STORE_V1_VERIFIED_LOCAL_READ_ONLY_RCON"
                 });

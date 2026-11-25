@@ -11,10 +11,10 @@ export function PlayerActivityPanel({enabled,onEnabled,data,maps,error,onClear}:
   const duration=(seconds:number)=>Math.floor(seconds/3600)+" ó "+Math.floor(seconds%3600/60)+" p";
   return <details className="premium-panel" style={{padding:16,marginTop:12}}>
     <summary>Játékoselőzmények · megfigyelt aktivitás</summary>
-    <p className="muted small">Kizárólag a nyitott Dashboard sikeres helyi ListPlayers mintáiból, külön engedéllyel.
+    <p className="muted small">A Manager natív, helyi ListPlayers mintáiból, külön engedéllyel; tálcára kicsinyítve és más menüpontban is fut.
       Két egymást követő mintában látott játékos köztes ideje becslés; nem pontos belépési/kilépési napló.
-      RCON-kimaradás, mapváltás és bezárt Dashboard idejét nem számoljuk. Legfeljebb 1000 rekord, 30 napos utolsó megfigyelés szerinti megőrzéssel.</p>
-    <label><input type="checkbox" checked={enabled} onChange={e=>onEnabled(e.target.checked)}/> Helyi játékosnév, azonosító és megfigyelt idő rögzítése ebben a munkamenetben</label>
+      RCON-kimaradás, szerverfolyamat-váltás és leállított Manager idejét nem számoljuk. A helyi előzmény titkosítva tárolódik. Legfeljebb 1000 rekord, 30 napos utolsó megfigyelés szerinti megőrzéssel.</p>
+    <label><input type="checkbox" checked={enabled} onChange={e=>onEnabled(e.target.checked)}/> Helyi játékosnév, azonosító és megfigyelt idő folyamatos rögzítése</label>
     <div><label>Map <select value={mapId} onChange={e=>{setMapId(e.target.value);setLimit(50);}}>
       <option value="">Összes</option>{maps.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
       <input aria-label="Játékoselőzmény keresése" placeholder="Játékosnév" value={query} onChange={e=>{setQuery(e.target.value);setLimit(50);}}/>
