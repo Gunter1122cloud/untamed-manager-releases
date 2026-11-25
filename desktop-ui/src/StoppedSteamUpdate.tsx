@@ -9,6 +9,7 @@ const steamReason=(code?:string|null)=>code==="UM-STEAM-HOST-BUSY"?"Ezen a gépe
   code==="UM-STEAM-SHARED-SCOPE-CHANGED"?"A közös telepítés maplistája megváltozott. Olvasd újra a helyi állapotot.":
   code==="UM-STEAMCMD-NOT-CONFIGURED"?"Nincs SteamCMD beállítva. Válaszd ki a steamcmd.exe fájlt.":
   code==="UM-STEAMCMD-NOT-FOUND"?"A beállított steamcmd.exe nem található.":
+  code==="UM-STEAMCMD-NOT-WINDOWS-PE"?"A kiválasztott fájl nem érvényes Windows PE program; nem mentettük el SteamCMD-ként.":
   code==="UM-STEAMCMD-INVALID"?"Érvénytelen vagy nem olvasható helyi SteamCMD-programútvonal.":
   code==="UM-STEAMCMD-PREPARE-FAILED"?"A hivatalos SteamCMD előkészítése sikertelen. Ellenőrizd a kapcsolatot és a helyi Tools könyvtárat, vagy válassz meglevő steamcmd.exe fájlt.":
   code==="UM-STEAM-ASA-BINARY-INVALID"?"A kiválasztott map ASA szerverbinárisa nem igazolható.":

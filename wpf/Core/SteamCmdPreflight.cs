@@ -37,7 +37,8 @@ public static class SteamCmdPreflight
         // persisting a selected SteamCMD path. This is a bounded PE-header
         // inspection only; the executable is never launched during selection.
         byte[] dos=new byte[64];
-        if(stream.Read(dos,0,dos.Length)!=dos.Length||
+        stream.ReadExactly(dos);
+        if(
            dos[0]!=(byte)'M'||dos[1]!=(byte)'Z')
             throw new InvalidDataException("UM-STEAMCMD-NOT-WINDOWS-PE");
         int peOffset=BinaryPrimitives.ReadInt32LittleEndian(dos.AsSpan(0x3c,4));
@@ -45,7 +46,8 @@ public static class SteamCmdPreflight
             throw new InvalidDataException("UM-STEAMCMD-NOT-WINDOWS-PE");
         stream.Position=peOffset;
         byte[] header=new byte[24];
-        if(stream.Read(header,0,header.Length)!=header.Length||
+        stream.ReadExactly(header);
+        if(
            header[0]!=(byte)'P'||header[1]!=(byte)'E'||
            header[2]!=0||header[3]!=0)
             throw new InvalidDataException("UM-STEAMCMD-NOT-WINDOWS-PE");

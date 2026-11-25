@@ -113,6 +113,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         if(string.IsNullOrWhiteSpace(path))return "UM-STEAMCMD-NOT-CONFIGURED";
         try {SteamCmdPreflight.Inspect(path);return null;}
         catch(FileNotFoundException){return "UM-STEAMCMD-NOT-FOUND";}
+        catch(InvalidDataException ex) when(ex.Message=="UM-STEAMCMD-NOT-WINDOWS-PE")
+        {return "UM-STEAMCMD-NOT-WINDOWS-PE";}
         catch(Exception ex) when(ex is InvalidDataException or IOException or
             UnauthorizedAccessException or ArgumentException or NotSupportedException or
             System.Security.SecurityException)
