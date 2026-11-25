@@ -182,9 +182,10 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
         proof.currentRunningPid!==null&&proof.currentRunningPid!==undefined&&
         proof.currentRunningPid>0&&proof.currentRunningPid!==proof.oldPid&&
         proof.currentRunningPid!==proof.attemptedNewPid&&
+        !!proof.currentRunningStartedUtc&&
         (proof.loaderRequired!==true||
           (proof.currentLoaderPid!==null&&proof.currentLoaderPid!==undefined&&
-           proof.currentLoaderPid>0));
+           proof.currentLoaderPid>0&&!!proof.currentLoaderStartedUtc));
       if(proof.mapId.toLowerCase()!==mapId.toLowerCase()||
          proof.oldPid<=0||
          !(replacementVerified||
