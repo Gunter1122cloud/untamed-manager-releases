@@ -25,9 +25,23 @@ public sealed class DesktopInstallationRelocationBridge
     private LocalMap Owned(Guid id,string destination)
     {
         var map=cluster.Config.LocalMaps.Single(x=>x.Id==id);
-        if(map.ObservedReadOnlyImported||map.HistoricalStoreProtected||FreshStoreEnrollmentPolicy.IsEnrolled(map)||
-           map.AutoStart||map.Maintenance||!FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
+        bool store=FreshStoreEnrollmentPolicy.IsEnrolled(map);
+        if(map.ObservedReadOnlyImported||map.HistoricalStoreProtected||
+           map.AutoStart||map.Maintenance||
            !AsaReadyProbe.IsRegisteredServerBinary(map)||!string.IsNullOrEmpty(map.HistoricalArchiveSha256)||
+           !string.IsNullOrEmpty(map.HistoricalMapKey)||!string.IsNullOrEmpty(map.StoreTestRoot))
+            throw new InvalidOperationException("UM-MOVE-ONLY-STANDALONE-LOCAL");
+        if(store)
+        {
+            // Only the existing local new-Store authority, not historical or
+            // remote writer rights. The exact transfer ID is revalidated on
+            // every source check; transfer and cluster settings never move.
+            FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+            if(!string.IsNullOrWhiteSpace(map.ApiLoaderArguments)&&map.ApiLoaderArguments!=map.Arguments)
+                throw new InvalidOperationException("UM-MOVE-STORE-LOADER-ARGS");
+            if(map.StartWithAsaApi)_=AsaApiLaunchPolicy.Resolve(map);
+        }
+        else if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
            AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments)||
            AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments)||
            map.Arguments.Contains(":\\",StringComparison.Ordinal)||map.Arguments.Contains(":/",StringComparison.Ordinal)||
@@ -121,7 +135,17 @@ public sealed class DesktopInstallationRelocationBridge
             lease.MarkMutationStarted();
             selected.InstallationPath=candidate.InstallationPath;selected.ExecutablePath=exe;selected.ApiLoaderPath=api;selected.LogFilePath=log;
             selected.LastProcess=null;selected.LastLoader=null;
-            try{cluster.Save();}
+            try{
+                if(FreshStoreEnrollmentPolicy.IsEnrolled(selected))
+                {
+                    FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,selected);
+                    if(selected.StartWithAsaApi)_=AsaApiLaunchPolicy.Resolve(selected);
+                    var destinationState=cluster.Check(selected);
+                    if(!destinationState.ConfirmedStopped||destinationState.Running||destinationState.Identity!=null||destinationState.LoaderIdentity!=null)
+                        throw new InvalidOperationException("UM-MOVE-TARGET-PROCESS-UNVERIFIED");
+                }
+                cluster.Save();
+            }
             catch{
                 // ConfigStore writes atomically. If persistence cannot be
                 // verified do not remove either installation or retry.
@@ -130,7 +154,7 @@ public sealed class DesktopInstallationRelocationBridge
                 throw;
             }
             lease.Complete();
-            return Ok(new{mapId=selected.Id,files=approved.Plan.Entries.Count(x=>!x.Directory),bytes=approved.Plan.Bytes,sourceRetained=true,profileSwitched=true,serverStarted=false});
+            return Ok(new{mapId=selected.Id,files=approved.Plan.Entries.Count(x=>!x.Directory),bytes=approved.Plan.Bytes,sourceRetained=true,profileSwitched=true,serverStarted=false,localStoreEnrollmentPreserved=FreshStoreEnrollmentPolicy.IsEnrolled(selected),transferDirectoryUnchanged=true});
         }catch(Exception ex){string code=ex.Message;
             return Error(System.Text.RegularExpressions.Regex.IsMatch(code,@"\AUM-[A-Z0-9-]{1,100}\z")?code:"UM-MOVE-UNAVAILABLE");}
     });
