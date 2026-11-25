@@ -1,4 +1,4 @@
-name: Chapter III cinematic footage sources
+name: Inspect individual ARK trailer files
 on:
   push:
     branches: ['media/chapter-iii-sourcepack']
@@ -7,125 +7,40 @@ on:
 permissions:
   contents: read
 jobs:
-  collect:
+  inspect:
     if: github.ref == 'refs/heads/media/chapter-iii-sourcepack'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 10
     steps:
-      - name: Install video tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg
-          python3 -m pip install --break-system-packages --upgrade yt-dlp
-      - name: Download adaptive official ARK trailers and mod gameplay footage
+      - name: Fetch trailer subfolder manifests
         shell: bash
         run: |
-          set -uo pipefail
-          mkdir -p ChapterIII_SourcePack/{01-Astraeos,02-Tides-of-Fortune,03-Human-NPCs-Base-Raids,04-Dark-Age,05-Other-Action}
-          : > /tmp/download-report.txt
-          fetch_adaptive() {
-            local category="$1" name="$2" url="$3"
-            local target="ChapterIII_SourcePack/$category/$name.%(ext)s"
-            echo "ADAPTIVE $name" | tee -a /tmp/download-report.txt
-            if yt-dlp --no-warnings --no-progress --no-playlist --no-part --max-filesize 145M \
-              --format "bv*[height>=1080]+ba/b[height>=1080]/bv*[height>=720]+ba/b[height>=720]/bv*+ba/b" \
-              --merge-output-format mp4 --remux-video mp4 --output "$target" "$url"; then
-              local f
-              f=$(find "ChapterIII_SourcePack/$category" -maxdepth 1 -type f -name "$name.*" ! -name '*.part' | head -n1)
-              if [ -n "$f" ]; then
-                local dims
-                dims=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$f" 2>/dev/null || true)
-                echo "OK $category/$name $dims $(stat -c%s "$f")" | tee -a /tmp/download-report.txt
-              else
-                echo "FAILED_NO_FILE $name" | tee -a /tmp/download-report.txt
-              fi
-            else
-              rm -f "ChapterIII_SourcePack/$category/$name."*
-              echo "FAILED $name" | tee -a /tmp/download-report.txt
-            fi
-          }
-          fetch_youtube() {
-            local category="$1" name="$2" id="$3"
-            local target="ChapterIII_SourcePack/$category/$name.%(ext)s"
-            echo "YOUTUBE $name $id" | tee -a /tmp/download-report.txt
-            local success=0
-            for client in ios android_vr tv_embedded; do
-              rm -f "ChapterIII_SourcePack/$category/$name."*
-              echo "TRY_CLIENT $client $name" | tee -a /tmp/download-report.txt
-              if yt-dlp --no-warnings --no-progress --no-playlist --no-part --max-filesize 140M \
-                --extractor-args "youtube:player_client=$client" \
-                --format "bv*[height>=1080]+ba/b[height>=1080]/bv*[height>=720]+ba/b[height>=720]/bv*+ba/b" \
-                --merge-output-format mp4 --remux-video mp4 --output "$target" "https://www.youtube.com/watch?v=$id"; then
-                local f
-                f=$(find "ChapterIII_SourcePack/$category" -maxdepth 1 -type f -name "$name.*" ! -name '*.part' | head -n1)
-                if [ -n "$f" ]; then
-                  local dims
-                  dims=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$f" 2>/dev/null || true)
-                  echo "OK $category/$name $dims $(stat -c%s "$f")" | tee -a /tmp/download-report.txt
-                  success=1
-                  break
-                fi
-              fi
-            done
-            if [ "$success" -eq 0 ]; then
-              rm -f "ChapterIII_SourcePack/$category/$name."*
-              echo "FAILED $name (all public player clients blocked or unavailable)" | tee -a /tmp/download-report.txt
-            fi
-          }
-          # SteamDB exposes adaptive DASH/HLS streams for the official publisher trailers.
-          fetch_adaptive "01-Astraeos" "Astraeos_Heaven_and_Abyss" "https://video.fastly.steamstatic.com/store_trailers/3483400/1819887216/e7ab831fc9fe563378bf775ea5d5933fb9ab02db/1787797252/hls_264_master.m3u8"
-          fetch_adaptive "01-Astraeos" "Astraeos_Mega_Update" "https://video.fastly.steamstatic.com/store_trailers/3483400/1007813498/8675ac211bc55419a4d647ab5a402865d2f93309/1772032756/hls_264_master.m3u8"
-          fetch_adaptive "01-Astraeos" "Astraeos_Launch" "https://video.fastly.steamstatic.com/store_trailers/3483400/828827/9ca029e0e9add8d278c2f9e606c3bde8c972e559/1750826273/hls_264_master.m3u8"
-          fetch_adaptive "02-Tides-of-Fortune" "Tides_of_Fortune_Official" "https://video.fastly.steamstatic.com/store_trailers/4558480/363141497/11727f8c0b30b2c949e77f190e8bcaff340005be/1783117447/hls_264_master.m3u8"
-          # Public mod spotlights; try multiple non-web YouTube player clients without account cookies.
-          fetch_youtube "03-Human-NPCs-Base-Raids" "Human_NPCs_Mod_Review" "iip513nqk_0"
-          fetch_youtube "04-Dark-Age" "Dark_Age_2_Official_Mod_Spotlight" "CD3hfKQqSKc"
-          fetch_youtube "05-Other-Action" "ARK_Survival_Ascended_Launch" "0gLODoXanog"
-          fetch_youtube "02-Tides-of-Fortune" "Tides_of_Fortune_and_Dragontopia" "e6puGWDoA0M"
-          fetch_youtube "01-Astraeos" "Astraeos_Heaven_Abyss_Official" "ysqlagYIvic"
-      - name: Validate source pack and write report
-        shell: bash
-        run: |
+          set -euo pipefail
+          mkdir -p debug
+          curl -fL -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/si5q3wva0tkn38fm2oslv/ANTgjeu014P3rYMDG5WOIq4/Trailer?rlkey=fz35z7tvnqppxdx8b89y4l8h7&dl=0' -o debug/astraeos_trailer.html
+          curl -fL -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/noqpi9macywaku3r783wh/AMtC9gh8Js1c2LTjexSKckg/Trailer?rlkey=xhaypm1tp64hzphz51s7lqrl9&dl=0' -o debug/mega_trailer.html
           python3 - <<'PY'
-          import pathlib, subprocess, json, hashlib
-          root=pathlib.Path("ChapterIII_SourcePack")
-          caps={"01-Astraeos":150000000,"02-Tides-of-Fortune":150000000,"03-Human-NPCs-Base-Raids":70000000,"04-Dark-Age":50000000,"05-Other-Action":50000000}
-          report={"files":[],"errors":pathlib.Path("/tmp/download-report.txt").read_text().splitlines(),"limits_bytes":caps}
-          for cat,cap in caps.items():
-              files=sorted(p for p in (root/cat).iterdir() if p.is_file())
-              used=0
-              for p in files:
-                  try:
-                      meta=json.loads(subprocess.check_output(["ffprobe","-v","error","-show_streams","-show_format","-of","json",str(p)]))
-                      v=next(s for s in meta["streams"] if s["codec_type"]=="video")
-                      dur=float(meta["format"]["duration"])
-                      if v["width"]<1280 or v["height"]<720 or dur<2:
-                          report["errors"].append(f"LOW_QUALITY_REMOVED {cat}/{p.name} {v['width']}x{v['height']}")
-                          p.unlink()
-                          continue
-                      size=p.stat().st_size
-                      if used+size>cap:
-                          p.unlink()
-                          report["errors"].append(f"OVER_CATEGORY_CAP_REMOVED {cat}/{p.name}")
-                          continue
-                      used+=size
-                      report["files"].append({"category":cat,"file":p.name,"bytes":size,"width":v["width"],"height":v["height"],"fps":v.get("r_frame_rate"),"duration_seconds":dur,"sha256":hashlib.sha256(p.read_bytes()).hexdigest()})
-                  except Exception as e:
-                      p.unlink(missing_ok=True)
-                      report["errors"].append(f"INVALID {cat}/{p.name}: {e}")
-          report["missing_categories"]=[k for k in caps if not any(x["category"]==k for x in report["files"])]
-          report["total_video_bytes"]=sum(x["bytes"] for x in report["files"])
-          report["status"]="complete" if not report["missing_categories"] else "partial"
-          (root/"REPORT.json").write_text(json.dumps(report,indent=2))
-          print(json.dumps(report,indent=2))
-          if report["total_video_bytes"]>470000000: raise SystemExit("Total exceeds 470 MB")
-          if not report["files"]: raise SystemExit("No actual video footage downloaded")
+          import pathlib,re,base64
+          for p in pathlib.Path("debug").glob("*.html"):
+              s=p.read_text(errors="ignore")
+              print("\n###",p.name,"bytes",len(s))
+              out=[]
+              for m in re.finditer(r'registerStreamedPrefetch\\("([^"]+)",\\s*"([^"]+)"',s):
+                  key=base64.b64decode(m.group(1)+"===")
+                  if b"SharedContentLinkFolderEntriesPropsPrefetch" not in key: continue
+                  payload=base64.b64decode(m.group(2)+"===")
+                  txt=payload.decode("latin1","replace")
+                  out.append(txt)
+                  print("PAYLOAD_BYTES",len(payload))
+                  for hit in re.findall(r"[ -~]{5,}",txt):
+                      if any(x in hit.lower() for x in ["dropbox.com","mp4","mov","webm","m4v","trailer","video","1080","4k"]):
+                          print(hit[:800])
+              (p.parent/(p.stem+"_entries.txt")).write_text("\n\n".join(out),encoding="utf-8")
+              if not out: print("NO FOLDER ENTRIES PREFETCH FOUND")
           PY
-      - name: Upload actual video footage
+      - name: Upload trailer manifests
         uses: actions/upload-artifact@v4
         with:
-          name: ChapterIII_Cinematic_Footage
-          path: ChapterIII_SourcePack/
-          if-no-files-found: error
-          compression-level: 0
+          name: ChapterIII_Trailer_Manifests
+          path: debug/
           retention-days: 7
