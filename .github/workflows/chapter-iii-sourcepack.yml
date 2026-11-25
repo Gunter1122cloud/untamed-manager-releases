@@ -1,4 +1,4 @@
-name: Inspect individual ARK trailer files
+name: Find official ARK franchise press-kit links
 on:
   push:
     branches: ['media/chapter-iii-sourcepack']
@@ -12,35 +12,35 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Fetch trailer subfolder manifests
+      - name: Find official media asset links
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p debug
-          curl -fL -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/si5q3wva0tkn38fm2oslv/ANTgjeu014P3rYMDG5WOIq4/Trailer?rlkey=fz35z7tvnqppxdx8b89y4l8h7&dl=0' -o debug/astraeos_trailer.html
-          curl -fL -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/noqpi9macywaku3r783wh/AMtC9gh8Js1c2LTjexSKckg/Trailer?rlkey=xhaypm1tp64hzphz51s7lqrl9&dl=0' -o debug/mega_trailer.html
+          mkdir -p press
+          curl -fL -A 'Mozilla/5.0' 'https://www.gamespress.com/en-US/ARK-FRANCHISE-REVEALS-AT-IGN-LIVE-2026' -o press/ark_franchise.html
+          curl -fL -A 'Mozilla/5.0' 'https://www.gamespress.com/nl/ARK-SURVIVAL-ASCENDED-EXPANDS-TO-THE-SEA-AND-SKY-WITH-TIDES-OF-FORTUNE' -o press/tides_press.html
           python3 - <<'PY'
-          import pathlib,re,base64
-          for p in pathlib.Path("debug").glob("*.html"):
-              s=p.read_text(errors="ignore")
-              print("\n###",p.name,"bytes",len(s))
-              out=[]
-              for m in re.finditer(r'registerStreamedPrefetch\("([^"]+)",\s*"([^"]+)"',s):
-                  key=base64.b64decode(m.group(1)+"===")
-                  if b"SharedContentLinkFolderEntriesPropsPrefetch" not in key: continue
-                  payload=base64.b64decode(m.group(2)+"===")
-                  txt=payload.decode("latin1","replace")
-                  out.append(txt)
-                  print("PAYLOAD_BYTES",len(payload))
-                  for hit in re.findall(r"[ -~]{5,}",txt):
-                      if any(x in hit.lower() for x in ["dropbox.com","mp4","mov","webm","m4v","trailer","video","1080","4k"]):
-                          print(hit[:800])
-              (p.parent/(p.stem+"_entries.txt")).write_text("\n\n".join(out),encoding="utf-8")
-              if not out: print("NO FOLDER ENTRIES PREFETCH FOUND")
+          from html.parser import HTMLParser
+          from pathlib import Path
+          class P(HTMLParser):
+              def __init__(self): super().__init__(); self.links=[]; self.title=[]
+              def handle_starttag(self,tag,attrs):
+                  if tag=="a":
+                      a=dict(attrs)
+                      if a.get("href"): self.links.append((a["href"],a.get("title","")))
+              def handle_data(self,data):
+                  d=data.strip()
+                  if d: self.title.append(d)
+          for p in Path("press").glob("*.html"):
+              h=P();h.feed(p.read_text(errors="ignore"))
+              print("\n###",p.name)
+              for u,t in h.links:
+                  if any(x in (u+" "+t).lower() for x in ["dropbox","media","asset","trailer","download","presskit"]):
+                      print(u,"TITLE",t)
           PY
-      - name: Upload trailer manifests
+      - name: Upload press pages for review
         uses: actions/upload-artifact@v4
         with:
-          name: ChapterIII_Trailer_Manifests
-          path: debug/
+          name: ChapterIII_Official_PressLinks
+          path: press/
           retention-days: 7
