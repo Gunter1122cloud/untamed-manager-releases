@@ -1,0 +1,82 @@
+name: Chapter III mod image references
+on:
+  push:
+    branches: ['media/chapter-iii-sourcepack']
+    paths: ['.github/workflows/chapter-iii-mod-images.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  collect:
+    if: github.ref == 'refs/heads/media/chapter-iii-sourcepack'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Collect public author-gallery reference images
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet Pillow
+          python3 - <<'PY'
+          import concurrent.futures, hashlib, io, json, pathlib, urllib.request
+          from PIL import Image, ImageOps, ImageDraw
+          root=pathlib.Path("mod-reference-pack")
+          root.mkdir()
+          base="https://83374.media.forgecdn.net/attachments/"
+          items=[
+            ("npc_small_village","787/787/smallvillage.png"),
+            ("npc_snow_village","787/791/snowvillage.png"),
+            ("npc_large_dino_fight","776/836/rudy.png"),
+            ("npc_bird_attack","787/786/npcbirdattack.png"),
+            ("npc_rider","777/865/lovethemod.png"),
+            ("dark_age_helmet_horn","877/983/imagen_2024-05-29_165646607.png"),
+            ("dark_age_dual_axe_attack","881/974/imagen_2024-06-03_233457759.png"),
+            ("dark_age_viking_axe","874/719/3.png"),
+            ("medieval_fortress_CONDITIONAL","1007/30/arkascended_l4ahcfgbgj.jpg"),
+            ("medieval_dock_CONDITIONAL","1007/39/arkascended_9uazcit7r2.jpg"),
+            ("medieval_raid_CONDITIONAL","1007/45/arkascended_eonfb9haoz.jpg"),
+            ("medieval_guard_CONDITIONAL","1007/51/arkascended_edbbwpd6eb.jpg"),
+          ]
+          def collect(item):
+              name,path=item
+              row={"name":name,"url":base+path,"reuse_permission":"not verified; reference only"}
+              try:
+                  req=urllib.request.Request(row["url"],headers={"User-Agent":"Mozilla/5.0"})
+                  with urllib.request.urlopen(req,timeout=18) as f:
+                      data=f.read(12000001)
+                  if len(data)>12000000: raise ValueError("oversize")
+                  im=Image.open(io.BytesIO(data))
+                  im.load()
+                  if im.format not in ("PNG","JPEG"): raise ValueError("unsupported format")
+                  ext=".png" if im.format=="PNG" else ".jpg"
+                  filename=name+ext
+                  (root/filename).write_bytes(data)
+                  row.update({"status":"downloaded","file":filename,"width":im.width,"height":im.height,"bytes":len(data),"sha256":hashlib.sha256(data).hexdigest()})
+              except Exception as e:
+                  row.update({"status":"failed","error":str(e)})
+              return row
+          with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+              rows=list(pool.map(collect,items))
+          (root/"REPORT.json").write_text(json.dumps(rows,indent=2))
+          ok=[r for r in rows if r["status"]=="downloaded"]
+          if ok:
+              sheet=Image.new("RGB",(960,220*((len(ok)+2)//3)),(20,20,20))
+              draw=ImageDraw.Draw(sheet)
+              for i,r in enumerate(ok):
+                  thumb=ImageOps.contain(Image.open(root/r["file"]).convert("RGB"),(312,180))
+                  x=(i%3)*320
+                  y=(i//3)*220
+                  sheet.paste(thumb,(x+(320-thumb.width)//2,y))
+                  draw.text((x+5,y+183),r["name"],fill="white")
+                  draw.text((x+5,y+198),f'{r["width"]}x{r["height"]}',fill="white")
+              sheet.save(root/"CONTACT.jpg",quality=90)
+          (root/"README.txt").write_text("Third-party public gallery references for review only. No publication or reuse rights verified. Conditional ARK Medieval imagery must not be used unless installed. No video files in this pack.")
+          print(json.dumps(rows,indent=2))
+          PY
+      - name: Upload temporary working reference pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_Mod_Image_References
+          path: mod-reference-pack/
+          if-no-files-found: error
+          retention-days: 3
