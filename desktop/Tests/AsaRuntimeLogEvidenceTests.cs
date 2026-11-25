@@ -50,10 +50,10 @@ internal static class AsaRuntimeLogEvidenceTests
         // Current ASA API builds rotate their log using the ASA child PID.
         string pidLog=Path.Combine(Path.GetDirectoryName(apiLog)!,
             "ArkApi_"+server.Pid+"_2026-11-25_07-00.log");
-        File.WriteAllText(pidLog,string.Join("\\r\\n",new[]{
+        File.WriteAllText(pidLog,string.Join("\r\n",new[]{
             Line("Loading..."),Line("API was successfully loaded"),
             Line("Initialized hooks"),Line("Loaded all plugins")
-        })+"\\r\\n",new UTF8Encoding(false));
+        })+"\r\n",new UTF8Encoding(false));
         var pidScoped=AsaRuntimeLogEvidence.Inspect(map,server,loader);
         Check(pidScoped.ApiInitialized&&pidScoped.PluginsInitialized,
             "rotated ArkApi_<ASA PID> logs are discovered and bound to the exact ASA child");
@@ -95,10 +95,10 @@ internal static class AsaRuntimeLogEvidenceTests
         File.Delete(apiLog);
         string wrongPidLog=Path.Combine(Path.GetDirectoryName(apiLog)!,
             "ArkApi_16476_2026-11-25_07-00.log");
-        File.WriteAllText(wrongPidLog,string.Join("\\r\\n",new[]{
+        File.WriteAllText(wrongPidLog,string.Join("\r\n",new[]{
             Line("Loading..."),Line("API was successfully loaded"),
             Line("Initialized hooks"),Line("Loaded all plugins")
-        })+"\\r\\n",new UTF8Encoding(false));
+        })+"\r\n",new UTF8Encoding(false));
         var wrongPid=AsaRuntimeLogEvidence.Inspect(map,server,loader);
         Check(!wrongPid.ApiInitialized&&!wrongPid.PluginsInitialized,
             "a successful ArkApi log belonging to a different ASA PID is rejected");
