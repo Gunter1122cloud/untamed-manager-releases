@@ -99,6 +99,20 @@ public sealed class ObsidianWindow : Form
         if(_scheduledBackups.TryFreezeForManagerUpdate())return true;
         _nativeSchedules.ReleaseManagerUpdateFreeze();return false;
     }
+    // Discord is not a Manager update: reserve only the selected maps
+    // against active/queued native scheduled workers and batch targets.
+    // The outer host gate still serializes approval/config publication.
+    private bool TryEnterDiscordLane(Guid[] maps)
+    {
+        if(!_lifecycleBatch.CanDispatchDiscord(maps)||!_nativeSchedules.TryReserveDiscord(maps))return false;
+        if(_scheduledBackups.TryReserveDiscord(maps))return true;
+        _nativeSchedules.ReleaseDiscord();return false;
+    }
+    private void ReleaseDiscordLane()
+    {
+        _scheduledBackups.ReleaseDiscord();
+        _nativeSchedules.ReleaseDiscord();
+    }
     private bool NativeWorkerBusy()=>_freshStop.RecoveryLaneBusy()||_historicalStop.RecoveryLaneBusy()||
         _freshRestart.RecoveryLaneBusy()||_historicalRestart.RecoveryLaneBusy()||
         _steamUpdate.RecoveryLaneBusy()||_steamBatch.RecoveryLaneBusy()||
@@ -430,7 +444,8 @@ public sealed class ObsidianWindow : Form
         _rollingSteam=new DesktopRollingSteamSupervisor(_bridge.LocalCluster,_lifecycleBatch,_steamUpdate,_bridgeGate,
             ()=>_recovery.CanManagerUpdate()&&TryEnterWatchdogLane(),ReleaseRecoveryLane,()=>_updateHandoff||_suppressScheduledMutations);
         _discordControl = new DesktopDiscordControlApi(_bridge.LocalCluster,_bridgeGate,()=>_updateHandoff,
-            TryEnterRecoveryLane,ReleaseRecoveryLane,DispatchDiscordNative,_asaDiscovery.Snapshot,_nativeSchedules.LegacyOperationHistory);
+            TryEnterRecoveryLane,ReleaseRecoveryLane,DispatchDiscordNative,_asaDiscovery.Snapshot,_nativeSchedules.LegacyOperationHistory,
+            TryEnterDiscordLane,ReleaseDiscordLane);
         _liveMods=new DesktopHistoricalLiveModSync(_bridge.LocalCluster,_bridgeGate,
             ()=>_updateHandoff,TryEnterRecoveryLane,ReleaseRecoveryLane);
         Text = suppressScheduledMutations&&!smokeTest

@@ -269,6 +269,27 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
         try{using var held=LockOwner();CloseIdleBatch();return true;}
         catch{return false;}
     }
+    // Called under the outer host command gate. A live batch reserves
+    // only its remaining targets; an abandoned dispatch remains scoped to
+    // its uncertain map. Never clear a live owner or replay a receipt.
+    internal bool CanDispatchDiscord(Guid[] maps)
+    {
+        lock(sync)
+        {
+            try
+            {
+                var current=Read();
+                if(current==null||current.State is not ("running" or "needsReview"))return true;
+                bool live;
+                try{using var held=LockOwner();current=CloseIdleBatch();live=false;}
+                catch(IOException){live=true;}
+                if(current==null||current.State is not ("running" or "needsReview"))return true;
+                return !current.Targets.Any(t=>maps.Contains(t.MapId)&&
+                    (t.State is "dispatching" or "unknown"||live&&t.State=="queued"));
+            }
+            catch{return false;}
+        }
+    }
     private static string Message(string method,object fields)
     {
         var payload=new Dictionary<string,object?>{["id"]=Guid.NewGuid(),["method"]=method};
