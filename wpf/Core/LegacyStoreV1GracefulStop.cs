@@ -50,7 +50,7 @@ internal static class LegacyStoreV1GracefulStop
     internal static Owned Require(ClusterService cluster,Guid mapId,
         Func<LocalMap,ProcessCheck> inspect,Func<LocalMap,string> source,
         Func<int,int,bool> portOwner,Guid? approvedRestartId=null,
-        bool recoveryReadOnly=false,bool replacementReview=false)
+        bool recoveryReadOnly=false,bool replacementReview=false,bool reconcileCurrentOwner=false)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(inspect);
@@ -101,7 +101,18 @@ internal static class LegacyStoreV1GracefulStop
             // RCON port ownership proof above; an unexpected restarted PID
             // must NOT be made eligible for the old-process recovery.
             var oldRestart=restart.Observe();
-            if(replacementReview)
+            if(reconcileCurrentOwner)
+            {
+                // A v1 ChangedUtc is failure closure, not launch provenance.
+                // Adopt only the independently identified current owner, never
+                // infer that the abandoned restart or SaveWorld succeeded.
+                if(oldRestart==null||oldRestart.MapId!=mapId||
+                   oldRestart.Phase is not (AsaRestartPhase.NeedsOperator or AsaRestartPhase.OperatorReviewed)||
+                   identity.Pid==oldRestart.OldPid||
+                   state.LoaderIdentity?.Pid==oldRestart.OldPid)
+                    throw new InvalidOperationException("UM-RECONCILE-CURRENT-OWNER-NOT-VERIFIED");
+            }
+            else if(replacementReview)
             {
                 // Newer independently started owner, not evidence that
                 // the abandoned restart succeeded. No lifecycle mutation.
@@ -415,6 +426,12 @@ internal static class LegacyStoreV1GracefulStop
             map=>LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps),
             map=>OriginalSource(cluster,map),RconPortOwnership.IsOwnedListener,
             recoveryReadOnly:true,replacementReview:true);
+
+    internal static Owned PreviewForCurrentOwnerReconciliation(ClusterService cluster,Guid mapId)=>
+        Require(cluster,mapId,
+            map=>LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps),
+            map=>OriginalSource(cluster,map),RconPortOwnership.IsOwnedListener,
+            recoveryReadOnly:true,reconcileCurrentOwner:true);
 
     internal static Owned Preview(ClusterService cluster,Guid mapId,
         Func<LocalMap,ProcessCheck>? inspect=null,

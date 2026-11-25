@@ -190,7 +190,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     private ProcessCheck ReviewReplacementOwner(LocalMap map,AsaRestartRecord record,
         DateTimeOffset failureChangedUtc,int expectedPid=0,
         DateTimeOffset expectedStartedUtc=default,int expectedLoaderPid=0,
-        DateTimeOffset expectedLoaderStartedUtc=default,bool allowJustReviewed=false)
+        DateTimeOffset expectedLoaderStartedUtc=default,bool allowJustReviewed=false,
+        bool reconcileCurrentOwner=false)
     {
         bool phase=record.Phase==AsaRestartPhase.NeedsOperator||
             allowJustReviewed&&record.Phase==AsaRestartPhase.OperatorReviewed;
@@ -205,8 +206,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         if(!state.Running||state.ConfirmedStopped||
            state.Identity is not {Pid:>0} asa)
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-REPLACEMENT-ASA-NOT-RUNNING");
-        if(asa.Pid==record.OldPid||asa.Pid==record.NewPid||
-           asa.StartedUtc<=failureChangedUtc)
+        if(asa.Pid==record.OldPid||(!reconcileCurrentOwner&&
+           (asa.Pid==record.NewPid||asa.StartedUtc<=failureChangedUtc)))
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-REPLACEMENT-EPOCH-INVALID");
         string expectedServer=Path.GetFullPath(map.ExecutablePath);
         if(!string.Equals(Path.GetFullPath(asa.ExecutablePath),expectedServer,
@@ -222,8 +223,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                !string.Equals(Path.GetFullPath(map.ApiLoaderPath),expectedLoader,
                     StringComparison.OrdinalIgnoreCase)||
                loader is not {Pid:>0}||
-               loader.Pid==record.OldPid||loader.Pid==record.NewPid||
-               loader.StartedUtc<=failureChangedUtc||
+               loader.Pid==record.OldPid||(!reconcileCurrentOwner&&
+               (loader.Pid==record.NewPid||loader.StartedUtc<=failureChangedUtc))||
                loader.StartedUtc>asa.StartedUtc||
                !string.Equals(Path.GetFullPath(loader.ExecutablePath),expectedLoader,
                     StringComparison.OrdinalIgnoreCase)||
@@ -256,6 +257,20 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-REPLACEMENT-LOADER-CHANGED");
         return state;
     }
+
+    internal bool TryReconcileCurrentOwner(LocalMap map)=>
+        !map.HistoricalStoreProtected&&!HasActive(map.Id)&&DesktopRestartReconciler.TryReconcile(cluster,map,record=>{
+            var state=ReviewReplacementOwner(map,record,record.ChangedUtc,
+                allowJustReviewed:true,reconcileCurrentOwner:true);
+            string source=DesktopFreshAsaStartBridge.IniFingerprint(map)+":"+
+                AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map);
+            return new DesktopRestartReconciler.Witness(state.Identity!,state.LoaderIdentity,source);
+        });
+
+    internal bool TryReconcileStopped(LocalMap map)=>
+        !map.HistoricalStoreProtected&&!HasActive(map.Id)&&DesktopRestartReconciler.TryReconcileStopped(cluster,map,record=>
+            ReviewStoppedFamily(map,record)?DesktopFreshAsaStartBridge.IniFingerprint(map)+":"+
+                AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map):null);
 
     // Unlike running-old-PID recovery, a failed new startup needs no
     // dead RCON owner. Confirm absence of BOTH ASA and Loader and free ports.

@@ -294,6 +294,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopOwnedAsaKillBridge _ownedKill;
     private readonly DesktopFreshAsaRestartBridge _freshRestart;
     private readonly DesktopAsaLifecycleJournalBridge _lifecycleJournal;
+    private readonly DesktopRestartReconciliationSupervisor _restartReconciliation;
     private readonly DesktopOperationsCenterBridge _operations;
     private readonly DesktopDiscordNotifications _notifications;
     private readonly DesktopDiscordControlApi _discordControl;
@@ -379,6 +380,11 @@ public sealed class ObsidianWindow : Form
             historicalStop:_historicalStop,historicalRestart:_historicalRestart,historicalAdmin:_historicalAdminRcon);
         _mapMaintenance = new DesktopMapMaintenanceBridge(_bridge.LocalCluster);
         _lifecycleJournal = new DesktopAsaLifecycleJournalBridge(_bridge.LocalCluster);
+        _restartReconciliation=new DesktopRestartReconciliationSupervisor(_bridge.LocalCluster,_bridgeGate,
+            TryEnterWatchdogLane,ReleaseRecoveryLane,()=>_updateHandoff||_suppressScheduledMutations,
+            map=>map.HistoricalStoreProtected?
+                (_lifecycleJournal.TryReconcileCurrentOwner(map)||_lifecycleJournal.TryReconcileStopped(map)):
+                (_freshRestart.TryReconcileCurrentOwner(map)||_freshRestart.TryReconcileStopped(map)));
         _asaDiscovery = new DesktopAutomaticAsaDiscoverySupervisor(_bridge.LocalCluster);
         _bridge.AttachAutomaticAsaDiscovery(_asaDiscovery);
         _readOnlySupervisor = new DesktopRecurringReadOnlySupervisor(_bridge.LocalCluster);
@@ -457,6 +463,7 @@ public sealed class ObsidianWindow : Form
                 // Explicit native manual commands remain fully available.
                 if(!_suppressScheduledMutations)
                 {
+                    _restartReconciliation.Start();
                     _scheduledBackups.Start();
                     _nativeSchedules.Start();
                     _notifications.Start();
@@ -483,6 +490,7 @@ public sealed class ObsidianWindow : Form
         };
         FormClosed += (_, _) =>
         {
+            _restartReconciliation.Dispose();
             _liveMods.Dispose();
             _discordControl.Dispose();
             _asaDiscovery.Dispose();
