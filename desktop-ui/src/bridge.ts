@@ -568,7 +568,8 @@ export type FreshAsaRestartReviewPreview = {
   previousOutcomeUnknown:true;restartWillNotReplay:true;
   serverStarted:false;serverStopped:false;rconSent:false;
   evidence:"FRESH_ASA_OLD_RUNNING_PID_LOCAL_RESTART_REVIEW_PREVIEW"|
-    "FRESH_ASA_STOPPED_FAMILY_RESTART_REVIEW_PREVIEW";
+    "FRESH_ASA_STOPPED_FAMILY_RESTART_REVIEW_PREVIEW"|
+    "FRESH_ASA_NEWER_REPLACEMENT_OWNER_RESTART_REVIEW_PREVIEW";
 };
 export type FreshAsaRestartReviewReceipt = {
   mapId:string;oldPid:number;state:"operatorReviewed";

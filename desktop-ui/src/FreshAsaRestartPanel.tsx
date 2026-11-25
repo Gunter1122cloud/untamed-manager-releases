@@ -212,13 +212,14 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
       setAuditConfirmed(true);setNeedsLocalReview(false);setStatus(null);
       setDurable(previous=>previous?{...previous,
         phase:"OperatorReviewed",needsOperatorReview:false}:previous);
-      const summary=replacement?
+      const ownerSummary=replacement?
         "A külön indított jelenlegi ASA PID "+proof.currentRunningPid+
         " és Loader PID "+(proof.currentLoaderPid??"nem szükséges")+
         " útvonala, indulási ideje, indítási paraméterei és RCON-porttulajdonosa igazolt. ":
         proof.stoppedFamilyVerified?
           "Az ASA és Loader leállása, valamint a portok szabadsága igazolt. ":
-          "Az eredeti, még futó ASA PID "+proof.oldPid+" igazolt. "+
+          "Az eredeti, még futó ASA PID "+proof.oldPid+" igazolt. ";
+      const summary=ownerSummary+
         "A megszakadt Restart naplója auditálva; a korábbi restart sikertelen/eredménye ismeretlen marad. "+
         "Sem Stop, sem Start, sem RCON-parancs nem történt. Új művelet külön jóváhagyással indítható.";
       latestRestart.set(mapId,summary);
