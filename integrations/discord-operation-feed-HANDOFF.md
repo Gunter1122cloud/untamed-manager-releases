@@ -56,3 +56,9 @@ A cursor és outbox egy atomikus helyi fájlcserében mentődik a hálózati sen
 - A megőrzött öt hajnali futás csak olvasási visszaellenőrzése, explicit történeti import, Discord REST GET saját üzenet/marker és csatorna ellenőrzés; időpontok, duplikáció és fázisok bizonyítása.
 - A natív folyamatkötés és külső PID-megfigyelés összekapcsolásának, az összes elutasításnak és aszinkron readiness/backup alfajtának teljes lefedettsége.
 - Éles teszthez nem használható új Restart vagy DestroyWildDinos. A teljes termék- és éles elfogadást nem helyettesíti egy sikeres fixture.
+
+## P0: beragadt válasz és műveleti állapot
+
+Az új `OperationFeed` külső aszinkron I/O várakozási korlátja alapértelmezetten 10 másodperc. Egy még futó kérés ugyanazon kulcson nem indul újra; késői válasz nem lépteti a cursort. Másik host vagy csatorna ettől függetlenül feldolgozható. A helyi atomikus állapotmentést nem szakítjuk meg. Bizonytalan send után csak saját üzenetmarker-egyeztetés, nem automatikus újraküldés.
+
+A meglévő helyi Node adapterben a `scripts/obsidian_discord_admin.cjs` friss `classifyOperationReply` és `classifyJobReceipt` helperét a preview/apply és job polling ágba kell bekötni. `UM-DC-HOST-BUSY` / `UM-DC-MAP-BUSY` esetén nincs natív dispatch; `UM-DC-REPLY-PENDING` / transport-hiba / natív bizonytalanság esetén ugyanazt az UUID-t kell read-only lekérdezni, nem új Apply-t küldeni. A host mutex várakozásának legyen véges admission ideje, a transport socketnek abszolút határideje; az operation state nem lehet hostszintű tiltóflag. A meglévő jogosultságok, panelek és egyéb botmodulok változatlanok. A tényleges helyi adapter módosítása és ellenőrzése külön szükséges.

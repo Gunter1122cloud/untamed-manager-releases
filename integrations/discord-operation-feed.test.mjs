@@ -165,3 +165,41 @@ test("recovery on two hosts: stable independent run identity, separate phases an
  assert.ok(admin.every(e=>e.fields.find(f=>f.name==="Végrehajtó").value==="Automatikus helyreállítás"));
  feed=l.make();await feed.tick();assert.equal(l.sinks.get("admin").sent,2);assert.equal(l.sinks.get("alert").sent,4);
 });
+
+test("never-settling host read cannot freeze feed or duplicate in-flight reads",async t=>{
+ const l=await lab(t),[a,b]=l.hosts;
+ const feed=new OperationFeed({...l.args,ioTimeoutMs:50});await feed.tick();
+ const before=feed.state.hosts[a.id].cursor,original=feed.request;
+ let attempts=0,release;
+ const hanging=new Promise(resolve=>{release=resolve;});
+ feed.request=async(host,kind,args)=>{
+   if(host.id===a.id){attempts++;await hanging;}
+   return original(host,kind,args);
+ };
+ l.evt(a,randomUUID(),"terminal","limited","BACKUP_BYTES_AND_HASHES_VERIFIED",randomUUID(),"manager","Backup");
+ l.evt(b,randomUUID(),"started","in-progress","NATIVE_PREFLIGHT_PASSED",randomUUID());
+ await feed.tick();
+ assert.equal(feed.busy,false);assert.equal(feed.state.hosts[a.id].cursor,before);
+ assert.equal(l.sinks.get("admin").sent,1);assert.equal(attempts,1);
+ await feed.tick();assert.equal(attempts,1);assert.equal(feed.busy,false);
+ release();await new Promise(resolve=>setImmediate(resolve));
+ await feed.tick();assert.equal(attempts,2);assert.notEqual(feed.state.hosts[a.id].cursor,before);
+});
+test("hung Discord send stays uncertain, does not block other channels and is not sent twice",async t=>{
+ const l=await lab(t),[a]=l.hosts;
+ const feed=new OperationFeed({...l.args,ioTimeoutMs:50});await feed.tick();
+ const admin=l.sinks.get("admin"),original=admin.send.bind(admin);
+ let sends=0,release;
+ const waiting=new Promise(resolve=>{release=resolve;});
+ admin.send=async payload=>{sends++;await waiting;return original(payload);};
+ l.evt(a,randomUUID(),"started","in-progress","NATIVE_PREFLIGHT_PASSED",randomUUID());
+ await feed.tick();
+ const adminKey=Object.keys(feed.state.outbox).find(k=>k.endsWith(":admin"));
+ assert.equal(feed.state.outbox[adminKey].status,"uncertain");
+ assert.equal(l.sinks.get("alert").sent,1);assert.equal(feed.busy,false);
+ l.advance(61_000);await feed.tick();assert.equal(sends,1);
+ release();await new Promise(resolve=>setImmediate(resolve));
+ l.advance(301_000);await feed.tick();
+ assert.equal(feed.state.outbox[adminKey].status,"sent");
+ assert.equal(admin.sent,1);assert.equal(sends,1);
+});
