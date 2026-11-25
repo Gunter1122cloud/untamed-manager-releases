@@ -61,6 +61,7 @@ OriginalStoreExpandedDonePeerTests.Run();
 LocalLogCenterBoundedTests.Run();
 await HostedResourcesTests.RunAsync();
 await PlayerActivityNativeTests.RunAsync();
+FreshStoreMultiHostTests.Run();
 PlayerProfileBackupTests.Run();
 LocalModRepairTests.Run();
 PendingGameIniTests.Run();

@@ -48,6 +48,8 @@ public sealed class LocalMap
     public string FreshStoreClusterId { get; set; } = "";
     public string FreshStoreTransferDirectory { get; set; } = "";
     public string FreshStoreTransferFileId { get; set; } = "";
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? FreshStoreMultiHostTransferPin {get;set;}
     // Existing Kova Store-v1 copies are imported as quarantined metadata,
     // not as an executable or writable character profile.
     public bool HistoricalStoreProtected { get; set; } = false;
@@ -174,6 +176,7 @@ public sealed class PublicMapStatus
 public sealed class HostStatus
 {
     public LegacyStoreV1PeerProof? OriginalStoreV1 {get;set;}
+    public FreshStorePeerTransfer[]? FreshStoreTransfers {get;set;}
     public string HostId { get; set; } = "";
     public string HostName { get; set; } = "";
     public DateTimeOffset ObservedUtc { get; set; } = DateTimeOffset.UtcNow;
@@ -675,6 +678,7 @@ public static class PeerStatusClient
            (expectedHostId!=null&&!StringComparer.OrdinalIgnoreCase.Equals(
                remoteId.ToString("D"),expectedHostId)) ||
            string.IsNullOrWhiteSpace(status.HostName) || status.HostName.Length>128 ||
+           (status.FreshStoreTransfers!=null&&(status.FreshStoreTransfers.Length>16||status.FreshStoreTransfers.Any(x=>x==null||string.IsNullOrWhiteSpace(x.ClusterId)||x.ClusterId.Length>64||x.DirectoryTag==null||x.DirectoryTag.Length!=64||!x.DirectoryTag.All(Uri.IsHexDigit)||x.LocalMapIds==null||x.LocalMapIds.Length is <1 or >128||x.LocalMapIds.Any(id=>id==Guid.Empty)||x.LocalMapIds.Distinct().Count()!=x.LocalMapIds.Length))) ||
            status.Maps==null ||
            status.Maps.Any(m=>m==null || !Guid.TryParse(m.Id,out var id) ||
                id==Guid.Empty || string.IsNullOrWhiteSpace(m.Name) ||
@@ -2036,6 +2040,7 @@ public sealed partial class ClusterService : IAsyncDisposable
     private static HostStatus CopyTelemetry(HostStatus status)=>new()
     {
         OriginalStoreV1=status.OriginalStoreV1,
+        FreshStoreTransfers=status.FreshStoreTransfers?.Select(x=>new FreshStorePeerTransfer(x.ClusterId,x.DirectoryTag,x.LocalMapIds.ToArray())).ToArray(),
         HostId=status.HostId,
         HostName=status.HostName,
         ObservedUtc=status.ObservedUtc,
@@ -2049,6 +2054,7 @@ public sealed partial class ClusterService : IAsyncDisposable
     {
         return new HostStatus{
             OriginalStoreV1=ReadLegacyStoreV1PeerProof(),
+            FreshStoreTransfers=FreshStoreMultiHostTransfer.LocalEvidence(Config),
             HostId=Config.LocalHostId,HostName=Config.LocalHostName,ObservedUtc=DateTimeOffset.UtcNow,
             Maps=Config.LocalMaps.Select(map=>{
                 // Historical Store-v1 start remains HARD-LOCKED by Check().

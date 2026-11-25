@@ -106,7 +106,7 @@ public sealed class DesktopFreshStoreEnrollmentBridge : IDisposable
                         gamePort=map.GamePort,queryPort=map.QueryPort,
                         steamBuild=plan.InstalledBuild,
                         transferIdentityCheckedLocally=true,
-                        remoteIdentityCertified=false,
+                        remoteIdentityCertified=!string.IsNullOrEmpty(plan.MultiHostTransferPin),
                         conversionPerformed=false,serverStarted=false,
                         originalStoreTouched=false,automaticRetry=false,
                         evidence="NEW_EMPTY_STORE_ENROLLMENT_PREVIEW_ONLY"
@@ -149,6 +149,7 @@ public sealed class DesktopFreshStoreEnrollmentBridge : IDisposable
                 copy.FreshStoreClusterId=locked.ClusterId;
                 copy.FreshStoreTransferDirectory=locked.TransferDirectory;
                 copy.FreshStoreTransferFileId=locked.TransferFileId;
+                copy.FreshStoreMultiHostTransferPin=string.IsNullOrEmpty(locked.MultiHostTransferPin)?null:locked.MultiHostTransferPin;
                 copy.AutoStart=false;
                 // No conversion, shared directory write, RCON or ASA launch.
                 lease.MarkMutationStarted();

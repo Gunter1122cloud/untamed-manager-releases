@@ -21,7 +21,7 @@ public static class FreshStoreEnrollmentPolicy
     public sealed record Plan(Guid MapId,string ClusterId,string TransferDirectory,
         string Arguments,string InstalledBuild,long RegistryRevision,
         string TransferFileId,
-        string Fingerprint,string Evidence);
+        string Fingerprint,string Evidence,string MultiHostTransferPin="");
 
     public static bool IsEnrolled(LocalMap map)=>
         map!=null&&!string.IsNullOrWhiteSpace(map.FreshStoreClusterId);
@@ -145,12 +145,6 @@ public static class FreshStoreEnrollmentPolicy
             x.MapId==map.Id&&x.LocalConfigurationPresent&&
             x.HostId.Equals(owner,StringComparison.OrdinalIgnoreCase)))
             Deny("UM-FRESH-STORE-MAP-NOT-LOCAL-OWNER");
-        var members=snapshot.ClusterRegistry.MapAssignments.Where(x=>
-            x.ClusterId.Equals(normalized,StringComparison.Ordinal)).Select(x=>x.MapId)
-            .ToHashSet();
-        if(snapshot.HostRegistry.Maps.Any(x=>members.Contains(x.MapId)&&
-            !x.HostId.Equals(owner,StringComparison.OrdinalIgnoreCase)))
-            Deny("UM-FRESH-STORE-REMOTE-TRANSFER-NOT-CERTIFIED");
         return entry!;
     }
 
@@ -190,6 +184,7 @@ public static class FreshStoreEnrollmentPolicy
         var registered=ExistingCluster(cluster,map,clusterId);
         string transfer=SafeTransfer(registered.TransferDirectory);
         string transferId=StorePathIdentity.LocalDirectoryFingerprint(transfer);
+        string multiHostPin=FreshStoreMultiHostTransfer.RequireEnrollment(cluster,registered,transferId);
         var root=Path.GetFullPath(map.InstallationPath);
         if(cluster.Config.LocalMaps.Any(x=>x.Id!=map.Id&&
            !string.IsNullOrWhiteSpace(x.InstallationPath)&&
@@ -223,12 +218,12 @@ public static class FreshStoreEnrollmentPolicy
         var registry=cluster.Registry.Snapshot();
         string material=JsonSerializer.Serialize(map)+"\n"+registry.Revision+
             "\n"+normalized+"\n"+transfer+"\n"+transferId+
-            "\n"+args+"\n"+build;
+            "\n"+args+"\n"+build+"\n"+multiHostPin;
         string fingerprint=Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(material)));
         return new(map.Id,normalized,transfer,args,build,
             registry.Revision,transferId,fingerprint,
-            "NEW_EMPTY_STORE_V1_METADATA_ONLY");
+            "NEW_EMPTY_STORE_V1_METADATA_ONLY",multiHostPin);
     }
 
     /// <summary>
@@ -258,6 +253,15 @@ public static class FreshStoreEnrollmentPolicy
                map.FreshStoreTransferFileId,StringComparison.OrdinalIgnoreCase))
             Deny("UM-FRESH-STORE-TRANSFER-FILE-ID-CHANGED");
         string argPath=transfer.Contains(' ')?"\""+transfer+"\"":transfer;
+        if(!string.IsNullOrEmpty(map.FreshStoreMultiHostTransferPin))
+        {
+            if(map.FreshStoreMultiHostTransferPin!=FreshStoreMultiHostTransfer.Pin(clusterId,map.FreshStoreTransferFileId))
+                Deny("UM-FRESH-STORE-REMOTE-TRANSFER-NOT-CERTIFIED");
+        }
+        else
+        {
+            _=FreshStoreMultiHostTransfer.RequireEnrollment(cluster,registered,map.FreshStoreTransferFileId);
+        }
         string suffix=" -clusterid="+clusterId+
             " -ClusterDirOverride="+argPath+" -usestore";
         string args=map.Arguments;
