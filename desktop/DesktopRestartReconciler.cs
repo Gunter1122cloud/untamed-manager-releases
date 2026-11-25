@@ -101,6 +101,60 @@ internal static class DesktopRestartReconciler
         }
     }
 
+    // Original owner still running: no new PID was recorded, and the exact
+    // current family and source are re-proven under the installation lease.
+    // Old v1 journals lack an old start epoch; refuse a PID born after the
+    // abandoned claim. The result is an archived unknown, not a success.
+    internal static bool TryReconcileOldOwner(ClusterService cluster,LocalMap map,
+        Func<AsaRestartRecord,Witness> observe)
+    {
+        try
+        {
+            if(map.Maintenance)return false;
+            var journal=new AsaManualRestartJournal(map.InstallationPath);
+            var record=journal.Observe();
+            var general=cluster.Operations.Observe(map.InstallationPath);
+            bool paired=general?.Phase is (UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator);
+            if(paired&&(general!.Kind!=UntamedOperationKind.Launch||
+                DateTimeOffset.UtcNow-general.UpdatedUtc<TimeSpan.FromMinutes(3)))return false;
+            if(record==null||record.MapId!=map.Id||record.NewPid!=0||
+                (record.Phase is not (AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator)&&
+                 !(paired&&record.Phase==AsaRestartPhase.OperatorReviewed))||
+                (record.Phase!=AsaRestartPhase.OperatorReviewed&&
+                 DateTimeOffset.UtcNow-record.ChangedUtc<TimeSpan.FromMinutes(3)))return false;
+            string profile=JsonSerializer.Serialize(map);
+            bool ClearOtherReceipts()
+            {
+                new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
+                return !map.HistoricalStoreProtected||
+                    LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id)?.Phase is not ("prepared" or "needsOperator");
+            }
+            if(!ClearOtherReceipts())return false;
+            bool ValidOld(Witness w)=>w.Asa.Pid==record.OldPid&&w.Asa.StartedUtc.Year>=2020&&
+                w.Asa.StartedUtc<record.ChangedUtc&&!string.IsNullOrWhiteSpace(w.Asa.ExecutablePath)&&
+                !string.IsNullOrWhiteSpace(w.Source)&&map.StartWithAsaApi==(w.Loader!=null)&&
+                (w.Loader==null||w.Loader.Pid>0&&w.Loader.Pid!=w.Asa.Pid&&w.Loader.StartedUtc<=w.Asa.StartedUtc&&
+                    !string.IsNullOrWhiteSpace(w.Loader.ExecutablePath));
+            var first=observe(record);if(!ValidOld(first))return false;
+            bool Verify()
+            {
+                var fresh=journal.Observe();
+                if(fresh==null||!ReferenceEquals(cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==map.Id),map)||
+                   JsonSerializer.Serialize(map)!=profile||cluster.Operations.Observe(map.InstallationPath)!=general||
+                   !ClearOtherReceipts())return false;
+                if(fresh!=record&&(fresh.Phase!=AsaRestartPhase.OperatorReviewed||
+                    fresh!=(record with{Phase=AsaRestartPhase.OperatorReviewed,ChangedUtc=fresh.ChangedUtc})))return false;
+                var current=observe(fresh);
+                return ValidOld(current)&&current.Source==first.Source&&Same(first.Asa,current.Asa)&&Same(first.Loader,current.Loader);
+            }
+            if(paired)cluster.Operations.ReviewRunningOriginalLaunch(map.InstallationPath,general!.Operation,
+                Verify,map.Id,record.Id,record.OldPid);
+            else cluster.Operations.ReviewRunningOriginalRestartOnly(map.InstallationPath,map.Id,record.Id,record.OldPid,Verify);
+            return true;
+        }
+        catch(Exception ex) when(IsRecoverable(ex)){return false;}
+    }
+
     private static bool IsRecoverable(Exception ex)=>ex is IOException or InvalidDataException or
         UnauthorizedAccessException or InvalidOperationException or ArgumentException or
         JsonException or NotSupportedException;

@@ -499,6 +499,26 @@ internal static class OriginalStoreStoppedJournalRecoveryTests
                 File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
                 liveKey+"-"+pairedRestart.Id.ToString("N")+".operator-reviewed.json"))==pairedRestartBytes&&
                 !liveBridge.TryReconcileCurrentOwner(liveMap),"paired current-owner audit and idempotence");
+            var oldOwner=liveRestart.Begin(liveMap.Id,2272);
+            liveRestart.Change(oldOwner.Id,AsaRestartPhase.NeedsOperator);
+            File.WriteAllText(liveFile,JsonSerializer.Serialize(liveRestart.Observe()! with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-4)}));
+            string oldOwnerBytes=File.ReadAllText(liveFile);
+            var oldIdentity=new ProcessIdentity{Pid=2272,StartedUtc=DateTimeOffset.UtcNow.AddMinutes(-20),
+                ExecutablePath="synthetic-server",Arguments="synthetic-original"};
+            var oldLoader=new ProcessIdentity{Pid=loaderPid,StartedUtc=oldIdentity.StartedUtc.AddSeconds(-5),
+                ExecutablePath="synthetic-loader",Arguments="synthetic-original"};
+            DesktopRestartReconciler.Witness OldProof(AsaRestartRecord _) =>
+                new(oldIdentity,loaderPresent?oldLoader:null,new string('A',64));
+            loaderPresent=false;
+            Check(!DesktopRestartReconciler.TryReconcileOldOwner(liveCluster,liveMap,OldProof)&&
+                File.ReadAllText(liveFile)==oldOwnerBytes,"old-owner recovery requires exact Loader");
+            loaderPresent=true;
+            Check(DesktopRestartReconciler.TryReconcileOldOwner(liveCluster,liveMap,OldProof)&&
+                liveRestart.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+                File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
+                    liveKey+"-"+oldOwner.Id.ToString("N")+".operator-reviewed.json"))==oldOwnerBytes,
+                "old-owner recovery archives abandoned Restart without dispatch");
             Check(!(await Apply(livePreview)).GetProperty("ok").GetBoolean(),
                 "replacement review approval cannot be replayed");
         }

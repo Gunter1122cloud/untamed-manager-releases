@@ -128,6 +128,13 @@ public sealed class DesktopAsaLifecycleJournalBridge
             return new DesktopRestartReconciler.Witness(proof.Process,proof.LoaderIdentity,proof.SourceSha);
         });
 
+    internal bool TryReconcileOldOwner(LocalMap map)=>
+        map.HistoricalStoreProtected&&DesktopRestartReconciler.TryReconcileOldOwner(cluster,map,record=>{
+            var witness=Proof(map.Id);
+            if(!ReferenceEquals(witness.Map,map))throw new InvalidDataException("UM-RECONCILE-OLD-SOURCE");
+            return new DesktopRestartReconciler.Witness(witness.Process,witness.LoaderIdentity,witness.SourceSha);
+        });
+
     internal bool TryReconcileStopped(LocalMap map)=>
         map.HistoricalStoreProtected&&DesktopRestartReconciler.TryReconcileStopped(cluster,map,record=>{
             var witness=VerifyStopped(map.Id,record.OldPid);

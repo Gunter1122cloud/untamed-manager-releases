@@ -397,7 +397,42 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     var row=Read(map.Id);
                     if(row==null||!FlushTerminal(row))continue;
                     row=Read(map.Id)!;
-                    if(!Enabled(row)||row.Status is "disarmed" or "needsReview" or "externalSuspended")continue;
+                    if(!Enabled(row)||row.Status is "disarmed" or "externalSuspended")continue;
+                    if(row.Status=="needsReview")
+                    {
+                        // Re-arm observation only after the actual local ASA
+                        // is already healthy and its native journals clear.
+                        // Never launch a stopped map or replay a failed claim.
+                        if(row.Claim.HasValue||!tryEnterMaintenanceLane())continue;
+                        try
+                        {
+                            DemandProfile(map,row,true);DemandNoPending(map);
+                            var before=observe(map);
+                            if(!Running(map,before))continue;
+                            var receipt=RecoveryStopIntent.ReadNativeStart(map);
+                            bool same=SameFamily(row,before);
+                            bool trustedReplacement=receipt!=null&&receipt.RecordedUtc>row.ArmedUtc&&
+                                receipt.StartedUtc>row.StartedUtc&&
+                                RecoveryStopIntent.MatchesNativeStart(receipt,map.StartWithAsaApi?before.LoaderIdentity:before.Identity);
+                            if(!same&&!trustedReplacement)continue;
+                            if(RecoveryStopIntent.Suppresses(map,before.Identity!.Pid,before.Identity.StartedUtc,before.Identity.StartedUtc)||
+                                !await ready(map,before))continue;
+                            var after=observe(map);
+                            if(!Running(map,after)||!Same(before.Identity,after.Identity)||
+                                !Same(before.LoaderIdentity,after.LoaderIdentity)||
+                                RecoveryStopIntent.ReadNativeStart(map)!=receipt)continue;
+                            DemandProfile(map,row,true);DemandNoPending(map);
+                            Attach(map.Id,after.Identity!);
+                            Write(row with{Status="armed",Pid=after.Identity!.Pid,StartedUtc=after.Identity.StartedUtc,
+                                LoaderPid=after.LoaderIdentity?.Pid,LoaderStartedUtc=after.LoaderIdentity?.StartedUtc,
+                                AsaPath=after.Identity.ExecutablePath,LoaderPath=after.LoaderIdentity?.ExecutablePath,
+                                ArmedUtc=now,StoppedSamples=0,LastStoppedUtc=null,LaunchPid=null,LaunchStartedUtc=null,
+                                ReadyDeadlineUtc=null,CrashConfirmedUtc=null,Evidence="HEALTHY_NATIVE_FAMILY_REARMED_NO_START"});
+                        }
+                        catch{/* Changed profile or unclear ownership stays blocked. */}
+                        finally{releaseMaintenanceLane();}
+                        continue;
+                    }
                     lastChecked[map.Id]=now;
                     if(row.CrashConfirmedUtc.HasValue&&row.Claim.HasValue)
                         Publish(row,"crash-confirmed","in-progress","RECOVERY_FATAL_EXIT_HANDLE_CONFIRMED",row.CrashConfirmedUtc);

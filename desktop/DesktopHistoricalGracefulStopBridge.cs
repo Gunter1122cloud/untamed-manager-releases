@@ -188,6 +188,53 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         }
     }
 
+    // Reconcile a stale SaveWorld-only receipt using the same native
+    // source/epoch proof and installation lease as explicit review. Never
+    // claim SaveComplete, never resend, and do not touch original Store data.
+    internal bool TryReconcileSaveReceipt(LocalMap map)
+    {
+        if(!map.HistoricalStoreProtected||map.Maintenance||HasActive(map.Id))return false;
+        var receipt=LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id);
+        var common=cluster.Operations.Observe(map.InstallationPath);
+        bool pending=common?.Phase is (UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator);
+        if(receipt==null||receipt.Phase is not ("prepared" or "needsOperator" or "reviewed")||
+            (receipt.Phase=="reviewed"&&!pending)||
+            DateTimeOffset.UtcNow-receipt.BeganUtc<minimumRunningReviewAge||
+            (pending&&(common!.Kind!=UntamedOperationKind.Backup||
+                DateTimeOffset.UtcNow-common.UpdatedUtc<TimeSpan.FromMinutes(3))))return false;
+        // Do not adopt a newer or changed owner, or clear an unrelated
+        // completed Configuration/Launch record through the running route.
+        var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
+        bool restartPending=restart!=null&&restart.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
+        bool running=verifyReviewRunning(map.Id,receipt.Pid,receipt.PidStartedUtc,receipt.OriginalSourceSha256);
+        if(running&&common!=null&&common.Kind!=UntamedOperationKind.Backup)return false;
+        Guid? paired=null;
+        if(restartPending)
+        {
+            if(!running||restart!.MapId!=map.Id||restart.OldPid!=receipt.Pid||restart.NewPid!=0||
+                restart.Phase is not (AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator)||
+                DateTimeOffset.UtcNow-restart.ChangedUtc<TimeSpan.FromMinutes(3))return false;
+            paired=restart.Id;
+        }
+        else if(running&&pending&&restart?.Phase==AsaRestartPhase.OperatorReviewed&&
+            restart.MapId==map.Id&&restart.OldPid==receipt.Pid&&restart.NewPid==0)paired=restart.Id;
+        string profile=JsonSerializer.Serialize(map);
+        bool Verify()=>!HasActive(map.Id)&&ReferenceEquals(Owned(map.Id),map)&&JsonSerializer.Serialize(map)==profile&&
+            cluster.Operations.Observe(map.InstallationPath)==common&&
+            (running?verifyReviewRunning(map.Id,receipt.Pid,receipt.PidStartedUtc,receipt.OriginalSourceSha256):
+                verifyReviewSource(map.Id,receipt.OriginalSourceSha256));
+        if(!Verify())return false;
+        void Review()=>LegacyStoreV1SaveEvidenceJournal.ReviewUncertain(cluster.Store.Root,map.Id,
+            receipt.OperationId,receipt.OriginalSourceSha256,Verify);
+        if(running)cluster.Operations.ReviewRunningBackup(map.InstallationPath,common?.Operation,Verify,Review,
+            paired,map.Id,receipt.Pid);
+        else cluster.Operations.ReviewStoppedBackup(map.InstallationPath,common?.Operation,Verify,Review);
+        lock(sync)
+            if(jobsByMap.TryGetValue(map.Id,out var tracked)&&tracked.Id==receipt.OperationId&&tracked.State=="needsOperator")
+            {tracked.State="reviewed";tracked.Step="Korábbi mentés naplója automatikusan archiválva; kimenetele ismeretlen";tracked.ChangedUtc=DateTimeOffset.UtcNow;}
+        return true;
+    }
+
     private object Recover(Guid mapId)
     {
         var map=Owned(mapId);
