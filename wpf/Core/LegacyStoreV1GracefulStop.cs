@@ -148,15 +148,9 @@ internal static class LegacyStoreV1GracefulStop
     {
         string legacy=Path.Combine(Environment.GetFolderPath(
             Environment.SpecialFolder.ApplicationData),"Kova");
-        string selected=LegacyStoreV1PinnedSource.Resolve(
+        // Native SaveWorld/Stop only require registered local source identity.
+        return LegacyStoreV1PinnedSource.RuntimeFingerprint(
             cluster.Store.Root,legacy,map);
-        // ACTIVE/DONE was Kova's import/migration coordination, not a
-        // runtime requirement for independently managed local SaveWorld/Stop.
-        // A peer being offline must not invalidate a locally owned PID/RCON.
-        if(!string.Equals(selected,legacy,StringComparison.OrdinalIgnoreCase))
-            return LegacyStoreV1PinnedSource.RuntimeFingerprint(
-                cluster.Store.Root,legacy,map);
-        return ReadSource(map,legacy);
     }
 
     private static string ReadSource(LocalMap map,string profile)
