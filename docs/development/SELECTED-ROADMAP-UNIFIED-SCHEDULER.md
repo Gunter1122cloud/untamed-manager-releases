@@ -1,0 +1,2 @@
+# UI-01 first slice
+Central local schedule list combining native ASA and read-only inspection receipts with map filter, active filter, chronological sort and pagination. Reuse existing NativeMapScheduler and RollingSteamSettings editors for selected map. No new execution loop, no replay, no invented Steam due time, no activation of retired SteamCheck. Actual backup scheduling and cross-host timeline remain pending.
