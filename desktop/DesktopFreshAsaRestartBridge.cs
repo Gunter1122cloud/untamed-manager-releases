@@ -289,7 +289,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     private bool ReviewStoppedFamily(LocalMap map,AsaRestartRecord record,bool allowPendingStop=false)
     {
         if(record.MapId!=map.Id||record.OldPid<=0||record.NewPid==record.OldPid||
-           map.AutoStart||map.Maintenance||HasActive(map.Id)||
+           map.Maintenance||HasActive(map.Id)||
            record.Phase is not (AsaRestartPhase.Stopping or AsaRestartPhase.Starting or
                AsaRestartPhase.NeedsOperator or AsaRestartPhase.OperatorReviewed))return false;
         try

@@ -146,7 +146,7 @@ public sealed class DesktopAsaLifecycleJournalBridge
     {
         var map=Owned(mapId);
         if(!map.HistoricalStoreProtected||map.Id==Guid.Empty||oldPid<=0||
-           map.AutoStart||map.RconPort is <1024 or >65535||
+           map.RconPort is <1024 or >65535||
            map.HistoricalArchiveSha256?.Length!=64||
            !map.HistoricalArchiveSha256.All(Uri.IsHexDigit))
             throw new InvalidDataException("UM-RECOVERY-STOPPED-MAP-NOT-APPROVED");
