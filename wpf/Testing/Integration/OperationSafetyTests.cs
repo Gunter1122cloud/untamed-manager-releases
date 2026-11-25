@@ -72,7 +72,12 @@ public static class OperationSafetyTests
             }
             finally{if(!child.HasExited)child.Kill();await child.WaitForExitAsync();}
         }
-        Refused(()=>{using var other=new UntamedOperationCoordinator(crashState).Acquire(crashResource,UntamedOperationKind.Restore);},"crash releases OS handle but durable pending state still blocks replay");
+        using(var recoveredAfterCrash=new UntamedOperationCoordinator(crashState).Acquire(
+            crashResource,UntamedOperationKind.Restore))
+            recoveredAfterCrash.Complete();
+        Check(new UntamedOperationCoordinator(crashState).Observe(crashResource)!.Phase==
+            UntamedOperationPhase.Completed,
+            "dead Manager worker receipt is archived and next command recovers without operator review");
         string profile=Path.Combine(root,"config-cas");
         var first=new ConfigStore("first",profile);var second=new ConfigStore("second",profile);
         var cfg=first.Read();cfg.LocalHostName="A";first.Save(cfg);
