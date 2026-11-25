@@ -3,6 +3,7 @@ import { createSnapshotRefreshQueue } from "./state/snapshotRefreshQueue";
 import { describeNativeError } from "./state/nativeErrors";
 import { asaMapNames } from "./state/asaMapSuggestions";
 import {DownloadsOverview} from "./DownloadsOverview";
+import {ModPlatformAdvisory} from "./ModPlatformAdvisory";
 import {
   AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
   FileText, HardDrive, LayoutDashboard, Layers3, Monitor, CloudDownload, Activity,
@@ -427,6 +428,7 @@ function CurseForgeExplorer({onPrepare,mapId,mapName,onBatchSaved,onCopyToMaps}:
                   {file.sizeBytes>0 ? " "+(file.sizeBytes/1048576).toFixed(1)+" MiB" : " méret ismeretlen"}</small></div>
                 <span className={file.available?"mod-tag green":"mod-tag amber"}>{file.available?"Elérhető":"Nem igazolt"}</span>
                 {file.gameVersions.length>0 && <small className="cf-versions">{file.gameVersions.join(" · ")}</small>}
+                <ModPlatformAdvisory versions={file.gameVersions} fileId={file.fileId}/>
                 {file.dependencies.length>0 && <small className="cf-deps">
                   Függőségek: {file.dependencies.map(d => d.modId+" ("+d.type+")").join(", ")}</small>}
               </div>)}

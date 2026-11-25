@@ -4,6 +4,7 @@ import {
   Layers3, Package, Plus, Search, Shield, SlidersHorizontal
 } from "lucide-react";
 import {managerBridge,type ConfiguredMods,type CurseForgeMod,type CurseForgeProject,type ModDraftMode} from "./bridge";
+import {ModPlatformAdvisory} from "./ModPlatformAdvisory";
 
 const officialSummaryCache=new Map<string,CurseForgeMod>();
 
@@ -208,6 +209,12 @@ export function PremiumModBoard({info,mapName,onStage,onOpenCatalog,onOpenEditor
             <div><span>Függőségek</span><b>{details?.files?.[0]?.dependencies.length ?? "Nem ellenőrzött"}</b></div>
             <div><span>Telepített fájlok</span><b>Nem ellenőrzött</b></div>
           </div>
+          {details?.mod.id===Number(focus.id)&&details.files.length>0
+            ?<div className="premium-mod-advisory" style={{display:"block"}}>
+              <small>A katalógus első három fájljának jelölései (nem a telepített verzió):</small>
+              {details.files.slice(0,3).map(file=><ModPlatformAdvisory key={file.fileId} versions={file.gameVersions} fileId={file.fileId}/>)}
+            </div>
+            :<small className="muted">Crossplay: a pontos modfájl platformadata nem ellenőrzött.</small>}
           <button type="button" className="secondary premium-details-action" onClick={onOpenCatalog}>
             <Search size={16}/> Keresés a CurseForge-ban
           </button>
