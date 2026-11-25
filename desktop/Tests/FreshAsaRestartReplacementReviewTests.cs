@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using UntamedDesktop;
 using UntamedManager.Core;
@@ -125,10 +126,12 @@ internal static class FreshAsaRestartReplacementReviewTests
               !receipt.GetProperty("serverStopped").GetBoolean()&&
               !receipt.GetProperty("rconSent").GetBoolean(),
             "receipt explicitly proves journal-only review with no Start, Stop, Restart or RCON");
+        var auditJson=new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        auditJson.Converters.Add(new JsonStringEnumConverter());
         var archived=JsonSerializer.Deserialize<AsaRestartRecord>(
             File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,
                 "Restart-v1",key+"-"+interrupted.Id.ToString("N")+
-                ".operator-reviewed.json")));
+                ".operator-reviewed.json")),auditJson);
         Check(archived?.Phase==AsaRestartPhase.NeedsOperator&&
               archived.NewPid==0&&restart.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
               restart.Observe()?.NewPid==0&&

@@ -121,8 +121,8 @@ internal static class AsaRuntimeLogEvidence
                 }catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
                     ArgumentException or NotSupportedException){return false;}
             })
-            .OrderBy(File.GetLastWriteTimeUtc)
-            .ThenBy(Path.GetFileName,StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path=>File.GetLastWriteTimeUtc(path))
+            .ThenBy(path=>Path.GetFileName(path),StringComparer.OrdinalIgnoreCase)
             .Take(8).ToArray();
         bool loaded=false,hooks=false,pluginsComplete=false;
         bool apiInitialized=false,pluginsInitialized=false;
