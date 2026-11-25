@@ -516,6 +516,9 @@ export type OriginalStoreLifecycleRecoveryPreview = {
   restartId?:string|null;restartPhase?:string|null;restartOldPid?:number|null;
   restartNewPid?:number|null;pairedJournals?:number;
   reviewMode?:"running"|"stopped"|"replacement";currentRunningPid?:number|null;
+  currentRunningStartedUtc?:string|null;currentLoaderPid?:number|null;
+  currentLoaderStartedUtc?:string|null;loaderRequired?:boolean;
+  replacementStartEpochVerified?:boolean;launchParametersVerified?:boolean;
   exactWindowsProcessVerified:boolean;stoppedWindowsProcessVerified?:boolean;
   rconListenerAbsent?:boolean;historicalSelectedOwnerVerified?:boolean;
   originalStoreSessionVerified:boolean;

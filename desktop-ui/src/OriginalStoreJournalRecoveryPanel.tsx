@@ -18,6 +18,7 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
   const [error,setError]=useState("");
   const [receipt,setReceipt]=useState(false);
   const [verifiedPid,setVerifiedPid]=useState<number|null>(null);
+  const [verifiedReplacement,setVerifiedReplacement]=useState<{asa:number;loader:number|null}|null>(null);
   const [changedSource,setChangedSource]=
     useState<OriginalStoreLifecycleRecoveryPreview|null>(null);
   const inFlight=useRef(false);
@@ -25,13 +26,13 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
   useEffect(()=>{
     currentMap.current=mapId;
     setError("");setReceipt(false);setVerifiedPid(null);
-    setChangedSource(null);
+    setVerifiedReplacement(null);setChangedSource(null);
   },[mapId,journal.operationId,journal.restartId]);
 
   const recover=async(approveChangedSource=false)=>{
     if(inFlight.current||receipt)return;
     inFlight.current=true;
-    setBusy(true);setError("");setVerifiedPid(null);
+    setBusy(true);setError("");setVerifiedPid(null);setVerifiedReplacement(null);
     try{
       // Preview performs the same strict native preflight as the old
       // separate step; it sends no commands or writes to original korábbi Manager.
@@ -43,7 +44,12 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
       const replacement=proof.reviewMode==="replacement";
       if(replacement&&(!proof.restartId||!proof.currentRunningPid||
           proof.currentRunningPid<=0||proof.currentRunningPid===proof.restartOldPid||
-          proof.currentRunningPid===proof.restartNewPid))
+          proof.currentRunningPid===proof.restartNewPid||
+          proof.replacementStartEpochVerified!==true||
+          proof.launchParametersVerified!==true||
+          !proof.rconListenerOwnerVerified||
+          (proof.loaderRequired===true&&(!proof.currentLoaderPid||
+            proof.currentLoaderPid<=0))))
         throw new Error("UM-RECOVERY-REPLACEMENT-OWNER-NOT-VERIFIED");
       if(!proof.token||proof.pid<=0||
          proof.mapId.toLowerCase()!==mapId.toLowerCase()||
@@ -67,6 +73,10 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
            proof.restartNewPid==null||proof.restartNewPid<0)))
         throw new Error("UM-RECOVERY-PREVIEW-OWNER-NOT-VERIFIED");
       setVerifiedPid(proof.pid);
+      setVerifiedReplacement(replacement?{
+        asa:proof.currentRunningPid!,
+        loader:proof.currentLoaderPid??null
+      }:null);
       if(proof.historicalSourceReapprovalRequired&&!approveChangedSource){
         setChangedSource(proof);
         
@@ -178,6 +188,11 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
       {verifiedPid!==null&&!receipt&&<p className="muted small" role="status">
         Naplóban rögzített korábbi ASA PID: {verifiedPid}. A végső rendezés
         külön, friss natív ellenőrzést végez; nem küld RCON-parancsot.
+      </p>}
+      {verifiedReplacement&&!receipt&&<p className="muted small" role="status">
+        Külön indított jelenlegi ASA PID: {verifiedReplacement.asa}
+        {" · "}Loader PID: {verifiedReplacement.loader??"nem szükséges"}.
+        Mindkét folyamat és a hozzájuk tartozó indítási bizonyíték újraellenőrzésre kerül.
       </p>}
       {receipt&&<div className="success-inline" role="status"><CheckCircle2 size={16}/>
         A Manager helyi naplói auditálva. A korábbi parancs kimenetele

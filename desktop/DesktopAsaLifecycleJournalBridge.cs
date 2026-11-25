@@ -318,6 +318,7 @@ public sealed class DesktopAsaLifecycleJournalBridge
                             InvalidOperationException or UnauthorizedAccessException or IOException)
                         {
                             running=null;
+                            Exception? replacementFailure=null;
                             if(restart.Phase==AsaRestartPhase.NeedsOperator)
                             {
                                 try
@@ -326,10 +327,24 @@ public sealed class DesktopAsaLifecycleJournalBridge
                                     replacement=true;
                                 }
                                 catch(Exception replacementError) when(replacementError is InvalidDataException or
-                                    InvalidOperationException or UnauthorizedAccessException or IOException)
-                                {running=null;}
+                                    InvalidOperationException or UnauthorizedAccessException or IOException or
+                                    ArgumentException or NotSupportedException)
+                                {
+                                    replacementFailure=replacementError;
+                                    running=null;
+                                }
                             }
-                            if(!replacement)stopped=await Task.Run(()=>VerifyStopped(mapId,restart.OldPid));
+                            if(!replacement)
+                            {
+                                try{stopped=await Task.Run(()=>VerifyStopped(mapId,restart.OldPid));}
+                                catch(Exception) when(replacementFailure!=null)
+                                {
+                                    string code=SafeCode.IsMatch(replacementFailure!.Message)?
+                                        replacementFailure.Message:
+                                        "UM-RECOVERY-REPLACEMENT-OWNER-UNVERIFIED";
+                                    throw new InvalidOperationException(code);
+                                }
+                            }
                         }
                     }
                     else running=await Task.Run(()=>Proof(mapId));
@@ -372,6 +387,12 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         expiresUtc=pending.ExpiresUtc,
                         reviewMode=replacement?"replacement":stopped!=null?"stopped":"running",
                         currentRunningPid=replacement?running!.Process.Pid:(int?)null,
+                        currentRunningStartedUtc=replacement?running!.Process.StartedUtc:(DateTimeOffset?)null,
+                        currentLoaderPid=replacement?running!.LoaderIdentity?.Pid:(int?)null,
+                        currentLoaderStartedUtc=replacement?running!.LoaderIdentity?.StartedUtc:(DateTimeOffset?)null,
+                        loaderRequired=replacement&&map.StartWithAsaApi,
+                        replacementStartEpochVerified=replacement,
+                        launchParametersVerified=replacement,
                         exactWindowsProcessVerified=running!=null,
                         stoppedWindowsProcessVerified=stopped!=null,
                         rconListenerAbsent=stopped!=null,
