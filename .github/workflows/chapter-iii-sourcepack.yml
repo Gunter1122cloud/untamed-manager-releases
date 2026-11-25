@@ -25,7 +25,7 @@ jobs:
               s=p.read_text(errors="ignore")
               print("\n###",p.name,"bytes",len(s))
               out=[]
-              for m in re.finditer(r'registerStreamedPrefetch\\("([^"]+)",\\s*"([^"]+)"',s):
+              for m in re.finditer(r'registerStreamedPrefetch\("([^"]+)",\s*"([^"]+)"',s):
                   key=base64.b64decode(m.group(1)+"===")
                   if b"SharedContentLinkFolderEntriesPropsPrefetch" not in key: continue
                   payload=base64.b64decode(m.group(2)+"===")
