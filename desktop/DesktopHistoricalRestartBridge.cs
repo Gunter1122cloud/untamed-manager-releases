@@ -64,12 +64,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
 
     private LegacyStoreV1SaveEvidence? PendingSaveEvidence(Guid mapId)
     {
-        // A SaveWorld-only bridge may have persisted its one-shot receipt
-        // before its background RCON task acquired the operation lease.
-        // Do not overlap that pending/uncertain operation with a Restart,
-        // even when the generic operation journal still looks completed.
-        var receipt=LegacyStoreV1SaveEvidenceJournal.Inspect(
-            cluster.Store.Root,mapId);
+        LegacyStoreV1SaveEvidenceJournal.AutoRecoverInterrupted(cluster.Store.Root,mapId);
+        var receipt=LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,mapId);
         return receipt?.Phase is "prepared" or "needsOperator" ? receipt : null;
     }
 
@@ -141,7 +137,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         {
             // Async ASA/RCON progress belongs only to an active Restart;
             // a committed terminal Store-v1 receipt is immutable.
-            if(job.State is "completed" or "needsOperator")return;
+            if(job.State is "completed" or "needsOperator" or "failed")return;
             job.State=state;job.Step=step;
             job.ChangedUtc=DateTimeOffset.UtcNow;
             if(oldStopped.HasValue)job.OldProcessStopped=oldStopped.Value;
@@ -171,7 +167,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             failureCode=job.FailureCode,
             startupAttempts=job.StartupAttempts,startupRetriesEnabled=job.StartupRetriesEnabled,
             gameClientRejoinVerified=false,
-            finalDoExitSaveCertified=false,automaticRetry=false,
+            finalDoExitSaveCertified=false,automaticRetry=job.StartupRetriesEnabled,
             forceKill=false,storeTouched=false,
             evidence="ORIGINAL_STORE_V1_NATIVE_MANUAL_RESTART_JOB"
         };
@@ -182,6 +178,10 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         var map=Owned(mapId);
         if(map==null||!map.HistoricalStoreProtected)
             throw new UnauthorizedAccessException("UM-ORIGINAL-RESTART-LOCAL-ONLY");
+        cluster.Operations.AutoRecoverPending(map.InstallationPath);
+        new AsaManualRestartJournal(map.InstallationPath).AutoRecoverPending();
+        new AsaManualStopJournal(map.InstallationPath).AutoRecoverPending(mapId);
+        LegacyStoreV1SaveEvidenceJournal.AutoRecoverInterrupted(cluster.Store.Root,mapId);
         var journalDiagnosis=AsaLocalJournalReadOnly.Inspect(
             cluster.Operations,map.InstallationPath);
         var entry=journalDiagnosis.Restart;
@@ -196,7 +196,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         }
         bool pendingRestart=journalDiagnosis.RestartUnreadable||
             entry!=null&&entry.Phase is not
-                (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
+                (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed or AsaRestartPhase.Recovered);
         var operation=journalDiagnosis.Operation;
         bool pendingOperation=journalDiagnosis.OperationUnreadable||
             operation?.Phase is UntamedOperationPhase.Prepared or
@@ -223,11 +223,10 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             restartJournalErrorCode=journalDiagnosis.RestartErrorCode,
             blocked=pendingRestart||pendingOperation||pendingSave||
                 running!=null||localNeedsOperator,
-            requiresOperator=localNeedsOperator||
-                (pendingRestart||pendingOperation||pendingSave)&&running==null,
+            requiresOperator=false,
             inMemoryRunning=running!=null,jobId=running?.Id,
             oldPid=entry?.OldPid,newPid=entry?.NewPid,
-            automaticRecovery=false,automaticRetry=false,
+            automaticRecovery=true,automaticRetry=true,
             originalStoreTouched=false,lockCleared=false,
             evidence="ORIGINAL_STORE_V1_DURABLE_RESTART_RECOVERY_READ_ONLY"
         };
@@ -281,6 +280,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     if(map==null||!map.HistoricalStoreProtected||map.Maintenance)
                         return Fail(id,"UM-ORIGINAL-RESTART-LOCAL-ONLY");
                     if(HasActive(mapId))return Fail(id,"UM-ORIGINAL-RESTART-BUSY");
+                    cluster.Operations.AutoRecoverPending(map.InstallationPath);
+                    new AsaManualRestartJournal(map.InstallationPath).AutoRecoverPending();
                     if(PendingSaveEvidence(mapId)!=null)
                         return Fail(id,"UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW");
                     // Preserve the exact per-map launch mode. A Loader-based
@@ -290,10 +291,11 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                        !string.IsNullOrWhiteSpace(map.ApiLoaderArguments))
                         return Fail(id,"UM-ORIGINAL-RESTART-LOADER-NOT-SUPPORTED");
                     new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+                    cluster.Operations.AutoRecoverPending(map.InstallationPath);
                     var existing=cluster.Operations.Observe(map.InstallationPath);
                     if(existing?.Phase is UntamedOperationPhase.Prepared or
                         UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
-                        return Fail(id,"UM-ORIGINAL-RESTART-OPERATION-RECOVERY");
+                        return Fail(id,"UM-ORIGINAL-RESTART-OPERATION-IN-PROGRESS");
                     var owned=await Task.Run(()=>preview(mapId));
                     if(!ReferenceEquals(owned.Map,map)||owned.Process.Pid<=0||
                        owned.Process.StartedUtc==default||owned.SourceSha.Length!=64)
@@ -392,7 +394,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                 }
                 var retryPermit=nativeLauncher?ScheduledRestartRetryScope.Current:null;
                 var job=new Job{MapId=original.Id,OldPid=approved.Pid,
-                    UseApi=original.StartWithAsaApi,StartupRetriesEnabled=retryPermit!=null};
+                    UseApi=original.StartWithAsaApi,StartupRetriesEnabled=nativeLauncher};
                 var events=new DiscordOperationEvents.NativeRun(cluster,job.Id,new[]{original.Id},"Restart");
                 events.Emit("claimed","in-progress","NATIVE_RESTART_JOURNAL_PREPARED");
                 lock(sync)jobsByMap[original.Id]=job;
@@ -441,7 +443,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             modLease.Complete();
                         }
                         restart.Change(record.Id,AsaRestartPhase.Starting);
-                        string? initialLaunchFingerprint=null;
+                        string? initialLaunchFingerprint=nativeLauncher?
+                            LegacyStoreV1NativeStartPlanner.Prepare(cluster,original,record.Id).Fingerprint:null;
                         for(int attempt=1;;attempt++)
                         {
                         retryPermit?.Demand(original.Id);
@@ -449,10 +452,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         lock(sync){job.StartupAttempts=attempt;job.Readiness=null;job.FailureCode=null;}
                         try
                         {
-                        if(retryPermit!=null)
+                        if(nativeLauncher)
                         {
                             var plan=LegacyStoreV1NativeStartPlanner.Prepare(cluster,original,record.Id);
-                            initialLaunchFingerprint??=plan.Fingerprint;
                             if(plan.Fingerprint!=initialLaunchFingerprint)
                                 throw new InvalidOperationException("UM-RESTART-RETRY-LAUNCH-CONFIG-CHANGED");
                         }
@@ -613,6 +615,40 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                                 lease.Complete();
                             }
                         }
+                        catch(Exception ex) when(nativeLauncher&&attemptedStartUtc.HasValue&&
+                            attempt<YarkRecoveryPolicy.MaxAttempts)
+                        {
+                            bool Stopped()
+                            {
+                                var check=LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
+                                    original,cluster.Config.LocalMaps);
+                                return check.ConfirmedStopped&&!check.Running&&
+                                    check.Identity==null&&check.LoaderIdentity==null&&
+                                    AsaLocalPortPreflight.CanStart(original);
+                            }
+                            if(!Stopped())throw;
+                            var backoff=YarkRecoveryPolicy.BackoffAfter(attempt);
+                            lock(sync)job.FailureCode=NativeLifecycleFailureCode.From(ex);
+                            Update(job,"running","ASA összeomlott; YARK-alapú automatikus újrapróbálás "+
+                                (attempt+1)+"/"+YarkRecoveryPolicy.MaxAttempts+" · "+
+                                backoff.TotalSeconds+" mp");
+                            await Task.Delay(backoff);
+                            using(var retryLease=cluster.Operations.Acquire(
+                                original.InstallationPath,UntamedOperationKind.Launch))
+                            {
+                                if(!Stopped())throw new InvalidOperationException(
+                                    "UM-RESTART-AUTO-RETRY-FAMILY-RUNNING");
+                                record=restart.ClaimAutomaticRetry(record.Id,attempt,Stopped);
+                                var plan=LegacyStoreV1NativeStartPlanner.Prepare(
+                                    cluster,original,record.Id);
+                                if(plan.Fingerprint!=initialLaunchFingerprint)
+                                    throw new InvalidOperationException(
+                                        "UM-RESTART-AUTO-RETRY-LAUNCH-CONFIG-CHANGED");
+                                retryLease.Complete();
+                            }
+                            attemptedStartUtc=null;
+                            continue;
+                        }
                         }
                     }
                     catch(Exception ex)
@@ -623,14 +659,14 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         try{restart.Change(record.Id,AsaRestartPhase.NeedsOperator);}
                         catch{/* Preserve the original durable failed receipt. */}
                         lock(sync)job.FailureCode=code;
-                        Update(job,"needsOperator",
+                        Update(job,"failed",
                             "Store-v1 Restart sikertelen ["+code+
-                            "]: naplóellenőrzés és biztonságos új indítás szükséges");
+                            "]. A következő Start automatikusan helyreállítja a régi műveleti állapotot.");
                         events.Emit("terminal","uncertain",code);
                     }
                 });
                 return Ok(id,new{
-                    jobId=job.Id,started=true,automaticRetry=false,
+                    jobId=job.Id,started=true,automaticRetry=nativeLauncher,
                     forceKill=false,storeTouched=false,
                     evidence="ORIGINAL_STORE_V1_MANUAL_RESTART_JOB_QUEUED"
                 });
