@@ -86,6 +86,14 @@ internal static class FutureStoreAppendPlannerTests
 
         var before=string.Join("\n",new[]{clusterText,storeText,lockText,
             launchText,peerText});
+        Check(Denied(()=>Build(evidence:witness with{InstallationRoot=Path.Combine(members[0].root,"nested")})),
+            "candidate nested inside original installation denied");
+        Check(Denied(()=>Build(evidence:witness with{InstallationRoot=root})),
+            "candidate containing original installations denied");
+        Check(!FutureStoreInstallationPath.Overlaps(members[0].root,members[0].root+"-separate"),
+            "sibling prefix is not path overlap");
+        Check(Denied(()=>FutureStoreInstallationPath.Canonical(Path.GetPathRoot(root)!)),
+            "drive root denied");
         var result=Build();
         var beforeImages=new[]{clusterText,storeText,lockText,launchText,peerText};
         var afterImages=new[]{result.ClusterJson,result.StoreJson,result.LockJson,

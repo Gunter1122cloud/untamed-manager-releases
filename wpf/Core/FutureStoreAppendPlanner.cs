@@ -123,7 +123,7 @@ public static class FutureStoreAppendPlanner
            !Path.IsPathFullyQualified(root)||root.StartsWith(@"\\",StringComparison.Ordinal)||
            root.Any(char.IsControl)||root.Contains('~'))
             Deny("UM-FUTURE-STORE-LOCAL-ROOT-INVALID");
-        root=Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        root=FutureStoreInstallationPath.Canonical(root);
         if(gamePort is <1024 or >65535||queryPort is <1024 or >65535||
            gamePort==queryPort)
             Deny("UM-FUTURE-STORE-PORT-INVALID");
@@ -187,7 +187,8 @@ public static class FutureStoreAppendPlanner
             var map=Item(item);
             string id=Id(map,"id"),key=Text(map,"map"),path=Text(map,"root");
             JsonNode? rawRecord=null;
-            if(!SafeMap(key)||!ids.Add(id)||!keys.Add(key)||!roots.Add(path)||
+            if(!SafeMap(key)||!ids.Add(id)||!keys.Add(key)||
+               roots.Any(existing=>FutureStoreInstallationPath.Overlaps(existing,path))||!roots.Add(path)||
                !records.TryGetPropertyValue(id,out rawRecord)||
                rawRecord is not JsonObject)
                 Deny("UM-FUTURE-STORE-RECORD-INVALID");
@@ -223,7 +224,7 @@ public static class FutureStoreAppendPlanner
         }
         if(launchIds.Count!=ids.Count||!ports.Add(gamePort)||!ports.Add(queryPort)||
            !ids.Add(converted.MapId.ToString("D"))||
-           !keys.Add(converted.MapKey)||!roots.Add(root))
+           !keys.Add(converted.MapKey)||roots.Any(existing=>FutureStoreInstallationPath.Overlaps(existing,root))||!roots.Add(root))
             Deny("UM-FUTURE-STORE-CANDIDATE-CONFLICT");
 
         string beforeRoster=ConfigHash(members);

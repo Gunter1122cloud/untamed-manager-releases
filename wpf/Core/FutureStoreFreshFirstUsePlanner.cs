@@ -83,17 +83,14 @@ public static class FutureStoreFreshFirstUsePlanner
            !Path.IsPathFullyQualified(candidate.InstallationPath)||
            candidate.InstallationPath.StartsWith(@"\\",StringComparison.Ordinal))
             Deny("LOCAL-ROOT");
-        string root=Path.TrimEndingDirectorySeparator(
-            Path.GetFullPath(candidate.InstallationPath));
+        string root=FutureStoreInstallationPath.Canonical(candidate.InstallationPath);
         if(!Directory.Exists(root))Deny("INSTALLATION-NOT-FOUND");
         for(var node=new DirectoryInfo(root);node!=null;node=node.Parent)
             if((node.Attributes&FileAttributes.ReparsePoint)!=0)
                 Deny("INSTALLATION-LINKED");
         if(localMaps.Any(x=>x.Id!=candidate.Id&&
            !string.IsNullOrWhiteSpace(x.InstallationPath)&&
-           Path.GetFullPath(x.InstallationPath).TrimEnd(
-               Path.DirectorySeparatorChar).Equals(root,
-               StringComparison.OrdinalIgnoreCase)))
+           FutureStoreInstallationPath.Overlaps(x.InstallationPath,root)))
             Deny("INSTALLATION-SHARED");
         LocalMapPortPolicy.RequireNoConflicts(candidate,localMaps);
         var source=FutureStoreConversionSourceAudit.Inspect(originalSourceImages);
@@ -101,7 +98,7 @@ public static class FutureStoreFreshFirstUsePlanner
         if(source.MapIds.Contains(candidate.Id.ToString("D"),
                StringComparer.OrdinalIgnoreCase)||
            source.MapKeys.Contains(key,StringComparer.OrdinalIgnoreCase)||
-           source.LocalRoots.Contains(root,StringComparer.OrdinalIgnoreCase)||
+           source.LocalRoots.Any(existing=>FutureStoreInstallationPath.Overlaps(existing,root))||
            source.UdpPorts.Contains(candidate.GamePort)||
            source.UdpPorts.Contains(candidate.QueryPort))
             Deny("ORIGINAL-ROSTER-COLLISION");

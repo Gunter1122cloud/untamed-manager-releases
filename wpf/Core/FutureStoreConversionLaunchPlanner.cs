@@ -122,8 +122,7 @@ public static class FutureStoreConversionLaunchPlanner
            !StoreV1Fingerprint.Matches(source,
                Read(peer.RootElement,"configHash")))
             Deny("HISTORICAL-SOURCE-NOT-CONSISTENT");
-        string root=Path.GetFullPath(map.InstallationPath)
-            .TrimEnd(Path.DirectorySeparatorChar);
+        string root=FutureStoreInstallationPath.Canonical(map.InstallationPath);
         if(!Path.IsPathFullyQualified(root)||
            root.StartsWith(@"\\",StringComparison.Ordinal)||
            string.IsNullOrWhiteSpace(map.Arguments))
@@ -133,7 +132,7 @@ public static class FutureStoreConversionLaunchPlanner
         {
             if(Read(member,"id")==map.Id.ToString("D")||
                Read(member,"map").Equals(key,StringComparison.OrdinalIgnoreCase)||
-               Read(member,"root").Equals(root,StringComparison.OrdinalIgnoreCase))
+               FutureStoreInstallationPath.Overlaps(Read(member,"root"),root))
                 Deny("MAP-ALREADY-PRESENT");
         }
         foreach(var row in rows.EnumerateArray())
