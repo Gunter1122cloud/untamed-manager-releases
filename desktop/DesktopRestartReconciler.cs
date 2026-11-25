@@ -236,6 +236,11 @@ internal sealed class DesktopRestartReconciliationSupervisor : IDisposable
             if(paused()||!enter())return;
             try
             {
+                // Local Steam queue housekeeping uses its own machine-wide
+                // Steam lease and does not change any map installation.
+                try{new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId)
+                    .TryIsolateAbandonedActive(cluster.Config.LocalMaps);}
+                catch(Exception ex){System.Diagnostics.Trace.TraceWarning("Steam queue reconciliation: "+ex.GetType().Name);}
                 foreach(var map in cluster.Config.LocalMaps.ToArray())
                 {
                     if(paused()||ct.IsCancellationRequested)break;

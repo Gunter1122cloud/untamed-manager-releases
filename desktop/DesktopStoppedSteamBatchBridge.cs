@@ -99,9 +99,9 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
 
     private bool BlockedJournal()
     {
-        var current=new SteamSerialMaintenanceQueue(
-            cluster.Store.Root,cluster.Config.LocalHostId).Observe();
-        return SteamSerialMaintenanceQueue.BlocksNewWork(current);
+        var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
+        queue.TryIsolateAbandonedActive(cluster.Config.LocalMaps);
+        return SteamSerialMaintenanceQueue.BlocksNewWork(queue.Observe());
     }
     private bool RunningJob()
     {

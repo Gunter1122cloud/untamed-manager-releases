@@ -185,6 +185,24 @@ public sealed class UntamedOperationCoordinator
         finally{semaphore.Release();}
     }
 
+    internal bool TryWithUnownedUpdate(string installation,Guid? previousOperation,
+        DateTimeOffset claimedUtc,Action isolateQueue)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return false;
+        try
+        {
+            var record=Read(Path.Combine(stateRoot,key+".json"),key);
+            if(record==null||record.Operation==previousOperation||record.Kind!=UntamedOperationKind.Update||
+                record.Phase is not (UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)||
+                record.UpdatedUtc<claimedUtc||record.UpdatedUtc>DateTimeOffset.UtcNow)return false;
+            isolateQueue();
+            return true;
+        }
+        finally{semaphore.Release();}
+    }
+
     public UntamedOperationRecord? Observe(string installation)
     {
         string key=ResourceKey(installation);

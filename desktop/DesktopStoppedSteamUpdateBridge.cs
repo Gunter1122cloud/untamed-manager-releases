@@ -169,8 +169,9 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     {
         try
         {
-            var journal=new SteamSerialMaintenanceQueue(
-                cluster.Store.Root,cluster.Config.LocalHostId).Observe();
+            var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
+            queue.TryIsolateAbandonedActive(cluster.Config.LocalMaps);
+            var journal=queue.Observe();
             return SteamSerialMaintenanceQueue.BlocksNewWork(journal)
                 ?"UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW":null;
         }

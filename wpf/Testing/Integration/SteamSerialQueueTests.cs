@@ -61,6 +61,31 @@ public static class SteamSerialQueueTests
         catch(IOException){refusedRestart=true;}
         Check(refusedRestart,"Manager restart cannot blindly replay a failed queue");
 
+        // Real native update journal stays blocked on its installation; the
+        // host queue can archive the matching uncertain receipt and run B.
+        string isolatedProfile=Path.Combine(root,"queue-isolated-"+Guid.NewGuid().ToString("N"));
+        var isolatedQueue=new SteamSerialMaintenanceQueue(isolatedProfile,"CI-ISOLATED");
+        using(var operationRoot=UntamedOperationCoordinator.UseIsolatedRootForTests(Path.Combine(root,"queue-isolated-operations")))
+        {
+            try{await isolatedQueue.ExecuteAsync(new[]{a},selected,Stopped,(member,token)=>{
+                using var op=new UntamedOperationCoordinator().Acquire(a.InstallationPath,UntamedOperationKind.Update);
+                op.MarkMutationStarted();
+                throw new IOException("synthetic uncertain update");
+            });}catch(IOException){}
+            var before=isolatedQueue.Observe()!;
+            var original=File.ReadAllBytes(Path.Combine(isolatedProfile,"steam-maintenance-queue","queue-v1.json"));
+            Check(isolatedQueue.TryIsolateAbandonedActive(selected)&&isolatedQueue.Observe()?.Phase==SteamQueuePhase.IsolatedActiveMap&&
+                new UntamedOperationCoordinator().Observe(a.InstallationPath)?.Phase==UntamedOperationPhase.NeedsOperator&&
+                File.ReadAllBytes(Path.Combine(isolatedProfile,"steam-maintenance-queue","queue-"+before.QueueId.ToString("N")+".isolated-active.json")).SequenceEqual(original),
+                "isolated host queue preserves exact failed update and installation block");
+            var next=await isolatedQueue.ExecuteAsync(new[]{b},selected,Stopped,(_,_)=>Task.CompletedTask);
+            Check(next.Phase==SteamQueuePhase.Completed,"unaffected independent installation can update");
+            bool blockedA=false;
+            try{await isolatedQueue.ExecuteAsync(new[]{a},selected,Stopped,(_,_)=>Task.CompletedTask);}
+            catch(IOException){blockedA=true;}
+            Check(blockedA,"failed installation cannot replay its unknown mutation");
+        }
+
         var shared=Map("The Center",installA);
         var registered=new[]{a,shared,b};
         var sharedProfile=Path.Combine(root,"queue-shared-"+Guid.NewGuid().ToString("N"));
