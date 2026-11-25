@@ -1,6 +1,7 @@
 // Stable native codes remain available for support; never expose raw paths
 // or credentials in the friendly message. Unknown codes stay diagnosable.
 const messages: Record<string,string> = {
+  "UM-IMPORT-SAVE-LAYOUT-UNVERIFIED": "A mentési mappa nem ellenőrizhető biztonságosan. Az eredeti telepítés változatlan maradt.",
   "UM-IMPORT-DIRECTORY-MISSING": "A megadott helyi telepítési mappa nem található.",
   "UM-ASA-INSTALL-EMPTY": "A mappa üres. Indíts új SteamCMD-telepítést.",
   "UM-ASA-INSTALL-INCOMPLETE": "Az ASA telepítése hiányos. Ellenőrizd a fájlokat a SteamCMD felületén.",

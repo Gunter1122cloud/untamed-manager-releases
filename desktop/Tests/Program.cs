@@ -2756,8 +2756,34 @@ try
         Check(!cluster.Config.LocalMaps.Any(m=>m.Name=="Diagnostic map")&&
             File.ReadAllText(Path.Combine(diagnosticRoot,"foreign.txt"))=="untouched",
             "failed diagnostic import changes neither profile nor unrelated files");
+        // All canonical nested selections resolve to the same installation.
+        foreach(string nested in new[]{Path.Combine(candidate,"ShooterGame"),
+            Path.Combine(candidate,"ShooterGame","Binaries"),binaries})
+        {
+            var nestedPreview=await Call(importer.HandleAsync,"servers.inspectLocal",
+                new{name="Ragnarok",root=nested});
+            IsOk(nestedPreview,"canonical nested ASA folder resolves to installation root");
+            Check(nestedPreview.GetProperty("data").GetProperty("rootResolvedFromNestedFolder").GetBoolean()&&
+                nestedPreview.GetProperty("data").GetProperty("folderName").GetString()==Path.GetFileName(candidate),
+                "nested preview pins canonical installation folder");
+        }
+        string saved=Path.Combine(candidate,"ShooterGame","Saved");
+        File.WriteAllText(saved,"unexpected file");
+        Check(IsError(await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Ragnarok",root=binaries}),"UM-IMPORT-SAVE-LAYOUT-UNVERIFIED"),
+            "invalid Saved path is never treated as empty");
+        File.Delete(saved);
+        string existingWorld=Path.Combine(saved,"SavedArks","CustomFutureSlot");
+        Directory.CreateDirectory(existingWorld);
+        string world=Path.Combine(existingWorld,"Future_WP.ark");
+        File.WriteAllText(world,"world must not be imported as fresh");
+        Check(IsError(await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Ragnarok",root=binaries}),"UM-EXISTING-WORLD-REQUIRES-PRESERVED-IMPORT")&&
+            File.ReadAllText(world)=="world must not be imported as fresh",
+            "nested import detects custom existing worlds without modifying them");
+        Directory.Delete(saved,true);
         var prepared=await Call(importer.HandleAsync,"servers.inspectLocal",
-            new{name="Ragnarok",root=candidate});
+            new{name="Ragnarok",root=binaries});
         IsOk(prepared,"new local ASA installation is probed without modifying it");
         var token=prepared.GetProperty("data").GetProperty("importToken").GetString()!;
         var invalidReinspect=await Call(importer.HandleAsync,"servers.inspectLocal",

@@ -551,7 +551,7 @@ function LocalAsaImport({onImported}: {onImported:()=>Promise<void>}) {
       <label>Map neve
         <input aria-label="Map neve" value={name} maxLength={100} onChange={e=>updateName(e.target.value)} required/>
       </label>
-      <label>Helyi ASA telepítési gyökérkönyvtár (Windows)
+      <label>Helyi ASA mappa (gyökér / ShooterGame / Binaries / Win64)
         <input aria-label="Helyi ASA mappa" value={root} maxLength={520} onChange={e=>updateRoot(e.target.value)}
           placeholder="C:\\ASA\\TheIsland" autoComplete="off" required/>
       </label>
@@ -567,6 +567,7 @@ function LocalAsaImport({onImported}: {onImported:()=>Promise<void>}) {
     {preview && <div className="import-preview">
       <CheckCircle2 size={22}/><div><b>{preview.name} · ASA EXE megtalálva</b>
         <p>Mappa: {preview.folderName || "Kiválasztott helyi gyökér"} · ASA API loader: {preview.apiLoaderDetected?"észlelve, de nincs engedélyezve":"nem észlelhető"}</p>
+        {preview.rootResolvedFromNestedFolder&&<p>A Manager felismerte a fölérendelt ASA telepítési gyökeret. A regisztráció ehhez a gyökérhez tartozik.</p>}
         <p>Portok, RCON és modok: később beállíthatók. Nem indul ASA.</p>
       </div>
     </div>}

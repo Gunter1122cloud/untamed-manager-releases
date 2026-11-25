@@ -1565,6 +1565,7 @@ export type FreshInstallReceipt = {
 export type LocalImportPreview = {
   importToken:string; name:string; folderName:string;
   exeFound:true; apiLoaderDetected:boolean; portsConfigured:false;
+  rootResolvedFromNestedFolder?:boolean;
   evidence:"LOCAL_BINARY_LAYOUT_PROBED_NO_MUTATION";
 };
 export type LocalImportReceipt = {
