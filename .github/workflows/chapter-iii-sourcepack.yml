@@ -1,4 +1,4 @@
-name: Find official ARK franchise press-kit links
+name: Find Reverb Tides of Fortune press-kit
 on:
   push:
     branches: ['media/chapter-iii-sourcepack']
@@ -12,35 +12,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Find official media asset links
+      - name: Search Reverb archive and WordPress records
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p press
-          curl -fL -A 'Mozilla/5.0' 'https://www.gamespress.com/en-US/ARK-FRANCHISE-REVEALS-AT-IGN-LIVE-2026' -o press/ark_franchise.html
-          curl -fL -A 'Mozilla/5.0' 'https://www.gamespress.com/nl/ARK-SURVIVAL-ASCENDED-EXPANDS-TO-THE-SEA-AND-SKY-WITH-TIDES-OF-FORTUNE' -o press/tides_press.html
+          mkdir -p reverb
+          for p in 2 3 4 5; do
+            curl -fsSL -A 'Mozilla/5.0' "https://reverbinc.com/newsletters/page/$p/" -o "reverb/archive_$p.html" || true
+          done
+          curl -fsSL -A 'Mozilla/5.0' 'https://reverbinc.com/wp-json/wp/v2/search?search=ARK%20Tides%20of%20Fortune&per_page=100' -o reverb/wp_search.json || true
           python3 - <<'PY'
-          from html.parser import HTMLParser
-          from pathlib import Path
-          class P(HTMLParser):
-              def __init__(self): super().__init__(); self.links=[]; self.title=[]
-              def handle_starttag(self,tag,attrs):
-                  if tag=="a":
-                      a=dict(attrs)
-                      if a.get("href"): self.links.append((a["href"],a.get("title","")))
-              def handle_data(self,data):
-                  d=data.strip()
-                  if d: self.title.append(d)
-          for p in Path("press").glob("*.html"):
-              h=P();h.feed(p.read_text(errors="ignore"))
-              print("\n###",p.name)
-              for u,t in h.links:
-                  if any(x in (u+" "+t).lower() for x in ["dropbox","media","asset","trailer","download","presskit"]):
-                      print(u,"TITLE",t)
+          import json,re,pathlib,urllib.request
+          for p in pathlib.Path("reverb").glob("archive_*.html"):
+              s=p.read_text(errors="ignore")
+              print("\n###",p.name,len(s))
+              for m in re.finditer(r'href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',s,re.I|re.S):
+                  u,t=m.group(1),re.sub("<.*?>"," ",m.group(2)); t=" ".join(t.split())
+                  if any(x in (u+" "+t).lower() for x in ["ark","tides","fortune","dropbox","asset"]): print(t[:150],"=>",u)
+          p=pathlib.Path("reverb/wp_search.json")
+          if p.exists():
+              try:
+                  data=json.loads(p.read_text())
+                  print("\n### WORDPRESS")
+                  for x in data: print(x.get("title",{}).get("rendered"),x.get("url"),x.get("id"))
+              except Exception as e: print("WP ERROR",e,p.read_text()[:2000])
           PY
-      - name: Upload press pages for review
+      - name: Upload Reverb search results
         uses: actions/upload-artifact@v4
         with:
-          name: ChapterIII_Official_PressLinks
-          path: press/
+          name: ChapterIII_Reverb_Tides_Search
+          path: reverb/
           retention-days: 7
