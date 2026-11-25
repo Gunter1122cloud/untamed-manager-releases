@@ -1,4 +1,4 @@
-name: Chapter III cinematic footage sources
+name: Inspect Chapter III press-kit folder manifests
 on:
   push:
     branches: ['media/chapter-iii-sourcepack']
@@ -7,103 +7,40 @@ on:
 permissions:
   contents: read
 jobs:
-  collect:
+  inspect:
     if: github.ref == 'refs/heads/media/chapter-iii-sourcepack'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 10
     steps:
-      - name: Install video tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg
-          python3 -m pip install --break-system-packages --upgrade yt-dlp
-      - name: Download official ARK and mod gameplay footage
+      - name: Fetch public Dropbox folder pages (metadata only)
         shell: bash
         run: |
-          set -uo pipefail
-          mkdir -p ChapterIII_SourcePack/{01-Astraeos,02-Tides-of-Fortune,03-Human-NPCs-Base-Raids,04-Dark-Age,05-Other-Action}
-          : > /tmp/download-report.txt
-          fetch_direct() {
-            local category="$1" name="$2" url="$3"
-            local target="ChapterIII_SourcePack/$category/$name.mp4"
-            echo "FETCH $name" | tee -a /tmp/download-report.txt
-            if curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240 --max-filesize 150000000 --output "$target" "$url"; then
-              if ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$target" >/tmp/dim.txt 2>/dev/null; then
-                echo "OK $category/$name $(cat /tmp/dim.txt) $(stat -c%s "$target")" | tee -a /tmp/download-report.txt
-              else
-                rm -f "$target"; echo "INVALID $name" | tee -a /tmp/download-report.txt
-              fi
-            else
-              rm -f "$target"; echo "FAILED $name" | tee -a /tmp/download-report.txt
-            fi
-          }
-          fetch_youtube() {
-            local category="$1" name="$2" id="$3"
-            local target="ChapterIII_SourcePack/$category/$name.%(ext)s"
-            echo "YOUTUBE $name $id" | tee -a /tmp/download-report.txt
-            if yt-dlp --no-warnings --no-progress --no-playlist --max-filesize 140M --format "bv*[height>=1080]+ba/b[height>=1080]/bv*+ba/b" --merge-output-format mp4 --remux-video mp4 --output "$target" "https://www.youtube.com/watch?v=$id"; then
-              local f
-              f=$(find "ChapterIII_SourcePack/$category" -maxdepth 1 -type f -name "$name.*" ! -name '*.part' | head -n1)
-              if [ -n "$f" ]; then
-                local dims
-                dims=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$f" 2>/dev/null || true)
-                echo "OK $category/$name $dims $(stat -c%s "$f")" | tee -a /tmp/download-report.txt
-              else
-                echo "FAILED_NO_FILE $name" | tee -a /tmp/download-report.txt
-              fi
-            else
-              echo "FAILED $name" | tee -a /tmp/download-report.txt
-            fi
-          }
-          # Steam CDN source videos listed on SteamDB; all are ARK: Survival Ascended publisher trailers.
-          fetch_direct "01-Astraeos" "Astraeos_Heaven_and_Abyss" "https://video.fastly.steamstatic.com/store_trailers/3483400/1819887216/e7ab831fc9fe563378bf775ea5d5933fb9ab02db/1787797252/microtrailer.mp4"
-          fetch_direct "01-Astraeos" "Astraeos_Mega_Update" "https://video.fastly.steamstatic.com/store_trailers/3483400/1007813498/8675ac211bc55419a4d647ab5a402865d2f93309/1772032756/microtrailer.mp4"
-          fetch_direct "01-Astraeos" "Astraeos_Launch" "https://video.fastly.steamstatic.com/store_trailers/3483400/828827/9ca029e0e9add8d278c2f9e606c3bde8c972e559/1750826273/microtrailer.mp4"
-          fetch_direct "02-Tides-of-Fortune" "Tides_of_Fortune_Official" "https://video.fastly.steamstatic.com/store_trailers/4558480/363141497/11727f8c0b30b2c949e77f190e8bcaff340005be/1783117447/microtrailer.mp4"
-          # Real in-game footage from mod demonstrations and the official cross-platform mod spotlight.
-          fetch_youtube "03-Human-NPCs-Base-Raids" "Human_NPCs_Mod_Review" "iip513nqk_0"
-          fetch_youtube "04-Dark-Age" "Dark_Age_2_Official_Mod_Spotlight" "CD3hfKQqSKc"
-          fetch_youtube "05-Other-Action" "ARK_Survival_Ascended_Launch" "0gLODoXanog"
-          fetch_youtube "02-Tides-of-Fortune" "Tides_of_Fortune_and_Dragontopia" "e6puGWDoA0M"
-          fetch_youtube "01-Astraeos" "Astraeos_Heaven_Abyss_Official" "ysqlagYIvic"
-      - name: Validate source pack and write report
-        shell: bash
-        run: |
+          set -euo pipefail
+          mkdir -p debug
+          curl -fL --retry 2 -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36' 'https://www.dropbox.com/scl/fo/si5q3wva0tkn38fm2oslv/AC-bKdq9vg9xpkc0W7xuuwQ?rlkey=fz35z7tvnqppxdx8b89y4l8h7&dl=0' -o debug/astraeos.html
+          curl -fL --retry 2 -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36' 'https://www.dropbox.com/scl/fo/noqpi9macywaku3r783wh/ADoMjehyN95oXsihYyatfyU?rlkey=xhaypm1tp64hzphz51s7lqrl9&dl=0' -o debug/tides.html
           python3 - <<'PY'
-          import pathlib, subprocess, json, hashlib
-          root=pathlib.Path("ChapterIII_SourcePack")
-          caps={"01-Astraeos":150000000,"02-Tides-of-Fortune":150000000,"03-Human-NPCs-Base-Raids":70000000,"04-Dark-Age":50000000,"05-Other-Action":50000000}
-          report={"files":[],"errors":pathlib.Path("/tmp/download-report.txt").read_text().splitlines(),"limits_bytes":caps}
-          for cat,cap in caps.items():
-              files=sorted(p for p in (root/cat).iterdir() if p.is_file())
-              used=0
-              for p in files:
-                  try:
-                      meta=json.loads(subprocess.check_output(["ffprobe","-v","error","-show_streams","-show_format","-of","json",str(p)]))
-                      v=next(s for s in meta["streams"] if s["codec_type"]=="video")
-                      dur=float(meta["format"]["duration"])
-                      if v["width"]<1280 or v["height"]<720 or dur<2:
-                          p.unlink(); continue
-                      size=p.stat().st_size
-                      if used+size>cap:
-                          p.unlink(); report["errors"].append(f"OVER_CATEGORY_CAP_REMOVED {cat}/{p.name}"); continue
-                      used+=size
-                      report["files"].append({"category":cat,"file":p.name,"bytes":size,"width":v["width"],"height":v["height"],"fps":v.get("r_frame_rate"),"duration_seconds":dur,"sha256":hashlib.sha256(p.read_bytes()).hexdigest()})
-                  except Exception as e:
-                      p.unlink(missing_ok=True); report["errors"].append(f"INVALID {cat}/{p.name}: {e}")
-          report["missing_categories"]=[k for k in caps if not any(x["category"]==k for x in report["files"])]
-          report["total_video_bytes"]=sum(x["bytes"] for x in report["files"])
-          report["status"]="complete" if not report["missing_categories"] else "partial"
-          (root/"REPORT.json").write_text(json.dumps(report,indent=2))
-          print(json.dumps(report,indent=2))
-          if report["total_video_bytes"]>470000000: raise SystemExit("Total exceeds 470 MB")
-          if not report["files"]: raise SystemExit("No actual video footage downloaded")
+          import pathlib,re,json
+          for p in pathlib.Path("debug").glob("*.html"):
+              s=p.read_text(errors="ignore")
+              print("\n###",p.name,"bytes",len(s))
+              pats=[
+                r'[^"\\/<>]{1,120}\\.(?:mp4|mov|webm|m4v|zip)',
+                r'"(?:name|filename|fileName|display_name)"\\s*:\\s*"[^"]{1,200}"',
+                r'"(?:id|file_id|fileId)"\\s*:\\s*"[^"]{5,100}"',
+                r'https?[^"\\s<>]{0,300}(?:mp4|mov|webm|m4v)[^"\\s<>]{0,100}'
+              ]
+              for pat in pats:
+                  hits=re.findall(pat,s,re.I)
+                  print("PATTERN",pat,"COUNT",len(hits))
+                  for h in hits[:80]: print(h[:400])
+              for key in ["shared_folder","folder_entries","entries","files","preview_url","download_url","file_id"]:
+                  i=s.find(key)
+                  if i>=0: print("CONTEXT",key,s[max(0,i-300):i+900].replace("\\n"," ")[:1200])
           PY
-      - name: Upload actual video footage
+      - name: Upload folder manifest pages for inspection
         uses: actions/upload-artifact@v4
         with:
-          name: ChapterIII_Cinematic_Footage
-          path: ChapterIII_SourcePack/
-          if-no-files-found: error
-          compression-level: 0
+          name: ChapterIII_Dropbox_Manifests
+          path: debug/
           retention-days: 7
