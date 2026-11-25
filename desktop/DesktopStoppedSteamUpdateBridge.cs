@@ -366,8 +366,10 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                        !data.TryGetProperty("confirm",out var accept)||
                        accept.ValueKind!=JsonValueKind.True)
                         return Fail(id,"UM-STEAMCMD-DISCOVERY-APPROVAL-REQUIRED");
-                    if(!cluster.Config.LocalMaps.Any(x=>x.Id==candidate.MapId))
-                        return Fail(id,"UM-MAP-NOT-OWNED");
+                    if(!GuidField(data,"mapId",out var acceptMapId)||
+                       acceptMapId!=candidate.MapId||
+                       !cluster.Config.LocalMaps.Any(x=>x.Id==candidate.MapId))
+                        return Fail(id,"UM-STEAMCMD-DISCOVERY-MAP-CHANGED");
                     SteamCmdFileStatus current;
                     try{current=SteamCmdPreflight.Inspect(candidate.File.ExecutablePath);}
                     catch(Exception){return Fail(id,"UM-STEAMCMD-DISCOVERY-CANDIDATE-CHANGED");}
