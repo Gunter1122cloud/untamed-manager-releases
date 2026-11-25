@@ -175,8 +175,48 @@ public static class RconTransportTests
         }
         finally{listener.Stop();}
     }
+    private static async Task ProbePersistentReadSession()
+    {
+        var listener=new TcpListener(IPAddress.Loopback,0);listener.Start();
+        int port=((IPEndPoint)listener.LocalEndpoint).Port;
+        var server=Task.Run(async()=>{
+            using(var first=await listener.AcceptTcpClientAsync())
+            using(var stream=first.GetStream())
+            {
+                var auth=await ReadPacket(stream);Assert(auth.Type==3,"persistent AUTH once");
+                await WritePacket(stream,auth.Id,2,"");
+                var read=await ReadPacket(stream);Assert(read.Body=="GetChat","first command");
+                await WritePacket(stream,read.Id,0,"hello");
+                var barrier=await ReadPacket(stream);Assert(barrier.Body=="ListPlayers","persistent barrier");
+                await WritePacket(stream,barrier.Id,0,"1. player");
+                await WritePacket(stream,barrier.Id,0,"2. trailing player");
+                var second=await ReadPacket(stream);
+                Assert(second.Type==2&&second.Body=="ListPlayers"&&second.Id!=read.Id,"same socket, new request ID");
+                await WritePacket(stream,second.Id,0,"No Players Connected");
+            }
+            using var next=await listener.AcceptTcpClientAsync();
+            using var stream2=next.GetStream();
+            var auth2=await ReadPacket(stream2);Assert(auth2.Type==3,"new process epoch reauthenticates");
+            await WritePacket(stream2,auth2.Id,2,"");
+            var last=await ReadPacket(stream2);
+            await WritePacket(stream2,last.Id,0,"No Players Connected");
+        });
+        try
+        {
+            var map=Guid.NewGuid();var epoch=DateTimeOffset.UtcNow;int verified=0;
+            using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            Task<string> Call(DateTimeOffset e,string command)=>RconProtocol.ExecuteOwnedReadAsync(
+                map,12345,e,port,"fixture",command,()=>verified++,deadline.Token);
+            Assert(await Call(epoch,"GetChat")=="hello","persistent complete chat");
+            Assert(await Call(epoch,"ListPlayers")=="No Players Connected","trailing barrier isolated");
+            Assert(await Call(epoch.AddSeconds(1),"ListPlayers")=="No Players Connected","epoch invalidates connection");
+            await server;Assert(verified>=9,"each command verifies owner before/after dispatch");
+        }
+        finally{listener.Stop();}
+    }
     public static async Task Run()
     {
+        await ProbePersistentReadSession();
         await ProbeWipeAcknowledgement("");
         await ProbeWipeAcknowledgement("Server received, But no response!!");
         await ProbeSaveWorldDispatch();
