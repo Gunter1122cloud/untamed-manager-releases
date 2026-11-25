@@ -8,6 +8,7 @@ const recentStartReceipts=new Map<string,string>();
 // A lost or contradictory native Start response must not enable a blind
 // second launch merely because its transport acknowledgement was missing.
 const startReconciliationRequired=new Set<string>();
+const startReconciliationAt=new Map<string,number>();
 // Exact one-shot Start receipts remain pinned across React remounts until a
 // deliberate read-only native recheck proves the original process stopped.
 const acceptedStartPending=new Set<string>();
@@ -82,8 +83,11 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
         setObserved(status);
         // Only a fresh native observation of a physically stopped map can
         // clear a possibly committed Start with an uncertain response.
-        if(manual&&status.confirmedStopped&&!status.running){
+        const uncertainSince=startReconciliationAt.get(requested)??0;
+        if(status.confirmedStopped&&!status.running&&
+           (!uncertainSince||manual||Date.now()-uncertainSince>=15_000)){
           startReconciliationRequired.delete(requested);
+          startReconciliationAt.delete(requested);
           acceptedStartPending.delete(requested);
           setAcceptedStart(false);
           setNeedsReconcile(false);
@@ -212,6 +216,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
       recentStartReceipts.set(requested,summary);
       acceptedStartPending.add(requested);
       startReconciliationRequired.delete(requested);
+      startReconciliationAt.delete(requested);
       if(!belongs(requested,revision))return;
       setNeedsReconcile(false);setMessage(summary);setAcceptedStart(true);
       setBusy(false);
@@ -227,6 +232,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
       ].includes(code);
       if(!definiteNoLaunch){
         startReconciliationRequired.add(requested);
+        startReconciliationAt.set(requested,Date.now());
         if(belongs(requested,revision))setNeedsReconcile(true);
       }
       const safe:Record<string,string>={
@@ -237,8 +243,8 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
       };
       if(belongs(requested,revision))setError(safe[code]??(
         applyAttempted?
-          "Az ASA Start kimenetele nem igazolható. A szerver már elindulhatott; "+
-          "nincs automatikus ismétlés. Fizikai PID-/naplóellenőrzés szükséges.":
+          "Az ASA Start kimenetele nem igazolható. A Manager automatikusan figyeli a folyamatot; "+
+          "igazolt leállás után az Indítás ismét elérhető lesz.":
           "ASA Start előellenőrzés elutasítva. Nem indítottunk folyamatot; "+
           "ellenőrizd a helyi ASA EXE-t, RCON INI-t, portokat és műveleti naplót."));
     }finally{
