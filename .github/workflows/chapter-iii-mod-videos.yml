@@ -1,0 +1,26 @@
+name: Chapter III direct mod video acquisition
+on:
+  push:
+    branches: ['media/chapter-iii-sourcepack']
+    paths: ['.github/workflows/chapter-iii-mod-videos.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  collect:
+    if: github.ref == 'refs/heads/media/chapter-iii-sourcepack'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect direct creator-hosted media
+        run: python3 media/chapter-iii/collect_mod_videos.py
+      - name: Publish reference pack and acquisition report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_Mod_Video_References
+          path: mod-video-reference-pack/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
