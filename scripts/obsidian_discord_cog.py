@@ -6,6 +6,7 @@ slash-command sync, or modification to unrelated channels/roles.
 import asyncio
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,6 +56,24 @@ def atomic_json(path, value):
     finally:
         temp.unlink(missing_ok=True)
 
+# Only adapter-side pre-dispatch denials are classified as not sent.
+# Any transport failure or native rejection after the durable claim remains
+# uncertain. The actual operation is never repeated by the bot.
+NOT_DISPATCHED = frozenset(("UM-DC-AUTH","UM-DC-ID","UM-DC-APPROVAL",
+    "UM-DC-PROFILE-CHANGED","UM-DC-HOST-BUSY","UM-DC-MAP-BUSY","UM-DC-HANDOFF"))
+def safe_code(value):
+    return value if isinstance(value,str) and re.fullmatch(r"UM-[A-Z0-9_-]{1,150}",value) else "UM-DC-UNVERIFIED"
+class ApiError(RuntimeError):
+    def __init__(self, reply):
+        self.code=safe_code(reply.get("error"))
+        self.native_code=safe_code(reply.get("nativeError")) if reply.get("nativeError") else None
+        super().__init__(self.code)
+    @property
+    def not_dispatched(self):
+        return self.code in NOT_DISPATCHED
+    def diagnostic(self):
+        return self.code + ((" / "+self.native_code) if self.native_code else "")
+
 @dataclass(frozen=True)
 class Identity:
     user_id: int
@@ -85,6 +104,7 @@ class ObsidianControl(commands.Cog):
         self.state.setdefault("operations", {})
         self.guard = asyncio.Lock()
         self.host_locks = {k: asyncio.Lock() for k in self.hosts}
+        self.job_cursor = 0
         self.task = None
         self.panel = ControlPanel(self)
         self.last_states = {}
@@ -195,19 +215,25 @@ class ObsidianControl(commands.Cog):
             result = await async_call(self.hosts[label],guild_id=self.guild_id,channel_id=who.channel_id,
                 user_id=who.user_id,role_ids=who.role_ids,kind=kind,**data)
             if not result["ok"]:
-                raise RuntimeError(clean(result.get("error","API rejected"),100))
+                raise ApiError(result)
             return result["data"]
-        async with self.host_locks[label]:
-            # A request may have waited behind a long backup/update. Re-fetch
-            # actual permissions once the lock is acquired, not before waiting.
+        lane=self.host_locks[label]
+        # Never queue an old human click behind an arbitrarily long operation.
+        try:
+            await asyncio.wait_for(lane.acquire(),timeout=2)
+        except asyncio.TimeoutError:
+            raise ApiError({"error":"UM-DC-HOST-BUSY"})
+        try:
             if kind in ("preview", "apply"):
                 if interaction is None:
                     raise PermissionError("Human interaction required for mutation")
                 who = await self.identity(interaction, who.user_id)
             result = await async_call(self.hosts[label],guild_id=self.guild_id,channel_id=who.channel_id,
                 user_id=who.user_id,role_ids=who.role_ids,kind=kind,**data)
+        finally:
+            lane.release()
         if not result["ok"]:
-            raise RuntimeError(clean(result.get("error","API rejected"),100))
+            raise ApiError(result)
         return result["data"]
 
     async def say(self, kind, text):
@@ -359,8 +385,9 @@ class ObsidianControl(commands.Cog):
                 await asyncio.sleep(30)
         while True:
             try:
-                await self.refresh_status()
-                await self.poll_jobs()
+                # Status and receipt reads are independent; a slow player
+                # list cannot delay the start of receipt reconciliation.
+                await asyncio.gather(self.refresh_status(),self.poll_jobs(),return_exceptions=True)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -373,17 +400,26 @@ class ObsidianControl(commands.Cog):
         pending=[(i,e) for i,e in self.state["operations"].items()
             if e.get("state") in ("native-receipt","claimed-no-replay","uncertain-no-replay","running")
             and e.get("host") in self.hosts]
-        for operation,entry in pending[:8]:
+        if not pending:
+            self.job_cursor=0
+            return
+        # Rotate instead of letting the first eight stale receipts starve
+        # every subsequent operation. Each failed read is retried read-only.
+        start=self.job_cursor%len(pending)
+        batch=(pending[start:]+pending[:start])[:8]
+        self.job_cursor=(start+len(batch))%len(pending)
+        for operation,entry in batch:
             try:
                 result=await self.call(entry["host"],who,"job",operationId=operation,timeout=15)
                 job=result.get("job")
                 if job:
                     phase=job.get("state","unknown")
-                    terminal=phase in ("completed","needsOperator","needsReview","reviewed","notDispatched","operatorReviewed")
-                    new="completed-native" if phase=="completed" else "needs-review" if terminal else "running"
+                    terminal=phase in ("completed","needsOperator","needsReview","reviewed","notDispatched","operatorReviewed","failed","cancelled","timedOut")
+                    new="completed-native" if phase=="completed" else "not-dispatched" if phase=="notDispatched" else "needs-review" if terminal else "running"
                 else:
                     phase=result.get("state","unknown")
-                    new="receipt-only" if phase=="native-receipt" else "needs-review"
+                    new=("receipt-only" if phase=="native-receipt" else
+                         "claimed-no-replay" if phase=="claimed-no-replay" else "needs-review")
                 if new!=entry["state"]:
                     async with self.guard:
                         self.state["operations"][operation]["state"]=new
@@ -436,6 +472,8 @@ class ObsidianControl(commands.Cog):
                 await interaction.followup.send("Add meg a művelet paraméterét.",view=ParameterButton(self,actor,action,label,ids),ephemeral=True)
                 return
             await self.show_preview(interaction,who,action,label,ids)
+        except ApiError as e:
+            await interaction.followup.send("Művelet előnézete elutasítva: "+clean(e.diagnostic(),260),ephemeral=True)
         except Exception:
             await interaction.followup.send("Művelet előnézete nem igazolható.",ephemeral=True)
 
@@ -479,11 +517,24 @@ class ObsidianControl(commands.Cog):
             result=await self.call(label,who,"apply",interaction=interaction,token=plan["token"],confirm=True,request_id=operation,timeout=180)
             state="native-receipt"
             detail=clean(json.dumps(result.get("receipt",{}),ensure_ascii=False),1000)
+        except ApiError as e:
+            state="not-dispatched" if e.not_dispatched else "uncertain-no-replay"
+            detail=("Nem indult el; új művelet választható. " if e.not_dispatched else
+                    "Az eredmény bizonytalan; nincs automatikus ismétlés. ")+clean(e.diagnostic(),260)
+        except PermissionError:
+            state="not-dispatched"
+            detail="Jogosultság megváltozott, nem küldtem parancsot."
         except Exception:
             state="uncertain-no-replay"
             detail="Az eredmény bizonytalan; ne ismételd automatikusan. Ellenőrizd a naplót."
         async with self.guard:
-            self.state["operations"][operation]["state"]=state
+            entry=self.state["operations"][operation]
+            # Polling may have already observed a newer terminal native job
+            # while the original TLS request was waiting for its response.
+            if entry.get("state") in ("completed-native","receipt-only","needs-review","not-dispatched"):
+                state=entry["state"]
+            else:
+                entry["state"]=state
             try:self.persist()
             except Exception:state="uncertain-no-replay"
         await self.say("audit",f'{actor} · {plan["action"]} · {label} · {operation} · {state}')
