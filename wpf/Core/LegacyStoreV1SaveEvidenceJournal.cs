@@ -115,7 +115,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
            value.MapId==Guid.Empty||value.Pid<=0||value.PidStartedUtc==default||
            value.BeganUtc==default||!Hash(value.OriginalSourceSha256)||
            value.Phase is not ("prepared" or "completed" or "metadataObserved" or
-             "notDispatched" or "needsOperator" or "reviewed")||
+             "notDispatched" or "needsOperator" or "reviewed" or "autoRecovered")||
            ((value.Phase is "completed" or "metadataObserved")&&
              (!value.SaveObservedUtc.HasValue||
               value.SaveObservedUtc.Value<value.BeganUtc))||
@@ -395,6 +395,77 @@ public static class LegacyStoreV1SaveEvidenceJournal
         writer.Flush(flushToDisk:true);
     }
 
+    /// <summary>
+    /// YARK-style recovery for a SaveWorld receipt left by a worker that no
+    /// longer owns the map-scoped journal mutex. Original bytes are retained
+    /// in a Manager-local archive; no ASA/RCON command is sent or replayed.
+    /// </summary>
+    public static LegacyStoreV1SaveEvidence? AutoRecoverInterrupted(
+        string managerProfileRoot,Guid mapId)
+    {
+        string file=PathFor(managerProfileRoot,mapId);
+        using var lease=AcquireWriteLease(file);
+        string archiveFolder=Path.Combine(Path.GetDirectoryName(file)!,"auto-recovered");
+        void Archive(string source,string name)
+        {
+            var attrs=AttributesIfPresent(source);
+            if(!attrs.HasValue)return;
+            if((attrs.Value&(FileAttributes.Directory|FileAttributes.ReparsePoint))!=0)
+                throw new InvalidDataException("UM-ORIGINAL-SAVE-AUTO-RECOVERY-UNSAFE");
+            var info=new FileInfo(source);
+            if(info.Length is <1 or >65536)
+                throw new InvalidDataException("UM-ORIGINAL-SAVE-AUTO-RECOVERY-SIZE");
+            byte[] bytes=File.ReadAllBytes(source);
+            Directory.CreateDirectory(archiveFolder);
+            if((File.GetAttributes(archiveFolder)&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("UM-ORIGINAL-SAVE-AUTO-RECOVERY-LINK");
+            string target=Path.Combine(archiveFolder,name);
+            if(File.Exists(target))
+            {
+                if((File.GetAttributes(target)&FileAttributes.ReparsePoint)!=0||
+                   !CryptographicOperations.FixedTimeEquals(
+                       SHA256.HashData(File.ReadAllBytes(target)),SHA256.HashData(bytes)))
+                    throw new InvalidDataException("UM-ORIGINAL-SAVE-AUTO-RECOVERY-ARCHIVE-MISMATCH");
+            }
+            else
+            {
+                using var output=new FileStream(target,FileMode.CreateNew,FileAccess.Write,
+                    FileShare.None,4096,FileOptions.WriteThrough);
+                output.Write(bytes);output.Flush(true);
+            }
+            if(!CryptographicOperations.FixedTimeEquals(
+                SHA256.HashData(File.ReadAllBytes(target)),SHA256.HashData(bytes)))
+                throw new IOException("UM-ORIGINAL-SAVE-AUTO-RECOVERY-COPY-FAILED");
+        }
+        string next=file+".next";
+        if(AttributesIfPresent(next).HasValue)
+        {
+            Archive(next,mapId.ToString("N")+"-"+DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()+".next.bin");
+            File.Delete(next);
+        }
+        LegacyStoreV1SaveEvidence? current;
+        try{current=Load(file);}
+        catch(Exception ex) when(ex is IOException or InvalidDataException or JsonException)
+        {
+            if(AttributesIfPresent(file).HasValue)
+            {
+                Archive(file,mapId.ToString("N")+"-"+DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()+".receipt.bin");
+                File.Delete(file);
+            }
+            return null;
+        }
+        if(current==null||current.MapId!=mapId)return current;
+        if(current.Phase is not ("prepared" or "needsOperator"))return current;
+        bool failed=current.Phase=="needsOperator";
+        bool abandoned=current.Phase=="prepared"&&
+            DateTimeOffset.UtcNow-current.BeganUtc>=TimeSpan.FromMinutes(5);
+        if(!failed&&!abandoned)return current;
+        Archive(file,mapId.ToString("N")+"-"+current.OperationId.ToString("N")+".json");
+        var recovered=current with{Phase="autoRecovered",SaveObservedUtc=null};
+        Publish(file,recovered);
+        return recovered;
+    }
+
     public static LegacyStoreV1SaveEvidence Begin(string managerProfileRoot,
         Guid operationId,Guid mapId,int pid,DateTimeOffset startedUtc,
         string originalSourceSha256)
@@ -406,7 +477,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
         using var writer=AcquireWriteLease(file);
         var prior=Load(file);
         if(prior!=null&&prior.Phase is not ("completed" or "metadataObserved" or
-            "notDispatched" or "reviewed"))
+            "notDispatched" or "reviewed" or "autoRecovered"))
             throw new InvalidOperationException("UM-ORIGINAL-SAVE-JOURNAL-NEEDS-REVIEW");
         if(prior!=null)ArchivePreviousBeforeNewAttempt(file,prior);
         var evidence=new LegacyStoreV1SaveEvidence(Schema,operationId,mapId,pid,

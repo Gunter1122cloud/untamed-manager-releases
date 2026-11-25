@@ -44,10 +44,11 @@ public static class HistoricalLocalConfigGuard
            map.Arguments.Contains("-convertfromstore",StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("UM-HISTORICAL-CONFIG-CONVERSION-PROTECTED");
         new AsaManualRestartJournal(root).DemandNoPending();
-        var journal=underOwnOperation?null:cluster.Operations.Observe(root);
-        if(journal?.Phase is (UntamedOperationPhase.Prepared or
-            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator))
-            throw new InvalidOperationException("UM-HISTORICAL-CONFIG-OPERATION-PENDING");
+        new AsaManualStopJournal(root).AutoRecoverPending(map.Id);
+        LegacyStoreV1SaveEvidenceJournal.AutoRecoverInterrupted(cluster.Store.Root,map.Id);
+        // A durable operation receipt without its process-scoped OS lease is
+        // recovered by UntamedOperationCoordinator.Acquire. It is not a
+        // second manual approval gate for offline configuration.
 
         ProcessCheck? chosen=null;
         int sameRoot=0;
