@@ -494,11 +494,10 @@ public static class LegacyStoreV1ProcessObserver
         // explicit runtime override fields. Never trust a path merely
         // because it was present on a running command line.
         LocalMap expected=map;
-        if(LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,map))
         {
-            var pinned=LegacyStoreV1PinnedSource.Resolve(cluster.Store.Root,
+            var localSource=LegacyStoreV1PinnedSource.ResolveLocalRuntime(cluster.Store.Root,
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"Kova"),map);
-            var identity=LegacyStoreV1PinnedSource.ReadOriginalCluster(pinned);
+            var identity=LegacyStoreV1PinnedSource.ReadOriginalCluster(localSource);
             expected=System.Text.Json.JsonSerializer.Deserialize<LocalMap>(
                 System.Text.Json.JsonSerializer.Serialize(map))??
                 throw new InvalidDataException("UM-ORIGINAL-RESTART-MOD-CLONE");
