@@ -1,4 +1,4 @@
-name: Find Reverb Tides of Fortune press-kit
+name: Inspect Tides of Fortune media links
 on:
   push:
     branches: ['media/chapter-iii-sourcepack']
@@ -12,34 +12,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Search Reverb archive and WordPress records
+      - name: Fetch Reverb Tides article and WordPress data
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p reverb
-          for p in 2 3 4 5; do
-            curl -fsSL -A 'Mozilla/5.0' "https://reverbinc.com/newsletters/page/$p/" -o "reverb/archive_$p.html" || true
-          done
-          curl -fsSL -A 'Mozilla/5.0' 'https://reverbinc.com/wp-json/wp/v2/search?search=ARK%20Tides%20of%20Fortune&per_page=100' -o reverb/wp_search.json || true
+          mkdir -p tides
+          curl -fsSL -A 'Mozilla/5.0' 'https://reverbinc.com/newsletters/ark-joins-steam-summer-sale-tides-of-fortune-to-launch-july-2/' -o tides/article.html
+          curl -fsSL -A 'Mozilla/5.0' 'https://reverbinc.com/wp-json/wp/v2/newsletter/3121' -o tides/article.json
           python3 - <<'PY'
-          import json,re,pathlib,urllib.request
-          for p in pathlib.Path("reverb").glob("archive_*.html"):
-              s=p.read_text(errors="ignore")
-              print("\n###",p.name,len(s))
-              for m in re.finditer(r'href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',s,re.I|re.S):
-                  u,t=m.group(1),re.sub("<.*?>"," ",m.group(2)); t=" ".join(t.split())
-                  if any(x in (u+" "+t).lower() for x in ["ark","tides","fortune","dropbox","asset"]): print(t[:150],"=>",u)
-          p=pathlib.Path("reverb/wp_search.json")
-          if p.exists():
-              try:
-                  data=json.loads(p.read_text())
-                  print("\n### WORDPRESS")
-                  for x in data: print(x.get("title",{}).get("rendered"),x.get("url"),x.get("id"))
-              except Exception as e: print("WP ERROR",e,p.read_text()[:2000])
+          import json,re,pathlib
+          from html.parser import HTMLParser
+          p=pathlib.Path("tides/article.html"); s=p.read_text(errors="ignore")
+          print("HTML_BYTES",len(s))
+          class P(HTMLParser):
+              def __init__(self): super().__init__(); self.links=[]
+              def handle_starttag(self,tag,attrs):
+                  a=dict(attrs)
+                  for k,v in a.items():
+                      if k in ("href","src","data-href","data-url") and v: self.links.append((k,v))
+          h=P();h.feed(s)
+          for k,u in h.links:
+              if any(x in u.lower() for x in ["dropbox","scl/","asset","media","trailer","youtube","steamstatic"]): print(k,u)
+          j=json.loads(pathlib.Path("tides/article.json").read_text())
+          print("TITLE",j.get("title",{}).get("rendered"))
+          content=j.get("content",{}).get("rendered","")
+          print("CONTENT_BYTES",len(content))
+          for m in re.finditer(r'(?:href|src|data-href|data-url)=["\']([^"\']+)["\']',content,re.I):
+              u=m.group(1)
+              if any(x in u.lower() for x in ["dropbox","scl/","asset","media","trailer","youtube","steamstatic"]): print("API_URL",u)
+          pathlib.Path("tides/content.html").write_text(content,encoding="utf-8")
           PY
-      - name: Upload Reverb search results
+      - name: Upload Tides press kit references
         uses: actions/upload-artifact@v4
         with:
-          name: ChapterIII_Reverb_Tides_Search
-          path: reverb/
+          name: ChapterIII_Tides_Press_Kit_References
+          path: tides/
           retention-days: 7
