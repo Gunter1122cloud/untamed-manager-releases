@@ -454,6 +454,57 @@ public sealed class ObsidianWindow : Form
         _tray.Visible = true;
         var menu = new ContextMenuStrip();
         menu.Items.Add("Megnyitás", null, (_, _) => RestoreWindow());
+        menu.Items.Add("Elrejtés a tálcára",null,(_,_)=>{
+            Hide();ShowInTaskbar=false;
+        });
+        var trayStatus=new ToolStripMenuItem("ASA-folyamatok: még nincs mérés"){Enabled=false};
+        menu.Items.Add(trayStatus);
+        // Reuse the existing WMI discovery snapshot; never trigger a new
+        // probe, or count a Loader as a separate running game server.
+        menu.Opening+=(_,_)=>{
+            var seen=_asaDiscovery.Snapshot();
+            trayStatus.Text=DesktopTrayStatus.Describe(seen);
+        };
+        if(!smokeTest&&!suppressScheduledMutations)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            var login=new ToolStripMenuItem("Windowszal együtt indul (normál mód)")
+                {CheckOnClick=false};
+            void UpdateLogin()
+            {
+                try
+                {
+                    var state=DesktopLoginStartup.Read();
+                    login.Checked=state==DesktopLoginStartup.State.Enabled;
+                    login.Enabled=state!=DesktopLoginStartup.State.OtherInstallation;
+                    login.Text=state==DesktopLoginStartup.State.OtherInstallation?
+                        "Automatikus indulás: másik telepítéshez tartozik":
+                        "Windowszal együtt indul (normál mód)";
+                }
+                catch
+                {
+                    login.Enabled=false;login.Checked=false;
+                    login.Text="Automatikus indulás: nem ellenőrizhető";
+                }
+            }
+            menu.Opening+=(_,_)=>UpdateLogin();
+            login.Click+=(_,_)=>{
+                try
+                {
+                    // Explicit user toggle. No game-process command or
+                    // scheduler settings write is performed here.
+                    DesktopLoginStartup.Set(!login.Checked);
+                }
+                catch
+                {
+                    MessageBox.Show(this,"A Windows indítási beállítás nem módosítható. "+
+                        "Ellenőrizd az Indítópult beállításait és a telepítés helyét.",
+                        "Obsidian — UM-LOGIN-STARTUP",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                }
+                UpdateLogin();
+            };
+            menu.Items.Add(login);
+        }
         if(!smokeTest)
             menu.Items.Add("Discord bot",null,(_,_)=>{
                 RestoreWindow();
@@ -503,7 +554,13 @@ public sealed class ObsidianWindow : Form
         FormClosing += (_, e) =>
         {
             if(_rollingSteam.Busy&&e.CloseReason==CloseReason.UserClosing&&_reallyExit)
-            {e.Cancel=true;return;}
+            {
+                _reallyExit=false;
+                e.Cancel=true;
+                MessageBox.Show(this,"A SteamCMD művelet még fut. A Manager a háttérben tovább működik.",
+                    "Obsidian Command",MessageBoxButtons.OK,MessageBoxIcon.Information);
+                return;
+            }
             if (!_reallyExit && e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
@@ -528,6 +585,7 @@ public sealed class ObsidianWindow : Form
             _notifications.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
+            menu.Dispose();
             _browser.Dispose();
             _localAsaApiMode.Dispose();
             _historicalStore.Dispose();

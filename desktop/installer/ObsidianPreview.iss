@@ -42,3 +42,22 @@ Type: filesandordirs; Name: "{app}\ui"
 
 ; Test-only separate directory and AppId. No service installation,
 ; no production server changes, no Store/INI migrations.
+
+[Code]
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  CurrentCommand, OwnCommand: String;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    OwnCommand := '"' + ExpandConstant('{app}\UntamedDesktop.exe') + '"';
+    if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run',
+      'ObsidianCommandLogin', CurrentCommand) then
+    begin
+      { Only remove this installation's exact opt-in. Never clear a different portable/installed copy. }
+      if CompareText(CurrentCommand, OwnCommand) = 0 then
+        RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run',
+          'ObsidianCommandLogin');
+    end;
+  end;
+end;
