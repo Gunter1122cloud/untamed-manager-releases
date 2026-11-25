@@ -184,10 +184,12 @@ internal static class OriginalStoreStoppedJournalRecoveryTests
         Check(!bridge.TryReconcileStopped(map)&&File.ReadAllText(common)==autoCommonBytes&&
             File.ReadAllText(restartFile)==autoRestartBytes,"no automatic recovery without confirmed stopped family");
         stopped=true;
-        Check(bridge.TryReconcileStopped(map)&&
+        map.AutoStart=true;
+        Check(bridge.TryReconcileStopped(map)&&map.AutoStart&&
             cluster.Operations.Observe(installation)?.Phase==UntamedOperationPhase.OperatorReviewed&&
             restarts.Observe()?.Phase==AsaRestartPhase.OperatorReviewed,
-            "verified stopped paired Launch and Restart reconcile without typed approval or replay");
+            "verified stopped paired Launch and Restart reconcile with AutoStart enabled, without approval or replay");
+        map.AutoStart=false;
         Check(File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,
             key+"-"+autoCommon.Operation.ToString("N")+".operator-reviewed.json"))==autoCommonBytes&&
             File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
