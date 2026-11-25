@@ -1,0 +1,2 @@
+# UI-02/UI-03 first slice: local dashboard trends
+Reuse actual dashboard host CPU and memory and exact fresh complete ListPlayers evidence, without additional native polling. Session-only bounded one-hour graphs; missing and stale observations are never converted to zero. No invented remote samples. This is not persistent map telemetry or cluster-wide player history. Those remain pending. Includes deterministic unit tests in Windows Playwright CI.

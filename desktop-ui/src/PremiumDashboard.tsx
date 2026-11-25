@@ -6,6 +6,7 @@ import {
 import {dashboardRemotes,managerBridge,type DashboardSnapshot,type PublicMap} from "./bridge";
 import {MapCover} from "./MapArtwork";
 import {ClusterMapGallery} from "./ClusterMapGallery";
+import {LiveTelemetryPanel} from "./LiveTelemetryPanel";
 
 type Props={
   snapshot:DashboardSnapshot;
@@ -130,6 +131,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
   const peer=useMemo(()=>remotes.flatMap(remote=>remote.maps),[remotes]);
   const [playerCounts,setPlayerCounts]=useState<Record<string,number|null>>({});
   const [rconRetries,setRconRetries]=useState<Record<string,number>>({});
+  const [playerProofs,setPlayerProofs]=useState<Record<string,{count:number;utc:string}>>({});
   const reconnect=useRef(new Map<string,{failures:number;after:number;count:number|null}>());
   const eligiblePlayers=local.filter(map=>map.running&&!map.observedReadOnlyImported&&
     map.rconConfigured&&!map.maintenance)
@@ -143,7 +145,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
       const colon=item.lastIndexOf(":");
       return {id:item.slice(0,colon),historical:item.slice(colon+1)==="historical"};
     }):[];
-    setPlayerCounts({});setRconRetries({});
+    setPlayerCounts({});setRconRetries({});setPlayerProofs({});
     reconnect.current.clear();
     const refresh=async()=>{
       if(closed||busy||!maps.length)return;
@@ -158,7 +160,22 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
               ?await managerBridge.historicalRconPlayers(map.id)
               :await managerBridge.rconListPlayers(map.id);
             count=answer.mapId.toLowerCase()===map.id.toLowerCase()?parseAsaPlayerCount(answer.response):null;
-          }catch{/* Connection or identity failure is unknown, not a server crash. */}
+            if(!closed){
+              const utc=Date.parse(answer.observedUtc);
+              const verified=count!==null&&Number.isFinite(utc)&&utc<=Date.now()+5000&&Date.now()-utc<=60000;
+              setPlayerProofs(old=>{
+                const next={...old};
+                if(verified&&count!==null)next[map.id]={count,utc:answer.observedUtc};
+                else delete next[map.id];
+                return next;
+              });
+            }
+          }catch{
+            // A failed fresh probe invalidates its previous graph evidence.
+            if(!closed)setPlayerProofs(old=>{
+              const next={...old};delete next[map.id];return next;
+            });
+          }
           if(!closed){
             const failures=count===null?Math.min(5,(previous?.failures??0)+1):0;
             // Fresh native connection on each probe. At most one in flight;
@@ -306,5 +323,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
         </section>
       </div>
     </div>
+    <LiveTelemetryPanel key={snapshot.local.hostId} snapshot={snapshot}
+      runningMapIds={runningLocal.map(m=>m.id)} playerProofs={playerProofs}/>
   </div>;
 }
