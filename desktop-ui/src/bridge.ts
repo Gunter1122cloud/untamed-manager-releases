@@ -574,7 +574,8 @@ export type FreshAsaRestartReviewPreview = {
 export type FreshAsaRestartReviewReceipt = {
   mapId:string;oldPid:number;state:"operatorReviewed";
   reviewMode?:"original"|"replacement"|"stopped";
-  currentRunningPid?:number|null;currentLoaderPid?:number|null;
+  currentRunningPid?:number|null;currentRunningStartedUtc?:string|null;
+  currentLoaderPid?:number|null;currentLoaderStartedUtc?:string|null;
   previousOutcomeUnknown:true;newRestartSucceeded:false;
   serverStarted:false;serverStopped:false;rconSent:false;
   originalJournalAudited:true;nextActionRequiresNewApproval:true;

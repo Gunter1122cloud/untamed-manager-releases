@@ -203,7 +203,9 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
          saved.serverStopped||saved.rconSent||
          (replacement&&(saved.reviewMode!=="replacement"||
            saved.currentRunningPid!==proof.currentRunningPid||
-           saved.currentLoaderPid!==proof.currentLoaderPid)))
+           saved.currentRunningStartedUtc!==proof.currentRunningStartedUtc||
+           saved.currentLoaderPid!==proof.currentLoaderPid||
+           saved.currentLoaderStartedUtc!==proof.currentLoaderStartedUtc)))
         throw new Error("UM-ASA-RESTART-REVIEW-RECEIPT-INVALID");
       // A late read-only restartCurrent response can still describe the
       // PRE-AUDIT journal. Once a verified native receipt confirms its
@@ -214,7 +216,9 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
         phase:"OperatorReviewed",needsOperatorReview:false}:previous);
       const ownerSummary=replacement?
         "A külön indított jelenlegi ASA PID "+proof.currentRunningPid+
-        " és Loader PID "+(proof.currentLoaderPid??"nem szükséges")+
+        " (indult: "+proof.currentRunningStartedUtc+") és Loader PID "+
+        (proof.currentLoaderPid??"nem szükséges")+
+        (proof.currentLoaderStartedUtc?" (indult: "+proof.currentLoaderStartedUtc+")":"")+
         " útvonala, indulási ideje, indítási paraméterei és RCON-porttulajdonosa igazolt. ":
         proof.stoppedFamilyVerified?
           "Az ASA és Loader leállása, valamint a portok szabadsága igazolt. ":

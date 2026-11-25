@@ -470,7 +470,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                             FailureChangedUtc:saved.ChangedUtc);
                         return Ok(id,new{
                             token=reviewPending.Token,mapId=map.Id,mapName=map.Name,
-                            oldPid=saved.OldPid,journalId=saved.Id,phase=saved.Phase.ToString(),
+                            oldPid=saved.OldPid,oldStartedUtc=(DateTimeOffset?)null,
+                            journalId=saved.Id,phase=saved.Phase.ToString(),
                             reviewMode="replacement",exactOldProcessVerified=false,
                             attemptedNewPid=saved.NewPid,
                             replacementOwnerVerified=true,replacementStartEpochVerified=true,
@@ -560,8 +561,11 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                             mapId=owned.Id,oldPid=reviewPermit.OldPid,
                             state="operatorReviewed",reviewMode="replacement",
                             currentRunningPid=reviewPermit.ReplacementPid,
+                            currentRunningStartedUtc=reviewPermit.ReplacementStartedUtc,
                             currentLoaderPid=reviewPermit.ReplacementLoaderPid>0?
                                 reviewPermit.ReplacementLoaderPid:(int?)null,
+                            currentLoaderStartedUtc=reviewPermit.ReplacementLoaderStartedUtc==default?
+                                (DateTimeOffset?)null:reviewPermit.ReplacementLoaderStartedUtc,
                             previousOutcomeUnknown=true,newRestartSucceeded=false,
                             serverStarted=false,serverStopped=false,rconSent=false,
                             originalJournalAudited=true,nextActionRequiresNewApproval=true,
