@@ -253,7 +253,14 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                    targets[0].GetProperty("state").GetString()=="completed")return;
                 throw new InvalidOperationException("UM-ROLLING-LIFECYCLE-NOT-VERIFIED");
             }
-            if(status!="running")throw new InvalidOperationException("UM-ROLLING-LIFECYCLE-NEEDS-REVIEW");
+            if(status!="running")
+            {
+                var row=r.GetProperty("targets").EnumerateArray().SingleOrDefault(x=>x.GetProperty("mapId").GetGuid()==map.Id);
+                string? evidence=row.ValueKind==JsonValueKind.Object?row.GetProperty("evidence").GetString():null;
+                string code=evidence!=null&&evidence.StartsWith("UM-",StringComparison.Ordinal)?
+                    NativeLifecycleFailureCode.From(new InvalidOperationException(evidence)):"UM-ROLLING-LIFECYCLE-NEEDS-REVIEW";
+                throw new InvalidOperationException(code);
+            }
             await delay(TimeSpan.FromSeconds(2),ct);
         }
         throw new TimeoutException("UM-ROLLING-LIFECYCLE-TIMEOUT");

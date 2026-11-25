@@ -137,7 +137,7 @@ internal static class RollingSteamMultiMapTests
         {
             ct.ThrowIfCancellationRequested();
             if(d==TimeSpan.FromMinutes(1)){minuteWaits++;return Task.CompletedTask;}
-            return Task.Delay(20,ct); // poll actual asynchronous native receipts
+            return Task.Delay(5,ct); // stress concurrent status polling against real journal transitions
         }
         using var supervisor=new DesktopRollingSteamSupervisor(cluster,lifecycle,steam,gate,
             ()=>{entered++;return true;},()=>left++,()=>false,chat,Owns,Delay);
@@ -158,7 +158,15 @@ internal static class RollingSteamMultiMapTests
         using(var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(60)))
         {
             try{await supervisor.TickOnceAsync(deadline.Token);}
-            catch(Exception ex) when(ex is not OperationCanceledException){failed=true;Console.WriteLine("Rolling fixture outcome: "+ex.Message);}
+            catch(Exception ex) when(ex is not OperationCanceledException)
+            {
+                failed=true;Console.WriteLine("Rolling fixture outcome: "+ex.Message);
+                // The fixture contains synthetic data only; expose the exact
+                // persisted target evidence when an unexpected stage fails.
+                string batchReceipt=await lifecycle.HandleAsync(JsonSerializer.Serialize(new{
+                    id=Guid.NewGuid(),method="operations.lifecycleBatchCurrent"}));
+                Console.WriteLine("Rolling fixture lifecycle receipt: "+batchReceipt);
+            }
         }
         var status=(await Call("steam.rollingStatus",new{})).GetProperty("data");
         var current=status.GetProperty("current");
