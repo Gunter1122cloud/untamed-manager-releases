@@ -44,8 +44,8 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private string? PendingStopBlocker(LocalMap map)
     {
-        // Durable review remains authoritative across a prior in-memory
-        // NeedsOperator record (including another Manager instance).
+        // Only an active worker or unresolved durable receipt owns the lane.
+        // A terminal in-memory error is diagnostic history, not a lock.
         var journal=Journal(map);
         var durable=journal.Observe();
         if(durable!=null&&durable.MapId!=map.Id)
@@ -58,13 +58,17 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
             {
                 if(active.State is "queued" or "running")
                     return "UM-ASA-STOP-BUSY";
-                if(active.State=="needsOperator"&&
-                   durable?.Phase!=AsaStopPhase.OperatorReviewed)
-                    return "UM-ASA-STOP-NEEDS-OPERATOR";
+
             }
-        return durable?.Phase is AsaStopPhase.Pending or AsaStopPhase.NeedsOperator
+        return StopReceiptPending(durable?.Phase)
             ?"UM-ASA-STOP-JOURNAL-NEEDS-OPERATOR":null;
     }
+
+    internal static bool StopReceiptPending(AsaStopPhase? phase)=>
+        phase is AsaStopPhase.Pending or AsaStopPhase.NeedsOperator;
+
+    internal static bool PreferTrackedStop(string state,AsaStopPhase? phase)=>
+        state!="needsOperator"||StopReceiptPending(phase);
 
     public DesktopFreshAsaStopBridge(ClusterService service,
         Func<int,int,bool>? owner=null,
@@ -214,8 +218,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                     lock(sync)
                     {
                         if(jobsByMap.TryGetValue(mapId,out var tracked)&&
-                           !(tracked.State=="needsOperator"&&
-                             currentDurable?.Phase==AsaStopPhase.OperatorReviewed))
+                           PreferTrackedStop(tracked.State,currentDurable?.Phase))
                             return Ok(id,new{
                                 mapId,jobId=(Guid?)tracked.JobId,
                                 state=(string?)tracked.State,
