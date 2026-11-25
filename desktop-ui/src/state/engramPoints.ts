@@ -2,7 +2,7 @@ const KEY="OverridePlayerLevelEngramPoints";
 const SECTION="/Script/ShooterGame.ShooterGameMode";
 const MAX_ROWS=2000;
 type Line={text:string;eol:string};
-function splitLines(text:string):Line[]{
+export function splitLines(text:string):Line[]{
   const pieces=text.split(/(\r\n|\n|\r)/);
   const result:Line[]=[];
   for(let i=0;i<pieces.length;i+=2){
@@ -11,7 +11,7 @@ function splitLines(text:string):Line[]{
   }
   return result;
 }
-function gameSection(name:string):boolean{
+export function gameSection(name:string):boolean{
   return [SECTION.toLowerCase(),"shootergame.shootergamemode"].includes(name.trim().toLowerCase());
 }
 function inspect(text:string){
