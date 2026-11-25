@@ -365,6 +365,31 @@ await SteamPublicBuildParsingTests.RunAsync(root);
           DesktopWatchdogRecovery.FatalExitCode(unchecked((int)0xC0000409))&&
           !DesktopWatchdogRecovery.FatalExitCode(0)&&!DesktopWatchdogRecovery.FatalExitCode(1),
         "watchdog requires known fatal Windows exit, not clean or ambiguous code");
+    {
+        var owned=RconPortOwnership.UdpOwnership.Owned;
+        var missing=RconPortOwnership.UdpOwnership.Missing;
+        var foreign=RconPortOwnership.UdpOwnership.ForeignOrAmbiguous;
+        var unknown=RconPortOwnership.UdpOwnership.Unverified;
+        Check(DesktopWatchdogRecovery.UdpReadinessAccepted(
+                DesktopWatchdogRecovery.UdpReadinessEvidence(owned,owned)),
+            "watchdog accepts PID-owned Game and Query UDP endpoints");
+        Check(DesktopWatchdogRecovery.UdpReadinessAccepted(
+                DesktopWatchdogRecovery.UdpReadinessEvidence(owned,missing))&&
+              DesktopWatchdogRecovery.UdpReadinessEvidence(owned,missing)=="READY_GAME_RCON_QUERY_UDP_MISSING",
+            "missing Query UDP is a visible degraded-readiness warning, not a crash-recovery blocker");
+        Check(!DesktopWatchdogRecovery.UdpReadinessAccepted(
+                DesktopWatchdogRecovery.UdpReadinessEvidence(missing,owned))&&
+              !DesktopWatchdogRecovery.UdpReadinessAccepted(
+                DesktopWatchdogRecovery.UdpReadinessEvidence(foreign,owned))&&
+              !DesktopWatchdogRecovery.UdpReadinessAccepted(
+                DesktopWatchdogRecovery.UdpReadinessEvidence(unknown,owned)),
+            "Game UDP must remain owned and verifiable by the exact ASA PID");
+        Check(!DesktopWatchdogRecovery.UdpReadinessAccepted(
+                DesktopWatchdogRecovery.UdpReadinessEvidence(owned,foreign))&&
+              !DesktopWatchdogRecovery.UdpReadinessAccepted(
+                DesktopWatchdogRecovery.UdpReadinessEvidence(owned,unknown)),
+            "foreign or unverified Query UDP ownership still fails closed");
+    }
     string recoveryRoot=Path.Combine(root,"watchdog-recovery-fixture");
     await using var recoveryCluster=new ClusterService("recovery-fixture",recoveryRoot);
     var m=new LocalMap{Name="Recovery test",InstallationPath=Path.Combine(recoveryRoot,"asa"),
