@@ -61,6 +61,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     private readonly Func<ProcessIdentity,IExitWitness> witness;
     private readonly Func<LocalMap,string> validateLaunchHash;
     private readonly Func<LocalMap,ProcessCheck,Task<bool>> ready;
+    private readonly bool productionReadiness;
     private readonly Func<LocalMap,Task<(int Pid,DateTimeOffset Started)>> launch;
     private readonly string directory;
     private readonly DiscordOperationEvents events;
@@ -108,10 +109,21 @@ public sealed class DesktopWatchdogRecovery : IDisposable
             return Hash(source+"|"+build+"|"+DesktopFreshAsaStartBridge.IniFingerprint(map)+"|"+
                 AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map));
         });
+        productionReadiness=isolatedReady==null;
         ready=isolatedReady??(async(map,seen)=>{
-            if(!Running(map,seen)||!RconPortOwnership.IsOwnedListener(map.RconPort,seen.Identity!.Pid)||
-                !RconPortOwnership.OwnsUdpPort(map.GamePort,seen.Identity.Pid)||
-                !RconPortOwnership.OwnsUdpPort(map.QueryPort,seen.Identity.Pid))return false;
+            if(!Running(map,seen))return false;
+            int pid=seen.Identity!.Pid;
+            if(!RconPortOwnership.IsOwnedListener(map.RconPort,pid)||
+                AsaReadyProbe.HasPortConflict(map,cluster.Config.LocalMaps)||
+                AsaReadyProbe.DeclaredPortMismatch(map))return false;
+            string udpEvidence=UdpReadinessEvidence(
+                RconPortOwnership.InspectUdpPort(map.GamePort,pid),
+                RconPortOwnership.InspectUdpPort(map.QueryPort,pid));
+            // Query UDP is used for server discovery. A missing Query listener
+            // is a degraded-service warning, not evidence that a live, RCON-
+            // responsive ASA process cannot be monitored after a fatal crash.
+            // A foreign owner or unreadable Windows ownership table still fails closed.
+            if(!UdpReadinessAccepted(udpEvidence))return false;
             if(map.HistoricalStoreProtected)
             {
                 var proof=LegacyStoreV1GracefulStop.Preview(cluster,map.Id);
@@ -165,6 +177,31 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     private static bool Running(LocalMap map,ProcessCheck state)=>state.Running&&!state.ConfirmedStopped&&
         state.Identity is {Pid:>0}&&(!map.StartWithAsaApi||state.LoaderIdentity is {Pid:>0})&&
         (!map.StartWithAsaApi||state.LoaderIdentity!.Pid!=state.Identity.Pid);
+
+    // Game UDP is required for the actual player transport. Query UDP is a
+    // discovery endpoint: absence is surfaced as a warning but does not stop
+    // crash monitoring when process identity, Game UDP, RCON and runtime logs
+    // independently prove a healthy server. Never tolerate a foreign owner or
+    // an unreadable owner table, and retain the separate configured-port collision check.
+    internal static string UdpReadinessEvidence(RconPortOwnership.UdpOwnership game,
+        RconPortOwnership.UdpOwnership query)
+    {
+        if(game!=RconPortOwnership.UdpOwnership.Owned)
+            return game switch{
+                RconPortOwnership.UdpOwnership.Missing=>"UM-WATCHDOG-GAME-UDP-MISSING",
+                RconPortOwnership.UdpOwnership.ForeignOrAmbiguous=>"UM-WATCHDOG-GAME-UDP-FOREIGN",
+                _=>"UM-WATCHDOG-GAME-UDP-UNVERIFIED"
+            };
+        if(query==RconPortOwnership.UdpOwnership.ForeignOrAmbiguous)
+            return "UM-WATCHDOG-QUERY-UDP-FOREIGN";
+        if(query==RconPortOwnership.UdpOwnership.Unverified)
+            return "UM-WATCHDOG-QUERY-UDP-UNVERIFIED";
+        return query==RconPortOwnership.UdpOwnership.Missing
+            ?"READY_GAME_RCON_QUERY_UDP_MISSING":"READY_OWNED_FAMILY_ARMED";
+    }
+    internal static bool UdpReadinessAccepted(string evidence)=>
+        evidence.StartsWith("READY_",StringComparison.Ordinal);
+
     private static bool Stopped(ProcessCheck state)=>state.ConfirmedStopped&&!state.Running&&
         state.Identity==null&&state.LoaderIdentity==null;
     private static bool SameFamily(State state,ProcessCheck now)=>now.Identity?.Pid==state.Pid&&
@@ -358,16 +395,39 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                 return Fail(id,"UM-WATCHDOG-LOCAL-PREFLIGHT");
             DemandNoPending(map);
             var before=observe(map);
-            if(!Running(map,before)||!await ready(map,before))
+            if(!Running(map,before))
+                return Fail(id,"UM-WATCHDOG-ARM-REQUIRES-READY-ASA");
+            string armEvidence="READY_OWNED_FAMILY_ARMED";
+            if(productionReadiness)
+            {
+                if(AsaReadyProbe.HasPortConflict(map,cluster.Config.LocalMaps)||
+                    AsaReadyProbe.DeclaredPortMismatch(map))
+                    return Fail(id,"UM-WATCHDOG-ARM-PORT-CONFIG");
+                armEvidence=UdpReadinessEvidence(
+                    RconPortOwnership.InspectUdpPort(map.GamePort,before.Identity!.Pid),
+                    RconPortOwnership.InspectUdpPort(map.QueryPort,before.Identity.Pid));
+                if(!UdpReadinessAccepted(armEvidence))return Fail(id,armEvidence);
+            }
+            if(!await ready(map,before))
                 return Fail(id,"UM-WATCHDOG-ARM-REQUIRES-READY-ASA");
             var after=observe(map);
             if(!Running(map,after)||!Same(before.Identity,after.Identity)||
                 (map.StartWithAsaApi&&!Same(before.LoaderIdentity,after.LoaderIdentity)))
                 return Fail(id,"UM-WATCHDOG-ARM-IDENTITY-CHANGED");
+            if(productionReadiness)
+            {
+                if(AsaReadyProbe.HasPortConflict(map,cluster.Config.LocalMaps)||
+                    AsaReadyProbe.DeclaredPortMismatch(map))
+                    return Fail(id,"UM-WATCHDOG-ARM-PORT-CONFIG");
+                armEvidence=UdpReadinessEvidence(
+                    RconPortOwnership.InspectUdpPort(map.GamePort,after.Identity!.Pid),
+                    RconPortOwnership.InspectUdpPort(map.QueryPort,after.Identity.Pid));
+                if(!UdpReadinessAccepted(armEvidence))return Fail(id,armEvidence);
+            }
             var now=DateTimeOffset.UtcNow;
             var row=new State(map.Id,"armed",ProfileHash(map),validateLaunchHash(map),
                 after.Identity!.Pid,after.Identity.StartedUtc,after.LoaderIdentity?.Pid,after.LoaderIdentity?.StartedUtc,
-                now,old?.LastAttemptUtc,null,null,null,null,0,null,"READY_OWNED_FAMILY_ARMED",true,
+                now,old?.LastAttemptUtc,null,null,null,null,0,null,armEvidence,true,
                 after.Identity.ExecutablePath,after.LoaderIdentity?.ExecutablePath);
             DemandProfile(map,row,true);
             if(RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc))
