@@ -1,4 +1,4 @@
-name: Inspect ARK Bob's Tall Tales and base game media
+name: Download high-resolution Chapter III footage
 on:
   push:
     branches: ['media/chapter-iii-sourcepack']
@@ -7,37 +7,43 @@ on:
 permissions:
   contents: read
 jobs:
-  inspect:
+  footage:
     if: github.ref == 'refs/heads/media/chapter-iii-sourcepack'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
-      - name: Fetch relevant official ARK subfolder manifests
+      - name: Install media tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg unzip
+      - name: Download full-resolution official ARK trailers
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p presskits
-          curl -fL -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/ayv0fdldrcwwq3b0uvbjk/ALGaxmR4GcJY3rKKGm0aOx8/05.%20ARK%3A%20Bob%27s%20Tall%20Tales?rlkey=bllrthgroxyud79tqjm2b8lcj&dl=0' -o presskits/bob_tall_tales.html
-          curl -fL -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/ayv0fdldrcwwq3b0uvbjk/AFS2SwAKxSQfo0zdCgPjOPs/01.%20ARK%3A%20Survival%20Ascended?rlkey=bllrthgroxyud79tqjm2b8lcj&dl=0' -o presskits/asa_base.html
+          mkdir -p ChapterIII_Footage/{Astraeos,ARK_General}
+          curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 300 --max-filesize 1200000000 -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/si5q3wva0tkn38fm2oslv/AEEnE_N8aYMsLvMuiiHcP7s/Trailer/Astraeos_Complete_Trailer.mp4?rlkey=fz35z7tvnqppxdx8b89y4l8h7&dl=1' -o ChapterIII_Footage/Astraeos/Astraeos_Complete_Trailer.mp4
+          curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 300 --max-filesize 1200000000 -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/noqpi9macywaku3r783wh/AGLhffAjveEJDVsi83scvKg/Trailer/Astraeos_MegaUpdate_Launch%20Trailer.mp4?rlkey=xhaypm1tpnqppxdx8b89y4l8h7&dl=1' -o ChapterIII_Footage/Astraeos/Astraeos_MegaUpdate_Launch_Trailer.mp4
+          curl -fL -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/ayv0fdldrcwwq3b0uvbjk/AE9fOY7R7B_IRVJ4k_oEPAA/01.%20ARK%3A%20Survival%20Ascended/Trailer?rlkey=bllrthgroxyud79tqjm2b8lcj&dl=0' -o /tmp/ark_base_trailer.html
           python3 - <<'PY'
           import pathlib,re,base64
-          for p in pathlib.Path("presskits").glob("*.html"):
-              s=p.read_text(errors="ignore")
-              print("\n###",p.name,"bytes",len(s))
-              out=[]
-              for m in re.finditer(r'registerStreamedPrefetch\("([^"]+)",\s*"([^"]+)"',s):
-                  key=base64.b64decode(m.group(1)+"===")
-                  if b"SharedContentLinkFolderEntriesPropsPrefetch" not in key: continue
-                  payload=base64.b64decode(m.group(2)+"===");txt=payload.decode("latin1","replace");out.append(txt)
-                  print("PAYLOAD_BYTES",len(payload))
-                  for hit in re.findall(r"[ -~]{5,}",txt):
-                      if any(x in hit.lower() for x in ["dropbox.com","mp4","mov","webm","m4v","trailer","video","tides","fortune","bob"]): print(hit[:1000])
-              (p.parent/(p.stem+"_entries.txt")).write_text("\n\n".join(out),encoding="utf-8")
-              if not out: print("NO FOLDER ENTRIES PREFETCH FOUND")
+          s=pathlib.Path("/tmp/ark_base_trailer.html").read_text(errors="ignore")
+          for m in re.finditer(r'registerStreamedPrefetch\("([^"]+)",\s*"([^"]+)"',s):
+              key=base64.b64decode(m.group(1)+"===")
+              if b"SharedContentLinkFolderEntriesPropsPrefetch" not in key: continue
+              payload=base64.b64decode(m.group(2)+"===")
+              txt=payload.decode("latin1","replace")
+              for hit in re.findall(r"[ -~]{5,}",txt):
+                  if any(x in hit.lower() for x in ["dropbox.com","mp4","mov","webm","trailer","1080p","4k"]): print("ARK_BASE",hit[:1200])
           PY
-      - name: Upload ARK subfolder manifests
+          for f in ChapterIII_Footage/Astraeos/*.mp4; do
+            echo "=== $f ==="
+            ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate -of json "$f"
+          done
+      - name: Upload full-resolution footage
         uses: actions/upload-artifact@v4
         with:
-          name: ChapterIII_ARK_Bob_and_Base_Manifests
-          path: presskits/
+          name: ChapterIII_HighResolution_Footage
+          path: ChapterIII_Footage/
+          if-no-files-found: error
+          compression-level: 0
           retention-days: 7
