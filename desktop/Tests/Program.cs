@@ -57,6 +57,17 @@ static bool IsError(JsonElement value,string code)=>
     !value.GetProperty("ok").GetBoolean() &&
     value.GetProperty("error").GetString()==code;
 
+// A reconciled Stop receipt must override terminal error history, but not
+// an active worker or an unresolved durable Stop.
+Check(!DesktopFreshAsaStopBridge.PreferTrackedStop("needsOperator",AsaStopPhase.Completed)&&
+      !DesktopFreshAsaStopBridge.PreferTrackedStop("needsOperator",AsaStopPhase.OperatorReviewed)&&
+      !DesktopFreshAsaStopBridge.PreferTrackedStop("needsOperator",null),
+    "resolved or absent durable Stop receipt releases stale in-memory error");
+Check(DesktopFreshAsaStopBridge.PreferTrackedStop("needsOperator",AsaStopPhase.Pending)&&
+      DesktopFreshAsaStopBridge.PreferTrackedStop("needsOperator",AsaStopPhase.NeedsOperator)&&
+      DesktopFreshAsaStopBridge.PreferTrackedStop("running",null)&&
+      DesktopFreshAsaStopBridge.PreferTrackedStop("completed",AsaStopPhase.Completed),
+    "unresolved receipt and live Stop remain observable; completed history preserved");
 OriginalStoreExpandedDonePeerTests.Run();
 LocalLogCenterBoundedTests.Run();
 await HostedResourcesTests.RunAsync();
