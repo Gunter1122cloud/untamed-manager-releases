@@ -161,7 +161,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted,refresh
   const inspect=async()=>{
     if(startInFlight.current||busy||state?.running||
        !state?.confirmedStopped||!state?.rconConfigured||
-       state?.launchModeApprovalRequired||startAccepted||startUncertain||modeUncertain)return;
+       startAccepted||startUncertain||modeUncertain)return;
     startInFlight.current=true;
     const requested=mapId,generation=actionGeneration.current;
     setBusy(true);setError("");setNotice("");
@@ -337,12 +337,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted,refresh
           <Shield size={16}/> {state?.requestedMode==="asaApiLoader"?
             "Közvetlen ASA mód választása":"ASA API Loader mód választása"}
         </button>
-        {state?.launchModeApprovalRequired&&
-          state.requestedMode==="directAsa"&&
-          <button type="button" className="secondary"
-            disabled={busy||!state.confirmedStopped||startAccepted||startUncertain||modeUncertain} onClick={()=>{void changeMode(false);}}>
-            <Shield size={16}/> Közvetlen ASA mód kifejezett jóváhagyása
-          </button>}
+
       </div>
       <div className="details-line"><span>Meglévő RCON</span>
         <b>{state?.rconConfigured?"Managerhez kapcsolva":"Előbb add meg az eredeti RCON-t"}</b></div>
@@ -351,7 +346,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted,refresh
           onClick={()=>{void inspect();}}
           disabled={busy||modeUncertain||!state||state.running||
             !state.confirmedStopped||!state.rconConfigured||
-            state.launchModeApprovalRequired||startAccepted||startUncertain||modeUncertain}>
+            startAccepted||startUncertain||modeUncertain}>
           <Play size={16}/> {state?.requestedMode==="asaApiLoader"?
             "Eredeti Store-v1 API Loader indítása":"Eredeti Store-v1 ASA indítása"}
         </button>

@@ -130,6 +130,8 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
         // foreign operation would make every real mode apply fail.
         if(underOwnLease)return true;
         var existing=cluster.Operations.Observe(map.InstallationPath);
+        cluster.Operations.AutoRecoverPending(map.InstallationPath);
+        existing=cluster.Operations.Observe(map.InstallationPath);
         return existing?.Phase is not (UntamedOperationPhase.Prepared or
             UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator);
     }
@@ -143,6 +145,7 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
            KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             return false;
         new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+        LegacyStoreV1SaveEvidenceJournal.AutoRecoverInterrupted(cluster.Store.Root,map.Id);
         // The approved Configuration lease itself is Prepared during apply;
         // never interpret that journal as an unrelated operation. Before
         // acquiring the lease, keep the ordinary fail-closed journal check.
@@ -373,7 +376,7 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         asaApiDllInChildObserved=apiDllObserved,
                         apiRuntimeState,
                         pluginsOperationalVerified=false,
-                        launchModeApprovalRequired=map.HistoricalLaunchModeNeedsApproval,
+                        launchModeApprovalRequired=false,
                         rconConfigured=map.RconPort>0&&
                             !string.IsNullOrWhiteSpace(map.RconPasswordProtected),
                         originalStartAutomatic=false,
@@ -387,8 +390,8 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         return Fail(id,"UM-STORE-ACTIVE-MAP");
                     var map=Owned(mapId);
                     if(!Imported(map))return Fail(id,"UM-STORE-ACTIVE-RCON-REQUIRED");
-                    if(map!.HistoricalLaunchModeNeedsApproval)
-                        return Fail(id,"UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED");
+                    // Launch mode is taken from the saved local map profile.
+                    // No separate operator approval or journal-cleanup step is required.
                     var plan=await Task.Run(()=>prepare(map));
                     if(plan==null||plan.Fingerprint.Length!=64||
                        plan.UseApi!=map!.StartWithAsaApi||

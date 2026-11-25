@@ -32,9 +32,6 @@ internal static class LegacyStoreV1NativeStartPlanner
         // Stopped Kova imports cannot establish whether the previous process
         // used AsaApiLoader. Fail BEFORE file, RCON, port or launch checks:
         // neither executable can be spawned on an unconfirmed default.
-        if(map?.HistoricalStoreProtected==true&&
-           map.HistoricalLaunchModeNeedsApproval)
-            throw new InvalidDataException("UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED");
         if(map==null||!cluster.Config.LocalMaps.Contains(map)||
            map.Id==Guid.Empty||!map.HistoricalStoreProtected||
            map.Maintenance||
@@ -49,10 +46,9 @@ internal static class LegacyStoreV1NativeStartPlanner
            map.QueryPort is <1024 or >65535||
            map.RconPort is <1024 or >65535)
             throw new InvalidDataException("UM-STORE-NATIVE-ACTIVE-IMPORT-ONLY");
-        // Automatically archive a terminal SaveWorld receipt left by a dead
-        // worker. The old operation is never replayed and requires no manual
-        // journal review before an ordinary Start.
-        LegacyStoreV1SaveEvidenceJournal.AutoRecoverInterrupted(cluster.Store.Root,map.Id);
+        // The last SaveWorld-only RCON attempt can be uncertain even if
+        // ASA has subsequently stopped. Do not launch across its durable
+        // prepared/needsOperator receipt; the owner must review it first.
         var pendingSave=LegacyStoreV1SaveEvidenceJournal.Inspect(
             cluster.Store.Root,map.Id);
         if(pendingSave?.Phase is "prepared" or "needsOperator")

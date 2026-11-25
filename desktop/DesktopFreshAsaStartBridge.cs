@@ -114,9 +114,11 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         // OperatorReviewed the same as Completed; a pending Stopping,
         // Starting or NeedsOperator still blocks every new launch.
         // The old restart is never resumed or reported successful.
-        var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
+        var restartJournal=new AsaManualRestartJournal(map.InstallationPath);
+        restartJournal.AutoRecoverPending();
+        var restart=restartJournal.Observe();
         if(restart!=null&&restart.Phase is not
-            (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed))
+            (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed or AsaRestartPhase.Recovered))
             return false;
         // A failed/cancelled Stop cannot silently turn into an independent
         // Start after Manager restart. No RCON or launcher is dispatched.

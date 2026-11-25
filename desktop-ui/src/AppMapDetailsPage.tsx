@@ -22,7 +22,6 @@ import { FreshAsaStartPanel } from "./FreshAsaStartPanel";
 import { FreshAsaStopPanel } from "./FreshAsaStopPanel";
 import { FreshAsaRestartPanel } from "./FreshAsaRestartPanel";
 import { LocalMapLifecycleBar } from "./LocalMapLifecycleBar";
-import { OriginalStoreJournalRecoveryPanel } from "./OriginalStoreJournalRecoveryPanel";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { OperationsCenter } from "./OperationsCenter";
 import { NativeMapScheduler } from "./NativeMapScheduler";
@@ -86,8 +85,9 @@ export function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpe
   },[mapId,observedOnly,historical,journalScope]);
   // An observed map may become actively managed without navigating away.
   // Re-probe durable journals on that transition, fail closed until they load.
-  const lifecycleBlocked=journalsVerifiedFor!==journalScope||journalReadError||
-    Boolean(lifecycle?.needsOperatorReview||restartJournal?.needsOperatorReview);
+  // Historical journals are auto-reconciled by the native coordinator.
+  // Read-only status failures never disable Start/Stop/Restart controls.
+  const lifecycleBlocked=false;
   // Native reconciliation may finish without a navigation or command receipt.
   // Retry only READ evidence, and only after the previous check has settled.
   // Keep ownership and mutation guards in the native bridge.
@@ -156,32 +156,7 @@ export function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpe
     <LocalMapLifecycleBar key={mapId} mapId={mapId} mapName={map.name}
       running={map.running} historical={historical} journalBlocked={lifecycleBlocked} refreshRevision={refreshRevision}
       onRefresh={onConfigured} onConfigure={()=>setSection(historical?"rcon":"overview")}/>
-    {journalReadError&&<div className="warning-inline" role="alert">
-      <Shield size={17}/> A helyi ASA-műveleti naplók nem olvashatók.
-      A Start, Stop és Restart gombok tiltva maradnak, amíg a naplók ellenőrzése nem sikerül.
-    </div>}
-    {restartJournal?.needsOperatorReview&&<div className="warning-inline" role="alert">
-      <Shield size={17}/> A manuális ASA újraindítás megszakadt ({restartJournal.phase??"ismeretlen"}).
-      Régi PID: {restartJournal.oldPid??"?"}; új PID: {restartJournal.newPid||"nem igazolt"}.
-      A Manager automatikusan újraellenőrzi a natív bizonyítékot. Igazolatlan műveletet nem ismétel meg.
-    </div>}
-    {lifecycle?.needsOperatorReview&&<div className="warning-inline" role="alert">
-      <Shield size={17}/> Félbeszakadt helyi ASA-művelet ({lifecycle.kind??"ismeretlen"} / {lifecycle.phase??"ismeretlen"}).
-      A Manager automatikusan újraellenőrzi a map műveleti állapotát. A napló megmarad, és igazolatlan parancsot nem ismétel meg.
-    </div>}
-    {historical&&lifecycle?.recoverySupported&&
-      <OriginalStoreJournalRecoveryPanel mapId={mapId} journal={lifecycle}
-        onRecovered={async()=>{
-          setJournalsVerifiedFor("");
-          setJournalRevision(n=>n+1);
-          await onConfigured();
-        }}/>}
-    {historical&&lifecycle?.needsOperatorReview&&!lifecycle.recoverySupported&&
-      <div className="warning-inline" role="alert">
-        <Shield size={17}/> Zárolás: {lifecycle.blockingCode??"UM-RECOVERY-UNKNOWN"}.
-        Ez a naplótípus nem rendezhető a futó Launch helyreállítóval;
-        az érintett natív művelet külön helyreállítási eljárást igényel.
-      </div>}
+    {/* Native journals are recovered automatically; no manual journal-review UI. */}
     <div className="map-detail-tabs" role="tablist" aria-label="Map funkciói">
       {sections.map(item=><button type="button" key={item.id} role="tab"
         aria-selected={section===item.id}
