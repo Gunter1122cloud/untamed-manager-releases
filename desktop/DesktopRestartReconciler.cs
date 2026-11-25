@@ -169,7 +169,9 @@ internal static class DesktopRestartReconciler
     {
         try
         {
-            if(map.Maintenance||map.AutoStart)return false;
+            // AutoStart is a preference, not a live launch. The installation lease
+            // and repeated stopped-family proof prevent races; recovery never starts ASA.
+            if(map.Maintenance)return false;
             var journal=new AsaManualRestartJournal(map.InstallationPath);
             var record=journal.Observe();
             var general=cluster.Operations.Observe(map.InstallationPath);
