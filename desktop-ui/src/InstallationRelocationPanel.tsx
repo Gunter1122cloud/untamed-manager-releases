@@ -26,7 +26,7 @@ export function InstallationRelocationPanel({mapId,running,onConfigured}:{mapId:
   };
   return <details className="premium-panel" style={{padding:16}}>
     <summary>Telepítés költöztetése másik SSD-re</summary>
-    <p className="muted small">Különálló, nem Store/cluster maphoz. Teljes másolat, SHA-256 ellenőrzés, majd helyi profil-átállítás. Az eredeti telepítés megmarad; ne indítsd el külön a régi példányt. Futó mapot nem állít le. Az útvonalhoz kötött korábbi ütemezéseket külön ellenőrizd.</p>
+    <p className="muted small">Különálló vagy új, helyi Store-ba regisztrált maphoz. Történeti és más gépen megosztott Store áthelyezése még nem támogatott. A Store transfer mappa és clusterazonosító változatlan. Teljes másolat, SHA-256 ellenőrzés, majd helyi profil-átállítás. Az eredeti telepítés megmarad; ne indítsd el külön a régi példányt. Futó mapot nem állít le. Az útvonalhoz kötött korábbi ütemezéseket külön ellenőrizd.</p>
     <label>Új, még nem létező telepítési könyvtár <input aria-label="Költöztetés célmappája" value={target} maxLength={500} disabled={busy} placeholder="D:\\ASA\\Map" onChange={e=>{setTarget(e.target.value);setPreview(null);}}/></label>
     <button className="secondary" type="button" disabled={running||busy||!target.trim()} onClick={()=>void run(false)}>Tárhely és fájllista ellenőrzése</button>
     {preview&&<><p>{preview.files.toLocaleString("hu-HU")} fájl · {(preview.bytes/1073741824).toFixed(2)} GiB · szabad {(preview.freeBytes/1073741824).toFixed(2)} GiB</p>

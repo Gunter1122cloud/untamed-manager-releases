@@ -210,7 +210,7 @@ export function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpe
         </Panel>
       </div>
       <MapMaintenancePanel key={mapId+":MapMaintenancePanel"} mapId={mapId} onConfigured={onConfigured}/>
-      {!historical&&!map.freshStoreEnrolled&&!map.observedReadOnlyImported&&<InstallationRelocationPanel key={mapId+":move"} mapId={mapId} running={map.running} onConfigured={onConfigured}/>}
+      {!historical&&!map.observedReadOnlyImported&&<InstallationRelocationPanel key={mapId+":move"} mapId={mapId} running={map.running} onConfigured={onConfigured}/>}
       {fresh&&map.gamePort>0&&<Panel title="Új map teljes indítási beállítása">
         <div role="region" aria-label="Új map beállításának lépései">
           <p className="muted small">
