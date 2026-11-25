@@ -8,6 +8,7 @@ import {LifecycleBatchPanel} from "./LifecycleBatchPanel";
 import {DiscordNotificationsPanel} from "./DiscordNotificationsPanel";
 import {WatchdogRecoveryPanel} from "./WatchdogRecoveryPanel";
 import {BanManagerPanel} from "./BanManagerPanel";
+import {UnifiedScheduler} from "./UnifiedScheduler";
 
 function elapsed(seconds:number|null){
   if(seconds===null || seconds<0)return "Nem ellenőrizhető";
@@ -186,6 +187,7 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
         <div><CalendarClock size={20}/><strong>{nativeOverview?
           nativeOverview.jobs.filter(x=>x.enabled).length:"—"}</strong><span>Natív ASA feladat</span></div>
       </div>}
+      {!selectedMapId&&<UnifiedScheduler snapshot={snapshot} nativeOverview={nativeOverview} onRefresh={reload}/>}
       {!selectedMapId&&<LifecycleBatchPanel maps={snapshot.maps} visible={visible} onRefresh={reload}/>}
       <WatchdogRecoveryPanel key={selectedMapId??"all-recovery"} fixedMapId={selectedMapId??undefined}/>
       {!selectedMapId&&<BanManagerPanel maps={snapshot.maps}/> }
