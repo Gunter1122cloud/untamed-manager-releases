@@ -266,6 +266,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopPluginZipBridge _pluginZip;
     private readonly DesktopAsaApiCoreBridge _apiCore;
     private readonly DesktopIniBridge _iniEditor;
+    private readonly DesktopHostedResourcesBridge _hostedResources=new();
     private readonly DesktopLocalMapRegistryBridge _mapRegistry;
     private readonly DesktopRunningAsaRegistrationBridge _runningAsaRegistration;
     private readonly DesktopRunningAsaAdoptionBridge _runningAsaAdoption;
@@ -535,6 +536,7 @@ public sealed class ObsidianWindow : Form
             _runningAsaRegistration.Dispose();
             _runningAsaAdoption.Dispose();
             _clusterRegistry.Dispose();
+            _hostedResources.Dispose();
             _iniEditor.Dispose();
             _modDrafts.Dispose();
             _modCopy.Dispose();
@@ -621,6 +623,7 @@ public sealed class ObsidianWindow : Form
                 {
                 string? methodName = null;
                 bool credentialRoute = false;
+                bool resourcesRoute = false;
                 bool draftRoute = false;
                 bool modCopyRoute = false;
                 bool modProfileRoute = false;
@@ -685,6 +688,7 @@ public sealed class ObsidianWindow : Form
                             "curseforge.credentialStatus" or
                             "curseforge.credentialSave" or
                             "curseforge.credentialClear";
+                        resourcesRoute = name is "resources.status" or "resources.publish" or "resources.stop";
                         updateRoute = name is "updates.status" or "updates.check";
                         updateInstallRoute = name is "updates.prepare" or "updates.install";
                         rconRoute = name is "rcon.status" or "rcon.listPlayers" or
@@ -876,6 +880,7 @@ public sealed class ObsidianWindow : Form
                         : travelRoute ? await _travel.HandleAsync(incoming)
                         : rconRoute ? await _rcon.HandleAsync(incoming)
                         : updateRoute ? await _updates.HandleAsync(incoming)
+                        : resourcesRoute ? await _hostedResources.HandleAsync(incoming)
                         : credentialRoute ? await _credentials.HandleAsync(incoming)
                         : pluginStateRoute ? await _pluginState.HandleAsync(incoming)
                         : multiHostBackupRoute ? await _multiHostBackup.HandleAsync(incoming)

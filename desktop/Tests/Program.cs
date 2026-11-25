@@ -59,6 +59,7 @@ static bool IsError(JsonElement value,string code)=>
 
 OriginalStoreExpandedDonePeerTests.Run();
 LocalLogCenterBoundedTests.Run();
+await HostedResourcesTests.RunAsync();
 
 AsaInitialRconSettings.ValidateExistingAdminPassword("Old7!xx");
 Check(true,"existing ASA INI credentials may be shorter than new credentials");

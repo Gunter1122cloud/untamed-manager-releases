@@ -1784,7 +1784,9 @@ export type ConfiguredMods = {
   evidence: "CONFIGURED_ONLY";
 };
 
-type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
+export type HostedResourcesStatus={running:boolean;port:number;resources:Array<{kind:string;url:string;bytes:number}>;loopbackOnly:true;persistent:false};
+
+type WireRequest = { id: string; method: "resources.status" | "resources.publish" | "resources.stop" | "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
   "operations.scheduleCreate" | "operations.scheduleDisable" | "operations.watchdogStart" |
   "notifications.status" | "notifications.save" | "notifications.clear" | "notifications.test" |
   "recovery.status" | "recovery.arm" | "recovery.disarm" | "recovery.suspend" |
@@ -1982,6 +1984,9 @@ export const managerBridge = {
     request<ClusterMembershipReceipt>("cluster.membership.apply",{token,confirm:true}),
   historicalExpansionInspect: (mapId:string,clusterId:string) =>
     request<HistoricalExpansionReadiness>("cluster.historicalExpansionInspect",{mapId,clusterId}),
+  hostedResourcesStatus:()=>request<HostedResourcesStatus>("resources.status"),
+  hostedResourcesPublish:(kind:string,content:string,port:number)=>request<HostedResourcesStatus>("resources.publish",{kind,content,port,confirm:true}),
+  hostedResourcesStop:()=>request<HostedResourcesStatus>("resources.stop",{confirm:true}),
   lanStatus: () => request<LanStatus>("lan.status"),
   lanPreview: (listenPort:number,hostId:string,hostName:string,peerAddress:string,
     peerPort:number,pairingKey:string,peerAction:"upsert"|"remove"="upsert") =>
