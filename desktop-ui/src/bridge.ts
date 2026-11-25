@@ -83,15 +83,16 @@ export type NativeAsaScheduleStatus={
 export type NativeScheduleReviewPreview={
   token:string;mapId:string;kind:NativeScheduleKind;runId:string;
   previousStatus:string;outcomeStillUnknown:true;automaticRetry:false;
-  scheduledTaskWillBeDisabled:true;journalBytesWillBeAudited:true;
+  scheduledTaskWillBeDisabled:true;canKeepFutureRestart?:boolean;journalBytesWillBeAudited:true;
   originalRunWillNotExecute:true;
   evidence:"SCHEDULE_DURABLE_UNCERTAIN_SLOT_REVIEW_PREVIEW";
 };
 export type NativeScheduleReviewReceipt={
   mapId:string;kind:NativeScheduleKind;runId:string;
-  reviewed:true;outcomeStillUnknown:true;jobDisabled:true;
+  reviewed:true;outcomeStillUnknown:true;jobDisabled:boolean;
+  futureRestartRetained?:boolean;nextDueUtc?:string|null;
   noRconSent:true;noAutomaticReplay:true;oldJournalArchived:true;
-  evidence:"SCHEDULE_UNKNOWN_SLOT_AUDITED_AND_DISABLED";
+  evidence:"SCHEDULE_UNKNOWN_SLOT_AUDITED_AND_DISABLED"|"SCHEDULE_UNKNOWN_SLOT_AUDITED_FUTURE_RESTART_ONLY";
 };
 export type NativeScheduleResumeReceipt={
   supervisorResumed:boolean;oldSlotReplayed:false;
@@ -2220,8 +2221,8 @@ export const managerBridge = {
     request<NativeAsaScheduleStatus>("schedule.nativeStatus",{mapId}),
   nativeScheduleReviewPreview: (mapId:string,kind:NativeScheduleKind,runId:string) =>
     request<NativeScheduleReviewPreview>("schedule.nativeReviewPreview",{mapId,kind,runId}),
-  nativeScheduleReviewApply: (mapId:string,token:string) =>
-    request<NativeScheduleReviewReceipt>("schedule.nativeReviewApply",{mapId,token,confirm:true}),
+  nativeScheduleReviewApply: (mapId:string,token:string,keepFutureRestart=false) =>
+    request<NativeScheduleReviewReceipt>("schedule.nativeReviewApply",{mapId,token,confirm:true,keepFutureRestart}),
   nativeScheduleResume: (mapId:string) =>
     request<NativeScheduleResumeReceipt>("schedule.nativeResume",{mapId,confirm:true}),
   nativeScheduleSet: (mapId:string,kind:NativeScheduleKind,

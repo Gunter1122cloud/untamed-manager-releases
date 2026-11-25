@@ -2100,6 +2100,55 @@ try
             Check(journalDispatches==countBefore,
                 "reviewed old claim never runs automatically after Manager reload");
         }
+        // An abandoned recurring restart can be explicitly audited while
+        // retaining its future calendar, but never replaying the old claim.
+        Directory.CreateDirectory(m1.InstallationPath);
+        int failedRestartDispatches=0;
+        DateTimeOffset failedDue;
+        using(var failRestart=new DesktopScheduledAsaOperationsSupervisor(
+            scheduleCluster,rcon,restarter,(id,kind,ct)=>{
+                failedRestartDispatches++;
+                throw new InvalidOperationException("UM-SYNTHETIC-RESTART-FAILED");
+            },_=>true,isolatedMinimumReviewAge:TimeSpan.Zero))
+        {
+            failedDue=failRestart.Configure(m1.Id,"Restart","Daily",0,240,127).NextDueUtc;
+            await failRestart.TickOnceAsync(failedDue);
+            Check(failedRestartDispatches==1,"synthetic recurring restart leaves exactly one unknown slot");
+        }
+        using(var futureOnly=new DesktopScheduledAsaOperationsSupervisor(
+            scheduleCluster,rcon,restarter,SyntheticRunner,_=>true,
+            isolatedMinimumReviewAge:TimeSpan.Zero))
+        {
+            var failedSlot=futureOnly.History(m1.Id).Single(x=>x.Kind=="Restart"&&
+                x.Status=="failed-needs-operator-no-retry");
+            int beforeReview=sent;
+            var skippedDue=futureOnly.Snapshot().Single(x=>x.MapId==m1.Id&&x.Kind=="Restart").NextDueUtc;
+            await futureOnly.TickOnceAsync(skippedDue);
+            Check(sent==beforeReview,"unknown restart blocks next slot before explicit review");
+            var cursor=futureOnly.Snapshot().Single(x=>x.MapId==m1.Id&&x.Kind=="Restart").NextDueUtc;
+            var preview=await Call(futureOnly.HandleAsync,"schedule.nativeReviewPreview",
+                new{mapId=m1.Id,kind="Restart",runId=failedSlot.RunId});
+            IsOk(preview,"old restart review is available after installation journals are clear");
+            Check(preview.GetProperty("data").GetProperty("canKeepFutureRestart").GetBoolean(),
+                "unchanged enabled recurring restart may be retained explicitly");
+            string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+            var result=await Call(futureOnly.HandleAsync,"schedule.nativeReviewApply",
+                new{mapId=m1.Id,token,confirm=true,keepFutureRestart=true});
+            IsOk(result,"explicit future-only restart review audits the old slot");
+            var next=futureOnly.Snapshot().Single(x=>x.MapId==m1.Id&&x.Kind=="Restart");
+            Check(next.Enabled&&next.NextDueUtc>=cursor&&next.NextDueUtc>skippedDue&&
+                result.GetProperty("data").GetProperty("futureRestartRetained").GetBoolean()&&
+                !result.GetProperty("data").GetProperty("jobDisabled").GetBoolean()&&
+                result.GetProperty("data").GetProperty("outcomeStillUnknown").GetBoolean()&&sent==beforeReview,
+                "future-only review preserves calendar and never dispatches or certifies old restart");
+            await futureOnly.TickOnceAsync(skippedDue);
+            Check(sent==beforeReview,"skipped restart cannot be replayed after audit");
+            await futureOnly.TickOnceAsync(next.NextDueUtc);
+            Check(sent==beforeReview+1,"only the next genuinely due restart can run");
+            var replay=await Call(futureOnly.HandleAsync,"schedule.nativeReviewApply",
+                new{mapId=m1.Id,token,confirm=true,keepFutureRestart=true});
+            Check(!replay.GetProperty("ok").GetBoolean(),"future-only approval remains one shot");
+        }
     }
 
     // An adopted running ASA map keeps the same local registry size.
