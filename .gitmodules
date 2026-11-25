@@ -1,0 +1,3 @@
+[submodule "vendor/yark"]
+	path = vendor/yark
+	url = https://github.com/gabomarin/yark.git
