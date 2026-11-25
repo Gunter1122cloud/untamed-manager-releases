@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createSnapshotRefreshQueue } from "./state/snapshotRefreshQueue";
 import { describeNativeError } from "./state/nativeErrors";
 import { asaMapNames } from "./state/asaMapSuggestions";
+import {DownloadsOverview} from "./DownloadsOverview";
 import {
   AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
   FileText, HardDrive, LayoutDashboard, Layers3, Monitor, CloudDownload, Activity,
@@ -1234,6 +1235,7 @@ function SteamCenter({ snapshot, onRegistered, initialMapName, onOpenMap }: {
   return <>
     <div className="page-intro"><span className="eyebrow">VALVE STEAMCMD / INSTALLED BUILD</span><h1>Új ASA map telepítése</h1>
       <p>Valódi C#-os helyi telepítés és külön jóváhagyott SteamCMD-frissítés leállított mapokon. Az éles Store-v1 szervervezérlés ettől független.</p></div>
+    <DownloadsOverview key={snapshot.local.hostId} maps={snapshot.local.maps}/>
     <Panel title="Regisztrált ASA mapok" action={<button className="quiet" onClick={() => { void reload(); }} disabled={busy}><RefreshCw size={16}/> Ellenőrzés</button>}>
       {snapshot.local.maps.length===0 && <div className="empty">Nincs hozzáadott helyi telepítés.</div>}
       {snapshot.local.maps.map(m => <div className="steam-row" key={m.id}>
