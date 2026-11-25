@@ -1537,7 +1537,7 @@ export type InitialMapStatus = {
 };
 export type InitialMapPreview = {
   token:string; mapId:string; mapName:string; sessionName:string;
-  mapLevel:string; gamePort:number; queryPort:number; requiresCustomLevel:boolean;
+  mapLevel:string; gamePort:number; queryPort:number; requiresCustomLevel:boolean; mapModId?:string;mapModName?:string|null;remaster?:boolean;
   rconEnabled:false; serverStartRequested:false; configuredArgumentsLength:number;
   evidence:"INITIAL_MAP_PROFILE_PREVIEW_NO_WRITES";
 };
@@ -1896,7 +1896,7 @@ type WireRequest = { id: string; method: "servers.relocationPreview" | "servers.
   intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;postRestartWipe?:boolean;wipeDelaySeconds?:number;delaySeconds?:number;
   timeZoneId?:string;dayMinutes?:number[];onceAtLocal?:string;
   keepFutureRestart?:boolean;
-  gamePort?: number; queryPort?: number; customLevel?: string; archive?: string; command?: string;
+  gamePort?: number; queryPort?: number; customLevel?: string; mapModId?:string; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; apiRiskAccepted?:boolean; channel?: "stable"|"preview";
   assetName?:string;transactionId?:string;
@@ -2454,8 +2454,8 @@ export const managerBridge = {
   initialStatus: (mapId:string) =>
     request<InitialMapStatus>("servers.initialStatus", {mapId}),
   initialPreview: (mapId:string, sessionName:string, gamePort:number, queryPort:number,
-      customLevel:string="") =>
-    request<InitialMapPreview>("servers.initialPreview", {mapId, sessionName, gamePort, queryPort, customLevel}),
+      customLevel:string="",mapModId:string="") =>
+    request<InitialMapPreview>("servers.initialPreview", {mapId, sessionName, gamePort, queryPort, customLevel,mapModId}),
   initialApply: (token:string) =>
     request<InitialMapReceipt>("servers.initialApply", {token, confirm:true}),
   historicalLaunchEvidence: (archive:string,mapId:string,command:string) =>

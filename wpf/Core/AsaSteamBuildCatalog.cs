@@ -38,6 +38,7 @@ public static class AsaSteamMapCatalog
         ["Genesis: Part 1"]="Genesis_WP",["Astraeos"]="Astraeos_WP",
         ["Lost Colony"]="LostColony_WP"
     };
+    public static bool IsOfficialLevel(string level)=>Official.Values.Contains(level,StringComparer.OrdinalIgnoreCase);
     public static string LevelFor(string name)
     {
         if(!Official.TryGetValue(name.Trim(),out var level))

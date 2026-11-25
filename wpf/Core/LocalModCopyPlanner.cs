@@ -89,7 +89,7 @@ public static class LocalModCopyPlanner
             var prior=ModStateController.Read(target);
             baselines.Add(id,ModEditBaseline.Capture(target));
             var working=new LocalMap {
-                Id=target.Id,Name=target.Name,Arguments=target.Arguments,
+                Id=target.Id,Name=target.Name,Arguments=target.Arguments,MapModProjectId=target.MapModProjectId,
                 FreshStoreClusterId=target.FreshStoreClusterId,
                 FreshStoreTransferDirectory=target.FreshStoreTransferDirectory,
                 FreshStoreTransferFileId=target.FreshStoreTransferFileId,
@@ -122,20 +122,20 @@ public static class LocalModCopyPlanner
             {
                 // Remove all prior configurations before appending source order.
                 foreach(var existing in prior.EnabledOrder.Concat(prior.Disabled))
-                    Stage(existing,null);
+                    if(existing!=target.MapModProjectId)Stage(existing,null);
             }
             var known=new HashSet<string>(
                 ModStateController.Read(working).EnabledOrder.Concat(
                     ModStateController.Read(working).Disabled),StringComparer.Ordinal);
             foreach(var projectId in sourceMods.EnabledOrder)
             {
-                if(mode==LocalModCopyMode.Merge && known.Contains(projectId))continue;
+                if(projectId==target.MapModProjectId||projectId==source.MapModProjectId||mode==LocalModCopyMode.Merge && known.Contains(projectId))continue;
                 Stage(projectId,passive.Contains(projectId)?ModMode.Passive:ModMode.Active);
                 known.Add(projectId);
             }
             foreach(var projectId in sourceMods.Disabled)
             {
-                if(mode==LocalModCopyMode.Merge && known.Contains(projectId))continue;
+                if(projectId==target.MapModProjectId||projectId==source.MapModProjectId||mode==LocalModCopyMode.Merge && known.Contains(projectId))continue;
                 Stage(projectId,ModMode.Disabled);
                 known.Add(projectId);
             }

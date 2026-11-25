@@ -55,7 +55,7 @@ public static class PortableModProfileImporter
             var before=ModStateController.Read(target);
             baselines.Add(id,ModEditBaseline.Capture(target));
             var working=new LocalMap{
-                Id=target.Id,Name=target.Name,Arguments=target.Arguments,
+                Id=target.Id,Name=target.Name,Arguments=target.Arguments,MapModProjectId=target.MapModProjectId,
                 HistoricalStoreProtected=target.HistoricalStoreProtected,
                 HistoricalEnabledMods=(target.HistoricalEnabledMods??new()).ToList(),
                 HistoricalPassiveMods=(target.HistoricalPassiveMods??new()).ToList(),
@@ -81,19 +81,19 @@ public static class PortableModProfileImporter
             }
             if(mode==LocalModCopyMode.Replace)
                 foreach(var mod in before.EnabledOrder.Concat(before.Disabled))
-                    Stage(mod,null);
+                    if(mod!=target.MapModProjectId)Stage(mod,null);
             var current=ModStateController.Read(working);
             var known=current.EnabledOrder.Concat(current.Disabled)
                 .ToHashSet(StringComparer.Ordinal);
             foreach(var mod in profile.EnabledOrder)
             {
-                if(mode==LocalModCopyMode.Merge&&known.Contains(mod))continue;
+                if(mod==target.MapModProjectId||mode==LocalModCopyMode.Merge&&known.Contains(mod))continue;
                 Stage(mod,passive.Contains(mod)?ModMode.Passive:ModMode.Active);
                 known.Add(mod);
             }
             foreach(var mod in profile.Disabled)
             {
-                if(mode==LocalModCopyMode.Merge&&known.Contains(mod))continue;
+                if(mod==target.MapModProjectId||mode==LocalModCopyMode.Merge&&known.Contains(mod))continue;
                 Stage(mod,ModMode.Disabled);
                 known.Add(mod);
             }

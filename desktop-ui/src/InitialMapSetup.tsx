@@ -9,7 +9,7 @@ import {
 // or an approval token until the operator explicitly submits them.
 // No RCON passwords, secrets or Store fields are cached here.
 type InitialSetupDraft=Partial<{
-  session:string;customLevel:string;game:string;query:string;
+  session:string;customLevel:string;game:string;query:string;mapModId:string;
 }>;
 const initialSetupDrafts=new Map<string,InitialSetupDraft>();
 function rememberInitialChoice(mapId:string,change:InitialSetupDraft){
@@ -28,6 +28,7 @@ export function InitialMapSetup({mapId,onConfigured}: {
   const [status,setStatus]=useState<InitialMapStatus | null>(null);
   const [session,setSession]=useState(()=>initialSetupDrafts.get(mapId)?.session??"Untamed Kingdom");
   const [customLevel,setCustomLevel]=useState(()=>initialSetupDrafts.get(mapId)?.customLevel??"");
+  const [mapModId,setMapModId]=useState(()=>initialSetupDrafts.get(mapId)?.mapModId??"");
   const [game,setGame]=useState(()=>initialSetupDrafts.get(mapId)?.game??"");
   const [query,setQuery]=useState(()=>initialSetupDrafts.get(mapId)?.query??"");
   const [preview,setPreview]=useState<InitialMapPreview | null>(null);
@@ -41,7 +42,7 @@ export function InitialMapSetup({mapId,onConfigured}: {
     setStatus(null);setPreview(null);setApproved(false);setError("");setNotice("");
     const draft=initialSetupDrafts.get(mapId);
     setSession(draft?.session??"Untamed Kingdom");
-    setCustomLevel(draft?.customLevel??"");
+    setCustomLevel(draft?.customLevel??"");setMapModId(draft?.mapModId??"");
     setGame(draft?.game??"");setQuery(draft?.query??"");
     managerBridge.initialStatus(mapId).then(value=>{
       if(!active)return;
@@ -88,7 +89,7 @@ export function InitialMapSetup({mapId,onConfigured}: {
     setBusy(true);
     try{
       const result=await managerBridge.initialPreview(
-        mapId,session.trim(),g,q,status?.requiresCustomLevel?customLevel.trim():"");
+        mapId,session.trim(),g,q,status?.requiresCustomLevel?customLevel.trim():"",mapModId.trim());
       setPreview(result);
     }catch(e){
       const code=e instanceof Error?e.message:"UM-INITIAL-OPERATION-FAILED";
@@ -155,6 +156,11 @@ export function InitialMapSetup({mapId,onConfigured}: {
         {status&&<span className="muted small">Natív állapot: {status.blocker==="NONE"?"Előkészíthető":status.blocker} · Igazolt leállítás: {status.confirmedStopped?"igen":"nem"}</span>}
       </div>
       <form className="initial-setup-form" onSubmit={e=>{void inspect(e);}}>
+        <label><span>CurseForge map / remaster Project ID (opcionális)</span>
+          <input aria-label="CurseForge map projektazonosító" inputMode="numeric" maxLength={10} value={mapModId}
+            disabled={busy||!status?.initialSetupAvailable} onChange={e=>{setMapModId(e.target.value);rememberInitialChoice(mapId,{mapModId:e.target.value});clear();}} placeholder="Csak a Maps projekt ID-ja"/>
+        </label>
+        <p className="muted small">A natív CurseForge API ellenőrzi az ASA Maps projektet. A kiválasztott Unreal level külön adat, és a map pack aktív modként marad meg. Hivatalos level remasterénél a natív -MapModID kapcsoló is bekerül.</p>
         {status?.requiresCustomLevel && <label><span>Egyedi ASA pályaszint (Unreal level)</span>
           <input aria-label="Egyedi ASA pályaszint" value={customLevel} maxLength={80}
             onChange={e=>{setCustomLevel(e.target.value);
@@ -191,6 +197,7 @@ export function InitialMapSetup({mapId,onConfigured}: {
         <h3><CheckCircle2 size={18}/> Konfigurációs előnézet</h3>
         <div className="initial-preview-grid">
           <span>ASA pálya</span><b>{preview.mapLevel}</b>
+          {preview.mapModId&&<><span>Map pack</span><b>{preview.mapModName??preview.mapModId} · {preview.mapModId}{preview.remaster?" · Remaster":""}</b></>}
           <span>Szerver</span><b>{preview.sessionName}</b>
           <span>Game / Query UDP</span><b>{preview.gamePort} / {preview.queryPort}</b>
           <span>RCON</span><b>Nem engedélyezett</b>

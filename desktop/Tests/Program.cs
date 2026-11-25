@@ -64,6 +64,7 @@ PlayerProfileBackupTests.Run();
 LocalModRepairTests.Run();
 PendingGameIniTests.Run();
 InstallationRelocationTests.Run();
+MapModIdentityTests.Run();
 
 AsaInitialRconSettings.ValidateExistingAdminPassword("Old7!xx");
 Check(true,"existing ASA INI credentials may be shorter than new credentials");

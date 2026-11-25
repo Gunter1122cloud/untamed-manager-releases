@@ -26,6 +26,7 @@ public sealed class LocalMap
     // this map. Preserved in Manager-only metadata so first setup need not
     // ask for the same custom Unreal level twice. Empty for older imports.
     public string FreshInstallMapLevel { get; set; } = "";
+    public string MapModProjectId {get;set;}="";
     // A running non-Store ASA may be registered strictly for observation.
     // These fields cannot confer process/RCON/Store-writer authority.
     public string ObservedMapKey { get; set; } = "";
@@ -1829,6 +1830,7 @@ public sealed partial class ClusterService : IAsyncDisposable
             throw new InvalidOperationException("ASA process state changed before launch");
         // Mark BEFORE spawn. An interrupted start must never be retried
         // automatically; the operator can reattach to its exact process.
+        MapModIdentity.DemandLaunch(map);
         RecoveryNativeStartBoundary.Demand(id);
         bool marked=PendingGameIni.ApplyBeforeLaunch(this,map,()=>Check(map),lease.MarkMutationStarted);
         if(!marked)lease.MarkMutationStarted();
