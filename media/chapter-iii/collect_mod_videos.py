@@ -1,7 +1,7 @@
 import json, pathlib, re, urllib.request, urllib.parse, subprocess, hashlib, shutil, html
 root=pathlib.Path("mod-video-reference-pack")
 root.mkdir(exist_ok=True)
-report={"notice":"Public creator-hosted viewing references only; reuse rights not verified. No access-control bypass. No claim of server installation. No full third-party video in git.","sources":[],"clips":[]}
+report={"notice":"Public creator-hosted viewing references only; reuse rights not verified. No access-control bypass. Only Viking Age Primitive Plus allowlist: Primitive Plus, Human NPCs, Dark Age 1/2, planned CKF/ASR. No other cluster mods. No full third-party video in git.","sources":[],"clips":[]}
 def get(url):
     req=urllib.request.Request(url,headers={"User-Agent":"ChapterIII-media-reference/1.0"})
     with urllib.request.urlopen(req,timeout=20) as r:
@@ -40,33 +40,8 @@ def find_video(embed):
     if embed.get("$type")=="app.bsky.embed.video#view":return embed.get("playlist")
     if embed.get("$type")=="app.bsky.embed.recordWithMedia#view":return find_video(embed.get("media"))
     return None
-actor="wolfofthenyght.bsky.social"
-try:
-    cursor=None
-    scanned=0
-    candidates=[]
-    for i in range(6):
-        params={"actor":actor,"limit":100,"filter":"posts_with_media"}
-        if cursor:params["cursor"]=cursor
-        data=api("app.bsky.feed.getAuthorFeed",params)
-        for f in data.get("feed",[]):
-            post=f["post"]
-            if post["author"]["handle"]!=actor:continue
-            scanned+=1
-            text=post.get("record",{}).get("text","")
-            url=find_video(post.get("embed"))
-            if url and re.search(r"runic|wyvern|arksurvivalascended|moddevelopment",text,re.I):
-                src="https://bsky.app/profile/"+actor+"/post/"+post["uri"].rsplit("/",1)[-1]
-                candidates.append((url,src,text[:250]))
-        cursor=data.get("cursor")
-        if not cursor or len(candidates)>=12:break
-    record("https://bsky.app/profile/"+actor,status="scanned",posts=scanned,video_candidates=len(candidates))
-    for i,(url,src,caption) in enumerate(candidates[:8]):
-        record(src,status="public creator video",caption=caption)
-        sample(url,src,"runic_creator_"+str(i+1))
-except Exception as e:record("https://bsky.app/profile/"+actor,status="unavailable",error=str(e))
 # Scan the official mod pages for explicitly linked direct MP4 or WebM files.
-for slug in ["human_npcs_asa","dark-age-2-weapons","ckf-castles-keeps-forts","arkitect-structures-remastered","primplus","runic-wyverns"]:
+for slug in ["human_npcs_asa","fantasy-weapons-dark-age","dark-age-2-weapons","ckf-castles-keeps-forts","arkitect-structures-remastered","primplus"]:
     src="https://www.curseforge.com/ark-survival-ascended/mods/"+slug
     try:
         page=html.unescape(get(src).decode("utf-8","replace")).replace("\\/","/")
