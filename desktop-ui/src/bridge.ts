@@ -1885,7 +1885,7 @@ type WireRequest = { id: string; method: "resources.status" | "resources.publish
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;useSharedPayloadCache?:boolean;
    confirm?: boolean; ackUnknownOutcome?:boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; runId?:string; journalId?:string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
-  kind?:ReadOnlyScheduleKind|NativeScheduleKind|HostedResourceKind;frequency?:NativeScheduleFrequency;
+  kind?:ReadOnlyScheduleKind|NativeScheduleKind|HostedResourceKind;port?:number;frequency?:NativeScheduleFrequency;
   intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;postRestartWipe?:boolean;wipeDelaySeconds?:number;delaySeconds?:number;
   timeZoneId?:string;dayMinutes?:number[];onceAtLocal?:string;
   keepFutureRestart?:boolean;
