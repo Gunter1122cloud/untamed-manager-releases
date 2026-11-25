@@ -559,6 +559,11 @@ export type FreshAsaRestartReviewPreview = {
   token:string;mapId:string;mapName:string;
   oldPid:number;oldStartedUtc:string|null;journalId:string;phase:string;
   exactOldProcessVerified:boolean;rconOwnerVerified:boolean;
+  reviewMode?:"original"|"replacement"|"stopped";
+  replacementOwnerVerified?:boolean;replacementStartEpochVerified?:boolean;
+  launchParametersVerified?:boolean;loaderRequired?:boolean;
+  currentRunningPid?:number|null;currentRunningStartedUtc?:string|null;
+  currentLoaderPid?:number|null;currentLoaderStartedUtc?:string|null;
   stoppedFamilyVerified?:boolean;portsFree?:boolean;attemptedNewPid?:number;
   previousOutcomeUnknown:true;restartWillNotReplay:true;
   serverStarted:false;serverStopped:false;rconSent:false;
@@ -567,11 +572,14 @@ export type FreshAsaRestartReviewPreview = {
 };
 export type FreshAsaRestartReviewReceipt = {
   mapId:string;oldPid:number;state:"operatorReviewed";
+  reviewMode?:"original"|"replacement"|"stopped";
+  currentRunningPid?:number|null;currentLoaderPid?:number|null;
   previousOutcomeUnknown:true;newRestartSucceeded:false;
   serverStarted:false;serverStopped:false;rconSent:false;
   originalJournalAudited:true;nextActionRequiresNewApproval:true;
   evidence:"FRESH_ASA_OLD_RUNNING_PID_RESTART_JOURNAL_AUDITED"|
-    "FRESH_ASA_STOPPED_FAMILY_RESTART_JOURNAL_AUDITED";
+    "FRESH_ASA_STOPPED_FAMILY_RESTART_JOURNAL_AUDITED"|
+    "FRESH_ASA_REPLACEMENT_OWNER_RESTART_JOURNAL_AUDITED";
 };
 export type FreshAsaRestartPreview = {
   token:string;mapId:string;mapName:string;currentPid:number;
