@@ -443,7 +443,7 @@ public static class SteamStoppedMapUpdater
                         payload=await SteamSharedPayloadCache.PrepareAsync(cluster.Store.Root,
                             cluster.Config.LocalMaps,rollingTarget,(stage,cancel)=>RunSteamAsync(
                                 steamExecutable,stage,timeout,false,()=>{
-                                    _=UntamedOperationCoordinator.ResourceKey(stage);
+                                    UntamedOperationCoordinator.ResourceKey(stage);
                                     cancel.ThrowIfCancellationRequested();
                                 },cancel),token);
                         progress?.Report(payload.CacheHit?SteamMaintenanceStage.CacheHit:SteamMaintenanceStage.CacheDownloaded);
