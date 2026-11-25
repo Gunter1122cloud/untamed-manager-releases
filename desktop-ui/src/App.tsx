@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createSnapshotRefreshQueue } from "./state/snapshotRefreshQueue";
 import { describeNativeError } from "./state/nativeErrors";
+import { asaMapNames } from "./state/asaMapSuggestions";
 import {
   AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
   FileText, HardDrive, LayoutDashboard, Layers3, Monitor, CloudDownload, Activity,
@@ -501,10 +502,7 @@ function Dashboard({ snapshot, onPage, onSelect, onInstall }: {
     onServers={()=>onPage("servers")} onInstall={onInstall}
     onCluster={()=>onPage("cluster")}/>;
 }
-const asaMapNames = [
-  "The Island","The Center","Scorched Earth","Aberration","Extinction",
-  "Genesis Part 1","Valguero","Ragnarok","Astraeos","Lost Colony"
-];
+// Shared suggestions: unknown map names are still accepted by native import.
 function LocalAsaImport({onImported}: {onImported:()=>Promise<void>}) {
   const [name,setName]=useState("The Island");
   const [root,setRoot]=useState("");

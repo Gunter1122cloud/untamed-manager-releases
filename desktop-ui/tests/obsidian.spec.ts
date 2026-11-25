@@ -7425,6 +7425,22 @@ test("custom ASA map SteamCMD installer requires exact level, rejects injected f
     .toBeVisible();
 });
 
+test("new official map instance can select a known level independently of its display name",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
+  await page.getByRole("combobox",{name:"Új ASA map"}).selectOption("__custom__");
+  await page.getByRole("textbox",{name:"Egyedi ASA map neve"}).fill("Astraeos 2");
+  await page.getByRole("combobox",{name:"Új példány pályatípusa"}).selectOption("Astraeos");
+  await expect(page.getByRole("textbox",{name:"Egyedi ASA level azonosító"})).toHaveValue("Astraeos_WP");
+  await expect(page.getByRole("textbox",{name:"Egyedi ASA map neve"})).toHaveValue("Astraeos 2");
+  await page.getByRole("combobox",{name:"Új példány pályatípusa"}).selectOption("Extinction");
+  await expect(page.getByRole("textbox",{name:"Egyedi ASA level azonosító"})).toHaveValue("Extinction_WP");
+  await page.getByRole("combobox",{name:"Új példány pályatípusa"}).selectOption("");
+  await expect(page.getByRole("textbox",{name:"Egyedi ASA level azonosító"})).toHaveValue("");
+  await page.getByRole("textbox",{name:"Egyedi ASA level azonosító"}).fill("FutureDLC_WP");
+  await expect(page.getByRole("combobox",{name:"Új példány pályatípusa"})).toHaveValue("");
+});
+
 test("Servers page offers immediate real ASA download separately from importing an existing server",async ({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
