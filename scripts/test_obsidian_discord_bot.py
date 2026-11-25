@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
 from obsidian_discord_client import Host
-from obsidian_discord_cog import ObsidianControl, MapPicker, ACTIONS, Identity, Confirm
+from obsidian_discord_cog import ObsidianControl, MapPicker, ACTIONS, Identity, Confirm, ApiError
 
 class TestHost(unittest.TestCase):
     def test_reject_public_and_invalid_credentials(self):
@@ -121,3 +121,27 @@ class TestPanel(unittest.IsolatedAsyncioTestCase):
                     transport.assert_awaited_once()
             finally:
                 cog.panel.stop()
+
+    async def test_poll_rotates_past_unfinished_operations(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cog=ObsidianControl(None,dict(guild_id=123456789012345678,
+                role_ids=[223456789012345678],state_file=str(Path(temp)/"state.json"),
+                hosts={"test":{"address":"127.0.0.1","port":19443,
+                    "certificate_sha256":"a"*64,"credential":"b"*64}}))
+            try:
+                cog.service=AsyncMock(return_value=Identity(1,2,()))
+                cog.call=AsyncMock(return_value={"state":"claimed-no-replay"})
+                for i in range(12):
+                    cog.state["operations"][str(i)]={"state":"claimed-no-replay","host":"test","action":"restart"}
+                await cog.poll_jobs()
+                await cog.poll_jobs()
+                self.assertIn("11",[x.kwargs["operationId"] for x in cog.call.await_args_list])
+                self.assertTrue(all(e["state"]=="claimed-no-replay" for e in cog.state["operations"].values()))
+            finally:
+                cog.panel.stop()
+
+    async def test_busy_and_uncertain_classification(self):
+        self.assertTrue(ApiError({"error":"UM-DC-MAP-BUSY"}).not_dispatched)
+        self.assertFalse(ApiError({"error":"UM-DC-REPLY-PENDING"}).not_dispatched)
+        self.assertFalse(ApiError({"error":"UM-DC-NATIVE-UNCERTAIN-NO-REPLAY",
+            "nativeError":"UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR"}).not_dispatched)
