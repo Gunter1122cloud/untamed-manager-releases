@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -17,6 +18,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
 {
     private sealed record Preview(Guid Token,Guid MapId,string Root,string Build,
         string Steam,DateTimeOffset Created);
+    private sealed record DiscoveredSteamCmd(Guid Token,Guid MapId,
+        SteamCmdFileStatus File,string Source,DateTimeOffset ExpiresUtc);
 
     private sealed class InlineProgress<T>(Action<T> report):IProgress<T>
     {
@@ -43,6 +46,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     private readonly Func<CancellationToken,Task<string>> prepareSteamCmd;
     // Each local map has its own approval; SteamCMD execution stays serialized.
     private readonly System.Collections.Generic.Dictionary<Guid,Preview> pendingByMap=new();
+    private readonly System.Collections.Generic.Dictionary<Guid,DiscoveredSteamCmd> discoveredByToken=new();
     private readonly System.Collections.Generic.Dictionary<Guid,Job> jobsById=new();
     private Job? job;
     internal bool RecoveryLaneBusy(){lock(sync)return job?.State is "queued" or "running";}
@@ -101,7 +105,9 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         if(string.IsNullOrWhiteSpace(path))return "UM-STEAMCMD-NOT-CONFIGURED";
         try {SteamCmdPreflight.Inspect(path);return null;}
         catch(FileNotFoundException){return "UM-STEAMCMD-NOT-FOUND";}
-        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException)
+        catch(Exception ex) when(ex is InvalidDataException or IOException or
+            UnauthorizedAccessException or ArgumentException or NotSupportedException or
+            System.Security.SecurityException)
         {return "UM-STEAMCMD-INVALID";}
     }
     private ProcessCheck ObserveForSteam(LocalMap map,bool underOwnOperation=false)=>
@@ -109,30 +115,138 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
             HistoricalLocalConfigGuard.DemandStopped(cluster,map,underOwnOperation):
             cluster.Check(map);
 
-    private bool Stopped(LocalMap map)
+    private string? InstallationBlocker(LocalMap map)
     {
-        // An imported original Kova map uses the exact independent Windows
-        // ASA/Loader stopped-family observer; normal maps retain the same
-        // existing Core updater. No Store session or writer is touched.
+        // This is the same read-only owner proof used by the real updater,
+        // but unlike the old bool wrapper it preserves a stable blocker code.
         try
         {
             if(map.HistoricalStoreProtected)ObserveForSteam(map);
             SteamStoppedMapUpdater.DemandSafeLocalInstallation(
                 cluster,map,member=>ObserveForSteam(member));
-            return true;
+            return null;
         }
         catch(Exception ex) when(ex is InvalidDataException or
             InvalidOperationException or UnauthorizedAccessException or
-            ArgumentException or NotSupportedException)
-        { return false; }
+            ArgumentException or NotSupportedException or IOException)
+        {
+            return System.Text.RegularExpressions.Regex.IsMatch(ex.Message,
+                @"\A(?:UM|UNTAMED)[-_][A-Z0-9_-]{3,110}\z",
+                System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+                TimeSpan.FromMilliseconds(100))
+                ?ex.Message:"UM-STEAM-INSTALLATION-IDENTITY-UNVERIFIED";
+        }
+    }
+    private bool Stopped(LocalMap map)=>InstallationBlocker(map)==null;
+    private static bool PendingOperation(UntamedOperationPhase? phase)=>
+        phase is UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
+            UntamedOperationPhase.NeedsOperator;
+    private static bool PendingRestart(AsaRestartPhase? phase)=>
+        phase is AsaRestartPhase.Stopping or AsaRestartPhase.Starting or
+            AsaRestartPhase.NeedsOperator;
+    private string? LocalJournalBlocker(LocalMap map)
+    {
+        var snapshot=AsaLocalJournalReadOnly.Inspect(cluster.Operations,map.InstallationPath);
+        if(snapshot.OperationUnreadable)return snapshot.OperationErrorCode??"UM-OPERATION-JOURNAL-READ-INVALID";
+        if(PendingOperation(snapshot.Operation?.Phase))
+            return "UM-STEAM-LOCAL-OPERATION-JOURNAL-NEEDS-REVIEW";
+        if(snapshot.RestartUnreadable)return snapshot.RestartErrorCode??"UM-ASA-RESTART-JOURNAL-READ-INVALID";
+        if(PendingRestart(snapshot.Restart?.Phase))
+            return "UM-STEAM-LOCAL-RESTART-JOURNAL-NEEDS-REVIEW";
+        return null;
     }
     private bool HasBlockedJournal()
     {
-        var journal=new SteamSerialMaintenanceQueue(
-            cluster.Store.Root,cluster.Config.LocalHostId).Observe();
-        return journal!=null && journal.Phase is
-            (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress
-                or SteamQueuePhase.NeedsOperator);
+        try
+        {
+            var journal=new SteamSerialMaintenanceQueue(
+                cluster.Store.Root,cluster.Config.LocalHostId).Observe();
+            return journal!=null && journal.Phase is
+                (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress
+                    or SteamQueuePhase.NeedsOperator);
+        }
+        catch{return true;}
+    }
+    private bool HasActiveSteamQueue()
+    {
+        try
+        {
+            var journal=new SteamSerialMaintenanceQueue(
+                cluster.Store.Root,cluster.Config.LocalHostId).Observe();
+            return journal!=null && journal.Phase is
+                (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress);
+        }
+        catch{return true;}
+    }
+    private static string StoreBlockerCode(LocalMap map)
+    {
+        if(map.Maintenance)return "UM-STEAM-MAP-MAINTENANCE";
+        if(map.ObservedReadOnlyImported)return "UM-STEAM-MAP-OBSERVATION-ONLY";
+        if(!map.HistoricalStoreProtected&&!FreshStoreEnrollmentPolicy.IsEnrolled(map)&&
+           (!string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256)||
+            !string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
+            !string.IsNullOrWhiteSpace(map.FreshStoreClusterId)||
+            !string.IsNullOrWhiteSpace(map.FreshStoreTransferDirectory)||
+            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
+            KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)))
+            return "UM-STEAM-SHARED-STORE-OR-RECOVERY-PROTECTED";
+        if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+            return "UM-STEAM-RECOVERY-MUST-COMPLETE-FIRST";
+        return "";
+    }
+    private IEnumerable<(string Path,string Source)> SteamCmdCandidates(Guid mapId)
+    {
+        string roaming=Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        foreach(var map in cluster.Config.LocalMaps)
+        {
+            if(map.Id!=mapId)continue;
+            yield return(Path.Combine(roaming,"Kova","tools",map.Id.ToString("D"),
+                "SteamCMD","steamcmd.exe"),"Kova korábbi map-eszköze");
+        }
+        string local=Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        yield return(Path.Combine(local,"UntamedManager","Tools","SteamCMD","steamcmd.exe"),
+            "Obsidian Manager eszköztára");
+        string x86=Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        if(!string.IsNullOrWhiteSpace(x86))
+            yield return(Path.Combine(x86,"Steam","steamcmd.exe"),"Steam telepítési könyvtár");
+        string pf=Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        if(!string.IsNullOrWhiteSpace(pf))
+            yield return(Path.Combine(pf,"Steam","steamcmd.exe"),"Steam telepítési könyvtár");
+        yield return(@"C:\SteamCMD\steamcmd.exe","C:\SteamCMD");
+    }
+    private object DiscoverSteamCmd(Guid mapId)
+    {
+        var candidates=new List<object>();
+        var seen=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach(var candidate in SteamCmdCandidates(mapId))
+        {
+            string full;
+            try{full=Path.GetFullPath(candidate.Path);}
+            catch{continue;}
+            if(!seen.Add(full)||!File.Exists(full))continue;
+            try
+            {
+                var file=SteamCmdPreflight.Inspect(full);
+                var token=Guid.NewGuid();
+                discoveredByToken[token]=new(token,mapId,file,candidate.Source,
+                    DateTimeOffset.UtcNow.AddMinutes(3));
+                candidates.Add(new{
+                    token,path=file.ExecutablePath,source=candidate.Source,
+                    lengthBytes=file.LengthBytes,sha256=file.Sha256,
+                    lastModifiedUtc=file.LastModifiedUtc
+                });
+            }
+            catch(Exception ex) when(ex is InvalidDataException or IOException or
+                UnauthorizedAccessException or ArgumentException or NotSupportedException or
+                System.Security.SecurityException)
+            { /* Invalid or linked candidates are deliberately not offered. */ }
+        }
+        return new{
+            mapId,candidates=candidates.ToArray(),
+            updateStarted=false,serverStopped=false,settingsOnly=true,
+            requiresExplicitAcceptance=true,
+            evidence="READ_ONLY_EXISTING_STEAMCMD_DISCOVERY_NO_EXECUTION"
+        };
     }
     private static bool GuidField(JsonElement obj,string key,out Guid value)
     {
@@ -185,7 +299,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
             string? method=field.GetString();
             if(method is not ("steam.stoppedDiagnostics" or "steam.stoppedPreview" or
                 "steam.stoppedApply" or "steam.stoppedStart" or "steam.stoppedStatus" or "steam.stoppedCurrent" or
-                "steam.publishedBuild" or "steam.selectExecutable" or "steam.prepareExecutable"))
+                "steam.publishedBuild" or "steam.selectExecutable" or "steam.prepareExecutable" or
+               "steam.discoverExecutables" or "steam.acceptDiscoveredExecutable"))
                 return Fail(id,"UM-METHOD-DENIED");
             await mutex.WaitAsync();
             try
@@ -197,7 +312,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         lock(sync)if(job.State is "queued" or "running")
                             return Fail(id,"UM-STEAM-UPDATE-IN-PROGRESS");
                     }
-                    if(HasBlockedJournal())return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
+                    if(HasActiveSteamQueue())return Fail(id,"UM-STEAM-UPDATE-IN-PROGRESS");
                     // The renderer supplies no execute path; the operator selects an existing local file.
                     string? selected;
                     if(method=="steam.prepareExecutable")
@@ -218,11 +333,58 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     if(selected==null)return Ok(id,new{cancelled=true,configured=false,updateStarted=false,serverStopped=false});
                     string? problem=SteamCmdError(selected);
                     if(problem!=null)return Fail(id,problem);
-                    if(HasBlockedJournal())return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
+                    if(HasActiveSteamQueue())return Fail(id,"UM-STEAM-UPDATE-IN-PROGRESS");
                     string full=Path.GetFullPath(selected);
                     cluster.UpdateSettings(config=>config.SteamCmdExecutable=full);
                     pendingByMap.Clear(); // previously issued tokens bind the old executable
                     return Ok(id,new{cancelled=false,configured=true,updateStarted=false,serverStopped=false});
+                }
+                if(method=="steam.discoverExecutables")
+                {
+                    if(!GuidField(data,"mapId",out var discoverMapId))
+                        return Fail(id,"UM-STEAM-MAP");
+                    var discoverMap=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==discoverMapId);
+                    if(discoverMap==null)return Fail(id,"UM-MAP-NOT-OWNED");
+                    foreach(var expired in discoveredByToken.Values
+                        .Where(x=>x.ExpiresUtc<DateTimeOffset.UtcNow).Select(x=>x.Token).ToArray())
+                        discoveredByToken.Remove(expired);
+                    return Ok(id,DiscoverSteamCmd(discoverMapId));
+                }
+                if(method=="steam.acceptDiscoveredExecutable")
+                {
+                    if(job!=null)
+                    {
+                        lock(sync)if(job.State is "queued" or "running")
+                            return Fail(id,"UM-STEAM-UPDATE-IN-PROGRESS");
+                    }
+                    if(HasActiveSteamQueue())return Fail(id,"UM-STEAM-UPDATE-IN-PROGRESS");
+                    if(!GuidField(data,"token",out var candidateToken)||
+                       !discoveredByToken.TryGetValue(candidateToken,out var candidate))
+                        return Fail(id,"UM-STEAMCMD-DISCOVERY-TOKEN-EXPIRED");
+                    discoveredByToken.Remove(candidateToken);
+                    if(candidate.ExpiresUtc<DateTimeOffset.UtcNow||
+                       !data.TryGetProperty("confirm",out var accept)||
+                       accept.ValueKind!=JsonValueKind.True)
+                        return Fail(id,"UM-STEAMCMD-DISCOVERY-APPROVAL-REQUIRED");
+                    if(!cluster.Config.LocalMaps.Any(x=>x.Id==candidate.MapId))
+                        return Fail(id,"UM-MAP-NOT-OWNED");
+                    SteamCmdFileStatus current;
+                    try{current=SteamCmdPreflight.Inspect(candidate.File.ExecutablePath);}
+                    catch(Exception){return Fail(id,"UM-STEAMCMD-DISCOVERY-CANDIDATE-CHANGED");}
+                    if(current.LengthBytes!=candidate.File.LengthBytes||
+                       !string.Equals(current.Sha256,candidate.File.Sha256,StringComparison.OrdinalIgnoreCase)||
+                       current.LastModifiedUtc!=candidate.File.LastModifiedUtc)
+                        return Fail(id,"UM-STEAMCMD-DISCOVERY-CANDIDATE-CHANGED");
+                    cluster.UpdateSettings(config=>config.SteamCmdExecutable=current.ExecutablePath);
+                    pendingByMap.Clear();
+                    discoveredByToken.Clear();
+                    return Ok(id,new{
+                        configured=true,cancelled=false,
+                        path=current.ExecutablePath,sha256=current.Sha256,
+                        source=candidate.Source,updateStarted=false,serverStopped=false,
+                        settingsOnly=true,
+                        evidence="EXPLICITLY_ACCEPTED_EXISTING_STEAMCMD_SETTINGS_ONLY"
+                    });
                 }
                 if(method=="steam.stoppedDiagnostics")
                 {
@@ -241,10 +403,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         catch(Exception){process=new(false,
                             "Native ASA/Loader stopped proof unavailable",null,false);}
                         return new{mapName=m.Name,confirmedStopped=process.ConfirmedStopped,
-                            running=process.Running,
-                            pid=process.Identity?.Pid,
-                            loaderPid=process.LoaderIdentity?.Pid,
-                            reason=process.Status};
+                            running=process.Running,pid=process.Identity?.Pid,
+                            loaderPid=process.LoaderIdentity?.Pid,reason=process.Status};
                     }).ToArray();
                     var overlaps=cluster.Config.LocalMaps.Where(m=>
                         !string.IsNullOrWhiteSpace(m.InstallationPath)&&
@@ -259,7 +419,13 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         .Select(m=>new{mapName=m.Name,installRoot=m.InstallationPath}).ToArray();
                     string steamExe=cluster.Config.SteamCmdExecutable;
                     string? steamCmdError=SteamCmdError(steamExe);
-                    bool steamFound=steamCmdError==null;
+                    SteamCmdFileStatus? steamStatus=null;
+                    if(steamCmdError==null)
+                    {
+                        try{steamStatus=SteamCmdPreflight.Inspect(steamExe);}
+                        catch{steamCmdError="UM-STEAMCMD-INVALID";}
+                    }
+                    bool steamFound=steamCmdError==null&&steamStatus!=null;
                     string? externalSteamError=null;
                     if(!isolatedExecution)
                     {
@@ -269,37 +435,161 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     long free=new DriveInfo(Path.GetPathRoot(root)!).AvailableFreeSpace;
                     bool stopped=processes.All(p=>p.confirmedStopped&&!p.running&&
                         p.pid==null&&p.loaderPid==null);
-                    bool journalBlocked=HasBlockedJournal();
-                    bool historical=related.Any(m=>m.Maintenance||
-                        m.ObservedReadOnlyImported||
-                        (!m.HistoricalStoreProtected&&
-                         !FreshStoreEnrollmentPolicy.IsEnrolled(m)&&(
-                            !string.IsNullOrWhiteSpace(m.HistoricalArchiveSha256)||
-                            !string.IsNullOrWhiteSpace(m.HistoricalMapKey)||
-                            !string.IsNullOrWhiteSpace(m.FreshStoreClusterId)||
-                            !string.IsNullOrWhiteSpace(m.FreshStoreTransferDirectory)||
-                            !string.IsNullOrWhiteSpace(m.StoreTestRoot)||
-                            KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(m)))||
-                        KovaCompatibleWorldBackup.InstallationRecoveryRequired(m));
-                    bool safeInstallation=Stopped(owned);
+                    var blockers=new List<object>();
+                    var journalBlockers=new List<object>();
+                    var processBlockers=new List<object>();
+                    var storeBlockers=new List<object>();
+                    SteamSerialMaintenanceQueue? queue=null;
+                    bool queueUnreadable=false;
+                    try{queue=new SteamSerialMaintenanceQueue(
+                        cluster.Store.Root,cluster.Config.LocalHostId).Observe();}
+                    catch{queueUnreadable=true;}
+                    bool queueJournalBlocked=queueUnreadable||queue!=null&&
+                        queue.Phase is (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress or
+                            SteamQueuePhase.NeedsOperator);
+                    string? queueCode=queueUnreadable?"UM-STEAM-QUEUE-JOURNAL-UNREADABLE":
+                        queueJournalBlocked?"UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW":null;
+                    if(queueCode!=null)
+                    {
+                        var item=new{category="queueJournal",code=queueCode,
+                            phase=queue?.Phase.ToString(),
+                            nextStep="Ellenőrizd és auditáld a korábbi SteamCMD-feladatot; új frissítést ne indíts vakon."};
+                        journalBlockers.Add(item);blockers.Add(item);
+                    }
+                    var localJournal=AsaLocalJournalReadOnly.Inspect(
+                        cluster.Operations,owned.InstallationPath);
+                    string? operationCode=localJournal.OperationUnreadable?
+                        localJournal.OperationErrorCode:
+                        PendingOperation(localJournal.Operation?.Phase)?
+                            "UM-STEAM-LOCAL-OPERATION-JOURNAL-NEEDS-REVIEW":null;
+                    string? restartCode=localJournal.RestartUnreadable?
+                        localJournal.RestartErrorCode:
+                        PendingRestart(localJournal.Restart?.Phase)?
+                            "UM-STEAM-LOCAL-RESTART-JOURNAL-NEEDS-REVIEW":null;
+                    if(operationCode!=null)
+                    {
+                        var item=new{category="operationJournal",code=operationCode,
+                            phase=localJournal.Operation?.Phase.ToString(),
+                            nextStep="Nyisd meg a map műveleti naplóját, ellenőrizd az eredményt, majd végezz jóváhagyott naplóegyeztetést."};
+                        journalBlockers.Add(item);blockers.Add(item);
+                    }
+                    if(restartCode!=null)
+                    {
+                        var item=new{category="restartJournal",code=restartCode,
+                            phase=localJournal.Restart?.Phase.ToString(),
+                            nextStep="Ellenőrizd a régi és jelenlegi ASA/Loader PID-et; csak auditált naplórendezés után frissíts."};
+                        journalBlockers.Add(item);blockers.Add(item);
+                    }
+                    bool localJournalBlocked=operationCode!=null||restartCode!=null;
+                    bool journalBlocked=queueJournalBlocked||localJournalBlocked;
+                    foreach(var process in processes)
+                    {
+                        if(process.confirmedStopped&&!process.running&&
+                           process.pid==null&&process.loaderPid==null)continue;
+                        string code=process.running?"UM-STEAM-MAP-STILL-RUNNING":
+                            "UM-STEAM-MAP-STOP-NOT-VERIFIED";
+                        var item=new{category="process",code,subject=process.mapName,
+                            nextStep=process.running?
+                                "Állítsd le szabályosan a mapot, majd várd meg az ASA és Loader teljes kilépését.":
+                                "Ellenőrizd a Windows folyamatfigyelést és jogosultságokat; a leállás jelenleg nem bizonyított."};
+                        processBlockers.Add(item);blockers.Add(item);
+                    }
+                    foreach(var sibling in related)
+                    {
+                        string code=StoreBlockerCode(sibling);
+                        if(code.Length==0)continue;
+                        var item=new{category="storeProtection",code,subject=sibling.Name,
+                            nextStep=code=="UM-STEAM-RECOVERY-MUST-COMPLETE-FIRST"?
+                                "Fejezd be vagy auditáld a mentés-helyreállítást.":
+                                code=="UM-STEAM-MAP-MAINTENANCE"?
+                                    "Várd meg a karbantartás végét.":
+                                code=="UM-STEAM-MAP-OBSERVATION-ONLY"?
+                                    "Ez a map csak megfigyelhető; válassz igazoltan kezelt helyi mapot.":
+                                    "Ellenőrizd a Store/cluster tulajdonosi azonosítást; védett telepítésbe nem frissítünk."};
+                        storeBlockers.Add(item);blockers.Add(item);
+                    }
+                    string? installationBlockerCode=InstallationBlocker(owned);
+                    bool safeInstallation=installationBlockerCode==null;
+                    if(installationBlockerCode!=null)
+                    {
+                        var item=new{category="installationIdentity",code=installationBlockerCode,
+                            subject=owned.Name,
+                            nextStep="Ellenőrizd a helyi telepítési útvonalat, a regisztrált map-tulajdonosokat és az egymásba ágyazott telepítéseket."};
+                        blockers.Add(item);
+                    }
+                    foreach(var overlap in overlaps)
+                    {
+                        var item=new{category="installationOverlap",code="UM-STEAM-NESTED-INSTALL-OWNERSHIP",
+                            subject=overlap.mapName,
+                            nextStep="Válaszd szét az egymásba ágyazott telepítési gyökereket, vagy rendezd a regisztrációt."};
+                        blockers.Add(item);
+                    }
+                    bool binaryRegistered=AsaReadyProbe.IsRegisteredServerBinary(owned);
+                    if(!binaryRegistered)
+                    {
+                        var item=new{category="asaBinary",code="UM-STEAM-ASA-BINARY-INVALID",
+                            subject=owned.Name,nextStep="Ellenőrizd a regisztrált ArkAscendedServer.exe útvonalat."};
+                        blockers.Add(item);
+                    }
+                    if(steamCmdError!=null)
+                    {
+                        var item=new{category="steamcmd",code=steamCmdError,
+                            subject="SteamCMD",
+                            nextStep=steamCmdError=="UM-STEAMCMD-NOT-CONFIGURED"?
+                                "Keress meglévő helyi steamcmd.exe példányt, majd külön jóváhagyással fogadd el, vagy válaszd ki kézzel.":
+                                "Válassz ki egy érvényes, helyi steamcmd.exe fájlt, vagy készítsd elő a Valve hivatalos példányát."};
+                        blockers.Add(item);
+                    }
+                    if(externalSteamError!=null)
+                    {
+                        var item=new{category="externalSteamProcess",code=externalSteamError,
+                            subject="SteamCMD folyamat",
+                            nextStep="Ellenőrizd a Feladatkezelőben a másik SteamCMD-folyamatot, és csak a befejezése után próbáld újra."};
+                        blockers.Add(item);
+                    }
+                    long required=Reserve+Reserve/4;
+                    if(free<required)
+                    {
+                        var item=new{category="diskSpace",code="UM-STEAM-DISK-RESERVE-INSUFFICIENT",
+                            subject="Szabad tárhely",
+                            nextStep="Szabadíts fel legalább "+Math.Ceiling(required/1073741824d)+" GiB helyet."};
+                        blockers.Add(item);
+                    }
                     return Ok(id,new{
                         mapId=owned.Id,mapName=owned.Name,installRoot=root,
                         installedBuild=AsaSteamBuildCatalog.InstalledBuild(root),
                         processes,overlaps,steamCmdError,
-                        asaBinaryRegistered=AsaReadyProbe.IsRegisteredServerBinary(owned),
-                        externalSteamError,steamCmdFound=steamFound,steamCmdConfigured=
-                            !string.IsNullOrWhiteSpace(steamExe),
-                        availableBytes=free,requiredBytes=Reserve+Reserve/4,
-                        journalBlocked,historicalBlocked=historical,
+                        steamCmdPath=steamStatus?.ExecutablePath,
+                        steamCmdSha256=steamStatus?.Sha256,
+                        steamCmdLastModifiedUtc=steamStatus?.LastModifiedUtc,
+                        asaBinaryRegistered=binaryRegistered,
+                        externalSteamError,steamCmdFound=steamFound,
+                        steamCmdConfigured=!string.IsNullOrWhiteSpace(steamExe),
+                        availableBytes=free,requiredBytes=required,
+                        journalBlocked,queueJournalBlocked,localJournalBlocked,
+                        queueJournalPhase=queue?.Phase.ToString(),
+                        queueJournalBlockingCode=queueCode,
+                        operationJournalPhase=localJournal.Operation?.Phase.ToString(),
+                        operationJournalKind=localJournal.Operation?.Kind.ToString(),
+                        operationJournalBlockingCode=operationCode,
+                        restartJournalPhase=localJournal.Restart?.Phase.ToString(),
+                        restartJournalBlockingCode=restartCode,
+                        localJournalUnreadable=localJournal.AnyUnreadable,
+                        journalBlockers=journalBlockers.ToArray(),
+                        processBlockers=processBlockers.ToArray(),
+                        storeBlockers=storeBlockers.ToArray(),
+                        installationBlockerCode,
+                        blockers=blockers.ToArray(),
+                        historicalBlocked=storeBlockers.Count>0,
                         safeInstallation,
-                        canPreview=AsaReadyProbe.IsRegisteredServerBinary(owned)&&stopped&&!historical&&safeInstallation&&
-                            !journalBlocked&&steamFound&&externalSteamError==null&&free>=Reserve+Reserve/4&&
-                            overlaps.Length==0,
+                        canPreview=blockers.Count==0&&binaryRegistered&&stopped&&
+                            !historical&&safeInstallation&&steamFound&&
+                            externalSteamError==null&&free>=required&&overlaps.Length==0,
                         noProcessAutoStop=true,remoteWrites=false,
                         evidence="REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"
                     });
                 }
-                if(method=="steam.publishedBuild")
+                if(method=="steam.publishedBuild")                if(method=="steam.publishedBuild")
                 {
                     if(!GuidField(data,"mapId",out var candidateId))
                         return Fail(id,"UM-STEAM-MAP");
@@ -407,6 +697,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         return Fail(id,"UM-STEAM-MAP");
                     var owned=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==mapId);
                     if(owned==null)return Fail(id,"UM-MAP-NOT-OWNED");
+                    string? localJournalCode=LocalJournalBlocker(owned);
+                    if(localJournalCode!=null)return Fail(id,localJournalCode);
                     if(!Stopped(owned))return Fail(id,"UM-STEAM-STOPPED-ONLY");
                     if(HasBlockedJournal())
                         return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
@@ -460,10 +752,13 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     return Fail(id,"UM-STEAM-TOKEN-EXPIRED");
                 // One-shot approval is consumed for its own map only.
                 pendingByMap.Remove(saved.MapId);
+                var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==saved.MapId);
+                if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
+                string? applyJournalCode=LocalJournalBlocker(map);
+                if(applyJournalCode!=null)return Fail(id,applyJournalCode);
                 if(HasBlockedJournal())
                     return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
-                var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==saved.MapId);
-                if(map==null||!Stopped(map)||
+                if(!Stopped(map)||
                    !string.Equals(map.InstallationPath,saved.Root,
                        StringComparison.OrdinalIgnoreCase)||
                    !string.Equals(cluster.Config.SteamCmdExecutable,saved.Steam,
