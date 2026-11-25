@@ -177,12 +177,12 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
     {kind==="Restart"&&status.restartConflicts.length>0&&<p className="native-schedule-warning">
       <AlertTriangle size={16}/> Azonos helyi időpont más mapokkal: {status.restartConflicts.join(", ")}.
       A natív végrehajtás sorban történik. Ez csak figyelmeztetés.</p>}
-    {kind==="Restart"&&status.historicalSchedulingSupported&&<label className="native-schedule-consent">
+    {kind==="Restart"&&canConfigure&&<label className="native-schedule-consent">
       <input type="checkbox" checked={draft.postRestartWipe} disabled={busy||!canConfigure}
         onChange={e=>setDraft(old=>({...old,postRestartWipe:e.target.checked}))}/>
       Újraindítás után vad dinók törlése (DestroyWildDinos) – csak az új saját ASA PID és játékosfogadási napló igazolása után
     </label>}
-    {kind==="Restart"&&status.historicalSchedulingSupported&&draft.postRestartWipe&&<label>Dinowipe késleltetése a készenlét után (másodperc)
+    {kind==="Restart"&&canConfigure&&draft.postRestartWipe&&<label>Dinowipe késleltetése a készenlét után (másodperc)
       <input type="number" min={0} max={600} step={15} aria-label="Dinowipe késleltetése másodpercben" disabled={busy||!canConfigure}
         value={draft.wipeDelaySeconds} onChange={e=>setDraft(old=>({...old,wipeDelaySeconds:Number(e.target.value)}))}/>
     </label>}

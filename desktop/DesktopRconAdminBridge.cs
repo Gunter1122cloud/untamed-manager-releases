@@ -229,9 +229,13 @@ public sealed class DesktopRconAdminBridge
                 RecheckAfterAuthentication();
                 using var events=job.Action=="wildWipe"?new DiscordOperationEvents.NativeRun(cluster,Guid.NewGuid(),new[]{owned.Id},"WildWipe"):null;
                 events?.Emit("started","in-progress","WIPE_DISPATCH_ATTEMPT");
-                lease.MarkMutationStarted();
+                void AuthorizeDispatch()
+                {
+                    RecheckAfterAuthentication();
+                    lease.MarkMutationStarted();
+                }
                 string output=await send("127.0.0.1",owned.RconPort,password,job.Command,
-                    RecheckAfterAuthentication,deadline.Token);
+                    AuthorizeDispatch,deadline.Token);
                 var check=cluster.Check(owned);
                 if(!check.Running||check.Identity==null||
                    check.Identity.Pid!=job.Pid||

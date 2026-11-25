@@ -375,17 +375,28 @@ internal static class LegacyStoreV1GracefulStop
             AsaWorldSaveEvidence.Begin(locked.Map,locked.Process)
                 ??throw new SaveWorldNotDispatchedException("UM-ORIGINAL-SAVE-WITNESS-MISSING"):
             null;
-        lease.MarkMutationStarted(); // Crash/uncertain dispatch => NeedsOperator
         bool observed,worldMetadataObserved=false;
         if(execute!=null)
+        {
+            lease.MarkMutationStarted();
             observed=await execute(locked.Map,locked.Process,Verify,ct).WaitAsync(ct);
+        }
         else
         {
             string password=SecureStore.Unprotect(locked.Map.RconPasswordProtected);
             Verify();
             stage?.Invoke("Store-v1 SaveWorld küldése az igazolt helyi ASA PID-nek");
-            await RconProtocol.DispatchOwnedSaveWorldAsync(locked.Map.RconPort,
-                password,Verify,ct);
+            bool dispatchAuthorized=false;
+            try
+            {
+                await RconProtocol.DispatchOwnedSaveWorldAsync(locked.Map.RconPort,password,()=>{
+                    Verify();lease.MarkMutationStarted();dispatchAuthorized=true;
+                },ct);
+            }
+            catch(Exception) when(!dispatchAuthorized)
+            {
+                throw new SaveWorldNotDispatchedException("UM-ORIGINAL-SAVE-RCON-PRE-DISPATCH-FAILED");
+            }
             var result=await AsaWorldSaveEvidence.WaitAsync(witness!,()=>{
                 try{Verify();return true;}catch{return false;}
             },TimeSpan.FromSeconds(90),ct,allowWorldMetadata:true);

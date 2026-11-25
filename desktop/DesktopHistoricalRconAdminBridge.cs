@@ -259,9 +259,13 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                 using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(12));
                 using var events=approved.Action=="wildWipe"?new DiscordOperationEvents.NativeRun(cluster,Guid.NewGuid(),new[]{locked.Map.Id},"WildWipe"):null;
                 events?.Emit("started","in-progress","WIPE_DISPATCH_ATTEMPT");
-                lease.MarkMutationStarted();
+                void AuthorizeDispatch()
+                {
+                    Recheck();
+                    lease.MarkMutationStarted();
+                }
                 string output=await send("127.0.0.1",locked.Map.RconPort,
-                    password,approved.Command,Recheck,deadline.Token);
+                    password,approved.Command,AuthorizeDispatch,deadline.Token);
                 Recheck();
                 if(output==null||output.Length>32768)
                     throw new InvalidDataException("UM-ORIGINAL-ADMIN-REPLY-UNVERIFIED");

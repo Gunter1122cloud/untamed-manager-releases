@@ -234,15 +234,23 @@ public sealed class DesktopRconReadOnlyBridge
                     if(JsonSerializer.Serialize(map)!=approvedProfile)
                         throw new InvalidOperationException(
                             "UM-RCON-SAVE-PROFILE-CHANGED");
-                    // Mark before possible network dispatch; an uncertain
-                    // timed-out SaveWorld is never reported as successful or
-                    // automatically sent again after Manager restart.
-                    lease.MarkMutationStarted();
+                    // The authenticated callback marks the actual send boundary.
                 }
                 using var events=method=="rcon.saveWorld"?new DiscordOperationEvents.NativeRun(cluster,Guid.NewGuid(),new[]{map.Id},"SaveWorld"):null;
                 events?.Emit("started","in-progress","SAVEWORLD_DISPATCH_ATTEMPT");
+                void AuthorizeDispatch()
+                {
+                    VerifyOwned();
+                    if(lease!=null)
+                    {
+                        new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+                        if(JsonSerializer.Serialize(map)!=approvedProfile)
+                            throw new InvalidOperationException("UM-RCON-SAVE-PROFILE-CHANGED");
+                        lease.MarkMutationStarted();
+                    }
+                }
                 string answer=await send("127.0.0.1",map.RconPort,password,command,
-                    VerifyOwned,timeout.Token);
+                    AuthorizeDispatch,timeout.Token);
                 var after=cluster.Check(map);
                 if(!after.Running || after.Identity==null ||
                    after.Identity.Pid!=identity.Pid ||

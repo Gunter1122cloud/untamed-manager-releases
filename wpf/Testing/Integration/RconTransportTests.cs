@@ -150,8 +150,35 @@ public static class RconTransportTests
         finally{listener.Stop();}
     }
 
+    private static async Task ProbeWipeAcknowledgement(string response)
+    {
+        var listener=new TcpListener(IPAddress.Loopback,0);
+        listener.Start();
+        int port=((IPEndPoint)listener.LocalEndpoint).Port;
+        var server=Task.Run(async()=>{
+            using var accepted=await listener.AcceptTcpClientAsync();
+            using var stream=accepted.GetStream();
+            var auth=await ReadPacket(stream);
+            await WritePacket(stream,auth.Id,2,"");
+            var sent=await ReadPacket(stream);
+            Assert(sent.Type==2&&sent.Body=="DestroyWildDinos","exact unprefixed wipe command");
+            await WritePacket(stream,sent.Id,0,response);
+        });
+        try
+        {
+            int authorized=0;
+            var result=await RconProtocol.DispatchApprovedAdminAsync("127.0.0.1",port,"fixture",
+                "DestroyWildDinos",()=>authorized++,CancellationToken.None);
+            await server;
+            Assert(authorized==1&&result=="ADMIN_RCON_ACKNOWLEDGED_NO_GAMEPLAY_PROOF",
+                "empty/no-content wipe response acknowledged without claiming gameplay effect");
+        }
+        finally{listener.Stop();}
+    }
     public static async Task Run()
     {
+        await ProbeWipeAcknowledgement("");
+        await ProbeWipeAcknowledgement("Server received, But no response!!");
         await ProbeSaveWorldDispatch();
         await ProbeReadOnlyLog("GetGameLog");
         await ProbeReadOnlyLog("GetChat");
