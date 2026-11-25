@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createSnapshotRefreshQueue } from "./state/snapshotRefreshQueue";
+import { describeNativeError } from "./state/nativeErrors";
 import {
   AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
   FileText, HardDrive, LayoutDashboard, Layers3, Monitor, CloudDownload, Activity,
@@ -520,7 +522,7 @@ function LocalAsaImport({onImported}: {onImported:()=>Promise<void>}) {
         ? "A megadott helyen nincs meg az ASA ShooterGame/Binaries/Win64/ArkAscendedServer.exe."
         : code==="UM-EXISTING-WORLD-REQUIRES-PRESERVED-IMPORT"
           ? "Ez a telepítés már világmentést tartalmaz. Ne importáld üres szerverként; használd a külön Store-v1 átvételt."
-          : "A kiválasztott helyi telepítés nem importálható ("+code+"). Ellenőrizd a mappát és a már regisztrált mapokat.");
+          : describeNativeError(code,"A kiválasztott helyi telepítés nem importálható. Ellenőrizd a mappát és a már regisztrált mapokat."));
     } finally {setBusy(false);}
   };
   const confirm=async()=>{
@@ -1798,6 +1800,16 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
   // Re-probe durable journals on that transition, fail closed until they load.
   const lifecycleBlocked=journalsVerifiedFor!==journalScope||journalReadError||
     Boolean(lifecycle?.needsOperatorReview||restartJournal?.needsOperatorReview);
+  // Native reconciliation may finish without a navigation or command receipt.
+  // Retry only READ evidence, and only after the previous check has settled.
+  // Keep ownership and mutation guards in the native bridge.
+  const retryJournalRead=!!map&&!observedOnly&&(journalReadError||
+    (journalsVerifiedFor===journalScope&&lifecycleBlocked));
+  useEffect(()=>{
+    if(!retryJournalRead)return;
+    const timer=window.setTimeout(()=>setJournalRevision(n=>n+1),5000);
+    return ()=>window.clearTimeout(timer);
+  },[retryJournalRead,journalScope]);
   if(!map)return <div className="empty">A kiválasztott map már nem található a helyi Managerben.</div>;
   // WMI registration is a read-only observation, never process ownership.
   if(map.observedReadOnlyImported)return <div className="map-detail-page" role="region"
@@ -1863,11 +1875,11 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
     {restartJournal?.needsOperatorReview&&<div className="warning-inline" role="alert">
       <Shield size={17}/> A manuális ASA újraindítás megszakadt ({restartJournal.phase??"ismeretlen"}).
       Régi PID: {restartJournal.oldPid??"?"}; új PID: {restartJournal.newPid||"nem igazolt"}.
-      A korábbi művelet nem folytatódik automatikusan; kézi Windows/RCON ellenőrzés szükséges.
+      A Manager automatikusan újraellenőrzi a natív bizonyítékot. Igazolatlan műveletet nem ismétel meg.
     </div>}
     {lifecycle?.needsOperatorReview&&<div className="warning-inline" role="alert">
       <Shield size={17}/> Félbeszakadt helyi ASA-művelet ({lifecycle.kind??"ismeretlen"} / {lifecycle.phase??"ismeretlen"}).
-      A korábbi művelet naplója megmaradt; automatikus Start, Stop és ismétlés helyett kézi ellenőrzés szükséges.
+      A Manager automatikusan újraellenőrzi a map műveleti állapotát. A napló megmarad, és igazolatlan parancsot nem ismétel meg.
     </div>}
     {historical&&lifecycle?.recoverySupported&&
       <OriginalStoreJournalRecoveryPanel mapId={mapId} journal={lifecycle}
@@ -2039,35 +2051,23 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState("");
-  const snapshotFlight = useRef<Promise<void> | null>(null);
   // Confirmed operations and explicit refresh invalidate the open map’s read-only evidence.
   const [refreshRevision,setRefreshRevision]=useState(0);
-  const refresh = useCallback(async (background = false) => {
-    // Manual profile changes must not be lost if a background LAN poll is
-    // already in progress; wait for that poll and read the newly saved config.
-    if (snapshotFlight.current) {
-      if (background) return;
-      await snapshotFlight.current;
-    }
-    const task = (async () => {
-      if (!background) setLoading(true);
+  const refreshQueue = useMemo(() => createSnapshotRefreshQueue(async (background) => {
+    if (!background) setLoading(true);
+    try {
+      const response = await managerBridge.dashboard();
+      setSnapshot(response);
+      setSelected(old => response.local.maps.some(m => m.id === old)
+        ? old : (response.local.maps[0]?.id ?? ""));
       setError("");
-      try {
-        const response = await managerBridge.dashboard();
-        setSnapshot(response);
-        setSelected(old => response.local.maps.some(m => m.id === old)
-          ? old : (response.local.maps[0]?.id ?? ""));
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "UM-READ-UNAVAILABLE");
-      } finally {
-        if (!background) {setLoading(false);setRefreshRevision(n=>n+1);}
-      }
-    })();
-    snapshotFlight.current = task;
-    try { await task; } finally {
-      if (snapshotFlight.current === task) snapshotFlight.current = null;
+    } catch (e) {
+      setError(describeNativeError(e instanceof Error ? e.message : "UM-READ-UNAVAILABLE"));
+    } finally {
+      if (!background) {setLoading(false);setRefreshRevision(n=>n+1);}
     }
-  }, []);
+  }), []);
+  const refresh = useCallback((background = false) => refreshQueue.request(background), [refreshQueue]);
   useEffect(() => {
     void refresh();
     const timer = window.setInterval(() => { void refresh(true); }, 15000);

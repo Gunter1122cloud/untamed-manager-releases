@@ -17,6 +17,44 @@ public sealed record LocalAsaInstallation(string Root,string? ServerExecutable,
 
 public static class LocalAsaInstallLocator
 {
+    // Diagnostic-only classification; executable existence is NOT launch readiness.
+    // Caller must first validate the fixed local root and refuse redirected paths.
+    public static string? DiagnoseImport(string root)
+    {
+        try
+        {
+            string server=Path.Combine(root,"ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+            try
+            {
+                var attributes=File.GetAttributes(server);
+                if((attributes&(FileAttributes.Directory|FileAttributes.ReparsePoint))!=0)
+                    return "UM-ASA-EXE-INVALID";
+                return new FileInfo(server).Length>0?null:"UM-ASA-EXE-EMPTY";
+            }
+            catch(FileNotFoundException){}
+            catch(DirectoryNotFoundException){}
+            using(var entries=Directory.EnumerateFileSystemEntries(root).GetEnumerator())
+                if(!entries.MoveNext())return "UM-ASA-INSTALL-EMPTY";
+            foreach(string marker in new[]{"ShooterGame","Engine","steamapps"})
+            {
+                try
+                {
+                    var attributes=File.GetAttributes(Path.Combine(root,marker));
+                    if((attributes&FileAttributes.ReparsePoint)!=0)
+                        return "UM-ASA-INSTALL-FOREIGN";
+                    if((attributes&FileAttributes.Directory)!=0)
+                        return "UM-ASA-INSTALL-INCOMPLETE";
+                }
+                catch(FileNotFoundException){}
+                catch(DirectoryNotFoundException){}
+            }
+            return "UM-ASA-INSTALL-FOREIGN";
+        }
+        catch(UnauthorizedAccessException){return "UM-ASA-INSTALL-INACCESSIBLE";}
+        catch(DirectoryNotFoundException){return "UM-IMPORT-DIRECTORY-MISSING";}
+        catch(IOException){return "UM-ASA-INSTALL-UNKNOWN";}
+    }
+
     public static LocalAsaInstallation Probe(string chosenRoot)
     {
         if(string.IsNullOrWhiteSpace(chosenRoot))

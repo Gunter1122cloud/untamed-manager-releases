@@ -2726,6 +2726,36 @@ try
             new{name="Ragnarok",root=Path.Combine(root,"does-not-exist")});
         Check(IsError(invalid,"UM-IMPORT-DIRECTORY-MISSING"),
             "import refuses missing local installation");
+        string diagnosticRoot=Path.Combine(root,"import-health-test");
+        Directory.CreateDirectory(diagnosticRoot);
+        Check(IsError(await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Diagnostic map",root=diagnosticRoot}),"UM-ASA-INSTALL-EMPTY"),
+            "import distinguishes an empty install directory");
+        File.WriteAllText(Path.Combine(diagnosticRoot,"foreign.txt"),"untouched");
+        Check(IsError(await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Diagnostic map",root=diagnosticRoot}),"UM-ASA-INSTALL-FOREIGN"),
+            "import refuses unrelated installation contents");
+        string diagnosticBinaries=Path.Combine(diagnosticRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(diagnosticBinaries);
+        Check(IsError(await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Diagnostic map",root=diagnosticRoot}),"UM-ASA-INSTALL-INCOMPLETE"),
+            "import identifies incomplete ASA installation");
+        string diagnosticExe=Path.Combine(diagnosticBinaries,"ArkAscendedServer.exe");
+        File.WriteAllBytes(diagnosticExe,Array.Empty<byte>());
+        Check(IsError(await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Diagnostic map",root=diagnosticRoot}),"UM-ASA-EXE-EMPTY"),
+            "import refuses empty executable");
+        File.WriteAllText(diagnosticExe,"SYNTHETIC");
+        var diagnosticPreview=await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Diagnostic map",root=diagnosticRoot});
+        IsOk(diagnosticPreview,"nonempty synthetic executable is accepted for profile-only preview");
+        File.WriteAllBytes(diagnosticExe,Array.Empty<byte>());
+        Check(IsError(await Call(importer.HandleAsync,"servers.importLocal",new{
+            importToken=diagnosticPreview.GetProperty("data").GetProperty("importToken").GetString()
+        }),"UM-ASA-EXE-EMPTY"),"apply repeats install diagnostics and rejects changed executable");
+        Check(!cluster.Config.LocalMaps.Any(m=>m.Name=="Diagnostic map")&&
+            File.ReadAllText(Path.Combine(diagnosticRoot,"foreign.txt"))=="untouched",
+            "failed diagnostic import changes neither profile nor unrelated files");
         var prepared=await Call(importer.HandleAsync,"servers.inspectLocal",
             new{name="Ragnarok",root=candidate});
         IsOk(prepared,"new local ASA installation is probed without modifying it");

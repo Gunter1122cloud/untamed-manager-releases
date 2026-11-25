@@ -56,6 +56,8 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
                         return Failure(id,"UM-INVALID-IMPORT");
                     var name=LocalMapNameRules.Normalize(requestedName);
                     var root=ValidateFixedLocalRoot(requestedRoot);
+                    var diagnostic=LocalAsaInstallLocator.DiagnoseImport(root);
+                    if(diagnostic!=null)return Failure(id,diagnostic);
                     var found=LocalAsaInstallLocator.Probe(root);
                     if(!found.HasServerExecutable)
                         return Failure(id,"UM-ASA-EXE-MISSING");
@@ -84,6 +86,8 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
                    !prepared.Remove(tokenId,out var preview))
                     return Failure(id,"UM-IMPORT-EXPIRED");
                 var checkedRoot=ValidateFixedLocalRoot(preview.Root);
+                var diagnosticAtApply=LocalAsaInstallLocator.DiagnoseImport(checkedRoot);
+                if(diagnosticAtApply!=null)return Failure(id,diagnosticAtApply);
                 var checkedExe=LocalAsaInstallLocator.Probe(checkedRoot).ServerExecutable;
                 if(!string.Equals(checkedExe,preview.ServerExe,
                     StringComparison.OrdinalIgnoreCase))
@@ -107,6 +111,8 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
             finally {gate.Release();}
         }
         catch(DirectoryNotFoundException){return Failure(id,"UM-IMPORT-DIRECTORY-MISSING");}
+        catch(FileNotFoundException){return Failure(id,"UM-IMPORT-DIRECTORY-MISSING");}
+        catch(UnauthorizedAccessException){return Failure(id,"UM-ASA-INSTALL-INACCESSIBLE");}
         catch(IOException){return Failure(id,"UM-IMPORT-IO-OR-CONFLICT");}
         catch(Exception){return Failure(id,"UM-IMPORT-VALIDATION-FAILED");}
     }
@@ -135,7 +141,9 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
            userPath.Contains('~'))
             throw new InvalidDataException("Only explicit local Windows installation path is supported");
         string root=Path.TrimEndingDirectorySeparator(Path.GetFullPath(userPath));
-        if(!Directory.Exists(root))throw new DirectoryNotFoundException();
+        var rootAttributes=File.GetAttributes(root);
+        if((rootAttributes&FileAttributes.Directory)==0)
+            throw new InvalidDataException("Installation root is not a directory");
         var drive=new DriveInfo(Path.GetPathRoot(root)!);
         if(drive.DriveType!=DriveType.Fixed)
             throw new InvalidDataException("Fixed local drive is required");

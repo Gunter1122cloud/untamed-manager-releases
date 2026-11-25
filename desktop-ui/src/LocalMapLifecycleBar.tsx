@@ -97,6 +97,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
         }
         if(!active||!belongs(mapId))return;
         if(jobs.length>1)throw new Error("UM-LIFECYCLE-CONCURRENT-JOBS");
+        setError(old=>old.startsWith("A helyi ASA műveleti állapot nem olvasható (")?"":old);
         if(jobs.length===1){
           runningJobs.set(mapId,jobs[0]);
           setJob(jobs[0]);
@@ -119,9 +120,13 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
     void reattach();
     return ()=>{active=false;};
   },[mapId,historical,reconnectNonce]);
+  // A transient read failure must not strand the map until navigation.
+  // This only re-reads existing job receipts; it cannot dispatch a command.
   useEffect(()=>{
-    if(refreshRevision&&waitingForOtherStoreJob.current&&!busy&&!job)setReconnectNonce(n=>n+1);
-  },[refreshRevision]);
+    if(!reconnectFailed||reconnecting||busy||job)return;
+    const timer=window.setTimeout(()=>setReconnectNonce(n=>n+1),5000);
+    return ()=>window.clearTimeout(timer);
+  },[reconnectFailed,reconnecting,busy,job,refreshRevision]);
   useEffect(()=>{
     setError("");setMessage(lastReceipts.get(mapId)??"");
     setBusy(false);setJob(runningJobs.get(mapId)??null);
@@ -151,7 +156,8 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
         }else if(data.state==="needsOperator"){
           runningJobs.delete(mapId);
           setJob(null);
-          setError(copy[job.action]+" megszakadt: a műveleti napló kézi ellenőrzést igényel. Automatikus ismétlés nincs.");
+          setError(copy[job.action]+" megszakadt: a Manager újraellenőrzi a map műveleti naplóját. Igazolatlan parancsot nem ismétel meg.");
+          try{await onRefresh();}catch{/* Native receipt remains the source of truth. */}
         }
       }catch(e){
         if(alive){
