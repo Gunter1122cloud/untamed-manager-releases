@@ -101,7 +101,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
     private State Read()
     {
         NoLinks();if(!File.Exists(path))return new();
-        using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
+        using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
         if(stream.Length is <2 or >1_000_000)throw new InvalidDataException("UM-ROLLING-JOURNAL-SIZE");
         var state=JsonSerializer.Deserialize<State>(stream,Json)??throw new InvalidDataException("UM-ROLLING-JOURNAL");
         if(state.Settings==null||state.Settings.Count>256||
@@ -124,7 +124,18 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                 if(stream.Length>1_000_000)throw new InvalidDataException("UM-ROLLING-JOURNAL-SIZE");
                 stream.Flush(true);
             }
-            NoLinks();File.Move(tmp,path,true);
+            // Windows may transiently deny replacement while a read-only
+            // observer releases an old journal handle. Retry only publication
+            // of the SAME flushed bytes, never any lifecycle/Steam action.
+            for(int attempt=0;;attempt++)
+            {
+                NoLinks();
+                try{File.Move(tmp,path,true);break;}
+                catch(IOException ex) when(attempt<7&&(ex.HResult&0xffff) is (5 or 32 or 33))
+                {Thread.Sleep(25*(attempt+1));}
+                catch(UnauthorizedAccessException ex) when(attempt<7&&(ex.HResult&0xffff)==5)
+                {Thread.Sleep(25*(attempt+1));}
+            }
         }
         finally{if(File.Exists(tmp))File.Delete(tmp);}
     }
