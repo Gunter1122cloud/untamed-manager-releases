@@ -3,10 +3,7 @@ import { AlertTriangle, CheckCircle2, FolderOpen, HardDrive, Shield } from "luci
 import { managerBridge, type FreshInstallJob } from "./bridge";
 import { InitialMapSetup } from "./InitialMapSetup";
 
-const mapNames = [
-  "The Island","The Center","Scorched Earth","Aberration","Extinction",
-  "Genesis Part 1","Valguero","Ragnarok","Astraeos","Lost Colony"
-];
+import {asaMapNames as mapNames,officialMapSuggestions} from "./state/asaMapSuggestions";
 
 // Unapproved SteamCMD wizard choices are transient UI drafts. Preserve
 // navigation between tabs without ever persisting them to a server, profile,
@@ -366,10 +363,26 @@ export function FreshAsaSteamWizard({
               rememberSteamWizardDraft(initialMapName,{mapName:e.target.value});
               setRecoveryPreview(null);invalidate();}}>
             {mapNames.map(map=><option key={map} value={map}>{map}</option>)}
-            <option value="__custom__">Egyedi / modolt ASA map</option>
+            <option value="__custom__">Egyedi / modolt ASA map vagy új példány</option>
           </select>
         </label>
         {mapName==="__custom__"&&<div className="fresh-advanced">
+          <label>Pályatípus – ismert level kitöltése (opcionális)
+            <select aria-label="Új példány pályatípusa" value={officialMapSuggestions.find(m=>m.level===customLevel)?.name??""}
+              disabled={running||busy} onChange={e=>{
+                const selected=officialMapSuggestions.find(m=>m.name===e.target.value);
+                const level=selected?.level??"";
+                setCustomLevel(level);
+                rememberSteamWizardDraft(initialMapName,{customLevel:level});
+                setRecoveryPreview(null);invalidate();
+              }}>
+              <option value="">Új DLC / egyedi level kézzel</option>
+              {officialMapSuggestions.map(m=><option key={m.name} value={m.name}>{m.name}</option>)}
+            </select>
+          </label>
+          <p className="muted small">Második Astraeos, Extinction vagy bármely ismert pálya:
+            válaszd a pályatípust, majd adj egyedi példánynevet és külön telepítési mappát.
+            A Manager a natív level ellenőrzését nem hagyja ki.</p>
           <label>Egyedi map neve
             <input aria-label="Egyedi ASA map neve" value={customMapName}
               maxLength={100} disabled={running||busy}

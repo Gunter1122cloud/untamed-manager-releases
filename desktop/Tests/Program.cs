@@ -3302,6 +3302,12 @@ try
         catch(InvalidDataException){officialOverride=true;}
         Check(unsafeLevel&&officialOverride,
             "native catalog rejects launch-switch injection and official level override");
+        Check(AsaSteamMapCatalog.LevelForNewInstallation("Astraeos 2","Astraeos_WP")==
+            AsaSteamMapCatalog.LevelFor("Astraeos")&&
+            AsaSteamMapCatalog.LevelForNewInstallation("Extinction 2","Extinction_WP")==
+            AsaSteamMapCatalog.LevelFor("Extinction")&&
+            AsaSteamMapCatalog.LevelForNewInstallation("Future DLC","FutureDLC_WP")=="FutureDLC_WP",
+            "instance display name is independent of known or future level identity");
 
         async Task<SteamFreshInstallReceipt> SyntheticCustomRunner(
             SteamFreshInstallRequest request,LocalMap[] existing,
