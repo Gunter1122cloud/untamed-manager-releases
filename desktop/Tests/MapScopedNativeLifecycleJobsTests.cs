@@ -202,10 +202,6 @@ internal static class MapScopedNativeLifecycleJobsTests
               stableStop.GetProperty("step").GetString()==
                 "Windows process verified stopped",
             "late ASA Stop callback cannot reopen a verified terminated process");
-        lock(dispatched)Check(dispatched.Count==2 &&
-            dispatched.Contains(maps[0].Id)&&
-            dispatched.Contains(maps[1].Id),
-            "both ASA processes receive only their own one approved action");
         // Both synthetic workers must have durably completed before the next
         // scenario reuses these installation identities. Observing the first
         // job (or seeing the second callback enter) does not establish that
@@ -226,6 +222,10 @@ internal static class MapScopedNativeLifecycleJobsTests
             "second synthetic Stop reaches verified terminal state before fixture reuse: "+
                 siblingCompleted.GetProperty("state").GetString()+" / "+
                 siblingCompleted.GetProperty("step").GetString());
+        lock(dispatched)Check(dispatched.Count==2 &&
+            dispatched.Contains(maps[0].Id)&&
+            dispatched.Contains(maps[1].Id),
+            "both ASA processes receive only their own one approved action");
         var siblingJournal=new AsaManualStopJournal(maps[1].InstallationPath);
         Check(siblingJournal.Observe() is {Phase:AsaStopPhase.Completed} record&&
               record.MapId==maps[1].Id,

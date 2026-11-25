@@ -243,11 +243,18 @@ internal static class LegacyStoreV1GracefulStop
             AsaWorldSaveEvidence.Begin(locked.Map,locked.Process)
                 ??throw new InvalidOperationException("UM-ORIGINAL-STOP-SAVE-WITNESS-MISSING"):
             null;
-        RecoveryStopIntent.Mark(locked.Map,locked.Process,approvedRestartId);
-        lease.MarkMutationStarted();
+        void AuthorizeSave()
+        {
+            Verify();
+            RecoveryStopIntent.Mark(locked.Map,locked.Process,approvedRestartId);
+            lease.MarkMutationStarted();
+        }
         bool preExitObserved=false,worldMetadataObserved=false;
         if(execute!=null)
+        {
+            AuthorizeSave();
             preExitObserved=await execute(locked.Map,locked.Process,Verify,ct).WaitAsync(ct);
+        }
         else
         {
             var evidence=witness!;
@@ -255,7 +262,7 @@ internal static class LegacyStoreV1GracefulStop
             Verify();
             stage?.Invoke("SaveWorld elküldése az eredeti helyi Store-v1 ASA-nak");
             await RconProtocol.DispatchOwnedSaveWorldAsync(locked.Map.RconPort,
-                password,Verify,ct);
+                password,AuthorizeSave,ct);
             var observed=await AsaWorldSaveEvidence.WaitAsync(
                 evidence,()=>{
                     try{Verify();return true;}catch{return false;}

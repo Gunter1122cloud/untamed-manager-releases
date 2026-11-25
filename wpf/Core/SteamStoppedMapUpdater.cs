@@ -194,6 +194,22 @@ public static class SteamStoppedMapUpdater
         RunCore(cluster,map,steamCmdExecutable,downloadReserveBytes,
             timeout,null,progress,false,ct);
 
+    // The rolling supervisor supplies its already checked public build
+    // through a native-only route. Cache preparation and target validation
+    // share the same host lease; never source payload from a live map.
+    internal static Task<Receipt> UpdateRollingAsync(ClusterService cluster,LocalMap map,
+        string steamExecutable,long reserve,TimeSpan timeout,string target,
+        IProgress<SteamMaintenanceStage>? progress,
+        Func<LocalMap,ProcessCheck>? originalObserver=null,
+        Func<LocalMap,ProcessCheck>? underLease=null,CancellationToken ct=default)
+    {
+        if(target.Length is <1 or >20||!target.All(char.IsAsciiDigit)||
+            map.HistoricalStoreProtected&&(originalObserver==null||underLease==null))
+            throw new InvalidDataException("UM-STEAM-ROLLING-TARGET");
+        return RunCore(cluster,map,steamExecutable,reserve,timeout,null,progress,false,ct,
+            originalObserver,underLease,rollingTarget:target);
+    }
+
     // The trusted native Windows host supplies this independently observed
     // original Kova stopped-family check; no renderer/RCON flag can impersonate
     // it. The existing backup, SteamCMD execution, queue, file hashes and
@@ -346,7 +362,8 @@ public static class SteamStoppedMapUpdater
         string steamExecutable,long reserve,TimeSpan timeout,string? fakeExecutable,
         IProgress<SteamMaintenanceStage>? progress,bool insideQueue,CancellationToken ct,
         Func<LocalMap,ProcessCheck>? originalStoppedObserver=null,
-        Func<LocalMap,ProcessCheck>? originalStoppedObserverUnderLease=null,SteamSharedPayloadCache.Package? payload=null)
+        Func<LocalMap,ProcessCheck>? originalStoppedObserverUnderLease=null,SteamSharedPayloadCache.Package? payload=null,
+        string? rollingTarget=null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(map);
@@ -417,6 +434,27 @@ public static class SteamStoppedMapUpdater
         Func<LocalMap,CancellationToken,Task> work=async (_,token)=>{
                 token.ThrowIfCancellationRequested();
                 VerifyStopped();
+                if(rollingTarget!=null)
+                {
+                    progress?.Report(SteamMaintenanceStage.CachePreparation);
+                    DemandNoConcurrentSteamCmd();
+                    try
+                    {
+                        payload=await SteamSharedPayloadCache.PrepareAsync(cluster.Store.Root,
+                            cluster.Config.LocalMaps,rollingTarget,(stage,cancel)=>RunSteamAsync(
+                                steamExecutable,stage,timeout,false,()=>{
+                                    UntamedOperationCoordinator.ResourceKey(stage);
+                                    cancel.ThrowIfCancellationRequested();
+                                },cancel),token);
+                        progress?.Report(payload.CacheHit?SteamMaintenanceStage.CacheHit:SteamMaintenanceStage.CacheDownloaded);
+                    }
+                    catch(Exception ex) when(SteamCmdInvocation.CanUseDirectFallback(ex))
+                    {
+                        token.ThrowIfCancellationRequested();DemandNoConcurrentSteamCmd();
+                        progress?.Report(SteamMaintenanceStage.CacheDirectFallback);
+                    }
+                    VerifyStopped();
+                }
                 string backupRoot=Path.Combine(cluster.Store.Root,
                     "verified-pre-steam-update");
                 string destination=Path.Combine(backupRoot,map.Id.ToString("N")+"-"+
@@ -475,6 +513,8 @@ public static class SteamStoppedMapUpdater
                         "SteamCMD altered protected ASA saves/config/plugin data; STOP, restore only after operator review");
                 if(AsaSteamBuildCatalog.InstalledBuild(root)!=next)
                     throw new InvalidDataException("UM-STEAM-INSTALLED-BUILD-CHANGED");
+                if(rollingTarget!=null&&next!=rollingTarget)
+                    throw new InvalidDataException("UM-STEAM-ROLLING-PUBLIC-BUILD-CHANGED");
                 if(payload!=null&&next!=payload.Index.Build)
                     throw new InvalidDataException("UM-STEAM-CACHE-PUBLIC-BUILD-CHANGED_DURING_TARGET_VALIDATION");
                 // No Start, RCON or SaveWorld is invoked here.

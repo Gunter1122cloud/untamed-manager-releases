@@ -314,8 +314,8 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
            preview.GetProperty("maps").GetArrayLength()!=1||preview.GetProperty("maps")[0].GetString()!=map.Name)
             throw new InvalidOperationException("UM-ROLLING-UPDATE-SCOPE");
         ct.ThrowIfCancellationRequested();
-        var applied=Decode(await steam.HandleAsync(Message("steam.stoppedApply",new{
-            token=preview.GetProperty("token").GetGuid(),confirm=true})));
+        var applied=Decode(await steam.HandleRollingApplyAsync(Message("steam.stoppedApply",new{
+            token=preview.GetProperty("token").GetGuid(),confirm=true}),target));
         if(!Yes(applied,"started"))throw new InvalidOperationException("UM-ROLLING-UPDATE-REJECTED");
         Guid job=applied.GetProperty("jobId").GetGuid();
         var until=DateTimeOffset.UtcNow.AddHours(3);
@@ -334,7 +334,14 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                     throw new InvalidOperationException("UM-ROLLING-BUILD-OR-BACKUP-UNVERIFIED");
                 return;
             }
-            if(status is not ("running" or "queued"))throw new InvalidOperationException("UM-ROLLING-UPDATE-NEEDS-REVIEW");
+            if(status is not ("running" or "queued"))
+            {
+                var code=r.TryGetProperty("errorCode",out var error)&&error.ValueKind==JsonValueKind.String?
+                    error.GetString():null;
+                throw new InvalidOperationException(code!=null?
+                    NativeLifecycleFailureCode.From(new InvalidOperationException(code)):
+                    "UM-ROLLING-UPDATE-NEEDS-REVIEW");
+            }
             await delay(TimeSpan.FromSeconds(3),ct);
         }
         throw new TimeoutException("UM-ROLLING-UPDATE-TIMEOUT");

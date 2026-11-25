@@ -79,7 +79,11 @@ internal static class RollingSteamMultiMapTests
         string journal=Path.Combine(cluster.Store.Root,"rolling-steam-v1.json");
         void Claim(LocalMap m,string stage)
         {
-            using var doc=JsonDocument.Parse(File.ReadAllText(journal));
+            // The fixture observes an atomic replace journal concurrently
+            // with the progress writer. Permit rename while holding the old
+            // immutable file handle, just as a concurrent native observer.
+            using var input=new FileStream(journal,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
+            using var doc=JsonDocument.Parse(input);
             var run=doc.RootElement.GetProperty("current");
             Check(run.GetProperty("mapId").GetGuid()==m.Id&&run.GetProperty("state").GetString()=="running"&&
                 run.GetProperty("stage").GetString()==stage,"durable "+stage+" claim before "+m.Name);
