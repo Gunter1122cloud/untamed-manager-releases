@@ -296,6 +296,7 @@ public sealed class DesktopRconReadOnlyBridge
                 }
                 return Ok(id,new {
                     mapId=map.Id,mapName=map.Name,command,response=sanitized,
+                    processPid=identity.Pid,processStartedUtc=identity.StartedUtc,
                     observedUtc=DateTimeOffset.UtcNow,readOnly=true,
                     saveCompleteProven=false,
                     evidence=method=="rcon.listPlayers"?

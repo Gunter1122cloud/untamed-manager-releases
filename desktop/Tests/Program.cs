@@ -60,6 +60,7 @@ static bool IsError(JsonElement value,string code)=>
 OriginalStoreExpandedDonePeerTests.Run();
 LocalLogCenterBoundedTests.Run();
 await HostedResourcesTests.RunAsync();
+await PlayerActivityNativeTests.RunAsync();
 PlayerProfileBackupTests.Run();
 LocalModRepairTests.Run();
 PendingGameIniTests.Run();

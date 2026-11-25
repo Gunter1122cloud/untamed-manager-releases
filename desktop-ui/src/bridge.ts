@@ -1786,6 +1786,7 @@ export type ConfiguredMods = {
 };
 
 export type HostedResourceKind="AdminListURL"|"BanListURL"|"BadWordListURL"|"BadWordWhiteListURL"|"CustomDynamicConfigUrl"|"CustomNotificationURL"|"CustomLiveTuningUrl";
+export type NativePlayerActivityStatus={enabled:boolean;records:import("./state/playerActivity").PlayerRecord[];storageError:boolean;persistent:boolean};
 export type HostedResourcesStatus={running:boolean;port:number;resources:Array<{kind:string;url:string;bytes:number}>;loopbackOnly:true;persistent:boolean;persistenceError?:boolean};
 
 export type ModRepairStatus={mapId:string;modId:string;folders:string[];diskOnly:true;runtimeVerified:false};
@@ -1793,7 +1794,7 @@ export type ModRepairPreview=ModRepairStatus&{token:string};
 export type ModRepairReceipt={mapId:string;modId:string;quarantined:number;remainingFolders:number;serverStarted:false;downloadVerified:false};
 export type RelocationPreview={token:string;mapId:string;files:number;bytes:number;freeBytes:number;sourceRetained:true};
 export type RelocationReceipt={mapId:string;files:number;bytes:number;sourceRetained:true;profileSwitched:true;serverStarted:false};
-type WireRequest = { id: string; method: "servers.relocationPreview" | "servers.relocationApply" | "mods.localRepairPreview" | "mods.localRepairApply" | "mods.localRepairStatus" | "resources.status" | "resources.publish" | "resources.stop" | "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
+type WireRequest = { id: string; method: "servers.relocationPreview" | "servers.relocationApply" | "mods.localRepairPreview" | "mods.localRepairApply" | "mods.localRepairStatus" | "resources.status" | "resources.publish" | "resources.stop" | "activity.status" | "activity.setEnabled" | "activity.clear" | "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
   "operations.scheduleCreate" | "operations.scheduleDisable" | "operations.watchdogStart" |
   "notifications.status" | "notifications.save" | "notifications.clear" | "notifications.test" |
   "recovery.status" | "recovery.arm" | "recovery.disarm" | "recovery.suspend" |
@@ -1998,6 +1999,9 @@ export const managerBridge = {
   modRepairStatus:(mapId:string,modId:string)=>request<ModRepairStatus>("mods.localRepairStatus",{mapId,modId}),
   modRepairPreview:(mapId:string,modId:string)=>request<ModRepairPreview>("mods.localRepairPreview",{mapId,modId}),
   modRepairApply:(token:string)=>request<ModRepairReceipt>("mods.localRepairApply",{token,confirm:true}),
+  activityStatus:()=>request<NativePlayerActivityStatus>("activity.status"),
+  activitySetEnabled:(enabled:boolean)=>request<NativePlayerActivityStatus>("activity.setEnabled",{enabled,confirm:true}),
+  activityClear:()=>request<NativePlayerActivityStatus>("activity.clear",{confirm:true}),
   hostedResourcesStatus:()=>request<HostedResourcesStatus>("resources.status"),
   hostedResourcesPublish:(kind:HostedResourceKind,content:string,port:number)=>request<HostedResourcesStatus>("resources.publish",{kind,content,port,confirm:true}),
   hostedResourcesStop:()=>request<HostedResourcesStatus>("resources.stop",{confirm:true}),
