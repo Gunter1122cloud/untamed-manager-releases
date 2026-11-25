@@ -318,6 +318,9 @@ public static class LegacyStoreV1PinnedSource
     {
         string selected=ResolveLocalRuntime(managerProfileRoot,originalKovaProfile,map);
         var source=LegacyStoreV1OriginalImport.Inspect(selected);
+        if(string.Equals(selected,originalKovaProfile,StringComparison.OrdinalIgnoreCase))
+            DemandRegisteredLocalRuntimeSource(map,source);
+        else RequireImmutableIdentity(map,source);
         var cluster=ReadOriginalCluster(selected);
         var mods=ModStateController.Read(map);
         string effectiveId=string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)
