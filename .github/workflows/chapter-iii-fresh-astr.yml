@@ -1,0 +1,30 @@
+name: Chapter III fresh Astraeos footage
+on:
+  push:
+    branches: ['media/chapter-iii-sourcepack']
+    paths: ['.github/workflows/chapter-iii-fresh-astr.yml']
+permissions:
+  contents: read
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Download two different official Steam trailers
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p fresh
+          python3 -m pip install --quiet yt-dlp
+          yt-dlp --no-progress --no-playlist -f 'bv*[height=1080]/b[height=1080]/bv*[height>=720]' --remux-video mp4 -o 'fresh/Mega.%(ext)s' 'https://video.fastly.steamstatic.com/store_trailers/3483400/1007813498/8675ac211bc55419a4d647ab5a402865d2f93309/1772032756/hls_264_master.m3u8' &
+          p1=$!
+          yt-dlp --no-progress --no-playlist -f 'bv*[height=1080]/b[height=1080]/bv*[height>=720]' --remux-video mp4 -o 'fresh/Launch.%(ext)s' 'https://video.fastly.steamstatic.com/store_trailers/3483400/828827/9ca029e0e9add8d278c2f9e606c3bde8c972e559/1750826273/hls_264_master.m3u8' &
+          p2=$!
+          wait "$p1"; wait "$p2"
+          for f in fresh/*.mp4; do ffprobe -v error -show_entries stream=width,height,r_frame_rate -show_entries format=duration,size -of json "$f"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_Fresh_Astraeos_References
+          path: fresh/
+          retention-days: 3
+          compression-level: 0
