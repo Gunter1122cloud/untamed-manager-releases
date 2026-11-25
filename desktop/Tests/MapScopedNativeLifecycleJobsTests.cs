@@ -230,9 +230,8 @@ internal static class MapScopedNativeLifecycleJobsTests
         Check(siblingJournal.Observe() is {Phase:AsaStopPhase.Completed} record&&
               record.MapId==maps[1].Id,
             "sibling Stop journal is durably completed before fixture reuse");
-        // An in-memory terminal NeedsOperator is still an unresolved native
-        // Stop outcome. Neither WebView navigation nor a new approval may
-        // bypass it. The failing worker below is isolated and never uses TCP.
+        // A terminal worker without a durable pending receipt must not
+        // block a new request. The isolated failing worker never uses TCP.
         int uncertainStopDispatches=0;
         using(var uncertain=new DesktopFreshAsaStopBridge(cluster,
             (port,pid)=>(port==37570&&pid==44801)||
@@ -267,15 +266,13 @@ internal static class MapScopedNativeLifecycleJobsTests
             var pending=Data(await Call(uncertain.HandleAsync,
                 "servers.gracefulStopCurrent",new{mapId=maps[0].Id}),
                 "uncertain Stop journal remains observable without replay");
-            Check(pending.GetProperty("state").GetString()=="needsOperator"&&
+            Check(pending.GetProperty("state").ValueKind==JsonValueKind.Null&&
                   !pending.GetProperty("active").GetBoolean(),
-                "NeedsOperator is terminal, not an active worker or completed Stop");
-            var blocked=await Call(uncertain.HandleAsync,
+                "terminal worker without durable receipt releases current operation state");
+            var retry=await Call(uncertain.HandleAsync,
                 "servers.gracefulStopPreview",new{mapId=maps[0].Id});
-            Check(!blocked.GetProperty("ok").GetBoolean()&&
-                  blocked.GetProperty("error").GetString()==
-                    "UM-ASA-STOP-NEEDS-OPERATOR",
-                "native Stop cannot re-issue a preview after uncertain outcome");
+            Check(retry.GetProperty("ok").GetBoolean(),
+                "native Stop can prepare a new explicit request after terminal worker failure");
             Check(uncertainStopDispatches==1,
                 "failed native Stop sends no automatic second SaveWorld/DoExit");
             Data(await Call(uncertain.HandleAsync,
