@@ -331,10 +331,7 @@ public static class SteamFreshInstall
                 UseShellExecute=false,CreateNoWindow=true,
                 RedirectStandardOutput=true,RedirectStandardError=true
             };
-            psi.ArgumentList.Add("+quit");
-            foreach(string key in new[]{"STEAM_USERNAME","STEAM_PASSWORD","MYSQL_PWD",
-                "MARIADB_PWD","UNTAMED_RCON_PASSWORD"})
-                psi.Environment.Remove(key);
+            SteamCmdInvocation.Configure(psi,new[]{"+quit"});
             SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();
             using var process=Process.Start(psi) ??
                 throw new IOException("SteamCMD bootstrap could not start");
@@ -491,9 +488,7 @@ public static class SteamFreshInstall
                     UseShellExecute=false,CreateNoWindow=true,
                     RedirectStandardOutput=true,RedirectStandardError=true
                 };
-                foreach(string arg in new[]{"+force_install_dir",root,"+login","anonymous",
-                    "+app_update","2430930","validate","+quit"})
-                    psi.ArgumentList.Add(arg);
+                SteamCmdInvocation.Configure(psi,SteamCmdInvocation.UpdateArguments(root),fakeExecutable!=null);
                 using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 deadline.CancelAfter(TimeSpan.FromHours(5));
                 if(fakeExecutable!=null)
@@ -528,12 +523,10 @@ public static class SteamFreshInstall
                     downloadConfirmed=true;
                     break;
                 }
-                if(fakeExecutable!=null || attempt==2 ||
-                   !IsTransientMissingSteamConfiguration(output))
-                    throw new InvalidDataException(
-                        "SteamCMD did not confirm ASA 2430930 installation");
+                if(!SteamCmdInvocation.CanRetryAppUpdate(attempt,process.ExitCode,output,fakeExecutable!=null))
+                    throw new InvalidDataException(SteamCmdInvocation.UpdateFailureCode(output));
                 progress?.Report(new("download",
-                    "SteamCMD első indítási konfigurációja még nem kész; ellenőrzött újrapróbálás "+
+                    "Átmeneti SteamCMD-hiba; ellenőrzött újrapróbálás "+
                     (attempt+1)+"/2",null));
                 await Task.Delay(TimeSpan.FromSeconds((attempt+1)*3),cancellationToken);
             }

@@ -190,7 +190,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     private ProcessCheck ReviewReplacementOwner(LocalMap map,AsaRestartRecord record,
         DateTimeOffset failureChangedUtc,int expectedPid=0,
         DateTimeOffset expectedStartedUtc=default,int expectedLoaderPid=0,
-        DateTimeOffset expectedLoaderStartedUtc=default,bool allowJustReviewed=false)
+        DateTimeOffset expectedLoaderStartedUtc=default,bool allowJustReviewed=false,
+        bool reconcileCurrentOwner=false)
     {
         bool phase=record.Phase==AsaRestartPhase.NeedsOperator||
             allowJustReviewed&&record.Phase==AsaRestartPhase.OperatorReviewed;
@@ -198,15 +199,16 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
            !phase||failureChangedUtc==default||map.Maintenance)
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-REPLACEMENT-JOURNAL-INVALID");
         var general=cluster.Operations.Observe(map.InstallationPath);
-        if(general?.Phase is UntamedOperationPhase.Prepared or
-            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
+        if(general?.Phase is (UntamedOperationPhase.Prepared or
+            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)&&
+            (!reconcileCurrentOwner||general.Kind!=UntamedOperationKind.Launch))
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-GENERAL-PENDING");
         var state=reviewObserve(map);
         if(!state.Running||state.ConfirmedStopped||
            state.Identity is not {Pid:>0} asa)
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-REPLACEMENT-ASA-NOT-RUNNING");
-        if(asa.Pid==record.OldPid||asa.Pid==record.NewPid||
-           asa.StartedUtc<=failureChangedUtc)
+        if(asa.Pid==record.OldPid||(!reconcileCurrentOwner&&
+           (asa.Pid==record.NewPid||asa.StartedUtc<=failureChangedUtc)))
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-REPLACEMENT-EPOCH-INVALID");
         string expectedServer=Path.GetFullPath(map.ExecutablePath);
         if(!string.Equals(Path.GetFullPath(asa.ExecutablePath),expectedServer,
@@ -222,8 +224,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                !string.Equals(Path.GetFullPath(map.ApiLoaderPath),expectedLoader,
                     StringComparison.OrdinalIgnoreCase)||
                loader is not {Pid:>0}||
-               loader.Pid==record.OldPid||loader.Pid==record.NewPid||
-               loader.StartedUtc<=failureChangedUtc||
+               loader.Pid==record.OldPid||(!reconcileCurrentOwner&&
+               (loader.Pid==record.NewPid||loader.StartedUtc<=failureChangedUtc))||
                loader.StartedUtc>asa.StartedUtc||
                !string.Equals(Path.GetFullPath(loader.ExecutablePath),expectedLoader,
                     StringComparison.OrdinalIgnoreCase)||
@@ -257,9 +259,34 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         return state;
     }
 
+    internal bool TryReconcileCurrentOwner(LocalMap map)=>
+        !map.HistoricalStoreProtected&&!HasActive(map.Id)&&DesktopRestartReconciler.TryReconcile(cluster,map,record=>{
+            var state=ReviewReplacementOwner(map,record,record.ChangedUtc,
+                allowJustReviewed:true,reconcileCurrentOwner:true);
+            string source=DesktopFreshAsaStartBridge.IniFingerprint(map)+":"+
+                AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map);
+            return new DesktopRestartReconciler.Witness(state.Identity!,state.LoaderIdentity,source);
+        });
+
+    internal bool TryReconcileOldOwner(LocalMap map)=>
+        !map.HistoricalStoreProtected&&!HasActive(map.Id)&&DesktopRestartReconciler.TryReconcileOldOwner(cluster,map,record=>{
+            var identity=Eligible(map,allowPendingRestart:true,review:true);
+            var state=reviewObserve(map);
+            if(!state.Running||state.ConfirmedStopped||!SameProcessIdentity(state.Identity,identity)||
+                map.StartWithAsaApi!=(state.LoaderIdentity!=null)||!portOwner(map.RconPort,identity.Pid))
+                throw new InvalidOperationException("UM-RECONCILE-OLD-OWNER-CHANGED");
+            return new DesktopRestartReconciler.Witness(identity,state.LoaderIdentity,
+                DesktopFreshAsaStartBridge.IniFingerprint(map)+":"+AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map));
+        });
+
+    internal bool TryReconcileStopped(LocalMap map)=>
+        !map.HistoricalStoreProtected&&!HasActive(map.Id)&&DesktopRestartReconciler.TryReconcileStopped(cluster,map,record=>
+            ReviewStoppedFamily(map,record,allowPendingStop:true)?DesktopFreshAsaStartBridge.IniFingerprint(map)+":"+
+                AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map):null);
+
     // Unlike running-old-PID recovery, a failed new startup needs no
     // dead RCON owner. Confirm absence of BOTH ASA and Loader and free ports.
-    private bool ReviewStoppedFamily(LocalMap map,AsaRestartRecord record)
+    private bool ReviewStoppedFamily(LocalMap map,AsaRestartRecord record,bool allowPendingStop=false)
     {
         if(record.MapId!=map.Id||record.OldPid<=0||record.NewPid==record.OldPid||
            map.AutoStart||map.Maintenance||HasActive(map.Id)||
@@ -276,7 +303,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                    AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments)||
                    AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments))return false;
             }
-            new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
+            if(!allowPendingStop)new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
             var state=reviewObserve(map);
             return AsaReadyProbe.IsRegisteredServerBinary(map)&&
                 AsaRconConfigurationEvidence.Matches(map)&&
@@ -312,6 +339,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             jobId=item.Id,state=item.State,stage=item.Stage,
             oldPid=item.OldPid,newPid=item.NewPid,
             newAsaServerPid=item.NewAsaServerPid,
+            newAsaStartedUtc=item.Readiness?.AsaStartedUtc,
             apiChildAndRconVerified=item.ApiChildAndRconVerified,
             preExitWorldMetadataObserved=item.PreExitWorldMetadataObserved,
             newProcessRole=item.NewProcessRole,

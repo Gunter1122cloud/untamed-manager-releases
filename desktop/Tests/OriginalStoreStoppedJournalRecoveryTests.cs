@@ -166,6 +166,95 @@ internal static class OriginalStoreStoppedJournalRecoveryTests
         Check(!replay.GetProperty("ok").GetBoolean(),
             "consumed stopped-owner approval cannot be replayed");
 
+        // Automatic stopped-family recovery of a new failed paired launch.
+        using(var lease=cluster.Operations.Acquire(installation,UntamedOperationKind.Launch))
+            lease.MarkMutationStarted();
+        var autoCommon=cluster.Operations.Observe(installation)!;
+        File.WriteAllText(common,JsonSerializer.Serialize(autoCommon with{UpdatedUtc=DateTimeOffset.UtcNow.AddMinutes(-12)}));
+        string autoCommonBytes=File.ReadAllText(common);
+        var autoStopped=restarts.Begin(map.Id,oldPid);
+        restarts.Change(autoStopped.Id,AsaRestartPhase.Starting);
+        restarts.RecordNewAsaPid(autoStopped.Id,oldPid+1);
+        restarts.Change(autoStopped.Id,AsaRestartPhase.NeedsOperator);
+        File.WriteAllText(restartFile,JsonSerializer.Serialize(restarts.Observe()! with{
+            ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-12)
+        }));
+        string autoRestartBytes=File.ReadAllText(restartFile);
+        stopped=false;
+        Check(!bridge.TryReconcileStopped(map)&&File.ReadAllText(common)==autoCommonBytes&&
+            File.ReadAllText(restartFile)==autoRestartBytes,"no automatic recovery without confirmed stopped family");
+        stopped=true;
+        Check(bridge.TryReconcileStopped(map)&&
+            cluster.Operations.Observe(installation)?.Phase==UntamedOperationPhase.OperatorReviewed&&
+            restarts.Observe()?.Phase==AsaRestartPhase.OperatorReviewed,
+            "verified stopped paired Launch and Restart reconcile without typed approval or replay");
+        Check(File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,
+            key+"-"+autoCommon.Operation.ToString("N")+".operator-reviewed.json"))==autoCommonBytes&&
+            File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
+                key+"-"+autoStopped.Id.ToString("N")+".operator-reviewed.json"))==autoRestartBytes&&
+            !bridge.TryReconcileStopped(map),"automatic stopped reconciliation archives both originals and is idempotent");
+
+        // Stop + Restart must not mutually block an independently confirmed
+        // stopped installation. All original receipts are archived, no replay.
+        var combinedStop=new AsaManualStopJournal(installation);
+        var stopPair=combinedStop.Begin(map.Id,oldPid,DateTimeOffset.UtcNow.AddHours(-1));
+        string stopPairFile=Path.Combine(UntamedOperationCoordinator.DefaultRoot,"GracefulStop-v1",key+".json");
+        stopPair=stopPair with{CreatedUtc=DateTimeOffset.UtcNow.AddMinutes(-15),ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-10)};
+        File.WriteAllText(stopPairFile,JsonSerializer.Serialize(stopPair,new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        string stopPairBytes=File.ReadAllText(stopPairFile);
+        var combinedRestart=restarts.Begin(map.Id,oldPid);
+        restarts.Change(combinedRestart.Id,AsaRestartPhase.NeedsOperator);
+        File.WriteAllText(restartFile,JsonSerializer.Serialize(restarts.Observe()! with{ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-10)}));
+        stopped=false;
+        Check(!bridge.TryReconcileStopped(map)&&File.ReadAllText(stopPairFile)==stopPairBytes,
+            "paired stop and restart cannot reconcile without stopped proof");
+        stopped=true;
+        Check(bridge.TryReconcileStopped(map)&&combinedStop.Observe()?.Phase==AsaStopPhase.OperatorReviewed&&
+            restarts.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+            File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,"GracefulStop-v1",
+                key+"-"+stopPair.Id.ToString("N")+".operator-reviewed.json"))==stopPairBytes,
+            "paired stop and restart archive both receipts under one installation lease");
+
+        // A crashed generic Prepared lease cannot have entered mutation.
+        // The active lease is never cancelled, and a Mutating receipt is not
+        // treated as pre-mutation even after its age threshold.
+        string prepareRoot=Path.Combine(home,"prepared-fixture");
+        Directory.CreateDirectory(prepareRoot);
+        string prepareKey=UntamedOperationCoordinator.ResourceKey(prepareRoot);
+        string prepareFile=Path.Combine(UntamedOperationCoordinator.DefaultRoot,prepareKey+".json");
+        UntamedOperationRecord prepared;
+        using(var hold=cluster.Operations.Acquire(prepareRoot,UntamedOperationKind.Configuration))
+        {
+            prepared=cluster.Operations.Observe(prepareRoot)! with{UpdatedUtc=DateTimeOffset.UtcNow.AddMinutes(-10)};
+            File.WriteAllText(prepareFile,JsonSerializer.Serialize(prepared));
+            Check(!cluster.Operations.TryCancelAbandonedPrepared(prepareRoot),"held lease cannot be auto-cancelled");
+        }
+        File.WriteAllText(prepareFile,JsonSerializer.Serialize(prepared));
+        string preparedBytes=File.ReadAllText(prepareFile);
+        Check(cluster.Operations.TryCancelAbandonedPrepared(prepareRoot)&&
+            cluster.Operations.Observe(prepareRoot)?.Phase==UntamedOperationPhase.CancelledBeforeMutation&&
+            File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,
+                prepareKey+"-"+prepared.Operation.ToString("N")+".pre-mutation-cancelled.json"))==preparedBytes&&
+            !cluster.Operations.TryCancelAbandonedPrepared(prepareRoot),"abandoned Prepared is archived and cancelled, not replayed");
+        File.WriteAllText(prepareFile,JsonSerializer.Serialize(prepared with{Phase=UntamedOperationPhase.Mutating}));
+        Check(!cluster.Operations.TryCancelAbandonedPrepared(prepareRoot),"mutating receipt cannot be pre-mutation cancelled");
+
+        string stopRoot=Path.Combine(home,"stopped-receipt-fixture");
+        Directory.CreateDirectory(stopRoot);
+        var stopMap=Guid.NewGuid();
+        var stopJournal=new AsaManualStopJournal(stopRoot);
+        var stopRecord=stopJournal.Begin(stopMap,1234,DateTimeOffset.UtcNow.AddHours(-1));
+        string stopKey=UntamedOperationCoordinator.ResourceKey(stopRoot);
+        string stopFile=Path.Combine(UntamedOperationCoordinator.DefaultRoot,"GracefulStop-v1",stopKey+".json");
+        // Preserve the journal's internal date ordering.
+        stopRecord=stopRecord with{CreatedUtc=DateTimeOffset.UtcNow.AddMinutes(-15),ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-10)};
+        File.WriteAllText(stopFile,JsonSerializer.Serialize(stopRecord,new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        Check(!cluster.Operations.TryReconcileStoppedReceipt(stopRoot,stopMap,stopJournal,stopRecord,()=>false)&&
+            stopJournal.Observe()==stopRecord,"unknown Stop does not clear without stopped-family proof");
+        Check(cluster.Operations.TryReconcileStoppedReceipt(stopRoot,stopMap,stopJournal,stopRecord,()=>true)&&
+            stopJournal.Observe()?.Phase==AsaStopPhase.OperatorReviewed,"abandoned Stop closes with stopped-family proof");
+        stopJournal.DemandNoPending(stopMap);
+
         // HP / Astraeos, 2026-11-24: the *new* ASA/Loader may launch
         // and then exit BEFORE join readiness. NewPid is nonzero and no
         // live RCON listener exists, but the operator must still be able
@@ -381,6 +470,76 @@ internal static class OriginalStoreStoppedJournalRecoveryTests
             Check(File.ReadAllText(liveAudit)==originalLiveRestart,
                 "original failed Astraeos Restart-v1 bytes remain unchanged in audit");
             liveRestart.DemandNoPending();
+            // Real-world false blocker: the currently verified Loader and ASA
+            // started BEFORE the failure receipt was closed. NewPid can be
+            // the loader, not the ASA child. No approval or replay is needed.
+            var auto=liveRestart.Begin(liveMap.Id,16477);
+            liveRestart.Change(auto.Id,AsaRestartPhase.Starting);
+            liveRestart.RecordNewAsaPid(auto.Id,loaderPid);
+            liveRestart.Change(auto.Id,AsaRestartPhase.NeedsOperator);
+            File.WriteAllText(liveFile,JsonSerializer.Serialize(liveRestart.Observe()! with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-4)
+            }));
+            string autoOriginal=File.ReadAllText(liveFile);
+            loaderPresent=false;
+            Check(!liveBridge.TryReconcileCurrentOwner(liveMap)&&File.ReadAllText(liveFile)==autoOriginal,
+                "automatic reconciliation cannot archive a missing Loader");
+            loaderPresent=true;
+            Check(liveBridge.TryReconcileCurrentOwner(liveMap)&&
+                liveRestart.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+                liveRestart.Observe()?.NewPid==loaderPid&&File.ReadAllText(liveCommon)==originalLiveCommon,
+                "current owner automatically reconciled despite failure closure being later than launch");
+            Check(File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
+                liveKey+"-"+auto.Id.ToString("N")+".operator-reviewed.json"))==autoOriginal&&
+                !liveBridge.TryReconcileCurrentOwner(liveMap),
+                "automatic reconciliation preserves exact failed bytes and is idempotent");
+            liveRestart.DemandNoPending();
+            using(var lease=liveCluster.Operations.Acquire(liveMap.InstallationPath,UntamedOperationKind.Launch))
+                lease.MarkMutationStarted();
+            var pairedGeneral=liveCluster.Operations.Observe(liveMap.InstallationPath)!;
+            File.WriteAllText(liveCommon,JsonSerializer.Serialize(pairedGeneral with{
+                UpdatedUtc=DateTimeOffset.UtcNow.AddMinutes(-10)}));
+            string pairedBytes=File.ReadAllText(liveCommon);
+            var pairedRestart=liveRestart.Begin(liveMap.Id,16477);
+            liveRestart.Change(pairedRestart.Id,AsaRestartPhase.Starting);
+            liveRestart.RecordNewAsaPid(pairedRestart.Id,loaderPid);
+            liveRestart.Change(pairedRestart.Id,AsaRestartPhase.NeedsOperator);
+            File.WriteAllText(liveFile,JsonSerializer.Serialize(liveRestart.Observe()! with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-10)}));
+            string pairedRestartBytes=File.ReadAllText(liveFile);
+            loaderPresent=false;
+            Check(!liveBridge.TryReconcileCurrentOwner(liveMap)&&File.ReadAllText(liveCommon)==pairedBytes&&
+                File.ReadAllText(liveFile)==pairedRestartBytes,"paired recovery requires complete current owner");
+            loaderPresent=true;
+            Check(liveBridge.TryReconcileCurrentOwner(liveMap)&&
+                liveCluster.Operations.Observe(liveMap.InstallationPath)?.Phase==UntamedOperationPhase.OperatorReviewed&&
+                liveRestart.Observe()?.Phase==AsaRestartPhase.OperatorReviewed,
+                "paired current-owner recovery closes both journals without replay");
+            Check(File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,
+                liveKey+"-"+pairedGeneral.Operation.ToString("N")+".operator-reviewed.json"))==pairedBytes&&
+                File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
+                liveKey+"-"+pairedRestart.Id.ToString("N")+".operator-reviewed.json"))==pairedRestartBytes&&
+                !liveBridge.TryReconcileCurrentOwner(liveMap),"paired current-owner audit and idempotence");
+            var oldOwner=liveRestart.Begin(liveMap.Id,2272);
+            liveRestart.Change(oldOwner.Id,AsaRestartPhase.NeedsOperator);
+            File.WriteAllText(liveFile,JsonSerializer.Serialize(liveRestart.Observe()! with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-4)}));
+            string oldOwnerBytes=File.ReadAllText(liveFile);
+            var oldIdentity=new ProcessIdentity{Pid=2272,StartedUtc=DateTimeOffset.UtcNow.AddMinutes(-20),
+                ExecutablePath="synthetic-server",Arguments="synthetic-original"};
+            var oldLoader=new ProcessIdentity{Pid=loaderPid,StartedUtc=oldIdentity.StartedUtc.AddSeconds(-5),
+                ExecutablePath="synthetic-loader",Arguments="synthetic-original"};
+            DesktopRestartReconciler.Witness OldProof(AsaRestartRecord _) =>
+                new(oldIdentity,loaderPresent?oldLoader:null,new string('A',64));
+            loaderPresent=false;
+            Check(!DesktopRestartReconciler.TryReconcileOldOwner(liveCluster,liveMap,OldProof)&&
+                File.ReadAllText(liveFile)==oldOwnerBytes,"old-owner recovery requires exact Loader");
+            loaderPresent=true;
+            Check(DesktopRestartReconciler.TryReconcileOldOwner(liveCluster,liveMap,OldProof)&&
+                liveRestart.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+                File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
+                    liveKey+"-"+oldOwner.Id.ToString("N")+".operator-reviewed.json"))==oldOwnerBytes,
+                "old-owner recovery archives abandoned Restart without dispatch");
             Check(!(await Apply(livePreview)).GetProperty("ok").GetBoolean(),
                 "replacement review approval cannot be replayed");
         }

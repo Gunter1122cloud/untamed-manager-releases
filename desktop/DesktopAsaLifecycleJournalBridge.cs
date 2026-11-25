@@ -33,6 +33,7 @@ public sealed class DesktopAsaLifecycleJournalBridge
     private readonly ClusterService cluster;
     private readonly Func<Guid,LegacyStoreV1GracefulStop.Owned> ownerProof;
     private readonly Func<Guid,LegacyStoreV1GracefulStop.Owned> replacementProof;
+    private readonly Func<Guid,LegacyStoreV1GracefulStop.Owned> reconcileProof;
     private readonly Func<Guid,int,StoppedProof> stoppedProof;
     private readonly bool stoppedReviewEnabled;
     private readonly SemaphoreSlim serial=new(1,1);
@@ -60,6 +61,9 @@ public sealed class DesktopAsaLifecycleJournalBridge
         // Injected running-owner tests must not reach the production
         // Windows/legacy-profile inspection accidentally.
         stoppedReviewEnabled=proof==null||stopped!=null;
+        reconcileProof=proof==null?
+            (mapId=>LegacyStoreV1GracefulStop.PreviewForCurrentOwnerReconciliation(cluster,mapId)):
+            replacementProof;
     }
 
     private static string Ok(string id,object data)=>
@@ -115,6 +119,29 @@ public sealed class DesktopAsaLifecycleJournalBridge
             throw new InvalidDataException("UM-RECOVERY-REPLACEMENT-LOADER-UNVERIFIED");
         return witness;
     }
+    // Called only by the native host reconciliation lane, never by a UI request.
+    internal bool TryReconcileCurrentOwner(LocalMap map)=>
+        map.HistoricalStoreProtected&&DesktopRestartReconciler.TryReconcile(cluster,map,record=>{
+            var proof=reconcileProof(map.Id);
+            if(!ReferenceEquals(proof.Map,map)||proof.SourceSha.Length!=64||!proof.SourceSha.All(Uri.IsHexDigit))
+                throw new InvalidDataException("UM-RECONCILE-SOURCE-UNVERIFIED");
+            return new DesktopRestartReconciler.Witness(proof.Process,proof.LoaderIdentity,proof.SourceSha);
+        });
+
+    internal bool TryReconcileOldOwner(LocalMap map)=>
+        map.HistoricalStoreProtected&&DesktopRestartReconciler.TryReconcileOldOwner(cluster,map,record=>{
+            var witness=Proof(map.Id);
+            if(!ReferenceEquals(witness.Map,map))throw new InvalidDataException("UM-RECONCILE-OLD-SOURCE");
+            return new DesktopRestartReconciler.Witness(witness.Process,witness.LoaderIdentity,witness.SourceSha);
+        });
+
+    internal bool TryReconcileStopped(LocalMap map)=>
+        map.HistoricalStoreProtected&&DesktopRestartReconciler.TryReconcileStopped(cluster,map,record=>{
+            var witness=VerifyStopped(map.Id,record.OldPid);
+            // Source replacement is not routine runtime reconciliation.
+            return witness.SourceReapprovalRequired?null:witness.SourceSha;
+        });
+
     private StoppedProof ProductionStoppedProof(Guid mapId,int oldPid)
     {
         var map=Owned(mapId);

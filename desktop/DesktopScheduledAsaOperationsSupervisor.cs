@@ -444,7 +444,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 throw new InvalidDataException("UM-ASA-SCHEDULE-ONCE-RANGE");
         }
         var map=Owned(mapId);
-        if(!Eligible(map)||(postRestartWipe&&!HistoricalEligible(map)))
+        if(!Eligible(map))
             throw new UnauthorizedAccessException("UM-ASA-SCHEDULE-PREFLIGHT-DENIED");
         return Locked(()=>{
             var state=Read();
@@ -987,70 +987,98 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 "NEW_ASA_API_PLUGIN_JOIN_RCON_READY",id);
             if(!job.PostRestartWipe)return evidence+"_RESTART_VERIFIED_READY";
             DateTimeOffset started=result.GetProperty("newStartedUtc").GetDateTimeOffset();
-            // Bind the wipe to the exact new PID/start time. Wait on freshly
-            // observed own listener and current-run join advertising, never
-            // infer readiness from a delay or the old process.
-            var readyLimit=DateTimeOffset.UtcNow.AddMinutes(10);
-            bool ready=false;
-            while(DateTimeOffset.UtcNow<readyLimit)
-            {
-                ct.ThrowIfCancellationRequested();
-                if(!HistoricalEligible(Owned(job.MapId))||
-                   Fingerprint(Owned(job.MapId))!=job.Fingerprint)
-                    throw new InvalidOperationException("UM-SCHEDULE-WIPE-CONFIG-CHANGED");
-                LegacyStoreV1GracefulStop.Owned? proof=null;
-                try{proof=LegacyStoreV1GracefulStop.Preview(cluster,job.MapId);}
-                catch(Exception){/* startup/listener not ready; no dispatch */}
-                if(proof!=null)
-                {
-                    if(proof.Process.Pid!=pid||proof.Process.StartedUtc!=started)
-                        throw new InvalidOperationException("UM-SCHEDULE-WIPE-PID-CHANGED");
-                    if(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(proof)==null)
-                    {ready=true;break;}
-                }
-                await Task.Delay(TimeSpan.FromSeconds(2),ct);
-            }
-            if(!ready)throw new InvalidOperationException("UM-SCHEDULE-WIPE-NOT-READY");
-            // The readiness event was already published for this exact
-            // native instance. Do not emit a duplicate before the wipe.
-            // A disabled or edited job may finish its in-progress Restart,
-            // but it must not send a newly pending wipe.
-            bool WipeStillEnabled()=>Locked(()=>Read().Jobs.Any(x=>x.MapId==job.MapId&&
-                x.Kind==job.Kind&&x.Enabled&&x.PostRestartWipe&&x.WipeDelaySeconds==job.WipeDelaySeconds&&
-                x.Revision==job.Revision&&x.Fingerprint==job.Fingerprint&&x.LastStatus=="claimed-no-auto-retry"));
-            if(!WipeStillEnabled())return evidence+"_RESTART_WIPE_DISABLED";
-            if(job.WipeDelaySeconds>0)
-            {
-                var delayEnd=DateTimeOffset.UtcNow.AddSeconds(job.WipeDelaySeconds);
-                while(DateTimeOffset.UtcNow<delayEnd)
-                {
-                    if(!WipeStillEnabled())return evidence+"_RESTART_WIPE_DISABLED";
-                    ct.ThrowIfCancellationRequested();
-                    await Task.Delay(TimeSpan.FromSeconds(1),ct);
-                }
-            }
-            if(!WipeStillEnabled())return evidence+"_RESTART_WIPE_DISABLED";
-            ct.ThrowIfCancellationRequested();
-            var wipe=Decode(await historicalAdmin!.HandleScheduledWipeAsync(
-                Message("historical.adminPreview",new{mapId=job.MapId,action="wildWipe",message=""}),pid,started));
-            if(wipe.GetProperty("mapId").GetGuid()!=job.MapId||
-               wipe.GetProperty("command").GetString()!="DestroyWildDinos")
-                throw new InvalidDataException("UM-SCHEDULE-WIPE-PREVIEW");
-            ct.ThrowIfCancellationRequested();
-            if(!WipeStillEnabled())return evidence+"_RESTART_WIPE_DISABLED";
-            ScheduleEvent(runId,job,"wipe-dispatch","in-progress","WIPE_INTENT_NO_EFFECT_PROOF",id);
-            var sent=Decode(await historicalAdmin.HandleScheduledWipeAsync(
-                Message("historical.adminSend",new{token=wipe.GetProperty("token").GetGuid(),
-                    confirm=true,typedApproval="STORE-V1 DINÓTÖRLÉS"}),pid,started));
-            if(sent.GetProperty("mapId").GetGuid()!=job.MapId||
-               sent.GetProperty("command").GetString()!="DestroyWildDinos"||
-               !sent.GetProperty("commandSent").GetBoolean()||
-               !sent.GetProperty("oneShot").GetBoolean())
-                throw new InvalidDataException("UM-SCHEDULE-WIPE-RECEIPT");
-            ScheduleEvent(runId,job,"wipe-result","limited","WIPE_SENT_EFFECT_UNVERIFIED",id);
-            return evidence+"_RESTART_READY_WIPE_SENT_EFFECT_UNVERIFIED";
+            return await RunPostReadyWipeAsync(job,runId,id,pid,started,
+                evidence+"_RESTART_VERIFIED_READY",true,ct);
         }
         throw new InvalidOperationException("UM-SCHEDULE-HISTORICAL-TIMEOUT");
+    }
+    // Reconnect/probe, settle, send once. Wipe failure is separate
+    // from an already verified successful restart.
+    private async Task<string> RunPostReadyWipeAsync(ScheduledAsaOperation job,Guid runId,
+        Guid nativeId,int pid,DateTimeOffset started,string restartEvidence,bool historical,CancellationToken ct)
+    {
+        bool Enabled()=>Locked(()=>Read().Jobs.Any(x=>x.MapId==job.MapId&&
+            x.Kind==job.Kind&&x.Enabled&&x.PostRestartWipe&&x.WipeDelaySeconds==job.WipeDelaySeconds&&
+            x.Revision==job.Revision&&x.Fingerprint==job.Fingerprint&&x.LastStatus=="claimed-no-auto-retry"));
+        LocalMap Verify()
+        {
+            var map=Owned(job.MapId);
+            if(!Enabled()||!Eligible(map)||Fingerprint(map)!=job.Fingerprint)
+                throw new InvalidOperationException("UM-SCHEDULE-WIPE-DISABLED-OR-CHANGED");
+            if(historical)
+            {
+                var proof=LegacyStoreV1GracefulStop.Preview(cluster,job.MapId);
+                if(proof.Process.Pid!=pid||proof.Process.StartedUtc!=started||
+                    LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(proof)!=null)
+                    throw new InvalidOperationException("UM-SCHEDULE-WIPE-PID-OR-READY-CHANGED");
+            }
+            else
+            {
+                var state=cluster.Check(map);
+                if(!state.Running||state.ConfirmedStopped||state.Identity is not { } child||
+                    child.Pid!=pid||child.StartedUtc!=started||!RconPortOwnership.IsOwnedListener(map.RconPort,pid)||
+                    !AsaRuntimeLogEvidence.Inspect(map,child,state.LoaderIdentity).JoinAdvertised)
+                    throw new InvalidOperationException("UM-SCHEDULE-WIPE-PID-OR-READY-CHANGED");
+            }
+            return map;
+        }
+        try
+        {
+            if(!Enabled())return restartEvidence+"_WIPE_DISABLED";
+            var map=Verify();
+            var limit=DateTimeOffset.UtcNow.AddSeconds(60);
+            bool ready=false;
+            do
+            {
+                ct.ThrowIfCancellationRequested();map=Verify();
+                try
+                {
+                    _=await RconProtocol.Execute("127.0.0.1",map.RconPort,
+                        SecureStore.Unprotect(map.RconPasswordProtected),"ListPlayers",ct);
+                    Verify();ready=true;break;
+                }
+                catch(Exception ex) when(ex is IOException or System.Net.Sockets.SocketException or OperationCanceledException)
+                {ct.ThrowIfCancellationRequested();}
+                await Task.Delay(TimeSpan.FromSeconds(1),ct);
+            }while(DateTimeOffset.UtcNow<limit);
+            if(!ready)throw new InvalidOperationException("UM-SCHEDULE-WIPE-RCON-NOT-READY");
+            var settle=DateTimeOffset.UtcNow.AddSeconds(Math.Max(20,job.WipeDelaySeconds));
+            while(DateTimeOffset.UtcNow<settle)
+            {
+                ct.ThrowIfCancellationRequested();
+                if(!Enabled())return restartEvidence+"_WIPE_DISABLED";
+                Verify();await Task.Delay(TimeSpan.FromSeconds(1),ct);
+            }
+            ct.ThrowIfCancellationRequested();Verify();
+            string prefix=historical?"historical":"rcon";
+            Func<string,Task<string>> handle=historical?
+                raw=>historicalAdmin!.HandleScheduledWipeAsync(raw,pid,started):
+                raw=>freshWipeAdmin.HandleScheduledWipeAsync(raw,pid,started);
+            var wipe=Decode(await handle(Message(prefix+".adminPreview",new{mapId=job.MapId,action="wildWipe",message=""})));
+            if(wipe.GetProperty("mapId").GetGuid()!=job.MapId||
+                wipe.GetProperty("command").GetString()!="DestroyWildDinos")
+                throw new InvalidDataException("UM-SCHEDULE-WIPE-PREVIEW");
+            ct.ThrowIfCancellationRequested();Verify();
+            ScheduleEvent(runId,job,"wipe-dispatch","in-progress","WIPE_INTENT_NO_EFFECT_PROOF",nativeId);
+            var sent=Decode(await handle(Message(prefix+".adminSend",new{
+                token=wipe.GetProperty("token").GetGuid(),confirm=true,
+                typedApproval=historical?"STORE-V1 DINÓTÖRLÉS":"DINÓTÖRLÉS"})));
+            if(sent.GetProperty("mapId").GetGuid()!=job.MapId||
+                sent.GetProperty("command").GetString()!="DestroyWildDinos"||
+                !sent.GetProperty("commandSent").GetBoolean()||!sent.GetProperty("oneShot").GetBoolean())
+                throw new InvalidDataException("UM-SCHEDULE-WIPE-RECEIPT");
+            bool acknowledged=sent.TryGetProperty("response",out var response)&&
+                response.GetString()=="ADMIN_RCON_ACKNOWLEDGED_NO_GAMEPLAY_PROOF";
+            string outcome=acknowledged?"WIPE_RCON_ACK_EFFECT_UNVERIFIED":"WIPE_SENT_EFFECT_UNVERIFIED";
+            ScheduleEvent(runId,job,"wipe-result","limited",outcome,nativeId);
+            return restartEvidence+"_"+outcome;
+        }
+        catch(Exception ex)
+        {
+            string code=NativeLifecycleFailureCode.From(ex);
+            ScheduleEvent(runId,job,"wipe-result","failed",code,nativeId);
+            return restartEvidence+"_WIPE_FAILED_"+code;
+        }
     }
     private async Task<string> DispatchStandaloneWipeAsync(Guid mapId,string fingerprint,
         Func<string,Task<string>> handle,string prefix,string approval,CancellationToken ct)
@@ -1082,7 +1110,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         return "WILD_WIPE_SINGLE_SEND_GAME_EFFECT_UNVERIFIED";
     }
     private Task<string> RunNativeAsync(Guid mapId,string kind,CancellationToken ct)=>RunNativeAsync(mapId,kind,ct,null);
-    private async Task<string> RunNativeAsync(Guid mapId,string kind,CancellationToken ct,ProcessIdentity? warned)
+    private async Task<string> RunNativeAsync(Guid mapId,string kind,CancellationToken ct,ProcessIdentity? warned,ScheduledAsaOperation? scheduled=null,Guid? runId=null)
     {
         if(kind=="WildWipe")
         {
@@ -1099,15 +1127,12 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         if(kind=="SaveWorld")
         {
             var map=Owned(mapId);
-            // Shared installation coordinator prevents manual Stop/Restart or
-            // SteamCMD from overlapping this scheduled SaveWorld command.
-            using var lease=cluster.Operations.Acquire(map.InstallationPath,
-                UntamedOperationKind.Backup);
+            // The native SaveWorld bridge owns the non-recursive lease.
+            // Do not acquire the same installation lock twice.
             var check=cluster.Check(map);
             if(!check.Running||check.ConfirmedStopped||check.Identity is not {Pid:>0} ||
                !safeMap(map))
                 throw new InvalidOperationException("UM-ASA-SCHEDULE-SAVE-NOT-OWNED");
-            lease.MarkMutationStarted();
             var prepared=Decode(await rcon.HandleAsync(
                 Message("rcon.saveWorld",new {mapId,confirm=true})));
             if(!prepared.GetProperty("nativeWitnessAvailable").GetBoolean()||
@@ -1122,7 +1147,6 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     Message("rcon.saveStatus",new {mapId,watchId})));
                 if(saveStatus.GetProperty("combinedSaveEvidenceObserved").GetBoolean())
                 {
-                    lease.Complete();
                     return "ASA_LOG_AND_WORLD_STABLE_NO_FSYNC_CERTIFICATION";
                 }
                 // ASA does not always emit the paired save log markers.
@@ -1130,7 +1154,6 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 if(saveStatus.TryGetProperty("worldMetadataObserved",out var metadata)&&
                    metadata.ValueKind==JsonValueKind.True)
                 {
-                    lease.Complete();
                     return "ASA_WORLD_METADATA_STABLE_LOG_UNVERIFIED";
                 }
                 var stage=saveStatus.GetProperty("stage").GetString();
@@ -1169,7 +1192,16 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                    ready.ValueKind!=JsonValueKind.True)
                     throw new InvalidOperationException(
                         "UM-ASA-SCHEDULE-RESTART-READINESS-NOT-CERTIFIED");
-                return "RESTART_NEW_ASA_API_PLUGIN_JOIN_RCON_VERIFIED";
+                const string evidence="RESTART_NEW_ASA_API_PLUGIN_JOIN_RCON_VERIFIED";
+                if(scheduled?.PostRestartWipe==true&&runId.HasValue)
+                {
+                    int pid=current.GetProperty("newAsaServerPid").GetInt32();
+                    var epoch=current.GetProperty("newAsaStartedUtc").GetDateTimeOffset();
+                    if(pid<=0||pid==preview.GetProperty("currentPid").GetInt32())
+                        throw new InvalidDataException("UM-SCHEDULE-WIPE-NEW-PID");
+                    return await RunPostReadyWipeAsync(scheduled,runId.Value,jobId,pid,epoch,evidence,false,ct);
+                }
+                return evidence;
             }
             if(state=="needsOperator")
                 throw new InvalidOperationException(RestartFailureCode(current,
@@ -1330,8 +1362,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                         }
                         evidence=map.HistoricalStoreProtected?
                             await RunHistoricalAsync(observed,claimId,lane,token,warned):
-                            warned==null?await runner(map.Id,observed.Kind,token):
-                            await RunNativeAsync(map.Id,observed.Kind,token,warned);
+                            nativeCountdown?await RunNativeAsync(map.Id,observed.Kind,token,warned,observed,claimId):
+                             await runner(map.Id,observed.Kind,token);
                         status="executed-no-fsync-or-client-certification";
                     }
                     else status="config-or-store-blocked";

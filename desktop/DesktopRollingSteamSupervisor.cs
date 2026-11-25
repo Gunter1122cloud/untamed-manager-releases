@@ -19,7 +19,8 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
 {
     internal sealed record Setting(Guid MapId,bool Enabled,bool ApiRiskAccepted,string Fingerprint);
     internal sealed record Run(Guid Id,Guid MapId,string State,string Stage,string OldBuild,
-        string TargetBuild,bool OriginallyRunning,DateTimeOffset ChangedUtc,string? Error=null);
+        string TargetBuild,bool OriginallyRunning,DateTimeOffset ChangedUtc,string? Error=null,
+        string? ProfileFingerprint=null,string? NativeSteamStage=null);
     private sealed class State
     {
         public State(){}
@@ -100,7 +101,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
     private State Read()
     {
         NoLinks();if(!File.Exists(path))return new();
-        using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
+        using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
         if(stream.Length is <2 or >1_000_000)throw new InvalidDataException("UM-ROLLING-JOURNAL-SIZE");
         var state=JsonSerializer.Deserialize<State>(stream,Json)??throw new InvalidDataException("UM-ROLLING-JOURNAL");
         if(state.Settings==null||state.Settings.Count>256||
@@ -123,7 +124,18 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                 if(stream.Length>1_000_000)throw new InvalidDataException("UM-ROLLING-JOURNAL-SIZE");
                 stream.Flush(true);
             }
-            NoLinks();File.Move(tmp,path,true);
+            // Windows may transiently deny replacement while a read-only
+            // observer releases an old journal handle. Retry only publication
+            // of the SAME flushed bytes, never any lifecycle/Steam action.
+            for(int attempt=0;;attempt++)
+            {
+                NoLinks();
+                try{File.Move(tmp,path,true);break;}
+                catch(IOException ex) when(attempt<7&&(ex.HResult&0xffff) is (5 or 32 or 33))
+                {Thread.Sleep(25*(attempt+1));}
+                catch(UnauthorizedAccessException ex) when(attempt<7&&(ex.HResult&0xffff)==5)
+                {Thread.Sleep(25*(attempt+1));}
+            }
         }
         finally{if(File.Exists(tmp))File.Delete(tmp);}
     }
@@ -175,6 +187,13 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
         var journal=cluster.Operations.Observe(m.InstallationPath);
         if(journal?.Phase is UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
             throw new InvalidOperationException("UM-ROLLING-LOCAL-JOURNAL-NEEDS-REVIEW");
+    }
+    // Read-only diagnostic: saving future opt-in is separate from permission
+    // to execute. Unknown or unreadable journals still fail closed at runtime.
+    private string? JournalBlocker(LocalMap m)
+    {
+        try{DemandClearJournals(m);return null;}
+        catch(Exception ex){return NativeLifecycleFailureCode.From(ex);}
     }
     private ProcessCheck Observe(LocalMap m)
     {
@@ -228,6 +247,40 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
     }
     private static bool Yes(JsonElement r,string key)=>r.TryGetProperty(key,out var value)&&value.ValueKind==JsonValueKind.True;
     private void SetRun(Run run)=>Locked(()=>{var state=Read();state.Current=run;Write(state);return true;});
+
+    private static bool BeforeLifecycle(Run? run)=>run!=null&&
+        run.State is ("running" or "needs-review")&&run.Stage is ("preflight" or "countdown");
+
+    // The host worker/file lease must already be held. No Stop or SteamCMD
+    // can have been dispatched in these stages: Stage is flushed before
+    // either call. Archive the exact run, not a fabricated successful update.
+    private bool CloseBeforeLifecycle()=>Locked(()=>{
+        var state=Read();var run=state.Current;
+        if(!BeforeLifecycle(run))return false;
+        var prior=run!;
+        string audit=Path.Combine(root,"rolling-steam-abandoned-"+prior.Id.ToString("N")+".json");
+        byte[] original=JsonSerializer.SerializeToUtf8Bytes(prior,Json);
+        if(File.Exists(audit))
+        {
+            if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+               !File.ReadAllBytes(audit).SequenceEqual(original))
+                throw new InvalidDataException("UM-ROLLING-ABANDONED-AUDIT-MISMATCH");
+        }
+        else
+        {
+            string tmp=audit+"."+Guid.NewGuid().ToString("N")+".tmp";
+            try
+            {
+                using(var stream=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+                {stream.Write(original);stream.Flush(true);}
+                File.Move(tmp,audit);
+            }
+            finally{if(File.Exists(tmp))File.Delete(tmp);}
+        }
+        state.Current=prior with{State="reviewed",ChangedUtc=DateTimeOffset.UtcNow,
+            Error=prior.Error??"UM-ROLLING-INTERRUPTED-BEFORE-LIFECYCLE"};
+        Write(state);return true;
+    });
     private async Task LifecycleAsync(LocalMap map,string action,CancellationToken ct,ProcessCheck expected)
     {
         var preview=Decode(await lifecycle.HandleAsync(Message("operations.lifecycleBatchPreview",new{
@@ -265,7 +318,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
         }
         throw new TimeoutException("UM-ROLLING-LIFECYCLE-TIMEOUT");
     }
-    private async Task UpdateAsync(LocalMap map,string oldBuild,string target,CancellationToken ct)
+    private async Task UpdateAsync(LocalMap map,string oldBuild,string target,CancellationToken ct,Action<string> reportStage)
     {
         if(!Stopped(Observe(map)))throw new InvalidOperationException("UM-ROLLING-NOT-STOPPED");
         var preview=Decode(await steam.HandleAsync(Message("steam.stoppedPreview",new{mapId=map.Id})));
@@ -273,8 +326,8 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
            preview.GetProperty("maps").GetArrayLength()!=1||preview.GetProperty("maps")[0].GetString()!=map.Name)
             throw new InvalidOperationException("UM-ROLLING-UPDATE-SCOPE");
         ct.ThrowIfCancellationRequested();
-        var applied=Decode(await steam.HandleAsync(Message("steam.stoppedApply",new{
-            token=preview.GetProperty("token").GetGuid(),confirm=true})));
+        var applied=Decode(await steam.HandleRollingApplyAsync(Message("steam.stoppedApply",new{
+            token=preview.GetProperty("token").GetGuid(),confirm=true}),target));
         if(!Yes(applied,"started"))throw new InvalidOperationException("UM-ROLLING-UPDATE-REJECTED");
         Guid job=applied.GetProperty("jobId").GetGuid();
         var until=DateTimeOffset.UtcNow.AddHours(3);
@@ -285,6 +338,8 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             if(r.GetProperty("jobId").GetGuid()!=job||r.GetProperty("mapId").GetGuid()!=map.Id)
                 throw new InvalidOperationException("UM-ROLLING-UPDATE-JOB");
             string? status=r.GetProperty("state").GetString();
+            if(r.TryGetProperty("stage",out var stage)&&stage.GetString() is {Length:>0 and <=80} nativeStage)
+                reportStage(nativeStage);
             if(status=="completed")
             {
                 if(!Yes(r,"protectedFilesIntact")||r.GetProperty("oldBuild").GetString()!=oldBuild||
@@ -293,7 +348,14 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                     throw new InvalidOperationException("UM-ROLLING-BUILD-OR-BACKUP-UNVERIFIED");
                 return;
             }
-            if(status is not ("running" or "queued"))throw new InvalidOperationException("UM-ROLLING-UPDATE-NEEDS-REVIEW");
+            if(status is not ("running" or "queued"))
+            {
+                var code=r.TryGetProperty("errorCode",out var error)&&error.ValueKind==JsonValueKind.String?
+                    error.GetString():null;
+                throw new InvalidOperationException(code!=null?
+                    NativeLifecycleFailureCode.From(new InvalidOperationException(code)):
+                    "UM-ROLLING-UPDATE-NEEDS-REVIEW");
+            }
             await delay(TimeSpan.FromSeconds(3),ct);
         }
         throw new TimeoutException("UM-ROLLING-UPDATE-TIMEOUT");
@@ -343,7 +405,8 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
            diagnostic.GetProperty("availableBytes").GetInt64()<diagnostic.GetProperty("requiredBytes").GetInt64()||
            diagnostic.GetProperty("externalSteamError").ValueKind!=JsonValueKind.Null)
             throw new InvalidOperationException("UM-ROLLING-PREFLIGHT-BLOCKED");
-        var run=new Run(Guid.NewGuid(),map.Id,"running","preflight",installed!,target,running,DateTimeOffset.UtcNow);
+        var run=new Run(Guid.NewGuid(),map.Id,"running","preflight",installed!,target,running,DateTimeOffset.UtcNow,
+            ProfileFingerprint:setting.Fingerprint);
         SetRun(run); // durable claim BEFORE chat, stop or SteamCMD.
         void Stage(string stage){run=run with{Stage=stage,ChangedUtc=DateTimeOffset.UtcNow};SetRun(run);}
         try
@@ -359,7 +422,14 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             // finish this already-claimed map if the unchanged identity allows.
             DemandProfile(setting,false);DemandClearJournals(map);
             if(!Stopped(Observe(map)))throw new InvalidOperationException("UM-ROLLING-NOT-STOPPED");
-            Stage("updating");await UpdateAsync(map,installed!,target,ct);
+            Stage("updating");
+            await UpdateAsync(map,installed!,target,ct,nativeStage=>{
+                if(run.NativeSteamStage==nativeStage)return;
+                run=run with{NativeSteamStage=nativeStage,ChangedUtc=DateTimeOffset.UtcNow};SetRun(run);
+            });
+            // The native completed receipt has verified the target manifest,
+            // backup and protected files. Persist before any Start dispatch.
+            Stage("files-verified");
             if(running)
             {
                 DemandProfile(setting,false);DemandClearJournals(map);
@@ -382,9 +452,50 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             throw;
         }
     }
+    private static bool CanResumeVerifiedFiles(Run? run)=>run!=null&&
+        run.State is ("running" or "needs-review")&&run.Stage=="files-verified"&&
+        run.ProfileFingerprint is {Length:64};
+
+    private async Task<bool> ResumeVerifiedFilesAsync(Run run,State state,CancellationToken ct)
+    {
+        var setting=state.Settings.SingleOrDefault(s=>s.MapId==run.MapId&&s.Enabled&&
+            s.Fingerprint==run.ProfileFingerprint);
+        if(setting==null)return false;
+        var map=Owned(run.MapId);
+        DemandProfile(setting,true);DemandClearJournals(map);
+        if(AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath)!=run.TargetBuild||
+            !Stopped(Observe(map)))return false;
+        // The previous worker could not have entered Start before writing
+        // "starting". Never resume from that ambiguous stage.
+        if(run.OriginallyRunning)
+        {
+            var stopped=Observe(map);
+            if(!Stopped(stopped))return false;
+            run=run with{State="running",Stage="starting",ChangedUtc=DateTimeOffset.UtcNow,Error=null};
+            SetRun(run);
+            try
+            {
+                await LifecycleAsync(map,"start",ct,stopped);
+                var now=Observe(map);
+                if(!now.Running||now.ConfirmedStopped||now.Identity is not {Pid:>0} child||
+                   !ownsPort(map.RconPort,child.Pid)||map.StartWithAsaApi!=(now.LoaderIdentity is {Pid:>0}))
+                    throw new InvalidOperationException("UM-ROLLING-RECOVERY-START-NOT-VERIFIED");
+            }
+            catch(Exception ex)
+            {
+                SetRun(run with{State="needs-review",ChangedUtc=DateTimeOffset.UtcNow,Error=NativeLifecycleFailureCode.From(ex)});
+                throw;
+            }
+        }
+        SetRun(run with{State="completed",Stage="verified",ChangedUtc=DateTimeOffset.UtcNow,Error=null});
+        return true;
+    }
+
     internal async Task TickOnceAsync(CancellationToken ct=default)
     {
-        if(frozen()||!Locked(()=>{var s=Read();return s.Current?.State is not ("running" or "needs-review")&&s.Settings.Any(x=>x.Enabled);}))
+        if(frozen()||!Locked(()=>{var s=Read();return
+            (BeforeLifecycle(s.Current)||CanResumeVerifiedFiles(s.Current)||s.Current?.State is not ("running" or "needs-review"))&&
+            s.Settings.Any(x=>x.Enabled);}))
             return;
         if(!await hostGate.WaitAsync(0,ct))return;
         bool entered=false;
@@ -395,6 +506,16 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             using var lease=Lease();
             Interlocked.Exchange(ref busy,1);
             var state=Locked(Read);
+            if(BeforeLifecycle(state.Current))
+            {
+                CloseBeforeLifecycle();
+                state=Locked(Read);
+            }
+            if(CanResumeVerifiedFiles(state.Current))
+            {
+                if(!await ResumeVerifiedFilesAsync(state.Current!,state,ct))return;
+                state=Locked(Read);
+            }
             if(state.Current?.State is "running" or "needs-review")return;
             var settings=state.Settings.Where(s=>s.Enabled).ToArray();
             string? latest=null;
@@ -405,6 +526,10 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                 try{DemandProfile(setting,true);}
                 catch{continue;} // no mutation or claim on an invalid target
                 var map=Owned(setting.MapId);
+                // A stale per-map journal is not a failed rolling transaction.
+                // Skip only that map before querying Steam or claiming work.
+                // RunMapAsync still rechecks all journals before any mutation.
+                if(JournalBlocker(map)!=null)continue;
                 if(latest==null)
                 {
                     // Reuse the native read-only build endpoint so the same
@@ -419,7 +544,22 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                     latest=report.GetProperty("availableBuild").GetString();
                     if(string.IsNullOrWhiteSpace(latest))return;
                 }
-                await RunMapAsync(setting,latest,ct); // no parallel map mutations
+                try{await RunMapAsync(setting,latest,ct);} // no parallel map mutations
+                catch(Exception ex) when(ex is not OperationCanceledException)
+                {
+                    var failed=Locked(Read).Current;
+                    if(failed?.MapId==map.Id&&BeforeLifecycle(failed))
+                    {
+                        CloseBeforeLifecycle();
+                        // A failed warning can leave its own local admin
+                        // journal. Do not replay it; other maps are independent.
+                        continue;
+                    }
+                    // Only a claimed stopping/updating/starting phase may
+                    // have touched the server files/process. Preserve it.
+                    if(failed?.State is "running" or "needs-review")throw;
+                    System.Diagnostics.Trace.TraceWarning("Rolling preflight {0}: {1}",map.Id,NativeLifecycleFailureCode.From(ex));
+                }
             }
         }
         finally
@@ -458,7 +598,9 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             if(method=="steam.rollingStatus")
             {
                 var state=Locked(Read);
-                return Task.FromResult(Ok(new{settings=state.Settings.Select(x=>new{x.MapId,x.Enabled,x.ApiRiskAccepted}),
+                return Task.FromResult(Ok(new{settings=state.Settings.Select(x=>new{x.MapId,x.Enabled,x.ApiRiskAccepted,
+                        journalBlocker=x.Enabled?cluster.Config.LocalMaps.FirstOrDefault(m=>m.Id==x.MapId) is { } m?
+                            JournalBlocker(m):"UM-MAP-NOT-OWNED":null}),
                     current=state.Current,busy=Busy,intervalMinutes=15,warningMinutes=AsaShutdownCountdown.Minutes,
                     hostLocalOnly=true,runnerStarted=Volatile.Read(ref started)!=0}));
             }
@@ -472,16 +614,19 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                 {
                     if(Busy||Volatile.Read(ref started)==0||map.StartWithAsaApi&&!apiRisk)
                         return Task.FromResult(Fail("UM-ROLLING-ENABLE-BLOCKED"));
-                    DemandEligible(map);DemandClearJournals(map);
+                    DemandEligible(map);
+                    // Opt-in records intent only. A prior per-map journal
+                    // remains intact and continues to prevent all dispatch.
                 }
                 var result=Locked(()=>{
                     var state=Read();
-                    if(enabled&&state.Current?.State is ("running" or "needs-review"))
+                    if(enabled&&state.Current?.MapId==map.Id&&state.Current.State is ("running" or "needs-review")&&!BeforeLifecycle(state.Current))
                         throw new InvalidOperationException("UM-ROLLING-PRIOR-REVIEW");
                     var row=new Setting(map.Id,enabled,enabled&&apiRisk,Fingerprint(map));
                     state.Settings.RemoveAll(x=>x.MapId==map.Id);state.Settings.Add(row);Write(state);return row;
                 });
-                return Task.FromResult(Ok(new{result.MapId,result.Enabled,result.ApiRiskAccepted}));
+                return Task.FromResult(Ok(new{result.MapId,result.Enabled,result.ApiRiskAccepted,
+                    journalBlocker=result.Enabled?JournalBlocker(map):null}));
             }
             if(method=="steam.rollingReview")
             {
@@ -495,9 +640,9 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                     var archive=Path.Combine(root,"rolling-steam-reviewed-"+runId.ToString("N")+".json");
                     using(var audit=new FileStream(archive,FileMode.CreateNew,FileAccess.Write,FileShare.None))
                     {JsonSerializer.Serialize(audit,previous,Json);audit.Flush(true);}
-                    s.Settings=s.Settings.Select(x=>x with{Enabled=false}).ToList();
+                    s.Settings=s.Settings.Select(x=>x.MapId==previous.MapId?x with{Enabled=false}:x).ToList();
                     s.Current=previous with{State="reviewed",ChangedUtc=DateTimeOffset.UtcNow};
-                    Write(s);return new{reviewed=true,allDisabled=true,noReplay=true};
+                    Write(s);return new{reviewed=true,allDisabled=false,disabledMapId=previous.MapId,noReplay=true};
                 })));
             }
             return Task.FromResult(Fail("UM-METHOD-DENIED"));

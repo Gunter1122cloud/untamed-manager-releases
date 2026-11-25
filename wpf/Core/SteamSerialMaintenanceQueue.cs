@@ -12,11 +12,12 @@ namespace UntamedManager.Core;
 
 public enum SteamQueuePhase
 {
-    Prepared, MapInProgress, Completed, NeedsOperator
+    Prepared, MapInProgress, Completed, NeedsOperator, AbandonedBetweenMaps, IsolatedActiveMap
 }
 public sealed record SteamQueueSnapshot(Guid QueueId,SteamQueuePhase Phase,
     string HostId,int NextIndex,Guid[] MapIds,Guid? ActiveMap,
-    DateTimeOffset ChangedUtc,string Summary);
+    DateTimeOffset ChangedUtc,string Summary,string? ActiveResource=null,
+    DateTimeOffset? ActiveClaimedUtc=null,Guid? PreviousOperation=null);
 public sealed record SteamQueueProgress(int Position,int Total,string MapName,string Stage)
 {
     public SteamStoppedMapUpdater.Receipt? VerifiedReceipt {get;init;}
@@ -27,8 +28,8 @@ public sealed record SteamQueueProgress(int Position,int Total,string MapName,st
 /// Each Windows Manager handles only its own registered maps. The named OS
 /// semaphore is shared by local processes, NOT by the other physical computer.
 /// No LAN connection, peer state or cluster-wide lease is required.
-/// Never auto-resume an interrupted update. A failure blocks the remaining
-/// local map queue; no unbounded retries or concurrent Steam downloads.
+/// Never replay a dispatched update. A checkpoint without an active map
+/// can be archived under the host lease. Uncertain mutations stay protected.
 /// </summary>
 public sealed class SteamSerialMaintenanceQueue
 {
@@ -45,18 +46,114 @@ public sealed class SteamSerialMaintenanceQueue
     private string Journal=>Path.Combine(folder,"queue-v1.json");
     private SteamQueueSnapshot? Read()
     {
-        if(!File.Exists(Journal))return null;
-        if((File.GetAttributes(Journal)&FileAttributes.ReparsePoint)!=0||
+        _=UntamedOperationCoordinator.ResourceKey(folder);
+        FileAttributes attributes;
+        try{attributes=File.GetAttributes(Journal);}
+        catch(FileNotFoundException){return null;}
+        catch(DirectoryNotFoundException){return null;}
+        if((attributes&(FileAttributes.ReparsePoint|FileAttributes.Directory))!=0||
             new FileInfo(Journal).Length is <=0 or >65536)
             throw new InvalidDataException("Steam queue journal is invalid");
         var status=JsonSerializer.Deserialize<SteamQueueSnapshot>(
             File.ReadAllText(Journal));
         if(status==null||status.QueueId==Guid.Empty||status.HostId!=hostId||
-           !Enum.IsDefined(status.Phase)||status.MapIds.Length>25)
+           !Enum.IsDefined(status.Phase)||status.MapIds==null||status.MapIds.Length is <1 or >25||
+           status.MapIds.Any(id=>id==Guid.Empty)||status.MapIds.Distinct().Count()!=status.MapIds.Length||
+           status.NextIndex<0||status.NextIndex>status.MapIds.Length||
+           (status.ActiveMap.HasValue&&(status.NextIndex>=status.MapIds.Length||
+                status.MapIds[status.NextIndex]!=status.ActiveMap.Value))||
+           (status.Phase==SteamQueuePhase.MapInProgress&&!status.ActiveMap.HasValue)||
+           (status.Phase is (SteamQueuePhase.Prepared or SteamQueuePhase.Completed or SteamQueuePhase.AbandonedBetweenMaps or SteamQueuePhase.IsolatedActiveMap)&&status.ActiveMap.HasValue)||
+           (status.ActiveResource!=null&&(status.ActiveResource.Length!=64||!status.ActiveResource.All(Uri.IsHexDigit)||!status.ActiveMap.HasValue||status.ActiveClaimedUtc==null)))
             throw new InvalidDataException("Steam queue journal identity mismatch");
         return status;
     }
     public SteamQueueSnapshot? Observe()=>Read();
+    // Projection of persistent uncertainty, NOT a concurrency check.
+    // Actual Steam work still needs the machine-wide lease.
+    internal static bool BlocksNewWork(SteamQueueSnapshot? s)=>s!=null&&
+        (s.Phase==SteamQueuePhase.MapInProgress||s.Phase==SteamQueuePhase.NeedsOperator&&s.ActiveMap.HasValue);
+
+    // An interrupted Steam operation can leave a host-wide queue stranded
+    // even though its exact installation is already protected by a separate
+    // durable Update journal. Move only the queue receipt out of the host
+    // lane, under both leases, never clear the installation mutation.
+    private bool IsolateActiveUnderHostLease(IReadOnlyList<LocalMap> registered)
+    {
+        var prior=Read();
+        if(!BlocksNewWork(prior)||prior!.ActiveResource==null||prior.ActiveClaimedUtc==null||
+           (prior.Phase==SteamQueuePhase.MapInProgress&&DateTimeOffset.UtcNow-prior.ChangedUtc<TimeSpan.FromMinutes(3)))return false;
+        var map=registered.SingleOrDefault(m=>m.Id==prior.ActiveMap);
+        if(map==null||UntamedOperationCoordinator.ResourceKey(map.InstallationPath)!=prior.ActiveResource)return false;
+        SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();
+        return new UntamedOperationCoordinator().TryWithUnownedUpdate(map.InstallationPath,
+            prior.PreviousOperation,prior.ActiveClaimedUtc.Value,()=>{
+                SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();
+                // Same machine-local host lease is held throughout. Keep the
+                // exact original bytes, including the still-unknown outcome.
+                byte[] bytes=File.ReadAllBytes(Journal);
+                string archive=Path.Combine(folder,"queue-"+prior.QueueId.ToString("N")+".isolated-active.json");
+                if(File.Exists(archive))
+                {
+                    if((File.GetAttributes(archive)&FileAttributes.ReparsePoint)!=0||
+                        !File.ReadAllBytes(archive).SequenceEqual(bytes))throw new InvalidDataException("UM-STEAM-QUEUE-AUDIT-MISMATCH");
+                }
+                else
+                {
+                    string tmp=archive+"."+Guid.NewGuid().ToString("N")+".tmp";
+                    try
+                    {
+                        using(var output=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough))
+                        {output.Write(bytes);output.Flush(true);}
+                        File.Move(tmp,archive);
+                    }
+                    finally{if(File.Exists(tmp))File.Delete(tmp);}
+                }
+                if(!File.ReadAllBytes(Journal).SequenceEqual(bytes))
+                    throw new IOException("UM-STEAM-QUEUE-CHANGED");
+                Write(prior with{Phase=SteamQueuePhase.IsolatedActiveMap,ActiveMap=null,
+                    ActiveResource=null,ActiveClaimedUtc=null,PreviousOperation=null,ChangedUtc=DateTimeOffset.UtcNow,
+                    Summary="Unknown active map isolated; installation Update journal remains pending. No replay."});
+            });
+    }
+    internal bool TryIsolateAbandonedActive(IReadOnlyList<LocalMap> registered)
+    {
+        try{using var host=SteamHostLease.Acquire();return IsolateActiveUnderHostLease(registered);}
+        catch(IOException){return false;}
+    }
+
+    private void ArchiveIdleCheckpoint(SteamQueueSnapshot previous)
+    {
+        if(previous.ActiveMap.HasValue||previous.Phase is not (SteamQueuePhase.Prepared or SteamQueuePhase.NeedsOperator))
+            throw new InvalidOperationException("UM-STEAM-QUEUE-CHECKPOINT-ACTIVE");
+        byte[] original=File.ReadAllBytes(Journal);
+        string archive=Path.Combine(folder,"queue-"+previous.QueueId.ToString("N")+".abandoned.json");
+        try
+        {
+            using var file=new FileStream(archive,FileMode.CreateNew,FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough);
+            file.Write(original);file.Flush(true);
+        }
+        catch(IOException) when(File.Exists(archive))
+        {
+            if((File.GetAttributes(archive)&FileAttributes.ReparsePoint)!=0||
+                new FileInfo(archive).Length!=original.Length||!File.ReadAllBytes(archive).SequenceEqual(original))throw;
+        }
+        Write(previous with{Phase=SteamQueuePhase.AbandonedBetweenMaps,ChangedUtc=DateTimeOffset.UtcNow,
+            Summary="Previous queue closed between maps. No active map dispatched. No replay."});
+    }
+    internal bool TryCloseIdleCheckpoint()
+    {
+        try
+        {
+            using var lease=SteamHostLease.Acquire();
+            var current=Read();
+            if(current==null||current.Phase is not (SteamQueuePhase.Prepared or SteamQueuePhase.NeedsOperator)||
+                current.ActiveMap.HasValue)return false;
+            SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();
+            ArchiveIdleCheckpoint(current);return true;
+        }
+        catch(IOException){return false;}
+    }
     private void Write(SteamQueueSnapshot snapshot)
     {
         Directory.CreateDirectory(folder);
@@ -89,9 +186,17 @@ public sealed class SteamSerialMaintenanceQueue
         using var hostLease=SteamHostLease.Acquire();
         {
             var previous=Read();
-            if(previous!=null && previous.Phase is
-               (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress or SteamQueuePhase.NeedsOperator))
-                throw new IOException("Interrupted Steam queue requires human review before another operation");
+            if(BlocksNewWork(previous))
+            {
+                if(!IsolateActiveUnderHostLease(registeredLocal))
+                    throw new IOException("UM-STEAM-QUEUE-ACTIVE-MAP-OUTCOME-UNKNOWN");
+                previous=Read();
+            }
+            if(previous?.Phase is SteamQueuePhase.Prepared or SteamQueuePhase.NeedsOperator)
+            {
+                SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();
+                ArchiveIdleCheckpoint(previous);
+            }
             var status=new SteamQueueSnapshot(Guid.NewGuid(),SteamQueuePhase.Prepared,
                 hostId,0,selected.Select(x=>x.Id).ToArray(),null,
                 DateTimeOffset.UtcNow,"Awaiting first map");
@@ -103,6 +208,9 @@ public sealed class SteamSerialMaintenanceQueue
                     ct.ThrowIfCancellationRequested();
                     var map=selected[i];
                     new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+                    var operationBefore=new UntamedOperationCoordinator().Observe(map.InstallationPath);
+                    if(operationBefore?.Phase is (UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator))
+                        throw new IOException("UM-STEAM-LOCAL-OPERATION-JOURNAL-NEEDS-REVIEW");
                     // Check all other maps sharing the same installation; a
                     // running sibling can use the same ASA binaries as this map.
                     string install=Path.GetFullPath(map.InstallationPath).TrimEnd(
@@ -123,12 +231,15 @@ public sealed class SteamSerialMaintenanceQueue
                     // handler; an unclean process exit is never auto-retried.
                     status=status with {Phase=SteamQueuePhase.MapInProgress,
                         NextIndex=i,ActiveMap=map.Id,ChangedUtc=DateTimeOffset.UtcNow,
+                        ActiveResource=UntamedOperationCoordinator.ResourceKey(map.InstallationPath),
+                        ActiveClaimedUtc=DateTimeOffset.UtcNow,PreviousOperation=operationBefore?.Operation,
                         Summary="Map maintenance began: "+map.Name};
                     Write(status);
                     await applyVerifiedMaintenance(map,ct);
                     progress?.Report(new(i+1,selected.Count,map.Name,"Sikeresen befejezve"));
                     status=status with {Phase=SteamQueuePhase.Prepared,
                         NextIndex=i+1,ActiveMap=null,ChangedUtc=DateTimeOffset.UtcNow,
+                        ActiveResource=null,ActiveClaimedUtc=null,PreviousOperation=null,
                         Summary="Map maintenance verified: "+map.Name};
                     Write(status);
                 }
@@ -140,9 +251,10 @@ public sealed class SteamSerialMaintenanceQueue
             }
             catch(Exception ex)
             {
-                status=status with {Phase=SteamQueuePhase.NeedsOperator,
+                bool uncertain=status.ActiveMap.HasValue;
+                status=status with {Phase=uncertain?SteamQueuePhase.NeedsOperator:SteamQueuePhase.AbandonedBetweenMaps,
                     ChangedUtc=DateTimeOffset.UtcNow,
-                    Summary="Queue halted; operator intervention required ("+
+                    Summary=(uncertain?"Active map outcome unknown (":"Queue stopped before next dispatch (")+
                         ex.GetType().Name+")"};
                 Write(status);
                 throw;

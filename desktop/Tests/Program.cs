@@ -274,7 +274,17 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         "rolling batch stops after uncertain first dispatch and skips the next map");
     var replay=await Call(batch.HandleAsync,"operations.lifecycleBatchApply",new{token,confirm=true});
     Check(!replay.GetProperty("ok").GetBoolean()&&calls==1,"batch approval cannot be replayed");
-    Check(!batch.CanManagerUpdate(),"unreviewed batch blocks manager update");
+    string persistedBatch=Path.Combine(batchCluster.Store.Root,"native-lifecycle-batch-v1.json");
+    byte[] unknownBytes=File.ReadAllBytes(persistedBatch);
+    using(var activeOwner=new FileStream(Path.Combine(batchCluster.Store.Root,"native-lifecycle-batch-v1.lock"),
+        FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None))
+        Check(!batch.CanManagerUpdate(),"active batch owner blocks manager update");
+    Check(batch.CanManagerUpdate()&&File.ReadAllBytes(persistedBatch).SequenceEqual(unknownBytes),
+        "inactive uncertain batch permits Manager repair but preserves original receipt");
+    var priorBlocked=await Call(batch.HandleAsync,"operations.lifecycleBatchPreview",
+        new{mapIds=new[]{one.Id},action="start",delaySeconds=0});
+    Check(IsError(priorBlocked,"UM-BATCH-PRIOR-REVIEW")&&calls==1,
+        "Manager repair does not unlock or replay the unresolved ASA batch");
     JsonElement review=default;
     for(int n=0;n<100;n++)
     {
@@ -283,7 +293,7 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         await Task.Delay(20);
     }
     IsOk(review,"batch journal can be explicitly reviewed without redispatch");
-    Check(calls==1&&batch.CanManagerUpdate(),"review releases batch update block without replay");
+    Check(calls==1&&batch.CanManagerUpdate(),"explicit review preserves Manager handoff eligibility without replay");
 }
 // Deterministic calendar tests: no Windows clock changes and no RCON.
 {

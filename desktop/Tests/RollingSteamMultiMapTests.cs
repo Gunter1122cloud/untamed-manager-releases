@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using UntamedDesktop;
@@ -22,6 +23,9 @@ internal static class RollingSteamMultiMapTests
         await Scenario(root,"steam-failure");
         await Scenario(root,"wrong-build");
         await Scenario(root,"start-failure");
+        await Scenario(root,"blocked-map");
+        await Scenario(root,"interrupted-countdown");
+        await Scenario(root,"interrupted-verified-files");
     }
     private static async Task Scenario(string root,string mode)
     {
@@ -76,7 +80,23 @@ internal static class RollingSteamMultiMapTests
         string journal=Path.Combine(cluster.Store.Root,"rolling-steam-v1.json");
         void Claim(LocalMap m,string stage)
         {
-            using var doc=JsonDocument.Parse(File.ReadAllText(journal));
+            // Read through the same native named mutex as the writer.
+            // FILE_SHARE_DELETE alone does not guarantee Windows replace
+            // semantics for an open destination handle.
+            string identity=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(cluster.Store.Root)).ToUpperInvariant())));
+            using var mutex=new Mutex(false,@"Global\Untamed-RollingSteam-"+identity);
+            bool held=false;
+            string snapshot;
+            try
+            {
+                try{held=mutex.WaitOne(TimeSpan.FromSeconds(5));}
+                catch(AbandonedMutexException){held=true;}
+                Check(held,"native rolling journal read lock acquired");
+                snapshot=File.ReadAllText(journal);
+            }
+            finally{if(held)mutex.ReleaseMutex();}
+            using var doc=JsonDocument.Parse(snapshot);
             var run=doc.RootElement.GetProperty("current");
             Check(run.GetProperty("mapId").GetGuid()==m.Id&&run.GetProperty("state").GetString()=="running"&&
                 run.GetProperty("stage").GetString()==stage,"durable "+stage+" claim before "+m.Name);
@@ -149,10 +169,45 @@ internal static class RollingSteamMultiMapTests
             using var doc=JsonDocument.Parse(await supervisor.HandleAsync(JsonSerializer.Serialize(data)));
             return doc.RootElement.Clone();
         }
+        AsaManualRestartJournal? blockedJournal=null;
+        AsaRestartRecord? blockedRecord=null;
+        if(mode=="blocked-map")
+        {
+            blockedJournal=new AsaManualRestartJournal(a.InstallationPath);
+            var claim=blockedJournal.Begin(a.Id,observed[a.Id].Identity!.Pid);
+            blockedRecord=blockedJournal.Change(claim.Id,AsaRestartPhase.NeedsOperator);
+        }
         foreach(var m in maps.Take(3))
         {
             var accepted=await Call("steam.rollingSet",new{mapId=m.Id,enabled=true,confirm=true,apiRiskAccepted=false});
             Check(accepted.GetProperty("ok").GetBoolean(),"explicit opt-in "+m.Name+": "+accepted.GetRawText());
+            if(mode=="blocked-map"&&m.Id==a.Id)
+                Check(accepted.GetProperty("data").GetProperty("journalBlocker").ValueKind==JsonValueKind.String,
+                    "blocked map opt-in stores intent and reports blocker without clearing journal");
+        }
+        if(mode=="interrupted-countdown")
+        {
+            // Emulate an abandoned Manager before any Stop/Steam mutation.
+            // The worker owns no lock now; the next poll must archive and proceed.
+            var persisted=JsonNode.Parse(File.ReadAllText(journal))!.AsObject();
+            persisted["current"]=JsonSerializer.SerializeToNode(new DesktopRollingSteamSupervisor.Run(
+                Guid.NewGuid(),a.Id,"running","countdown","123456","123457",true,DateTimeOffset.UtcNow.AddMinutes(-10)),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            File.WriteAllText(journal,persisted.ToJsonString());
+        }
+        if(mode=="interrupted-verified-files")
+        {
+            // Real native update has finished; rolling worker exited before
+            // Start dispatch. Persist exact settings fingerprint and build.
+            Build(a,"123457");observed[a.Id]=Stopped();
+            var persisted=JsonNode.Parse(File.ReadAllText(journal))!.AsObject();
+            string fingerprint=persisted["settings"]!.AsArray()
+                .Single(x=>x!["mapId"]!.GetValue<Guid>()==a.Id)!["fingerprint"]!.GetValue<string>();
+            persisted["current"]=JsonSerializer.SerializeToNode(new DesktopRollingSteamSupervisor.Run(
+                Guid.NewGuid(),a.Id,"running","files-verified","123456","123457",true,
+                DateTimeOffset.UtcNow.AddMinutes(-10),ProfileFingerprint:fingerprint),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            File.WriteAllText(journal,persisted.ToJsonString());
         }
         bool failed=false;
         using(var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(60)))
@@ -173,8 +228,32 @@ internal static class RollingSteamMultiMapTests
         Check(entered==1&&left==1&&gate.CurrentCount==1&&checks==1,"one host lane and one published build query");
         Check(AsaSteamBuildCatalog.InstalledBuild(disabled.InstallationPath)=="123456"&&observed[disabled.Id].Running&&
             !trace.Any(x=>x.StartsWith(disabled.Name+":",StringComparison.Ordinal)),"non-opted map untouched");
-        if(mode=="success")
+        if(mode=="blocked-map")
         {
+            var setting=status.GetProperty("settings").EnumerateArray().Single(x=>x.GetProperty("mapId").GetGuid()==a.Id);
+            Check(!failed&&setting.GetProperty("enabled").GetBoolean()&&
+                setting.GetProperty("journalBlocker").ValueKind==JsonValueKind.String&&
+                blockedJournal!.Observe()==blockedRecord&&observed[a.Id].Running&&
+                AsaSteamBuildCatalog.InstalledBuild(a.InstallationPath)=="123456"&&
+                trace.SequenceEqual(new[]{"Ragnarok:steam","The Island:stop","The Island:steam","The Island:start"})&&
+                minuteWaits==5&&current.GetProperty("state").GetString()=="completed",
+                "blocked first map remains untouched while other local maps update");
+            Check(AsaSteamBuildCatalog.InstalledBuild(b.InstallationPath)=="123457"&&
+                AsaSteamBuildCatalog.InstalledBuild(c.InstallationPath)=="123457",
+                "eligible siblings complete despite old per-map journal");
+        }
+        else if(mode=="interrupted-verified-files")
+        {
+            Check(!failed&&trace.SequenceEqual(new[]{"Astraeos:start","Ragnarok:steam",
+                "The Island:stop","The Island:steam","The Island:start"})&&minuteWaits==5&&
+                observed[a.Id].Running&&current.GetProperty("state").GetString()=="completed",
+                "verified-files recovery starts only the previously running map without a second Steam update");
+        }
+        else if(mode=="success"||mode=="interrupted-countdown")
+        {
+            if(mode=="interrupted-countdown")
+                Check(Directory.GetFiles(profile,"rolling-steam-abandoned-*.json").Length==1,
+                    "interrupted countdown is archived automatically before normal fresh cycle");
             Check(!failed&&current.GetProperty("state").GetString()=="completed"&&
                 trace.SequenceEqual(new[]{"Astraeos:stop","Astraeos:steam","Astraeos:start","Ragnarok:steam",
                     "The Island:stop","The Island:steam","The Island:start"}),"strict serial stop/update/start; stopped map never starts");
@@ -195,6 +274,14 @@ internal static class RollingSteamMultiMapTests
                 "unvisited map remains online on original build");
             int before=trace.Count;await supervisor.TickOnceAsync();
             Check(trace.Count==before&&entered==1,"uncertain update cannot auto-replay");
+            Guid failedMap=current.GetProperty("mapId").GetGuid();
+            var reviewed=await Call("steam.rollingReview",new{runId=current.GetProperty("id").GetGuid(),confirm=true});
+            Check(reviewed.GetProperty("ok").GetBoolean(),"review archives failed rolling run");
+            var settings=(await Call("steam.rollingStatus",new{})).GetProperty("data").GetProperty("settings");
+            foreach(var m in maps.Take(3))
+                Check(settings.EnumerateArray().Single(x=>x.GetProperty("mapId").GetGuid()==m.Id)
+                    .GetProperty("enabled").GetBoolean()==(m.Id!=failedMap),
+                    "only the failed map loses rolling opt-in");
         }
         foreach(var m in maps)Check(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(saves[m.Id])))==hashes[m.Id],
             "world fixture unchanged "+m.Name);

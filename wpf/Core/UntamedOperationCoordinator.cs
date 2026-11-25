@@ -101,6 +101,108 @@ public sealed class UntamedOperationCoordinator
             if(entered)semaphore.Release();semaphore.Dispose();throw;
         }
     }
+    // Prepared is the durable pre-mutation boundary. An unowned stale
+    // Prepared receipt can be cancelled, never marked successful or replayed.
+    // Secondary restart/stop/save receipts are deliberately left untouched.
+    internal bool TryCancelAbandonedPrepared(string installation)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return false;
+        try
+        {
+            string journal=Path.Combine(stateRoot,key+".json");
+            var old=Read(journal,key);
+            if(old==null||old.Phase!=UntamedOperationPhase.Prepared||
+                old.UpdatedUtc==default||DateTimeOffset.UtcNow-old.UpdatedUtc<TimeSpan.FromMinutes(3))
+                return false;
+            string audit=Path.Combine(stateRoot,key+"-"+old.Operation.ToString("N")+".pre-mutation-cancelled.json");
+            byte[] bytes=File.ReadAllBytes(journal);
+            if(File.Exists(audit))
+            {
+                if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+                    new FileInfo(audit).Length!=bytes.Length||
+                    !CryptographicOperations.FixedTimeEquals(File.ReadAllBytes(audit),bytes))
+                    throw new InvalidDataException("UNTAMED_OPERATION_PREPARED_AUDIT_MISMATCH");
+            }
+            else
+            {
+                string tmp=audit+"."+Guid.NewGuid().ToString("N")+".tmp";
+                try
+                {
+                    using(var stream=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+                    {stream.Write(bytes);stream.Flush(true);}
+                    File.Move(tmp,audit);
+                }
+                finally{if(File.Exists(tmp))File.Delete(tmp);}
+            }
+            if(Read(journal,key)!=old||!File.ReadAllBytes(journal).SequenceEqual(bytes))
+                throw new IOException("UNTAMED_OPERATION_PREPARED_CHANGED");
+            Write(journal,old with{Phase=UntamedOperationPhase.CancelledBeforeMutation,UpdatedUtc=DateTimeOffset.UtcNow});
+            return true;
+        }
+        finally{semaphore.Release();}
+    }
+
+    // Automatic recovery for an abandoned standalone Stop when the entire
+    // local process family is independently absent. Never replay DoExit.
+    internal bool TryReconcileStoppedReceipt(string installation,Guid mapId,
+        AsaManualStopJournal stop,AsaManualStopRecord expected,Func<bool> verifyStopped)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return false;
+        try
+        {
+            var common=Read(Path.Combine(stateRoot,key+".json"),key);
+            if(common?.Phase is (UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator))
+                return false;
+            if(expected.MapId!=mapId||expected.Resource!=key||
+                expected.Phase is not (AsaStopPhase.Pending or AsaStopPhase.NeedsOperator)||
+                DateTimeOffset.UtcNow-expected.ChangedUtc<TimeSpan.FromMinutes(3)||
+                stop.Observe()!=expected||!verifyStopped())return false;
+            new AsaManualRestartJournal(installation).DemandNoPending();
+            if(stop.Observe()!=expected||!verifyStopped())return false;
+            stop.ReviewStopped(mapId,expected.Id);
+            return true;
+        }
+        finally{semaphore.Release();}
+    }
+
+    // Updating the Manager executable is not an ASA installation mutation.
+    // Allow a terminal unresolved receipt to survive handoff, but never
+    // while another process owns the installation operation semaphore.
+    internal bool AllowsManagerHandoff(string installation)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return false;
+        try
+        {
+            var record=Read(Path.Combine(stateRoot,key+".json"),key);
+            return record?.Phase is not (UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating);
+        }
+        finally{semaphore.Release();}
+    }
+
+    internal bool TryWithUnownedUpdate(string installation,Guid? previousOperation,
+        DateTimeOffset claimedUtc,Action isolateQueue)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return false;
+        try
+        {
+            var record=Read(Path.Combine(stateRoot,key+".json"),key);
+            if(record==null||record.Operation==previousOperation||record.Kind!=UntamedOperationKind.Update||
+                record.Phase is not (UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)||
+                record.UpdatedUtc<claimedUtc||record.UpdatedUtc>DateTimeOffset.UtcNow)return false;
+            isolateQueue();
+            return true;
+        }
+        finally{semaphore.Release();}
+    }
+
     public UntamedOperationRecord? Observe(string installation)
     {
         string key=ResourceKey(installation);
@@ -403,9 +505,9 @@ public sealed class UntamedOperationCoordinator
     /// </summary>
     internal void ReviewStoppedOriginalRestartOnly(string installation,
         Guid expectedMapId,Guid expectedRestartId,int oldPid,
-        int attemptedNewPid,Func<bool> verifyStopped)=>
+        int attemptedNewPid,Func<bool> verifyStopped,Action? reviewSecondary=null)=>
         ReviewAbandonedOriginalRestartOnly(installation,expectedMapId,expectedRestartId,
-            oldPid,attemptedNewPid,verifyStopped,false);
+            oldPid,attemptedNewPid,verifyStopped,false,reviewSecondary);
 
     internal void ReviewReplacementOriginalRestartOnly(string installation,
         Guid expectedMapId,Guid expectedRestartId,int oldPid,
@@ -415,7 +517,7 @@ public sealed class UntamedOperationCoordinator
 
     private void ReviewAbandonedOriginalRestartOnly(string installation,
         Guid expectedMapId,Guid expectedRestartId,int oldPid,
-        int attemptedNewPid,Func<bool> verifyStopped,bool replacement)
+        int attemptedNewPid,Func<bool> verifyStopped,bool replacement,Action? reviewSecondary=null)
     {
         ArgumentNullException.ThrowIfNull(verifyStopped);
         if(expectedMapId==Guid.Empty||expectedRestartId==Guid.Empty||
@@ -447,6 +549,8 @@ public sealed class UntamedOperationCoordinator
             if(!verifyStopped())
                 throw new UnauthorizedAccessException(
                     "UM-RECOVERY-STOPPED-PROOF-CHANGED");
+            reviewSecondary?.Invoke();
+            if(!verifyStopped())throw new UnauthorizedAccessException("UM-RECOVERY-SECONDARY-PROOF-CHANGED");
             restart.ReviewOriginalStoppedFamily(expectedMapId,
                 expectedRestartId,oldPid,attemptedNewPid);
             if(!verifyStopped())
@@ -469,9 +573,11 @@ public sealed class UntamedOperationCoordinator
     internal void ReviewStoppedOriginalPaired(string installation,
         Guid expectedOperation,Guid expectedMapId,Guid expectedRestartId,
         int oldPid,Func<bool> verifyStopped,int attemptedNewPid=0,
-        bool replacement=false)
+        bool replacement=false,Action? reviewSecondary=null)
     {
         ArgumentNullException.ThrowIfNull(verifyStopped);
+        if(replacement&&reviewSecondary!=null)
+            throw new InvalidOperationException("UM-RECOVERY-SECONDARY-REQUIRES-STOPPED");
         if(expectedOperation==Guid.Empty||expectedMapId==Guid.Empty||
            expectedRestartId==Guid.Empty||oldPid<=0)
             throw new InvalidDataException("UM-RECOVERY-STOPPED-APPROVAL-INVALID");
@@ -535,6 +641,8 @@ public sealed class UntamedOperationCoordinator
             if(!verifyStopped())
                 throw new UnauthorizedAccessException(
                     "UM-RECOVERY-STOPPED-PROOF-CHANGED");
+            reviewSecondary?.Invoke();
+            if(!verifyStopped())throw new UnauthorizedAccessException("UM-RECOVERY-SECONDARY-PROOF-CHANGED");
             // The original Restart ID is reviewed, never marked Completed.
             // If the process reappears before the common journal commit, the
             // common NeedsOperator state still blocks Start / Stop / RCON.

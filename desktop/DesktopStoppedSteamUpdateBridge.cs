@@ -169,11 +169,10 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     {
         try
         {
-            var journal=new SteamSerialMaintenanceQueue(
-                cluster.Store.Root,cluster.Config.LocalHostId).Observe();
-            return journal!=null && journal.Phase is
-                (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress
-                    or SteamQueuePhase.NeedsOperator)
+            var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
+            queue.TryIsolateAbandonedActive(cluster.Config.LocalMaps);
+            var journal=queue.Observe();
+            return SteamSerialMaintenanceQueue.BlocksNewWork(journal)
                 ?"UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW":null;
         }
         catch{return "UM-STEAM-QUEUE-JOURNAL-UNREADABLE";}
@@ -182,8 +181,9 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     {
         try
         {
-            var journal=new SteamSerialMaintenanceQueue(
-                cluster.Store.Root,cluster.Config.LocalHostId).Observe();
+            var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
+            queue.TryCloseIdleCheckpoint();
+            var journal=queue.Observe();
             return journal!=null && journal.Phase is
                 (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress);
         }
@@ -304,7 +304,10 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         };
     }
 
-    public async Task<string> HandleAsync(string raw)
+    public Task<string> HandleAsync(string raw)=>HandleCoreAsync(raw,null);
+    internal Task<string> HandleRollingApplyAsync(string raw,string expectedBuild)=>
+        HandleCoreAsync(raw,expectedBuild);
+    private async Task<string> HandleCoreAsync(string raw,string? rollingTarget)
     {
         string? id=null;
         try
@@ -324,6 +327,9 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                 "steam.publishedBuild" or "steam.selectExecutable" or "steam.prepareExecutable" or
                "steam.discoverExecutables" or "steam.acceptDiscoveredExecutable"))
                 return Fail(id,"UM-METHOD-DENIED");
+            if(rollingTarget!=null&&(method!="steam.stoppedApply"||
+                rollingTarget.Length is <1 or >20||!rollingTarget.All(char.IsAsciiDigit)))
+                return Fail(id,"UM-STEAM-ROLLING-TARGET");
             await mutex.WaitAsync();
             try
             {
@@ -466,9 +472,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     try{queue=new SteamSerialMaintenanceQueue(
                         cluster.Store.Root,cluster.Config.LocalHostId).Observe();}
                     catch{queueUnreadable=true;}
-                    bool queueJournalBlocked=queueUnreadable||queue!=null&&
-                        queue.Phase is (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress or
-                            SteamQueuePhase.NeedsOperator);
+                    bool queueJournalBlocked=queueUnreadable||SteamSerialMaintenanceQueue.BlocksNewWork(queue);
                     string? queueCode=queueUnreadable?"UM-STEAM-QUEUE-JOURNAL-UNREADABLE":
                         queueJournalBlocked?"UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW":null;
                     if(queueCode!=null)
@@ -675,9 +679,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     if(journal==null)
                         return Ok(id,new{exists=false,needsOperatorReview=false,
                             autoResumeAllowed=false,activeJob});
-                    bool needsReview=!active && journal.Phase is
-                        (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress
-                            or SteamQueuePhase.NeedsOperator);
+                    bool needsReview=!active&&SteamSerialMaintenanceQueue.BlocksNewWork(journal);
                     string? mapName=cluster.Config.LocalMaps.FirstOrDefault(
                         m=>m.Id==journal.ActiveMap)?.Name;
                     return Ok(id,new{
@@ -831,7 +833,11 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     });
                     try
                     {
-                        var verified=await runner(map,progress);
+                        var verified=rollingTarget!=null&&!isolatedExecution?
+                            await SteamStoppedMapUpdater.UpdateRollingAsync(cluster,map,
+                                cluster.Config.SteamCmdExecutable,Reserve,TimeSpan.FromHours(2),rollingTarget,progress,
+                                member=>ObserveForSteam(member),member=>ObserveForSteam(member,true)):
+                            await runner(map,progress);
                         if(verified.MapId!=map.Id||!verified.ProtectedFilesIntact)
                             throw new InvalidDataException("UM-STEAM-RECEIPT-INVALID");
                         Stage(task,"completed","verified",verified);
@@ -841,7 +847,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     {
                         lock(sync)
                         {
-                            task.ErrorCode=ex.Message is "UM-STEAM-EXTERNAL-PROCESS-BUSY" or "UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED" or "UM-STEAM-INSTALLED-BUILD-INVALID" or "UM-STEAM-INSTALLED-BUILD-CHANGED"?ex.Message:"UM-STEAM-UPDATE-FAILED";
+                            task.ErrorCode=NativeLifecycleFailureCode.From(ex);
                             Stage(task,"needsOperator",task.Stage);
                         }
                         events.Emit("terminal","uncertain","STEAM_UPDATE_FAILED_NATIVE_JOURNAL_REVIEW");

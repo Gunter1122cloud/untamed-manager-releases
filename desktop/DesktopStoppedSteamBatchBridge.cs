@@ -99,11 +99,9 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
 
     private bool BlockedJournal()
     {
-        var current=new SteamSerialMaintenanceQueue(
-            cluster.Store.Root,cluster.Config.LocalHostId).Observe();
-        return current!=null&&current.Phase is
-            (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress or
-                SteamQueuePhase.NeedsOperator);
+        var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
+        queue.TryIsolateAbandonedActive(cluster.Config.LocalMaps);
+        return SteamSerialMaintenanceQueue.BlocksNewWork(queue.Observe());
     }
     private bool RunningJob()
     {
@@ -276,9 +274,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                         journalPhase=journal?.Phase.ToString(),
                         journalNextIndex=journal?.NextIndex,
                         journalTotal=journal?.MapIds.Length,
-                        needsOperatorReview=journal?.Phase==SteamQueuePhase.NeedsOperator ||
-                          (job==null&&journal?.Phase is SteamQueuePhase.Prepared or
-                              SteamQueuePhase.MapInProgress),
+                        needsOperatorReview=SteamSerialMaintenanceQueue.BlocksNewWork(journal),
                         automaticRetry=false,remoteWritesAllowed=false
                     });
                 }

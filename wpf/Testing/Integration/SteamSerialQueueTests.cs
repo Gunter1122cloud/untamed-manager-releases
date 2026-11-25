@@ -61,6 +61,31 @@ public static class SteamSerialQueueTests
         catch(IOException){refusedRestart=true;}
         Check(refusedRestart,"Manager restart cannot blindly replay a failed queue");
 
+        // Real native update journal stays blocked on its installation; the
+        // host queue can archive the matching uncertain receipt and run B.
+        string isolatedProfile=Path.Combine(root,"queue-isolated-"+Guid.NewGuid().ToString("N"));
+        var isolatedQueue=new SteamSerialMaintenanceQueue(isolatedProfile,"CI-ISOLATED");
+        using(var operationRoot=UntamedOperationCoordinator.UseIsolatedRootForTests(Path.Combine(root,"queue-isolated-operations")))
+        {
+            try{await isolatedQueue.ExecuteAsync(new[]{a},selected,Stopped,(member,token)=>{
+                using var op=new UntamedOperationCoordinator().Acquire(a.InstallationPath,UntamedOperationKind.Update);
+                op.MarkMutationStarted();
+                throw new IOException("synthetic uncertain update");
+            });}catch(IOException){}
+            var before=isolatedQueue.Observe()!;
+            var original=File.ReadAllBytes(Path.Combine(isolatedProfile,"steam-maintenance-queue","queue-v1.json"));
+            Check(isolatedQueue.TryIsolateAbandonedActive(selected)&&isolatedQueue.Observe()?.Phase==SteamQueuePhase.IsolatedActiveMap&&
+                new UntamedOperationCoordinator().Observe(a.InstallationPath)?.Phase==UntamedOperationPhase.NeedsOperator&&
+                File.ReadAllBytes(Path.Combine(isolatedProfile,"steam-maintenance-queue","queue-"+before.QueueId.ToString("N")+".isolated-active.json")).SequenceEqual(original),
+                "isolated host queue preserves exact failed update and installation block");
+            var next=await isolatedQueue.ExecuteAsync(new[]{b},selected,Stopped,(_,_)=>Task.CompletedTask);
+            Check(next.Phase==SteamQueuePhase.Completed,"unaffected independent installation can update");
+            bool blockedA=false;
+            try{await isolatedQueue.ExecuteAsync(new[]{a},selected,Stopped,(_,_)=>Task.CompletedTask);}
+            catch(IOException){blockedA=true;}
+            Check(blockedA,"failed installation cannot replay its unknown mutation");
+        }
+
         var shared=Map("The Center",installA);
         var registered=new[]{a,shared,b};
         var sharedProfile=Path.Combine(root,"queue-shared-"+Guid.NewGuid().ToString("N"));
@@ -76,8 +101,31 @@ public static class SteamSerialQueueTests
         });}
         catch(InvalidOperationException){blocked=true;}
         Check(blocked&&invoked==0&&
-            sharedQueue.Observe()?.Phase==SteamQueuePhase.NeedsOperator,
-            "shared-install running sibling blocks binary maintenance before the first map");
+            sharedQueue.Observe()?.Phase==SteamQueuePhase.AbandonedBetweenMaps,
+            "shared-install running sibling blocks dispatch without poisoning the host queue");
+        var independent=await sharedQueue.ExecuteAsync(new[]{b},registered,Stopped,(_,_)=>{
+            invoked++;return Task.CompletedTask;
+        });
+        Check(independent.Phase==SteamQueuePhase.Completed&&invoked==1,
+            "independent map can proceed after preflight rejection");
+
+        string legacyProfile=Path.Combine(root,"queue-legacy-"+Guid.NewGuid().ToString("N"));
+        var legacy=new SteamSerialMaintenanceQueue(legacyProfile,"CI-LEGACY");
+        string folder=Path.Combine(legacyProfile,"steam-maintenance-queue");
+        Directory.CreateDirectory(folder);
+        var prior=new SteamQueueSnapshot(Guid.NewGuid(),SteamQueuePhase.NeedsOperator,"CI-LEGACY",1,
+            new[]{a.Id,b.Id},null,DateTimeOffset.UtcNow.AddMinutes(-5),"Legacy preflight failure");
+        string path=Path.Combine(folder,"queue-v1.json");
+        File.WriteAllText(path,System.Text.Json.JsonSerializer.Serialize(prior));
+        byte[] original=File.ReadAllBytes(path);
+        Check(legacy.TryCloseIdleCheckpoint()&&legacy.Observe()?.Phase==SteamQueuePhase.AbandonedBetweenMaps&&
+            File.ReadAllBytes(Path.Combine(folder,"queue-"+prior.QueueId.ToString("N")+".abandoned.json")).SequenceEqual(original),
+            "legacy idle checkpoint archives original bytes");
+        Check(!legacy.TryCloseIdleCheckpoint(),"reconciliation is idempotent");
+        var newJob=await legacy.ExecuteAsync(new[]{b},registered,Stopped,(map,_)=>{
+            Check(map.Id==b.Id,"completed prefix never replays");return Task.CompletedTask;
+        });
+        Check(newJob.Phase==SteamQueuePhase.Completed,"new independent Steam work succeeds");
 
         // Hold the host-wide semaphore across an await. A second profile must
         // fail immediately; asynchronous continuation must still release it.

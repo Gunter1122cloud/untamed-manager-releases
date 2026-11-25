@@ -101,11 +101,18 @@ public static class AsaGracefulStop
         if(!AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new InvalidOperationException("UM-ASA-STOP-LOCAL-BINARY-CHANGED");
         Verify();
-        RecoveryStopIntent.Mark(map,expected,approvedRestartId);
-        lease.MarkMutationStarted();
         bool preExitEvidence=false,worldMetadataEvidence=false;
+        void AuthorizeSave()
+        {
+            Verify();
+            RecoveryStopIntent.Mark(map,expected,approvedRestartId);
+            lease.MarkMutationStarted();
+        }
         if(sendCommands!=null)
+        {
+            AuthorizeSave();
             await sendCommands(map,expected,ct).WaitAsync(ct);
+        }
         else
         {
             string password=SecureStore.Unprotect(map.RconPasswordProtected);
@@ -117,7 +124,7 @@ public static class AsaGracefulStop
                 throw new InvalidOperationException(
                     "UM-ASA-STOP-LOG-WITNESS-MISSING");
             await RconProtocol.DispatchOwnedSaveWorldAsync(
-                map.RconPort,password,Verify,ct);
+                map.RconPort,password,AuthorizeSave,ct);
             evidenceStage?.Invoke("RCON SaveWorld elküldve; ASA mentésjelzés ellenőrzése");
             var observed=await AsaWorldSaveEvidence.WaitAsync(
                 witness,()=>{

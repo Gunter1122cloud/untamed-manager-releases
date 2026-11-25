@@ -50,7 +50,7 @@ internal static class LegacyStoreV1GracefulStop
     internal static Owned Require(ClusterService cluster,Guid mapId,
         Func<LocalMap,ProcessCheck> inspect,Func<LocalMap,string> source,
         Func<int,int,bool> portOwner,Guid? approvedRestartId=null,
-        bool recoveryReadOnly=false,bool replacementReview=false)
+        bool recoveryReadOnly=false,bool replacementReview=false,bool reconcileCurrentOwner=false)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(inspect);
@@ -101,7 +101,18 @@ internal static class LegacyStoreV1GracefulStop
             // RCON port ownership proof above; an unexpected restarted PID
             // must NOT be made eligible for the old-process recovery.
             var oldRestart=restart.Observe();
-            if(replacementReview)
+            if(reconcileCurrentOwner)
+            {
+                // A v1 ChangedUtc is failure closure, not launch provenance.
+                // Adopt only the independently identified current owner, never
+                // infer that the abandoned restart or SaveWorld succeeded.
+                if(oldRestart==null||oldRestart.MapId!=mapId||
+                   oldRestart.Phase is not (AsaRestartPhase.NeedsOperator or AsaRestartPhase.OperatorReviewed)||
+                   identity.Pid==oldRestart.OldPid||
+                   state.LoaderIdentity?.Pid==oldRestart.OldPid)
+                    throw new InvalidOperationException("UM-RECONCILE-CURRENT-OWNER-NOT-VERIFIED");
+            }
+            else if(replacementReview)
             {
                 // Newer independently started owner, not evidence that
                 // the abandoned restart succeeded. No lifecycle mutation.
@@ -232,11 +243,18 @@ internal static class LegacyStoreV1GracefulStop
             AsaWorldSaveEvidence.Begin(locked.Map,locked.Process)
                 ??throw new InvalidOperationException("UM-ORIGINAL-STOP-SAVE-WITNESS-MISSING"):
             null;
-        RecoveryStopIntent.Mark(locked.Map,locked.Process,approvedRestartId);
-        lease.MarkMutationStarted();
+        void AuthorizeSave()
+        {
+            Verify();
+            RecoveryStopIntent.Mark(locked.Map,locked.Process,approvedRestartId);
+            lease.MarkMutationStarted();
+        }
         bool preExitObserved=false,worldMetadataObserved=false;
         if(execute!=null)
+        {
+            AuthorizeSave();
             preExitObserved=await execute(locked.Map,locked.Process,Verify,ct).WaitAsync(ct);
+        }
         else
         {
             var evidence=witness!;
@@ -244,7 +262,7 @@ internal static class LegacyStoreV1GracefulStop
             Verify();
             stage?.Invoke("SaveWorld elküldése az eredeti helyi Store-v1 ASA-nak");
             await RconProtocol.DispatchOwnedSaveWorldAsync(locked.Map.RconPort,
-                password,Verify,ct);
+                password,AuthorizeSave,ct);
             var observed=await AsaWorldSaveEvidence.WaitAsync(
                 evidence,()=>{
                     try{Verify();return true;}catch{return false;}
@@ -364,17 +382,28 @@ internal static class LegacyStoreV1GracefulStop
             AsaWorldSaveEvidence.Begin(locked.Map,locked.Process)
                 ??throw new SaveWorldNotDispatchedException("UM-ORIGINAL-SAVE-WITNESS-MISSING"):
             null;
-        lease.MarkMutationStarted(); // Crash/uncertain dispatch => NeedsOperator
         bool observed,worldMetadataObserved=false;
         if(execute!=null)
+        {
+            lease.MarkMutationStarted();
             observed=await execute(locked.Map,locked.Process,Verify,ct).WaitAsync(ct);
+        }
         else
         {
             string password=SecureStore.Unprotect(locked.Map.RconPasswordProtected);
             Verify();
             stage?.Invoke("Store-v1 SaveWorld küldése az igazolt helyi ASA PID-nek");
-            await RconProtocol.DispatchOwnedSaveWorldAsync(locked.Map.RconPort,
-                password,Verify,ct);
+            bool dispatchAuthorized=false;
+            try
+            {
+                await RconProtocol.DispatchOwnedSaveWorldAsync(locked.Map.RconPort,password,()=>{
+                    Verify();lease.MarkMutationStarted();dispatchAuthorized=true;
+                },ct);
+            }
+            catch(Exception) when(!dispatchAuthorized)
+            {
+                throw new SaveWorldNotDispatchedException("UM-ORIGINAL-SAVE-RCON-PRE-DISPATCH-FAILED");
+            }
             var result=await AsaWorldSaveEvidence.WaitAsync(witness!,()=>{
                 try{Verify();return true;}catch{return false;}
             },TimeSpan.FromSeconds(90),ct,allowWorldMetadata:true);
@@ -415,6 +444,12 @@ internal static class LegacyStoreV1GracefulStop
             map=>LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps),
             map=>OriginalSource(cluster,map),RconPortOwnership.IsOwnedListener,
             recoveryReadOnly:true,replacementReview:true);
+
+    internal static Owned PreviewForCurrentOwnerReconciliation(ClusterService cluster,Guid mapId)=>
+        Require(cluster,mapId,
+            map=>LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps),
+            map=>OriginalSource(cluster,map),RconPortOwnership.IsOwnedListener,
+            recoveryReadOnly:true,reconcileCurrentOwner:true);
 
     internal static Owned Preview(ClusterService cluster,Guid mapId,
         Func<LocalMap,ProcessCheck>? inspect=null,

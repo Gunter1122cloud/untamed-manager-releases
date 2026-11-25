@@ -241,9 +241,8 @@ public static class AsaSteamBuildCatalog
             UseShellExecute=false,CreateNoWindow=true,
             RedirectStandardOutput=true,RedirectStandardError=true
         };
-        foreach(var arg in new[]{"+login","anonymous","+app_info_update","1",
-            "+app_info_print","2430930","+quit"})
-            psi.ArgumentList.Add(arg);
+        SteamCmdInvocation.Configure(psi,new[]{"+login","anonymous","+app_info_update","1",
+            "+app_info_print","2430930","+quit"});
         AsaSteamBuildCheck Unknown(string code,string explanation)=>
             Compare(install,branch,local,null,DateTimeOffset.UtcNow) with
                 {DiagnosticCode=code,Explanation=explanation};

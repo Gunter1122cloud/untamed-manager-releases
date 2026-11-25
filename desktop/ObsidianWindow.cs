@@ -99,15 +99,17 @@ public sealed class ObsidianWindow : Form
         if(_scheduledBackups.TryFreezeForManagerUpdate())return true;
         _nativeSchedules.ReleaseManagerUpdateFreeze();return false;
     }
+    private bool NativeWorkerBusy()=>_freshStop.RecoveryLaneBusy()||_historicalStop.RecoveryLaneBusy()||
+        _freshRestart.RecoveryLaneBusy()||_historicalRestart.RecoveryLaneBusy()||
+        _steamUpdate.RecoveryLaneBusy()||_steamBatch.RecoveryLaneBusy()||
+        _freshInstall.RecoveryLaneBusy()||_worldBackup.RecoveryLaneBusy()||
+        _multiHostBackup.RecoveryLaneBusy();
+
     private bool TryEnterWatchdogLane()
     {
         // The caller holds the UI/Discord host gate. Do not race an already
         // accepted native worker which has not yet acquired its Core lease.
-        if(_freshStop.RecoveryLaneBusy()||_historicalStop.RecoveryLaneBusy()||
-            _freshRestart.RecoveryLaneBusy()||_historicalRestart.RecoveryLaneBusy()||
-            _steamUpdate.RecoveryLaneBusy()||_steamBatch.RecoveryLaneBusy()||
-            _freshInstall.RecoveryLaneBusy()||_worldBackup.RecoveryLaneBusy()||
-            _multiHostBackup.RecoveryLaneBusy())return false;
+        if(NativeWorkerBusy())return false;
         return TryEnterRecoveryLane();
     }
     private void ReleaseRecoveryLane()
@@ -121,6 +123,8 @@ public sealed class ObsidianWindow : Form
     {
         // update.install is dispatched under the host command gate. Hold the
         // independent scheduler lanes too; if busy, leave the running task alone.
+        if(NativeWorkerBusy()||_rollingSteam.Busy)
+            return NativeErrorResponse(raw,"UM-UPDATE-NATIVE-WORKER-IN-PROGRESS");
         if(!_recovery.CanManagerUpdate())
             return NativeErrorResponse(raw,"UM-UPDATE-WATCHDOG-RECOVERY-IN-PROGRESS");
         if(!_lifecycleBatch.CanManagerUpdate())
@@ -294,6 +298,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopOwnedAsaKillBridge _ownedKill;
     private readonly DesktopFreshAsaRestartBridge _freshRestart;
     private readonly DesktopAsaLifecycleJournalBridge _lifecycleJournal;
+    private readonly DesktopRestartReconciliationSupervisor _restartReconciliation;
     private readonly DesktopOperationsCenterBridge _operations;
     private readonly DesktopDiscordNotifications _notifications;
     private readonly DesktopDiscordControlApi _discordControl;
@@ -379,6 +384,13 @@ public sealed class ObsidianWindow : Form
             historicalStop:_historicalStop,historicalRestart:_historicalRestart,historicalAdmin:_historicalAdminRcon);
         _mapMaintenance = new DesktopMapMaintenanceBridge(_bridge.LocalCluster);
         _lifecycleJournal = new DesktopAsaLifecycleJournalBridge(_bridge.LocalCluster);
+        _restartReconciliation=new DesktopRestartReconciliationSupervisor(_bridge.LocalCluster,_bridgeGate,
+            TryEnterWatchdogLane,ReleaseRecoveryLane,()=>_updateHandoff||_suppressScheduledMutations,
+            map=>map.HistoricalStoreProtected?
+                (_historicalStop.TryReconcileSaveReceipt(map)||_lifecycleJournal.TryReconcileCurrentOwner(map)||
+                 _lifecycleJournal.TryReconcileOldOwner(map)||_lifecycleJournal.TryReconcileStopped(map)):
+                (_freshRestart.TryReconcileCurrentOwner(map)||_freshRestart.TryReconcileOldOwner(map)||_freshRestart.TryReconcileStopped(map)||
+                 _freshStop.TryReconcileStoppedReceipt(map)));
         _asaDiscovery = new DesktopAutomaticAsaDiscoverySupervisor(_bridge.LocalCluster);
         _bridge.AttachAutomaticAsaDiscovery(_asaDiscovery);
         _readOnlySupervisor = new DesktopRecurringReadOnlySupervisor(_bridge.LocalCluster);
@@ -457,6 +469,7 @@ public sealed class ObsidianWindow : Form
                 // Explicit native manual commands remain fully available.
                 if(!_suppressScheduledMutations)
                 {
+                    _restartReconciliation.Start();
                     _scheduledBackups.Start();
                     _nativeSchedules.Start();
                     _notifications.Start();
@@ -483,6 +496,7 @@ public sealed class ObsidianWindow : Form
         };
         FormClosed += (_, _) =>
         {
+            _restartReconciliation.Dispose();
             _liveMods.Dispose();
             _discordControl.Dispose();
             _asaDiscovery.Dispose();

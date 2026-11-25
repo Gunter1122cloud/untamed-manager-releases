@@ -1,3 +1,4 @@
+using System.Linq;
 using System;
 using UntamedManager.Core;
 
@@ -89,6 +90,27 @@ internal static class SteamPublicBuildParsingTests
             "\"2430930\" {\"depots\" {\"branches\" {\"public\" "+
             "{\"buildid\" \"789\"}}}}}", "public")==null,
             "unbalanced closing braces reject otherwise plausible builds");
+        var invocation=new System.Diagnostics.ProcessStartInfo("steamcmd.exe");
+        invocation.Environment["STEAM_PASSWORD"]="fixture-secret";
+        SteamCmdInvocation.Configure(invocation,SteamCmdInvocation.UpdateArguments(@"C:\ASA Test"));
+        Check(invocation.ArgumentList.SequenceEqual(new[]{"-language","english","+force_install_dir",
+            @"C:\ASA Test","+login","anonymous","+app_update","2430930","validate","+quit"})&&
+            !invocation.Environment.ContainsKey("STEAM_PASSWORD"),
+            "English anonymous argv preserves spaced path and removes credentials");
+        string transient="ERROR! Failed to install app '2430930' (No connection)";
+        Check(SteamCmdInvocation.CanRetryAppUpdate(0,1,transient,false)&&
+            SteamCmdInvocation.CanRetryAppUpdate(1,1,transient,false)&&
+            !SteamCmdInvocation.CanRetryAppUpdate(2,1,transient,false)&&
+            !SteamCmdInvocation.CanRetryAppUpdate(0,0,transient,false)&&
+            !SteamCmdInvocation.CanRetryAppUpdate(0,1,transient,true),
+            "bounded retries only on recognized provider failure");
+        Check(!SteamCmdInvocation.CanRetryAppUpdate(0,1,transient+" Disk write failure",false)&&
+            !SteamCmdInvocation.CanRetryAppUpdate(0,1,"random connection timeout",false)&&
+            SteamCmdInvocation.UpdateFailureCode("ERROR! Disk write failure")=="UM-STEAM-UPDATE-DISK",
+            "permanent and unknown failures are not replayed");
+        Check(SteamCmdInvocation.CanUseDirectFallback(new System.IO.IOException("UM-STEAM-CACHE-INSUFFICIENT-STAGING-SPACE"))&&
+            !SteamCmdInvocation.CanUseDirectFallback(new System.IO.InvalidDataException("UM-STEAM-CACHE-MAP-OVERLAP")),
+            "cache fallback only for a known safe pre-mutation condition");
         var unknown=AsaSteamBuildCatalog.Compare("C:\\test","public",
             "123456",AsaSteamBuildCatalog.ParseSteamAppInfo(
                 "\"2430930\" {} "+foreign),DateTimeOffset.UtcNow);
