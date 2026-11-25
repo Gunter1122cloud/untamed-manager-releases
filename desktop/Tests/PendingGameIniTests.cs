@@ -25,6 +25,9 @@ internal static class PendingGameIniTests
                 throw new InvalidOperationException("Pending draft not applied once");
             if(PendingGameIni.ApplyLocal(root,map,()=>stopped,()=>marks++)||marks!=1)
                 throw new InvalidOperationException("Draft replayed");
+            File.WriteAllText(path,before.Text);
+            if(PendingGameIni.ApplyLocal(root,map,()=>stopped,()=>marks++)||marks!=1||File.ReadAllText(path)!=before.Text)
+                throw new InvalidOperationException("Consumed draft revived after external revert");
             Console.WriteLine("PASS pending Game.ini: encrypted stage, conflict preservation, one-shot replacement");
         }finally{if(Directory.Exists(root))Directory.Delete(root,true);}
     }

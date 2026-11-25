@@ -1,3 +1,4 @@
+import {describeNativeError} from "./state/nativeErrors";
 import {useState} from "react";
 import {managerBridge,type ModRepairPreview,type ModRepairStatus} from "./bridge";
 export function ModRedownloadPanel({mapId,ids}:{mapId:string;ids:string[]}){
@@ -14,7 +15,7 @@ export function ModRedownloadPanel({mapId,ids}:{mapId:string;ids:string[]}){
       const result=prepare?await managerBridge.modRepairPreview(mapId,project):await managerBridge.modRepairStatus(mapId,project);
       if(result.mapId.toLowerCase()!==mapId.toLowerCase()||result.modId!==project||!result.diskOnly||result.runtimeVerified)throw Error("UM-MOD-REPAIR-SCOPE");
       setStatus(result);if(prepare&&"token" in result)setPreview(result as ModRepairPreview);
-    }catch(e){setMessage("A mod helyi állapota nem igazolható: "+(e instanceof Error?e.message:"UM-MOD-REPAIR"));}
+    }catch(e){setMessage(describeNativeError(e instanceof Error?e.message:"UM-MOD-REPAIR","A mod helyi állapota nem igazolható."));}
     finally{setBusy(false);}
   };
   const apply=async()=>{
@@ -24,7 +25,7 @@ export function ModRedownloadPanel({mapId,ids}:{mapId:string;ids:string[]}){
       const receipt=await managerBridge.modRepairApply(preview.token);
       if(receipt.mapId.toLowerCase()!==mapId.toLowerCase()||receipt.modId!==project||receipt.serverStarted||receipt.remainingFolders!==0||receipt.downloadVerified)throw Error("UM-MOD-REPAIR-RECEIPT");
       setStatus(null);setMessage(receipt.quarantined+" mappa biztonságosan karanténban. Következő indításkor az ASA töltheti le a modot. A letöltés még nem igazolt.");
-    }catch(e){setMessage("A karantén eredménye nem igazolt. Ellenőrizd a lemezállapotot; ne ismételd meg automatikusan. "+(e instanceof Error?e.message:""));}
+    }catch(e){setMessage(describeNativeError(e instanceof Error?e.message:"UM-MOD-REPAIR","A karantén eredménye nem igazolt. Ellenőrizd a lemezállapotot; ne ismételd meg automatikusan."));}
     finally{setBusy(false);}
   };
   return <details className="premium-panel" style={{padding:12}}>
