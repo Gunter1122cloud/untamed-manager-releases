@@ -363,8 +363,13 @@ await SteamPublicBuildParsingTests.RunAsync(root);
 {
     Check(DesktopWatchdogRecovery.FatalExitCode(unchecked((int)0xC0000005))&&
           DesktopWatchdogRecovery.FatalExitCode(unchecked((int)0xC0000409))&&
-          !DesktopWatchdogRecovery.FatalExitCode(0)&&!DesktopWatchdogRecovery.FatalExitCode(1),
-        "watchdog requires known fatal Windows exit, not clean or ambiguous code");
+          DesktopWatchdogRecovery.FatalExitCode(1)&&
+          DesktopWatchdogRecovery.FatalExitCode(2)&&
+          !DesktopWatchdogRecovery.FatalExitCode(0)&&
+          !DesktopWatchdogRecovery.FatalExitCode(unchecked((int)0xC000013A))&&
+          !DesktopWatchdogRecovery.FatalExitCode(0x40010004)&&
+          !DesktopWatchdogRecovery.FatalExitCode(0x40010005),
+        "armed ASA unexpected nonzero exit recovers; clean and operator-close codes do not");
     {
         var owned=RconPortOwnership.UdpOwnership.Owned;
         var missing=RconPortOwnership.UdpOwnership.Missing;
