@@ -72,6 +72,14 @@ internal static class SteamCmdDiscoveryTests
         var before=SteamCmdPreflight.Inspect(first);
         Check(before.LengthBytes==512&&before.Sha256.Length==64,
             "SteamCMD candidate is fingerprinted without executing the binary");
+        string invalid=Path.Combine(root,"invalid","steamcmd.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(invalid)!);
+        File.WriteAllBytes(invalid,new byte[512]);
+        bool invalidRejected=false;
+        try{_=SteamCmdPreflight.Inspect(invalid);}
+        catch(InvalidDataException ex){invalidRejected=ex.Message=="UM-STEAMCMD-NOT-WINDOWS-PE";}
+        Check(invalidRejected,
+            "an arbitrary non-PE file cannot be persisted as a SteamCMD executable");
 
         string install=Path.Combine(root,"asa");
         string exe=Path.Combine(install,"ShooterGame","Binaries","Win64",
