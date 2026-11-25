@@ -38,6 +38,45 @@ public static class AsaGracefulStop
     private static bool SameOptional(ProcessIdentity? a,ProcessIdentity? b)=>
         a==null?b==null:Same(a,b);
 
+    // A save receipt is diagnostic evidence, not permission to shut down.
+    // Ownership is checked independently immediately before every command.
+    internal static AsaWorldSaveEvidence.Boundary? TryCaptureSaveEvidence(LocalMap map,ProcessIdentity process)
+    {
+        try{return AsaWorldSaveEvidence.Begin(map,process);}
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+        {return null;}
+    }
+
+    internal static async Task<(bool LogAndWorld,bool WorldMetadata)> ObserveSaveBrieflyAsync(
+        AsaWorldSaveEvidence.Boundary? witness,Action verify,CancellationToken ct)
+    {
+        if(witness==null)return (false,false);
+        try
+        {
+            var observed=await AsaWorldSaveEvidence.WaitAsync(witness,()=>{
+                try{verify();return true;}catch{return false;}
+            },TimeSpan.FromSeconds(10),ct,allowWorldMetadata:true);
+            return (observed.CompletionObserved,observed.WorldMetadataObserved);
+        }
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+        {return (false,false);}
+    }
+
+    internal static async Task<bool> TrySendSaveAsync(Func<Task> send,Action verify,
+        Action<string>? stage,CancellationToken ct)
+    {
+        try{await send();return true;}
+        catch(Exception ex) when(!ct.IsCancellationRequested &&
+            (ex is IOException or System.Net.Sockets.SocketException or OperationCanceledException))
+        {
+            // A transport failure does not prove SaveWorld failed or succeeded.
+            // Do not retry SaveWorld. Reverify ownership before attempting DoExit.
+            verify();
+            stage?.Invoke("SaveWorld nem igazolt; DoExit megkísérlése");
+            return false;
+        }
+    }
+
     public static async Task<AsaGracefulStopReceipt> StopAsync(
         ClusterService cluster,Guid mapId,ProcessIdentity expected,
         TimeSpan timeout,CancellationToken cancellationToken=default,
@@ -101,12 +140,14 @@ public static class AsaGracefulStop
         if(!AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new InvalidOperationException("UM-ASA-STOP-LOCAL-BINARY-CHANGED");
         Verify();
-        bool preExitEvidence=false,worldMetadataEvidence=false;
+        bool preExitEvidence=false,worldMetadataEvidence=false,mutationStarted=false;
         void AuthorizeSave()
         {
             Verify();
+            if(mutationStarted)return;
             RecoveryStopIntent.Mark(map,expected,approvedRestartId);
             lease.MarkMutationStarted();
+            mutationStarted=true;
         }
         if(sendCommands!=null)
         {
@@ -120,28 +161,23 @@ public static class AsaGracefulStop
                 throw new InvalidDataException("Local RCON credential unavailable");
             // Capture the current log byte offset BEFORE irreversible RCON
             // dispatch. Old autosave lines must not certify this SaveWorld.
-            var witness=AsaWorldSaveEvidence.Begin(map,expected) ??
-                throw new InvalidOperationException(
-                    "UM-ASA-STOP-LOG-WITNESS-MISSING");
-            await RconProtocol.DispatchOwnedSaveWorldAsync(
-                map.RconPort,password,AuthorizeSave,ct);
-            evidenceStage?.Invoke("RCON SaveWorld elküldve; ASA mentésjelzés ellenőrzése");
-            var observed=await AsaWorldSaveEvidence.WaitAsync(
-                witness,()=>{
-                    try{Verify();return true;}
-                    catch{return false;}
-                },TimeSpan.FromSeconds(90),ct,allowWorldMetadata:true);
-            if(!observed.CompletionObserved&&!observed.WorldMetadataObserved)
-                throw new InvalidOperationException(
-                    "UM-ASA-STOP-SAVE-NOT-OBSERVED_NO_DOEXIT:"+observed.Stage);
-            preExitEvidence=observed.CompletionObserved;
-            worldMetadataEvidence=observed.WorldMetadataObserved;
+            var witness=TryCaptureSaveEvidence(map,expected);
+            bool sent=await TrySendSaveAsync(
+                ()=>RconProtocol.DispatchOwnedSaveWorldAsync(map.RconPort,password,AuthorizeSave,ct),
+                Verify,evidenceStage,ct);
+            if(sent)
+            {
+                evidenceStage?.Invoke("RCON SaveWorld elküldve");
+                var observed=await ObserveSaveBrieflyAsync(witness,Verify,ct);
+                preExitEvidence=observed.LogAndWorld;
+                worldMetadataEvidence=observed.WorldMetadata;
+            }
             evidenceStage?.Invoke(preExitEvidence
                 ?"ASA SaveComplete napló és stabil .ark megfigyelve"
-                :"ASA .ark változása és stabilizálódása megfigyelve; mentésnapló nem igazolt");
+                :"A mentés nem igazolt; a DoExit saját mentéssel zárja le az ASA-t");
             Verify();
             await RconProtocol.DispatchDoExitAsync(
-                map.RconPort,password,Verify,ct);
+                map.RconPort,password,AuthorizeSave,ct);
             evidenceStage?.Invoke("DoExit elküldve; PID kilépésére vár");
         }
         // DoExit normally closes ASA after its own world save. The process
@@ -167,7 +203,7 @@ public static class AsaGracefulStop
               "REAL_LOCAL_PREEXIT_SAVE_LOG_AND_WORLD_VERIFIED_FINAL_EXIT_SAVE_UNVERIFIED":
             worldMetadataEvidence?
               "REAL_LOCAL_PREEXIT_WORLD_METADATA_OBSERVED_LOG_UNVERIFIED_FINAL_EXIT_SAVE_UNVERIFIED":
-              "ISOLATED_COMMAND_DISPATCH_AND_PROCESS_EXIT_NO_INDEPENDENT_SAVE_WITNESS")
+              "LOCAL_DOEXIT_PID_STOPPED_NO_INDEPENDENT_SAVE_WITNESS")
         {
             PreExitSaveLogAndWorldObserved=preExitEvidence,
             PreExitWorldMetadataObserved=worldMetadataEvidence
