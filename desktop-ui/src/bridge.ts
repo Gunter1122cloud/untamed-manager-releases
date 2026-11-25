@@ -862,7 +862,7 @@ export type ScheduledStoppedBackupState={
   mapId:string;mapName:string;enabled:boolean;
   intervalMinutes:number|null;nextDueUtc:string|null;
   lastAttemptUtc:string|null;lastStatus:string;lastPoint:string|null;
-  runnerState:string;storeProtected:boolean;canSchedule?:boolean;fullLocal?:boolean;
+  runnerState:string;storeProtected:boolean;canSchedule?:boolean;fullLocal?:boolean;profilesOnly?:boolean;
   automaticRestoreAllowed:false;automaticServerStopAllowed:false;
   evidence:"PERSISTED_OPT_IN_STOPPED_NONSTORE_WORLD_BACKUPS";
 };
@@ -1900,7 +1900,7 @@ type WireRequest = { id: string; method: "resources.status" | "resources.publish
   sourceMap?: string;destinationMap?: string; profileId?: string;
   hostId?:string;hostName?:string;mapIds?:string[];affectedMaps?:string[];
   clusterId?:string;transferDirectory?:string;transferRoot?:string;
-  backupDirectory?:string; fullLocal?:boolean; keepLatest?:number; protect?:boolean; stoppedUseApi?:boolean };
+  backupDirectory?:string; fullLocal?:boolean; profilesOnly?:boolean; keepLatest?:number; protect?:boolean; stoppedUseApi?:boolean };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -2255,8 +2255,8 @@ export const managerBridge = {
     }),
   backupScheduleStatus: (mapId:string) =>
     request<ScheduledStoppedBackupState>("backup.scheduleStatus",{mapId}),
-  backupScheduleCreate: (mapId:string,intervalMinutes:number,fullLocal=false) =>
-    request<ScheduledStoppedBackupState>("backup.scheduleCreate",{mapId,intervalMinutes,confirm:true,fullLocal}),
+  backupScheduleCreate: (mapId:string,intervalMinutes:number,fullLocal=false,profilesOnly=false) =>
+    request<ScheduledStoppedBackupState>("backup.scheduleCreate",{mapId,intervalMinutes,confirm:true,fullLocal,profilesOnly}),
   backupScheduleDisable: (mapId:string) =>
     request<ScheduledStoppedBackupState>("backup.scheduleDisable",{mapId,confirm:true}),
   backupRetentionPreview:(mapId:string,keepLatest:number)=>request<{mapId:string;keepLatest:number;points:Array<{point:string;eligible:boolean;protected:boolean;verified:boolean;createdUtc:string;bytes:number;reason:string}>;quarantine:Array<{point:string;status:string}>;evidence:"VERIFIED_MANAGED_BACKUP_RETENTION_PREVIEW"}>("backup.retentionPreview",{mapId,keepLatest}),
