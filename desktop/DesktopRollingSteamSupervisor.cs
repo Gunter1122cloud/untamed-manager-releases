@@ -19,7 +19,8 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
 {
     internal sealed record Setting(Guid MapId,bool Enabled,bool ApiRiskAccepted,string Fingerprint);
     internal sealed record Run(Guid Id,Guid MapId,string State,string Stage,string OldBuild,
-        string TargetBuild,bool OriginallyRunning,DateTimeOffset ChangedUtc,string? Error=null);
+        string TargetBuild,bool OriginallyRunning,DateTimeOffset ChangedUtc,string? Error=null,
+        string? ProfileFingerprint=null,string? NativeSteamStage=null);
     private sealed class State
     {
         public State(){}
@@ -306,7 +307,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
         }
         throw new TimeoutException("UM-ROLLING-LIFECYCLE-TIMEOUT");
     }
-    private async Task UpdateAsync(LocalMap map,string oldBuild,string target,CancellationToken ct)
+    private async Task UpdateAsync(LocalMap map,string oldBuild,string target,CancellationToken ct,Action<string> reportStage)
     {
         if(!Stopped(Observe(map)))throw new InvalidOperationException("UM-ROLLING-NOT-STOPPED");
         var preview=Decode(await steam.HandleAsync(Message("steam.stoppedPreview",new{mapId=map.Id})));
@@ -326,6 +327,8 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             if(r.GetProperty("jobId").GetGuid()!=job||r.GetProperty("mapId").GetGuid()!=map.Id)
                 throw new InvalidOperationException("UM-ROLLING-UPDATE-JOB");
             string? status=r.GetProperty("state").GetString();
+            if(r.TryGetProperty("stage",out var stage)&&stage.GetString() is {Length:>0 and <=80} nativeStage)
+                reportStage(nativeStage);
             if(status=="completed")
             {
                 if(!Yes(r,"protectedFilesIntact")||r.GetProperty("oldBuild").GetString()!=oldBuild||
@@ -384,7 +387,8 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
            diagnostic.GetProperty("availableBytes").GetInt64()<diagnostic.GetProperty("requiredBytes").GetInt64()||
            diagnostic.GetProperty("externalSteamError").ValueKind!=JsonValueKind.Null)
             throw new InvalidOperationException("UM-ROLLING-PREFLIGHT-BLOCKED");
-        var run=new Run(Guid.NewGuid(),map.Id,"running","preflight",installed!,target,running,DateTimeOffset.UtcNow);
+        var run=new Run(Guid.NewGuid(),map.Id,"running","preflight",installed!,target,running,DateTimeOffset.UtcNow,
+            ProfileFingerprint:setting.Fingerprint);
         SetRun(run); // durable claim BEFORE chat, stop or SteamCMD.
         void Stage(string stage){run=run with{Stage=stage,ChangedUtc=DateTimeOffset.UtcNow};SetRun(run);}
         try
@@ -400,7 +404,14 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             // finish this already-claimed map if the unchanged identity allows.
             DemandProfile(setting,false);DemandClearJournals(map);
             if(!Stopped(Observe(map)))throw new InvalidOperationException("UM-ROLLING-NOT-STOPPED");
-            Stage("updating");await UpdateAsync(map,installed!,target,ct);
+            Stage("updating");
+            await UpdateAsync(map,installed!,target,ct,nativeStage=>{
+                if(run.NativeSteamStage==nativeStage)return;
+                run=run with{NativeSteamStage=nativeStage,ChangedUtc=DateTimeOffset.UtcNow};SetRun(run);
+            });
+            // The native completed receipt has verified the target manifest,
+            // backup and protected files. Persist before any Start dispatch.
+            Stage("files-verified");
             if(running)
             {
                 DemandProfile(setting,false);DemandClearJournals(map);
@@ -423,10 +434,49 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             throw;
         }
     }
+    private static bool CanResumeVerifiedFiles(Run? run)=>run!=null&&
+        run.State is ("running" or "needs-review")&&run.Stage=="files-verified"&&
+        run.ProfileFingerprint is {Length:64};
+
+    private async Task<bool> ResumeVerifiedFilesAsync(Run run,State state,CancellationToken ct)
+    {
+        var setting=state.Settings.SingleOrDefault(s=>s.MapId==run.MapId&&s.Enabled&&
+            s.Fingerprint==run.ProfileFingerprint);
+        if(setting==null)return false;
+        var map=Owned(run.MapId);
+        DemandProfile(setting,true);DemandClearJournals(map);
+        if(AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath)!=run.TargetBuild||
+            !Stopped(Observe(map)))return false;
+        // The previous worker could not have entered Start before writing
+        // "starting". Never resume from that ambiguous stage.
+        if(run.OriginallyRunning)
+        {
+            var stopped=Observe(map);
+            if(!Stopped(stopped))return false;
+            run=run with{State="running",Stage="starting",ChangedUtc=DateTimeOffset.UtcNow,Error=null};
+            SetRun(run);
+            try
+            {
+                await LifecycleAsync(map,"start",ct,stopped);
+                var now=Observe(map);
+                if(!now.Running||now.ConfirmedStopped||now.Identity is not {Pid:>0} child||
+                   !ownsPort(map.RconPort,child.Pid)||map.StartWithAsaApi!=(now.LoaderIdentity is {Pid:>0}))
+                    throw new InvalidOperationException("UM-ROLLING-RECOVERY-START-NOT-VERIFIED");
+            }
+            catch(Exception ex)
+            {
+                SetRun(run with{State="needs-review",ChangedUtc=DateTimeOffset.UtcNow,Error=NativeLifecycleFailureCode.From(ex)});
+                throw;
+            }
+        }
+        SetRun(run with{State="completed",Stage="verified",ChangedUtc=DateTimeOffset.UtcNow,Error=null});
+        return true;
+    }
+
     internal async Task TickOnceAsync(CancellationToken ct=default)
     {
         if(frozen()||!Locked(()=>{var s=Read();return
-            (BeforeLifecycle(s.Current)||s.Current?.State is not ("running" or "needs-review"))&&
+            (BeforeLifecycle(s.Current)||CanResumeVerifiedFiles(s.Current)||s.Current?.State is not ("running" or "needs-review"))&&
             s.Settings.Any(x=>x.Enabled);}))
             return;
         if(!await hostGate.WaitAsync(0,ct))return;
@@ -441,6 +491,11 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             if(BeforeLifecycle(state.Current))
             {
                 CloseBeforeLifecycle();
+                state=Locked(Read);
+            }
+            if(CanResumeVerifiedFiles(state.Current))
+            {
+                if(!await ResumeVerifiedFilesAsync(state.Current!,state,ct))return;
                 state=Locked(Read);
             }
             if(state.Current?.State is "running" or "needs-review")return;

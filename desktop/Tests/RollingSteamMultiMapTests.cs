@@ -25,6 +25,7 @@ internal static class RollingSteamMultiMapTests
         await Scenario(root,"start-failure");
         await Scenario(root,"blocked-map");
         await Scenario(root,"interrupted-countdown");
+        await Scenario(root,"interrupted-verified-files");
     }
     private static async Task Scenario(string root,string mode)
     {
@@ -178,6 +179,20 @@ internal static class RollingSteamMultiMapTests
                 new JsonSerializerOptions(JsonSerializerDefaults.Web));
             File.WriteAllText(journal,persisted.ToJsonString());
         }
+        if(mode=="interrupted-verified-files")
+        {
+            // Real native update has finished; rolling worker exited before
+            // Start dispatch. Persist exact settings fingerprint and build.
+            Build(a,"123457");observed[a.Id]=Stopped();
+            var persisted=JsonNode.Parse(File.ReadAllText(journal))!.AsObject();
+            string fingerprint=persisted["settings"]!.AsArray()
+                .Single(x=>x!["mapId"]!.GetValue<Guid>()==a.Id)!["fingerprint"]!.GetValue<string>();
+            persisted["current"]=JsonSerializer.SerializeToNode(new DesktopRollingSteamSupervisor.Run(
+                Guid.NewGuid(),a.Id,"running","files-verified","123456","123457",true,
+                DateTimeOffset.UtcNow.AddMinutes(-10),ProfileFingerprint:fingerprint),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            File.WriteAllText(journal,persisted.ToJsonString());
+        }
         bool failed=false;
         using(var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(60)))
         {
@@ -210,6 +225,13 @@ internal static class RollingSteamMultiMapTests
             Check(AsaSteamBuildCatalog.InstalledBuild(b.InstallationPath)=="123457"&&
                 AsaSteamBuildCatalog.InstalledBuild(c.InstallationPath)=="123457",
                 "eligible siblings complete despite old per-map journal");
+        }
+        else if(mode=="interrupted-verified-files")
+        {
+            Check(!failed&&trace.SequenceEqual(new[]{"Astraeos:start","Ragnarok:steam",
+                "The Island:stop","The Island:steam","The Island:start"})&&minuteWaits==5&&
+                observed[a.Id].Running&&current.GetProperty("state").GetString()=="completed",
+                "verified-files recovery starts only the previously running map without a second Steam update");
         }
         else if(mode=="success"||mode=="interrupted-countdown")
         {
