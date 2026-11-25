@@ -43,6 +43,7 @@ import { ClusterMapGallery } from "./ClusterMapGallery";
 import { FutureMapOnboarding } from "./FutureMapOnboarding";
 import { MapCover } from "./MapArtwork";
 import { PremiumModBoard } from "./PremiumModBoard";
+import {ModRedownloadPanel} from "./ModRedownloadPanel";
 import { UpdateCenterPage } from "./UpdateCenterPage";
 import { StoppedSteamUpdate } from "./StoppedSteamUpdate";
 import { StoppedSteamBatchPanel } from "./StoppedSteamBatchPanel";
@@ -921,6 +922,7 @@ function Mods({ snapshot, selected, setSelected, mapLocked=false }: {
       onStage={prepare}
       onOpenEditor={()=>setWorkspaceTab("draft")}
       onOpenCatalog={()=>setWorkspaceTab("galaxy")}/>
+    {info&&<ModRedownloadPanel key={selected} mapId={selected} ids={[...info.active,...info.passive]}/>}
     </section>
     <div id="mod-draft-editor" className={workspaceTab==="draft"?
       "premium-editor-area premium-tab-surface":"premium-editor-area premium-tab-surface is-hidden"}
