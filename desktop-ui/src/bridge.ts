@@ -1786,7 +1786,7 @@ export type ConfiguredMods = {
 };
 
 export type HostedResourceKind="AdminListURL"|"BanListURL"|"BadWordListURL"|"BadWordWhiteListURL"|"CustomDynamicConfigUrl"|"CustomNotificationURL"|"CustomLiveTuningUrl";
-export type HostedResourcesStatus={running:boolean;port:number;resources:Array<{kind:string;url:string;bytes:number}>;loopbackOnly:true;persistent:false};
+export type HostedResourcesStatus={running:boolean;port:number;resources:Array<{kind:string;url:string;bytes:number}>;loopbackOnly:true;persistent:boolean;persistenceError?:boolean};
 
 export type ModRepairStatus={mapId:string;modId:string;folders:string[];diskOnly:true;runtimeVerified:false};
 export type ModRepairPreview=ModRepairStatus&{token:string};
