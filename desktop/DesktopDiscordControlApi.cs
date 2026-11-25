@@ -41,6 +41,9 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     private readonly DiscordOperationEvents eventStream;
     private readonly Func<Guid?,int,object>? legacySchedules;
     private readonly SemaphoreSlim hostGate;
+    // All observation requests share one read lane (including the mutable
+    // CPU/player sample caches). Only approval and mutation use the host gate.
+    private readonly SemaphoreSlim observationGate=new(1,1);
     private readonly Func<bool> frozen,enterLane;
     private readonly Action leaveLane;
     private readonly Func<string,string,Task<string>> native;
@@ -529,7 +532,10 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     internal async Task<string> Handle(JsonElement a,Settings cfg)
     {
         if(!Authorize(cfg,a,DateTimeOffset.UtcNow))return Error("UM-DC-AUTH");
-        if(!await hostGate.WaitAsync(TimeSpan.FromSeconds(2)))return Error("UM-DC-HOST-BUSY");
+        string requestedKind=Field(a,"kind",32);
+        var lane=requestedKind is "status" or "players" or "job" or "events" or "scheduleHistory" or "backupHistory"
+            ?observationGate:hostGate;
+        if(!await lane.WaitAsync(TimeSpan.FromSeconds(2)))return Error("UM-DC-HOST-BUSY");
         try
         {
             if(frozen()||closing.IsCancellationRequested)return Error("UM-DC-HANDOFF");
@@ -596,7 +602,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         {
             return Error(Regex.IsMatch(ex.Message,@"\AUM-[A-Z0-9_-]{1,150}\z")?ex.Message:"UM-DC-REQUEST-FAILED");
         }
-        finally{hostGate.Release();}
+        finally{lane.Release();}
     }
     public void Dispose(){closing.Cancel();listener?.Stop();}
 }

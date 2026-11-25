@@ -103,3 +103,21 @@ class TestPanel(unittest.IsolatedAsyncioTestCase):
             interaction.followup.send.assert_awaited_once()
         finally:
             view.stop()
+
+    async def test_read_only_events_do_not_wait_for_mutation_lock(self):
+        import asyncio
+        with tempfile.TemporaryDirectory() as temp:
+            cog=ObsidianControl(None,dict(guild_id=123456789012345678,
+                role_ids=[223456789012345678],state_file=str(Path(temp)/"state.json"),
+                hosts={"test":{"address":"127.0.0.1","port":19443,
+                    "certificate_sha256":"a"*64,"credential":"b"*64}}))
+            who=Identity(323456789012345678,423456789012345678,(223456789012345678,))
+            try:
+                with patch("obsidian_discord_cog.async_call",new_callable=AsyncMock) as transport:
+                    transport.return_value={"ok":True,"data":{"events":[]}}
+                    async with cog.host_locks["test"]:
+                        result=await asyncio.wait_for(cog.call("test",who,"events"),timeout=1)
+                    self.assertEqual(result,{"events":[]})
+                    transport.assert_awaited_once()
+            finally:
+                cog.panel.stop()

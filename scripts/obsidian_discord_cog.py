@@ -189,6 +189,14 @@ class ObsidianControl(commands.Cog):
         return Identity(member.id,ch.id,())
 
     async def call(self, label, who, kind, *, interaction=None, **data):
+        # Read-only status uses the native observation lane. Never wait
+        # behind an unrelated mutation in the adapter either.
+        if kind in ("status","players","job","events","scheduleHistory","backupHistory"):
+            result = await async_call(self.hosts[label],guild_id=self.guild_id,channel_id=who.channel_id,
+                user_id=who.user_id,role_ids=who.role_ids,kind=kind,**data)
+            if not result["ok"]:
+                raise RuntimeError(clean(result.get("error","API rejected"),100))
+            return result["data"]
         async with self.host_locks[label]:
             # A request may have waited behind a long backup/update. Re-fetch
             # actual permissions once the lock is acquired, not before waiting.

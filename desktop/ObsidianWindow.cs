@@ -814,7 +814,18 @@ public sealed class ObsidianWindow : Form
                 }
                 catch (JsonException) { /* read-only bridge will safely reject invalid messages */ }
                 bool requireGlobalGate = RequiresGlobalBridgeGate(methodName);
-                if (requireGlobalGate) await _bridgeGate.WaitAsync();
+                if(requireGlobalGate)
+                {
+                    // A long maintenance cycle must not leave a UI mutation
+                    // queued invisibly for hours, then dispatch it afterwards.
+                    if(!await _bridgeGate.WaitAsync(TimeSpan.FromSeconds(2)))
+                    {
+                        if(!_browser.IsDisposed&&_browser.CoreWebView2!=null)
+                            _browser.CoreWebView2.PostWebMessageAsJson(NativeErrorResponse(incoming,
+                                "UM-HOST-MUTATION-BUSY"));
+                        return;
+                    }
+                }
                 try
                 {
                     using var operationOrigin=DiscordOperationEvents.EnterOrigin("manager");

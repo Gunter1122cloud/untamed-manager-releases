@@ -752,6 +752,20 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     var eventResponse=await Request("events",Guid.NewGuid(),alice,admin,new{cursor="begin",limit=50});
     Check(eventResponse.GetProperty("ok").GetBoolean()&&eventResponse.GetProperty("data").GetProperty("events").EnumerateArray().All(e=>e.GetProperty("operationId").GetGuid()==operation)&&sends==1,
         "Discord event read correlates original request and never invokes native mutation");
+    // A rolling SteamCMD job holds the mutation lane for its entire
+    // stop/update/start transaction. Read-only Discord events must not wait
+    // for the update to finish; mutations still must not reach native code.
+    await gate.WaitAsync();
+    try
+    {
+        var duringUpdate=await Request("events",Guid.NewGuid(),alice,admin,new{cursor="begin",limit=50});
+        Check(duringUpdate.GetProperty("ok").GetBoolean()&&sends==1,
+            "Discord event read stays available during a reserved maintenance lane");
+        var duringMutation=await Request("preview",Guid.NewGuid(),alice,admin,new{action="start",mapIds=new[]{m.Id}});
+        Check(!duringMutation.GetProperty("ok").GetBoolean()&&duringMutation.GetProperty("error").GetString()=="UM-DC-HOST-BUSY"&&sends==1,
+            "Discord mutation cannot bypass a reserved maintenance lane");
+    }
+    finally{gate.Release();}
     var replay=await Request("apply",operation,alice,admin,new{token=approve,confirm=true});
     Check(!replay.GetProperty("ok").GetBoolean()&&sends==1,"Discord consumes confirmation");
     pre=await Request("preview",Guid.NewGuid(),alice,owner,new{action="start",mapIds=new[]{m.Id}});
