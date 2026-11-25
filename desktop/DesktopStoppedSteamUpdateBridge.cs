@@ -439,7 +439,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     var journalBlockers=new List<object>();
                     var processBlockers=new List<object>();
                     var storeBlockers=new List<object>();
-                    SteamSerialMaintenanceQueue? queue=null;
+                    SteamQueueSnapshot? queue=null;
                     bool queueUnreadable=false;
                     try{queue=new SteamSerialMaintenanceQueue(
                         cluster.Store.Root,cluster.Config.LocalHostId).Observe();}
@@ -459,11 +459,11 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     var localJournal=AsaLocalJournalReadOnly.Inspect(
                         cluster.Operations,owned.InstallationPath);
                     string? operationCode=localJournal.OperationUnreadable?
-                        localJournal.OperationErrorCode:
+                        localJournal.OperationErrorCode??"UM-OPERATION-JOURNAL-UNREADABLE":
                         PendingOperation(localJournal.Operation?.Phase)?
                             "UM-STEAM-LOCAL-OPERATION-JOURNAL-NEEDS-REVIEW":null;
                     string? restartCode=localJournal.RestartUnreadable?
-                        localJournal.RestartErrorCode:
+                        localJournal.RestartErrorCode??"UM-ASA-RESTART-JOURNAL-UNREADABLE":
                         PendingRestart(localJournal.Restart?.Phase)?
                             "UM-STEAM-LOCAL-RESTART-JOURNAL-NEEDS-REVIEW":null;
                     if(operationCode!=null)
@@ -560,6 +560,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         installedBuild=AsaSteamBuildCatalog.InstalledBuild(root),
                         processes,overlaps,steamCmdError,
                         steamCmdPath=steamStatus?.ExecutablePath,
+                        steamCmdConfiguredPath=string.IsNullOrWhiteSpace(steamExe)?null:steamExe,
                         steamCmdSha256=steamStatus?.Sha256,
                         steamCmdLastModifiedUtc=steamStatus?.LastModifiedUtc,
                         asaBinaryRegistered=binaryRegistered,
@@ -583,7 +584,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         historicalBlocked=storeBlockers.Count>0,
                         safeInstallation,
                         canPreview=blockers.Count==0&&binaryRegistered&&stopped&&
-                            !historical&&safeInstallation&&steamFound&&
+                            storeBlockers.Count==0&&safeInstallation&&steamFound&&
                             externalSteamError==null&&free>=required&&overlaps.Length==0,
                         noProcessAutoStop=true,remoteWrites=false,
                         evidence="REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"
