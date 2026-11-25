@@ -32,6 +32,19 @@ internal static class SteamCmdDiscoveryTests
         return response.RootElement.Clone();
     }
 
+    private static void WriteMinimalPe(string path,byte marker)
+    {
+        byte[] image=new byte[512];
+        image[0]=(byte)'M';image[1]=(byte)'Z';
+        BitConverter.GetBytes(0x80).CopyTo(image,0x3c);
+        image[0x80]=(byte)'P';image[0x81]=(byte)'E';
+        BitConverter.GetBytes((ushort)0x014c).CopyTo(image,0x84);
+        BitConverter.GetBytes((ushort)1).CopyTo(image,0x86);
+        image[0x88]=marker;
+        BitConverter.GetBytes((ushort)0x00e0).CopyTo(image,0x94);
+        File.WriteAllBytes(path,image);
+    }
+
     public static async Task Run(string testRoot)
     {
         string root=Path.Combine(testRoot,"steamcmd-discovery");
@@ -55,9 +68,9 @@ internal static class SteamCmdDiscoveryTests
 
         string first=Path.Combine(root,"legacy","steamcmd.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(first)!);
-        File.WriteAllBytes(first,new byte[]{0x53,0x54,0x45,0x41,0x4d,0x31});
+        WriteMinimalPe(first,1);
         var before=SteamCmdPreflight.Inspect(first);
-        Check(before.LengthBytes==6&&before.Sha256.Length==64,
+        Check(before.LengthBytes==512&&before.Sha256.Length==64,
             "SteamCMD candidate is fingerprinted without executing the binary");
 
         string install=Path.Combine(root,"asa");
@@ -101,14 +114,14 @@ internal static class SteamCmdDiscoveryTests
 
         string changed=Path.Combine(root,"changed","steamcmd.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(changed)!);
-        File.WriteAllBytes(changed,new byte[]{1,2,3,4,5,6});
+        WriteMinimalPe(changed,2);
         using var changedBridge=new DesktopStoppedSteamUpdateBridge(cluster,
             candidatePaths:_=>new[]{(changed,"synthetic existing SteamCMD")});
         var changedDiscovery=await Call(changedBridge.HandleAsync,
             "steam.discoverExecutables",new{mapId});
         string changedToken=changedDiscovery.GetProperty("data")
             .GetProperty("candidates")[0].GetProperty("token").GetString()!;
-        File.WriteAllBytes(changed,new byte[]{1,2,3,4,5,6,7,8});
+        WriteMinimalPe(changed,3);
         var changedApply=await Call(changedBridge.HandleAsync,
             "steam.acceptDiscoveredExecutable",new{mapId,token=changedToken,confirm=true});
         Check(!changedApply.GetProperty("ok").GetBoolean()&&
