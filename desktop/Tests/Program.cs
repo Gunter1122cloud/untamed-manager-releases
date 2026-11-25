@@ -819,6 +819,7 @@ LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();
 await RunningAsaRegistrationTests.Run(root);
 await ClusterRegistryTests.Run(root);
+FutureStoreAppendPlannerTests.Run(root);
 await LegacyStorePhysicalTransferTests.Run(root);
 LegacyStoreOriginalLinkTests.Run(root);
 OriginalStoreLiveBatchEvidenceTests.Run(root);
