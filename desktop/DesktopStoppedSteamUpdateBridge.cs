@@ -779,8 +779,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                 if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
                 string? applyJournalCode=LocalJournalBlocker(map);
                 if(applyJournalCode!=null)return Fail(id,applyJournalCode);
-                if(QueueJournalBlockerCode() is { } queueBlocker)
-                    return Fail(id,queueBlocker);
+                if(QueueJournalBlockerCode() is { } finalQueueBlocker)
+                    return Fail(id,finalQueueBlocker);
                 if(!Stopped(map)||
                    !string.Equals(map.InstallationPath,saved.Root,
                        StringComparison.OrdinalIgnoreCase)||
