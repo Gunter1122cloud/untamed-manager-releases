@@ -1884,6 +1884,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
   intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;postRestartWipe?:boolean;wipeDelaySeconds?:number;delaySeconds?:number;
   timeZoneId?:string;dayMinutes?:number[];onceAtLocal?:string;
+  keepFutureRestart?:boolean;
   gamePort?: number; queryPort?: number; customLevel?: string; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
