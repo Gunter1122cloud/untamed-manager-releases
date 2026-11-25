@@ -44,6 +44,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     private readonly Func<LocalMap,CancellationToken,Task<AsaSteamBuildCheck>> publishedBuild;
     private readonly Func<string?> pickSteamCmd;
     private readonly Func<CancellationToken,Task<string>> prepareSteamCmd;
+    private readonly Func<Guid,IEnumerable<(string Path,string Source)>> candidatePathsForDiscovery;
     // Each local map has its own approval; SteamCMD execution stays serialized.
     private readonly System.Collections.Generic.Dictionary<Guid,Preview> pendingByMap=new();
     private readonly System.Collections.Generic.Dictionary<Guid,DiscoveredSteamCmd> discoveredByToken=new();
@@ -59,12 +60,19 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         Func<LocalMap,IProgress<SteamMaintenanceStage>,Task<SteamStoppedMapUpdater.Receipt>>? execute=null,
         Func<LocalMap,CancellationToken,Task<AsaSteamBuildCheck>>? inspectPublished=null,
         Func<string?>? selectSteamCmd=null,
-        Func<CancellationToken,Task<string>>? prepareOfficialSteamCmd=null)
+        Func<CancellationToken,Task<string>>? prepareOfficialSteamCmd=null,
+        Func<Guid,IEnumerable<(string Path,string Source)>>? candidatePaths=null)
     {
         cluster=owner??throw new ArgumentNullException(nameof(owner));
         isolatedExecution=execute!=null;
         pickSteamCmd=selectSteamCmd??PickSteamCmd;
         prepareSteamCmd=prepareOfficialSteamCmd??PrepareOfficialSteamCmdAsync;
+        candidatePathsForDiscovery=candidatePaths??(mapId=>
+            DefaultSteamCmdCandidates(mapId,cluster.Config.LocalMaps,
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)));
         planner=plan??(map=>SteamUpdateDryRun.Plan(
             cluster.Config.SteamCmdExecutable,map.InstallationPath,
             cluster.Config.LocalMaps.ToArray(),
@@ -182,43 +190,54 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     {
         if(map.Maintenance)return "UM-STEAM-MAP-MAINTENANCE";
         if(map.ObservedReadOnlyImported)return "UM-STEAM-MAP-OBSERVATION-ONLY";
-        if(!map.HistoricalStoreProtected&&!FreshStoreEnrollmentPolicy.IsEnrolled(map)&&
-           (!string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256)||
-            !string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
-            !string.IsNullOrWhiteSpace(map.FreshStoreClusterId)||
-            !string.IsNullOrWhiteSpace(map.FreshStoreTransferDirectory)||
-            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
-            KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)))
-            return "UM-STEAM-SHARED-STORE-OR-RECOVERY-PROTECTED";
-        if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
-            return "UM-STEAM-RECOVERY-MUST-COMPLETE-FIRST";
-        return "";
-    }
-    private IEnumerable<(string Path,string Source)> SteamCmdCandidates(Guid mapId)
-    {
-        string roaming=Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        foreach(var map in cluster.Config.LocalMaps)
+        try
         {
-            if(map.Id!=mapId)continue;
-            yield return(Path.Combine(roaming,"Kova","tools",map.Id.ToString("D"),
-                "SteamCMD","steamcmd.exe"),"Kova korábbi map-eszköze");
+            if(!map.HistoricalStoreProtected&&!FreshStoreEnrollmentPolicy.IsEnrolled(map)&&
+               (!string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256)||
+                !string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
+                !string.IsNullOrWhiteSpace(map.FreshStoreClusterId)||
+                !string.IsNullOrWhiteSpace(map.FreshStoreTransferDirectory)||
+                !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
+                KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)))
+                return "UM-STEAM-SHARED-STORE-OR-RECOVERY-PROTECTED";
+            if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+                return "UM-STEAM-RECOVERY-MUST-COMPLETE-FIRST";
+            return "";
         }
-        string local=Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        catch(Exception ex) when(ex is IOException or InvalidDataException or
+            UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {return "UM-STEAM-STORE-IDENTITY-UNVERIFIED";}
+    }
+    internal static IEnumerable<(string Path,string Source)> DefaultSteamCmdCandidates(
+        Guid mapId,IEnumerable<LocalMap> maps,string roaming,string local,
+        string programFilesX86,string programFiles)
+    {
+        foreach(var map in maps)
+            if(map.Id==mapId)
+                yield return(Path.Combine(roaming,"Kova","tools",map.Id.ToString("D"),
+                    "SteamCMD","steamcmd.exe"),"Kova korábbi map-eszköze");
         yield return(Path.Combine(local,"UntamedManager","Tools","SteamCMD","steamcmd.exe"),
             "Obsidian Manager eszköztára");
-        string x86=Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
-        if(!string.IsNullOrWhiteSpace(x86))
-            yield return(Path.Combine(x86,"Steam","steamcmd.exe"),"Steam telepítési könyvtár");
-        string pf=Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-        if(!string.IsNullOrWhiteSpace(pf))
-            yield return(Path.Combine(pf,"Steam","steamcmd.exe"),"Steam telepítési könyvtár");
+        if(!string.IsNullOrWhiteSpace(programFilesX86))
+            yield return(Path.Combine(programFilesX86,"Steam","steamcmd.exe"),
+                "Steam telepítési könyvtár");
+        if(!string.IsNullOrWhiteSpace(programFiles))
+            yield return(Path.Combine(programFiles,"Steam","steamcmd.exe"),
+                "Steam telepítési könyvtár");
         yield return(@"C:\SteamCMD\steamcmd.exe","C:\SteamCMD");
     }
+    internal static bool SameSteamCmdCandidate(SteamCmdFileStatus before,
+        SteamCmdFileStatus current)=>
+        string.Equals(before.ExecutablePath,current.ExecutablePath,
+            StringComparison.OrdinalIgnoreCase)&&
+        before.LengthBytes==current.LengthBytes&&
+        string.Equals(before.Sha256,current.Sha256,StringComparison.OrdinalIgnoreCase)&&
+        before.LastModifiedUtc==current.LastModifiedUtc;
     private object DiscoverSteamCmd(Guid mapId)
     {
         var candidates=new List<object>();
         var seen=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach(var candidate in SteamCmdCandidates(mapId))
+        foreach(var candidate in candidatePathsForDiscovery(mapId))
         {
             string full;
             try{full=Path.GetFullPath(candidate.Path);}
@@ -373,9 +392,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     SteamCmdFileStatus current;
                     try{current=SteamCmdPreflight.Inspect(candidate.File.ExecutablePath);}
                     catch(Exception){return Fail(id,"UM-STEAMCMD-DISCOVERY-CANDIDATE-CHANGED");}
-                    if(current.LengthBytes!=candidate.File.LengthBytes||
-                       !string.Equals(current.Sha256,candidate.File.Sha256,StringComparison.OrdinalIgnoreCase)||
-                       current.LastModifiedUtc!=candidate.File.LastModifiedUtc)
+                    if(!SameSteamCmdCandidate(candidate.File,current))
                         return Fail(id,"UM-STEAMCMD-DISCOVERY-CANDIDATE-CHANGED");
                     cluster.UpdateSettings(config=>config.SteamCmdExecutable=current.ExecutablePath);
                     pendingByMap.Clear();
