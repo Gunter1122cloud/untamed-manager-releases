@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,HardDrive,RefreshCw,Shield} from "lucide-react";
-import {managerBridge,type PublicMap,type StoppedSteamStatus,type DurableSteamQueue,type StoppedSteamDiagnostics,type SteamPublishedBuild} from "./bridge";
+import {managerBridge,type PublicMap,type StoppedSteamStatus,type DurableSteamQueue,
+  type StoppedSteamDiagnostics,type SteamPublishedBuild,type SteamCmdCandidate} from "./bridge";
 import {ScheduledStoppedSteamSettings} from "./ScheduledStoppedSteamSettings";
 
 const steamReason=(code?:string|null)=>code==="UM-STEAM-HOST-BUSY"?"Ezen a gépen másik SteamCMD művelet fut. A befejezése után ellenőrizd újra.":code==="UM-STEAM-EXTERNAL-PROCESS-BUSY"?"Másik SteamCMD fut ezen a gépen. Várd meg, amíg befejeződik, majd ellenőrizd újra.":
@@ -8,13 +9,28 @@ const steamReason=(code?:string|null)=>code==="UM-STEAM-HOST-BUSY"?"Ezen a gépe
   code==="UM-STEAM-SHARED-SCOPE-CHANGED"?"A közös telepítés maplistája megváltozott. Olvasd újra a helyi állapotot.":
   code==="UM-STEAMCMD-NOT-CONFIGURED"?"Nincs SteamCMD beállítva. Válaszd ki a steamcmd.exe fájlt.":
   code==="UM-STEAMCMD-NOT-FOUND"?"A beállított steamcmd.exe nem található.":
+  code==="UM-STEAMCMD-NOT-WINDOWS-PE"?"A kiválasztott fájl nem érvényes Windows PE program; nem mentettük el SteamCMD-ként.":
   code==="UM-STEAMCMD-INVALID"?"Érvénytelen vagy nem olvasható helyi SteamCMD-programútvonal.":
   code==="UM-STEAMCMD-PREPARE-FAILED"?"A hivatalos SteamCMD előkészítése sikertelen. Ellenőrizd a kapcsolatot és a helyi Tools könyvtárat, vagy válassz meglevő steamcmd.exe fájlt.":
-  code==="UM-STEAM-ASA-BINARY-INVALID"?"A kiválasztott map ASA szerverbinárisa nem igazolható.":null;
+  code==="UM-STEAM-ASA-BINARY-INVALID"?"A kiválasztott map ASA szerverbinárisa nem igazolható.":
+  code==="UM-STEAM-LOCAL-OPERATION-JOURNAL-NEEDS-REVIEW"?"A map korábbi műveleti naplója nincs lezárva. Ellenőrizd és auditáld az előző műveletet.":
+  code==="UM-STEAM-LOCAL-RESTART-JOURNAL-NEEDS-REVIEW"?"A map korábbi Restart-v1 naplója nincs lezárva. Ellenőrizd a régi és jelenlegi ASA/Loader folyamatot, majd auditáld a restartnaplót.":
+  code==="UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW"?"A gép SteamCMD-frissítési sora korábban félbeszakadt; kézi audit szükséges.":
+  code==="UM-STEAM-QUEUE-JOURNAL-UNREADABLE"?"A gép SteamCMD-sornaplója nem olvasható; javítás előtt vizsgáld meg a naplófájlt.":
+  code==="UM-STEAM-MAP-STILL-RUNNING"?"A telepítéshez tartozó ASA vagy Loader még fut.":
+  code==="UM-STEAM-MAP-STOP-NOT-VERIFIED"?"Az ASA/Loader teljes leállása nem bizonyított.":
+  code==="UM-STEAM-SHARED-STORE-OR-RECOVERY-PROTECTED"?"A telepítéshez nem igazolt Store/cluster tulajdonosi állapot tartozik.":
+  code==="UM-STEAM-MAP-MAINTENANCE"?"A map karbantartási zárolás alatt áll.":
+  code==="UM-STEAM-MAP-OBSERVATION-ONLY"?"A map csak megfigyelési módban van regisztrálva.":
+  code==="UM-STEAM-RECOVERY-MUST-COMPLETE-FIRST"?"A mentés-helyreállítás nincs lezárva.":
+  code==="UM-STEAM-INSTALLATION-IDENTITY-UNVERIFIED"?"A telepítés tulajdonosi/útvonal-azonossága nem igazolható.":
+  code==="UM-STEAM-NESTED-INSTALL-OWNERSHIP"?"Egymásba ágyazott telepítési gyökér miatt nem egyértelmű a fájltulajdon.":
+  code==="UM-STEAM-DISK-RESERVE-INSUFFICIENT"?"Nincs elegendő szabad tárhely a frissítéshez.":null;
 
 export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapId?:string}) {
   const [selected,setSelected]=useState("");
   const [diagnostics,setDiagnostics]=useState<StoppedSteamDiagnostics|null>(null);
+  const [steamCandidates,setSteamCandidates]=useState<SteamCmdCandidate[]>([]);
   const [published,setPublished]=useState<SteamPublishedBuild|null>(null);
   const [job,setJob]=useState<StoppedSteamStatus|null>(null);
   const [jobId,setJobId]=useState<string|null>(null);
@@ -40,7 +56,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
     mapRef.current===requested&&mapEpoch.current===epoch;
   useEffect(()=>{
     ++mapEpoch.current;
-    setDiagnostics(null);setPublished(null);
+    setDiagnostics(null);setSteamCandidates([]);setPublished(null);
     setJobId(null);setJob(null);setOtherMapUpdating(false);setBusy(false);
   },[mapId]);
   useEffect(()=>{
@@ -151,8 +167,8 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
     return ()=>{active=false;window.clearInterval(timer);};
   },[jobId,mapId]);
 
-  const blocked=busy||!!jobId||otherMapUpdating||reconnecting||reconnectFailed||
-    Boolean(journal?.needsOperatorReview);
+  const settingsBlocked=busy||!!jobId||otherMapUpdating||reconnecting||reconnectFailed;
+  const blocked=settingsBlocked||Boolean(journal?.needsOperatorReview);
   // Discover the installation scope automatically, without dispatching an update.
   // The explicit refresh button remains useful after an external SteamCMD job.
   useEffect(()=>{
@@ -165,7 +181,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
     return ()=>{active=false;};
   },[mapId,reconnecting,reconnectFailed,otherMapUpdating,jobId]);
   const selectSteam=async(prepare=false)=>{
-    if(!mapId||blocked)return;
+    if(!mapId||settingsBlocked)return;
     const requested=mapId,epoch=mapEpoch.current;
     setBusy(true);setError("");setSteamNotice("");
     try{
@@ -174,10 +190,52 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
       if(result.updateStarted!==false||result.serverStopped!==false||(!result.cancelled&&!result.configured))
         throw new Error("UM-STEAMCMD-SETTINGS-RECEIPT-INVALID");
       if(result.cancelled)return;
-      setDiagnostics(null);setPublished(null);
-      setSteamNotice("SteamCMD elérési útja mentve a helyi Manager profiljába. ASA-frissítés nem indult. Ellenőrizd újra a verziót és a frissítési előfeltételeket.");
+      setDiagnostics(null);setPublished(null);setSteamCandidates([]);
+      setSteamNotice("SteamCMD elérési útja mentve a helyi Manager profiljába. ASA-frissítés nem indult.");
+      const report=await managerBridge.steamStoppedDiagnostics(requested);
+      if(belongs(requested,epoch)&&report.mapId.toLowerCase()===requested.toLowerCase())
+        setDiagnostics(report);
     }catch(e){if(belongs(requested,epoch))setError(steamReason(e instanceof Error?e.message:"")??"A SteamCMD beállítása nem igazolható.");}
     finally{if(belongs(requested,epoch))setBusy(false);}
+  };
+  const discoverSteam=async()=>{
+    if(!mapId||settingsBlocked)return;
+    const requested=mapId,epoch=mapEpoch.current;
+    setBusy(true);setError("");setSteamNotice("");setSteamCandidates([]);
+    try{
+      const result=await managerBridge.steamDiscoverExecutables(requested);
+      if(!belongs(requested,epoch))return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase()||
+         result.updateStarted||result.serverStopped)
+        throw new Error("UM-STEAMCMD-DISCOVERY-RECEIPT-INVALID");
+      setSteamCandidates(result.candidates);
+      setSteamNotice(result.candidates.length?
+        "Meglévő SteamCMD-példány található. Egyik sem lesz használatba véve külön jóváhagyás nélkül.":
+        "A megadott ismert helyeken nem találtam érvényes SteamCMD-példányt. Válaszd ki kézzel, vagy készítsd elő a Valve hivatalos példányát.");
+    }catch(e){
+      if(belongs(requested,epoch))
+        setError(steamReason(e instanceof Error?e.message:"")??"A meglévő SteamCMD-példányok keresése sikertelen.");
+    }finally{if(belongs(requested,epoch))setBusy(false);}
+  };
+  const acceptSteamCandidate=async(candidate:SteamCmdCandidate)=>{
+    if(!mapId||settingsBlocked)return;
+    const requested=mapId,epoch=mapEpoch.current;
+    setBusy(true);setError("");setSteamNotice("");
+    try{
+      const result=await managerBridge.steamAcceptDiscoveredExecutable(requested,candidate.token);
+      if(!belongs(requested,epoch))return;
+      if(!result.configured||result.updateStarted||result.serverStopped||
+         result.sha256!==candidate.sha256||result.path.toLowerCase()!==candidate.path.toLowerCase())
+        throw new Error("UM-STEAMCMD-DISCOVERY-RECEIPT-INVALID");
+      setSteamCandidates([]);setPublished(null);
+      setSteamNotice("A meglévő SteamCMD-példány külön jóváhagyással beállítva és újraellenőrizve. ASA-frissítés nem indult.");
+      const report=await managerBridge.steamStoppedDiagnostics(requested);
+      if(belongs(requested,epoch)&&report.mapId.toLowerCase()===requested.toLowerCase())
+        setDiagnostics(report);
+    }catch(e){
+      if(belongs(requested,epoch))
+        setError(steamReason(e instanceof Error?e.message:"")??"A SteamCMD-példány elfogadása nem igazolható.");
+    }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const checkPublished=async()=>{
     if(!mapId||blocked)return;
@@ -199,7 +257,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
     }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const check=async()=>{
-    if(!mapId||blocked)return;
+    if(!mapId||settingsBlocked)return;
     const requested=mapId,epoch=mapEpoch.current;
     setBusy(true);setError("");
     try{
@@ -210,7 +268,10 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
         throw new Error("UM-STEAM-DIAGNOSTICS-OTHER-MAP");
       setDiagnostics(report);
       if(!report.canPreview){
-        setError(steamReason(report.externalSteamError??report.steamCmdError)??(report.asaBinaryRegistered===false?steamReason("UM-STEAM-ASA-BINARY-INVALID")!:"A frissítési előfeltételek nem teljesülnek. A diagnosztika jelzi a blokkoló mapot, SteamCMD-t, tárhelyet vagy naplót."));
+        const first=report.blockers?.[0];
+        setError(first?
+          first.code+": "+first.nextStep:
+          steamReason(report.externalSteamError??report.steamCmdError)??"A frissítési előfeltételek nem teljesülnek; nézd meg a natív diagnosztikát.");
         return;
       }
 
@@ -252,11 +313,26 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
       <h2><HardDrive size={19}/> Valódi SteamCMD-frissítés – leállított mapok</h2>
     </header>
     <div className="map-overview-actions">
-      <button type="button" className="secondary" disabled={!mapId||blocked} onClick={()=>{void selectSteam(true);}}>SteamCMD előkészítése (Valve)</button>
-      <button type="button" className="secondary" disabled={!mapId||blocked} onClick={()=>{void selectSteam();}}>SteamCMD program kiválasztása</button>
+      <button type="button" className="secondary" disabled={!mapId||settingsBlocked} onClick={()=>{void discoverSteam();}}>Meglévő SteamCMD keresése</button>
+      <button type="button" className="secondary" disabled={!mapId||settingsBlocked} onClick={()=>{void selectSteam();}}>SteamCMD program kiválasztása</button>
+      <button type="button" className="secondary" disabled={!mapId||settingsBlocked} onClick={()=>{void selectSteam(true);}}>SteamCMD előkészítése (Valve)</button>
     </div>
     <p className="muted small">Csak a helyi SteamCMD eszközt készíti elő, nem telepít és nem frissít ASA mapot.</p>
     {steamNotice&&<p role="status" className="success-inline">{steamNotice}</p>}
+    {steamCandidates.length>0&&<div className="historical-preview" role="region"
+      aria-label="Talált meglévő SteamCMD-példányok">
+      <b>Talált, érvényes SteamCMD-példányok</b>
+      {steamCandidates.map(candidate=><div key={candidate.token} className="map-info-line">
+        <div>
+          <strong>{candidate.source}</strong>
+          <p><code>{candidate.path}</code></p>
+          <p className="muted tiny">Méret: {Math.ceil(candidate.lengthBytes/1024)} KiB
+            {" · "}SHA-256: <code>{candidate.sha256}</code></p>
+        </div>
+        <button type="button" className="secondary" disabled={settingsBlocked}
+          onClick={()=>{void acceptSteamCandidate(candidate);}}>Ezt a példányt használom</button>
+      </div>)}
+    </div>}
     {reconnecting&&<p role="status" className="muted small">Korábbi kézi SteamCMD-feladat ellenőrzése…</p>}
     {otherMapUpdating&&<p role="status" className="warning-inline">
       Másik helyi map SteamCMD-frissítése folyamatban van. A saját map frissítése a másik feladat befejezéséig nem indítható.</p>}
@@ -274,7 +350,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
         </label>}
       <button type="button" className="secondary" disabled={!mapId||blocked}
         onClick={()=>{void checkPublished();}}><RefreshCw size={16}/> Elérhető ASA verzió ellenőrzése</button>
-      <button type="button" className="secondary" disabled={!mapId||blocked}
+      <button type="button" className="secondary" disabled={!mapId||settingsBlocked}
         onClick={()=>{void check();}}><RefreshCw size={16}/> Helyi állapot és telepített build újraellenőrzése</button>
     </div>
     {published&&<div className="historical-preview" role="region"
@@ -304,12 +380,29 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
       <p>Helyi telepített build: {diagnostics.installedBuild??"ismeretlen"}. A publikus build státusza ettől független.</p>
       <p>Szabad tárhely: {Math.floor(diagnostics.availableBytes/1073741824)} GiB;
         szükséges tartalék: {Math.ceil(diagnostics.requiredBytes/1073741824)} GiB.</p>
-      <p>SteamCMD: {diagnostics.steamCmdFound?"Helyi elérési út ellenőrizve":steamReason(diagnostics.steamCmdError)??(!diagnostics.steamCmdConfigured?"Nincs konfigurálva":"Hiányzik vagy az elérési út érvénytelen")}.
-        Napló: {diagnostics.journalBlocked?"kézi ellenőrzés szükséges":"nem blokkol"}.
-        Store-v1/karbantartás: {diagnostics.historicalBlocked?"védett":"nem blokkol"}.
-        Közös telepítés tulajdonjoga: {diagnostics.safeInstallation?
-          "ellenőrzött, a helyi, leállított telepítés mapjai":
-          "nem igazolható – a közös telepítés vagy a Store-védelem blokkol"}.</p>
+      <p>SteamCMD: {diagnostics.steamCmdFound?"Helyi elérési út ellenőrizve":steamReason(diagnostics.steamCmdError)??(diagnostics.steamCmdConfigured?"Hiányzik vagy érvénytelen":"Nincs SteamCMD beállítva")}.
+        Beállított útvonal: <code>{diagnostics.steamCmdConfiguredPath??"nincs beállítva"}</code>.
+        {diagnostics.steamCmdSha256&&<> · SHA-256: <code>{diagnostics.steamCmdSha256}</code></>}</p>
+      <p>Gépfrissítési napló: {diagnostics.queueJournalPhase??"nincs"} 
+        {diagnostics.queueJournalBlockingCode&&" · "+diagnostics.queueJournalBlockingCode}.
+        Map műveleti napló: {diagnostics.operationJournalPhase??"nincs"}
+        {diagnostics.operationJournalBlockingCode&&" · "+diagnostics.operationJournalBlockingCode}.
+        Restart-v1: {diagnostics.restartJournalPhase??"nincs"}
+        {diagnostics.restartJournalBlockingCode&&" · "+diagnostics.restartJournalBlockingCode}.</p>
+      <p>Közös telepítés tulajdonjoga: {diagnostics.safeInstallation?
+        "ellenőrzött, a helyi, leállított telepítés mapjai":"nem igazolható"}.</p>
+      {diagnostics.blockers&&diagnostics.blockers.length>0?
+        <div className="warning-inline" role="alert">
+          <Shield size={16}/>
+          <div><b>Konkrét frissítési akadályok</b>
+            {diagnostics.blockers.map((item,index)=><p key={item.category+item.code+index}>
+              <b>{item.code}</b> — {item.subject}. {item.nextStep}
+            </p>)}
+          </div>
+        </div>:
+        diagnostics.canPreview&&!blocked?
+          <p className="success-inline">A helyi frissítési előfeltételek ellenőrzése nem talált blokkoló hibát.</p>:
+          <p role="status" className="muted small">A frissítés nem engedélyezhető; ellenőrizd a fenti állapotokat és naplókat.</p>}
       {diagnostics.externalSteamError&&<p role="alert">{steamReason(diagnostics.externalSteamError)} ({diagnostics.externalSteamError})</p>}
       {diagnostics.processes.map(p=><p key={p.mapName}>
         {p.mapName}: {p.confirmedStopped&&!p.running?"Leállítás igazolva":"NEM igazoltan leállítva"}

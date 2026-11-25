@@ -25,11 +25,36 @@ internal static class SteamPublicBuildParsingTests
         System.IO.Directory.CreateDirectory(bin);
         string steam=System.IO.Path.Combine(bin,"steamcmd.exe");
         System.IO.File.WriteAllText(steam,"NOT A WINDOWS EXECUTABLE");
+        bool invalidRejected=false;
+        try
+        {
+            await AsaSteamBuildCatalog.CheckAsync(steam,install,"public",TimeSpan.FromSeconds(5));
+        }
+        catch(System.IO.InvalidDataException ex) when(ex.Message=="SteamCMD executable has an invalid size")
+        {
+            invalidRejected=true;
+        }
+        Check(invalidRejected&&AsaSteamBuildCatalog.InstalledBuild(install)=="123456",
+            "invalid text executable rejected before launch, local build unchanged");
+
+        // Header-only inert PE fixture passes the bounded file preflight but
+        // has no executable image/sections or entry point for Windows to load.
+        byte[] header=new byte[512];
+        header[0]=(byte)'M';header[1]=(byte)'Z';
+        BitConverter.GetBytes(0x80).CopyTo(header,0x3c);
+        header[0x80]=(byte)'P';header[0x81]=(byte)'E';
+        BitConverter.GetBytes((ushort)0x014c).CopyTo(header,0x84);
+        BitConverter.GetBytes((ushort)1).CopyTo(header,0x86);
+        BitConverter.GetBytes((ushort)0xe0).CopyTo(header,0x94);
+        System.IO.File.WriteAllBytes(steam,header);
+        Check(SteamCmdPreflight.Inspect(steam).LengthBytes==512,
+            "inert header fixture passes only the structural preflight");
         var report=await AsaSteamBuildCatalog.CheckAsync(
             steam,install,"public",TimeSpan.FromSeconds(5));
         Check(report.InstalledBuild=="123456"&&
               report.AvailableBuild==null&&
-              report.State==AsaSteamBuildState.Unknown,
+              report.State==AsaSteamBuildState.Unknown&&
+              report.DiagnosticCode=="UM-STEAM-PUBLIC-LAUNCH",
             "SteamCMD cannot launch: existing local build retained, public build unknown");
     }
 

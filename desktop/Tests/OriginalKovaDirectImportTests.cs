@@ -1395,5 +1395,169 @@ internal static class OriginalKovaDirectImportTests
               Convert.ToHexString(SHA256.HashData(
                   File.ReadAllBytes(launchProfilePath)))==launchHash,
             "atomic five-map batch leaves every synthetic original metadata byte unchanged");
+
+        // Exact Astraeos dual-blocker regression using the REAL approved
+        // five-map source pin and native scheduler/journal bridges. Only
+        // process witnesses are injected; no production Store, ASA or RCON.
+        var astra=batchCluster.Config.LocalMaps.Single(m=>m.HistoricalMapKey=="Astraeos_WP");
+        astra.StartWithAsaApi=true;
+        astra.HistoricalLaunchModeNeedsApproval=false;
+        astra.ApiLoaderPath=Path.Combine(Path.GetDirectoryName(astra.ExecutablePath)!,"AsaApiLoader.exe");
+        File.WriteAllBytes(astra.ApiLoaderPath,new byte[]{0x4d,0x5a,0,0});
+        astra.RconHost="127.0.0.1";
+        astra.RconPort=37085;
+        astra.RconPasswordProtected=SecureStore.Protect("SyntheticAstraRconOnly!");
+        astra.MonitorRcon=false;
+        batchCluster.Save();
+        Check(LegacyStoreV1PinnedSource.HasApprovedLocalSource(batchCluster.Store.Root,astra),
+            "dual-blocker fixture uses genuine approved local Store source");
+        int nativePreviewCalls=0;
+        int unexpectedDispatches=0;
+        using var dualStop=new DesktopHistoricalGracefulStopBridge(batchCluster,
+            _=>throw new InvalidOperationException("UM-TEST-UNEXPECTED-STOP-PREVIEW"),
+            (_,_,_,_,_)=>{
+                unexpectedDispatches++;
+                throw new InvalidOperationException("UM-TEST-UNEXPECTED-STOP");
+            });
+        using var dualRestart=new DesktopHistoricalRestartBridge(batchCluster,
+            _=>{
+                nativePreviewCalls++;
+                // At the next actual slot prove that native preflight is
+                // reached, but deliberately never authorize a real command.
+                throw new InvalidOperationException("UM-TEST-FUTURE-RESTART-PREVIEW-ONLY");
+            },
+            (_,_,_,_,_,_)=>{
+                unexpectedDispatches++;
+                throw new InvalidOperationException("UM-TEST-UNEXPECTED-STOP");
+            },
+            (_,_,_)=>{
+                unexpectedDispatches++;
+                throw new InvalidOperationException("UM-TEST-UNEXPECTED-START");
+            });
+        using var dualAdmin=new DesktopHistoricalRconAdminBridge(batchCluster,
+            _=>throw new InvalidOperationException("UM-TEST-UNEXPECTED-ADMIN-PREVIEW"),
+            (_,_,_,_,_,_)=>{
+                unexpectedDispatches++;
+                throw new InvalidOperationException("UM-TEST-UNEXPECTED-RCON");
+            });
+        var dualRcon=new DesktopRconReadOnlyBridge(batchCluster);
+        using var dualFresh=new DesktopFreshAsaRestartBridge(batchCluster);
+        using var dualSchedule=new DesktopScheduledAsaOperationsSupervisor(
+            batchCluster,dualRcon,dualFresh,
+            (_,_,_)=>{
+                unexpectedDispatches++;
+                throw new InvalidOperationException("UM-TEST-UNEXPECTED-FRESH-DISPATCH");
+            },isolatedMinimumReviewAge:TimeSpan.Zero,
+            historicalStop:dualStop,historicalRestart:dualRestart,historicalAdmin:dualAdmin);
+        var schedule=dualSchedule.Configure(astra.Id,"Restart","Daily",0,240,127);
+        using(var lease=batchCluster.Operations.Acquire(astra.InstallationPath,UntamedOperationKind.Launch))
+            lease.Complete();
+        string dualKey=UntamedOperationCoordinator.ResourceKey(astra.InstallationPath);
+        string launchJournal=Path.Combine(UntamedOperationCoordinator.DefaultRoot,dualKey+".json");
+        byte[] originalLaunchJournal=File.ReadAllBytes(launchJournal);
+        Guid failedRunId=Guid.NewGuid();
+        var dualJournal=new AsaManualRestartJournal(astra.InstallationPath);
+        var dualClaim=dualJournal.BeginScheduled(astra.Id,16476,failedRunId);
+        dualJournal.Change(dualClaim.Id,AsaRestartPhase.Starting);
+        dualJournal.Change(dualClaim.Id,AsaRestartPhase.NeedsOperator);
+        var failedAt=DateTimeOffset.UtcNow.AddMinutes(-15);
+        string dualRestartPath=Path.Combine(UntamedOperationCoordinator.DefaultRoot,
+            "Restart-v1",dualKey+".json");
+        File.WriteAllText(dualRestartPath,JsonSerializer.Serialize(dualJournal.Observe()! with{
+            ChangedUtc=failedAt
+        }));
+        byte[] originalRestartJournal=File.ReadAllBytes(dualRestartPath);
+        // Persist the already abandoned historical claim; no command replay.
+        string dualSchedulePath=Path.Combine(batchCluster.Store.Root,"native-asa-schedules-v1.json");
+        var failedSlot=new ScheduledAsaExecution(failedRunId,astra.Id,"Restart",
+            failedAt.AddMinutes(-1),failedAt,failedAt,"failed-needs-operator-no-retry",
+            "UM-RESTART-ASA-API-NOT-LOADED");
+        File.WriteAllText(dualSchedulePath,JsonSerializer.Serialize(new{
+            jobs=new[]{schedule with{LastClaimedUtc=failedAt,
+                LastStatus=failedSlot.Status,LastEvidence=failedSlot.Evidence}},
+            history=new[]{failedSlot}
+        },new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        async Task<JsonElement> SlotPreview()=>await Call(dualSchedule.HandleAsync,
+            "schedule.nativeReviewPreview",new{mapId=astra.Id,kind="Restart",runId=failedRunId});
+        async Task<JsonElement> SlotApply(JsonElement pre)=>await Call(dualSchedule.HandleAsync,
+            "schedule.nativeReviewApply",new{mapId=astra.Id,
+                token=pre.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true,keepFutureRestart=true});
+        var blockedPreview=await SlotPreview();
+        Check(blockedPreview.GetProperty("ok").GetBoolean()&&
+            !blockedPreview.GetProperty("data").GetProperty("canKeepFutureRestart").GetBoolean(),
+            "pending Store Restart-v1 prevents future-only schedule approval");
+        byte[] blockedScheduleBytes=File.ReadAllBytes(dualSchedulePath);
+        Check(!(await SlotApply(blockedPreview)).GetProperty("ok").GetBoolean()&&
+            File.ReadAllBytes(dualSchedulePath).SequenceEqual(blockedScheduleBytes)&&
+            File.ReadAllBytes(dualRestartPath).SequenceEqual(originalRestartJournal),
+            "premature schedule approval cannot change either journal");
+        var childEpoch=failedAt.AddMinutes(5);
+        var loaderEpoch=childEpoch.AddMinutes(-1);
+        var dualRecovery=new DesktopAsaLifecycleJournalBridge(batchCluster,
+            _=>throw new InvalidOperationException("UM-RECOVERY-OLD-PID-MISMATCH"),
+            (_,_)=>throw new InvalidOperationException("UM-RECOVERY-NOT-STOPPED"),
+            _=>new LegacyStoreV1GracefulStop.Owned(astra,new ProcessIdentity{
+                Pid=2272,StartedUtc=childEpoch,ExecutablePath=astra.ExecutablePath
+            },new string('D',64)){
+                LoaderIdentity=new ProcessIdentity{Pid=18336,StartedUtc=loaderEpoch,
+                    ExecutablePath=astra.ApiLoaderPath}
+            });
+        var dualPreview=await Call(dualRecovery.HandleAsync,"servers.lifecycleRecoveryPreview",
+            new{mapId=astra.Id});
+        Check(dualPreview.GetProperty("ok").GetBoolean()&&
+            dualPreview.GetProperty("data").GetProperty("reviewMode").GetString()=="replacement"&&
+            dualPreview.GetProperty("data").GetProperty("currentLoaderPid").GetInt32()==18336,
+            "exact independently started ASA and Loader qualify for restart-only recovery");
+        var dualReceipt=await Call(dualRecovery.HandleAsync,"servers.lifecycleRecoveryApply",
+            new{mapId=astra.Id,token=dualPreview.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true,ackUnknownOutcome=true,typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"});
+        Check(dualReceipt.GetProperty("ok").GetBoolean()&&
+            dualJournal.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+            dualJournal.Observe()?.ScheduledRunId==failedRunId&&
+            dualJournal.Observe()?.NewPid==0&&
+            File.ReadAllBytes(launchJournal).SequenceEqual(originalLaunchJournal)&&
+            File.ReadAllBytes(dualSchedulePath).SequenceEqual(blockedScheduleBytes),
+            "Store review preserves completed Launch, original run identity and independent scheduler journal");
+        await dualSchedule.TickOnceAsync(schedule.NextDueUtc);
+        Check(nativePreviewCalls==0&&unexpectedDispatches==0&&
+            dualSchedule.History(astra.Id).Any(x=>x.Evidence=="PRIOR_SLOT_NEEDS_OPERATOR"),
+            "reviewing only Store journal does not replay or unlock the still-unknown scheduled slot");
+        var nextCursor=dualSchedule.Snapshot().Single(x=>x.MapId==astra.Id&&x.Kind=="Restart").NextDueUtc;
+        var allowedPreview=await SlotPreview();
+        Check(allowedPreview.GetProperty("ok").GetBoolean()&&
+            allowedPreview.GetProperty("data").GetProperty("canKeepFutureRestart").GetBoolean(),
+            "both journals now permit explicit future-only scheduling approval");
+        byte[] originalScheduleJournal=File.ReadAllBytes(dualSchedulePath);
+        var allowedReceipt=await SlotApply(allowedPreview);
+        var nextSchedule=dualSchedule.Snapshot().Single(x=>x.MapId==astra.Id&&x.Kind=="Restart");
+        Check(allowedReceipt.GetProperty("ok").GetBoolean()&&
+            allowedReceipt.GetProperty("data").GetProperty("futureRestartRetained").GetBoolean()&&
+            allowedReceipt.GetProperty("data").GetProperty("outcomeStillUnknown").GetBoolean()&&
+            nextSchedule.Enabled&&nextSchedule.NextDueUtc>=nextCursor&&
+            nextSchedule.NextDueUtc>schedule.NextDueUtc&&
+            dualSchedule.History(astra.Id).Single(x=>x.RunId==failedRunId).Status=="operator-reviewed-unknown-no-replay"&&
+            nativePreviewCalls==0&&unexpectedDispatches==0,
+            "joint recovery clears both blockers without any lifecycle dispatch or false success");
+        string restartAudit=Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
+            dualKey+"-"+dualClaim.Id.ToString("N")+".operator-reviewed.json");
+        string scheduleAudit=dualSchedulePath+"."+failedRunId.ToString("N")+".operator-reviewed.json";
+        Check(File.ReadAllBytes(restartAudit).SequenceEqual(originalRestartJournal)&&
+            File.ReadAllBytes(scheduleAudit).SequenceEqual(originalScheduleJournal)&&
+            File.ReadAllBytes(launchJournal).SequenceEqual(originalLaunchJournal)&&
+            names.Select(n=>Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(local,n)))))
+                .SequenceEqual(hashes)&&
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(launchProfilePath)))==launchHash,
+            "both original audit streams and all five Store source files remain byte-exact");
+        dualJournal.DemandNoPending();
+        Check(!(await SlotApply(allowedPreview)).GetProperty("ok").GetBoolean(),
+            "joint recovery token cannot be replayed");
+        await dualSchedule.TickOnceAsync(schedule.NextDueUtc);
+        Check(nativePreviewCalls==0&&unexpectedDispatches==0,
+            "skipped old slot is never replayed even after both reviews");
+        await dualSchedule.TickOnceAsync(nextSchedule.NextDueUtc);
+        Check(nativePreviewCalls==1&&unexpectedDispatches==0,
+            "only next genuinely due restart reaches native historical preview; fixture never sends commands");
+
     }
 }

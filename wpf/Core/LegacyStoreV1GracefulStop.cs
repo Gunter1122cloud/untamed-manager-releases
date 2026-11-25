@@ -15,7 +15,12 @@ namespace UntamedManager.Core;
 /// </summary>
 internal static class LegacyStoreV1GracefulStop
 {
-    internal sealed record Owned(LocalMap Map,ProcessIdentity Process,string SourceSha);
+    internal sealed record Owned(LocalMap Map,ProcessIdentity Process,string SourceSha)
+    {
+        // The independently observed Loader parent is retained with the ASA
+        // child so an approved replacement review can show and recheck both.
+        public ProcessIdentity? LoaderIdentity {get;init;}
+    }
 
     // The PID and RCON listener can be ready BEFORE the ASA has finished
     // starting up. A NEW SaveWorld therefore requires current-run join
@@ -118,7 +123,10 @@ internal static class LegacyStoreV1GracefulStop
                 throw new InvalidOperationException(
                     "UM-RECOVERY-RESTART-OLD-PID-OR-PHASE-MISMATCH");
         }
-        return new(map,identity,fingerprint);
+        return new(map,identity,fingerprint)
+        {
+            LoaderIdentity=state.LoaderIdentity
+        };
     }
 
     internal static string OriginalSource(LocalMap map) =>

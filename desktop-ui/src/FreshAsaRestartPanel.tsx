@@ -175,9 +175,21 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     try{
       const proof=await managerBridge.freshAsaRestartReviewPreview(requested);
       if(!belongs(requested))return;
+      const replacement=proof.reviewMode==="replacement";
+      const replacementVerified=replacement&&
+        proof.replacementOwnerVerified===true&&proof.replacementStartEpochVerified===true&&
+        proof.launchParametersVerified===true&&proof.rconOwnerVerified&&
+        proof.currentRunningPid!==null&&proof.currentRunningPid!==undefined&&
+        proof.currentRunningPid>0&&proof.currentRunningPid!==proof.oldPid&&
+        proof.currentRunningPid!==proof.attemptedNewPid&&
+        !!proof.currentRunningStartedUtc&&
+        (proof.loaderRequired!==true||
+          (proof.currentLoaderPid!==null&&proof.currentLoaderPid!==undefined&&
+           proof.currentLoaderPid>0&&!!proof.currentLoaderStartedUtc));
       if(proof.mapId.toLowerCase()!==mapId.toLowerCase()||
          proof.oldPid<=0||
-         !(proof.exactOldProcessVerified&&proof.rconOwnerVerified||
+         !(replacementVerified||
+           proof.exactOldProcessVerified&&proof.rconOwnerVerified||
            proof.stoppedFamilyVerified===true&&proof.portsFree===true)||
          !proof.previousOutcomeUnknown||
          !proof.restartWillNotReplay)
@@ -189,7 +201,12 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
          saved.state!=="operatorReviewed"||
          !saved.previousOutcomeUnknown||!saved.originalJournalAudited||
          saved.newRestartSucceeded||saved.serverStarted||
-         saved.serverStopped||saved.rconSent)
+         saved.serverStopped||saved.rconSent||
+         (replacement&&(saved.reviewMode!=="replacement"||
+           saved.currentRunningPid!==proof.currentRunningPid||
+           saved.currentRunningStartedUtc!==proof.currentRunningStartedUtc||
+           saved.currentLoaderPid!==proof.currentLoaderPid||
+           saved.currentLoaderStartedUtc!==proof.currentLoaderStartedUtc)))
         throw new Error("UM-ASA-RESTART-REVIEW-RECEIPT-INVALID");
       // A late read-only restartCurrent response can still describe the
       // PRE-AUDIT journal. Once a verified native receipt confirms its
@@ -198,11 +215,18 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
       setAuditConfirmed(true);setNeedsLocalReview(false);setStatus(null);
       setDurable(previous=>previous?{...previous,
         phase:"OperatorReviewed",needsOperatorReview:false}:previous);
-      const summary=(proof.stoppedFamilyVerified?
-        "Az ASA és Loader leállása, valamint a portok szabadsága igazolt. ":
-        "Az eredeti, még futó ASA PID "+proof.oldPid+" igazolt. ")+
-        "A megszakadt Restart naplója auditálva; sem Stop, "+
-        "sem Start, sem RCON-parancs nem történt. Új művelet külön jóváhagyással indítható.";
+      const ownerSummary=replacement?
+        "A külön indított jelenlegi ASA PID "+proof.currentRunningPid+
+        " (indult: "+proof.currentRunningStartedUtc+") és Loader PID "+
+        (proof.currentLoaderPid??"nem szükséges")+
+        (proof.currentLoaderStartedUtc?" (indult: "+proof.currentLoaderStartedUtc+")":"")+
+        " útvonala, indulási ideje, indítási paraméterei és RCON-porttulajdonosa igazolt. ":
+        proof.stoppedFamilyVerified?
+          "Az ASA és Loader leállása, valamint a portok szabadsága igazolt. ":
+          "Az eredeti, még futó ASA PID "+proof.oldPid+" igazolt. ";
+      const summary=ownerSummary+
+        "A megszakadt Restart naplója auditálva; a korábbi restart sikertelen/eredménye ismeretlen marad. "+
+        "Sem Stop, sem Start, sem RCON-parancs nem történt. Új művelet külön jóváhagyással indítható.";
       latestRestart.set(mapId,summary);
       setMessage(summary);
       try{await onRestarted();}
@@ -246,13 +270,13 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     {showRecovery&&<div className="historical-preview" role="region"
       aria-label="Megszakadt helyi Restart rendezése">
       <p><b>Korábbi Restart megszakadt.</b> Régi PID: {durable?.oldPid??"ismeretlen"},
-        fázis: {durable?.phase??"bizonytalan"}. A gomb akkor rendezi a
-        helyi naplót, ha az eredeti ASA és RCON-tulajdonosa igazolt, vagy
-        a teljes ASA/Loader folyamatcsalád leállt és minden helyi port szabad.</p>
+        fázis: {durable?.phase??"bizonytalan"}. A naplóegyeztetéshez az eredeti
+        ASA/RCON-tulajdonos, egy külön indított újabb ASA/Loader család, vagy
+        a teljes leállás és a szabad helyi portok igazolása szükséges.</p>
       <button type="button" className="primary" disabled={busy||!!jobId}
         onClick={()=>{void recover();}}>
-        {busy?"Régi ASA és napló ellenőrzése…":
-          running?"Futó régi ASA ellenőrzése és Restart-napló rendezése":
+        {busy?"ASA/Loader és napló ellenőrzése…":
+          running?"Futó ASA/Loader ellenőrzése és Restart-napló rendezése":
             "Leállt ASA/Loader ellenőrzése és Restart-napló rendezése"}
       </button>
       <p className="muted small">Nincs régi parancs újraküldése, automatikus újraindítás
@@ -266,7 +290,9 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
       <span>Loader: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.loaderRunning?"fut":"nem igazolt"}</span>
       <span>ASA: {status.asaRunning?"fut":"nem igazolt"}</span>
       <span>AsaApi.dll: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.asaApiDllLoaded?"betöltve":"nem igazolt"}</span>
-      <span>Pluginok: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.pluginLoadingComplete?"betöltve":"nem igazolt"}</span>
+      <span>API-napló: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.asaApiLogInitialized?"sikeres":"nem igazolt"}</span>
+      <span>Plugin DLL-ek: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.pluginLoadingComplete?"betöltve":"nem igazolt"}</span>
+      <span>Plugin-napló: {status.newProcessRole!=="loaderParent"?"nem szükséges":status.pluginLogInitialized?"sikeres":"nem igazolt"}</span>
       <span>RCON: {status.rconResponding?"válaszol":"nem igazolt"}</span>
       <span>Játékosfogadás: {status.joinAdvertised?"kész":"nem igazolt"}</span>
       {status.failureCode&&<b>Hiba: {status.failureCode}</b>}

@@ -8578,7 +8578,15 @@ test("interrupted SteamCMD queue survives UI restart and blocks accidental retry
   const journal=page.getByText(/Helyi SteamCMD-napló: NeedsOperator/);
   await expect(journal).toBeVisible();
   await expect(journal).toContainText("kézi ellenőrzés szükséges");
-  await expect(page.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"})).toBeDisabled();
+  const refresh=page.getByRole("button",{name:"Helyi állapot és telepített build újraellenőrzése"});
+  await expect(refresh).toBeEnabled();
+  await refresh.click();
+  await expect(page.getByRole("region",{name:"SteamCMD natív előfeltétel diagnosztika"})).toContainText("Blokkolt frissítés");
+  await expect(page.getByRole("button",{name:"Astraeos frissítése",exact:true})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Elérhető ASA verzió ellenőrzése"})).toBeDisabled();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SINGLE_STEAM_APPLIES__?:()=>number
+  }).__UNTAMED_SINGLE_STEAM_APPLIES__?.())).toBe(0);
 });
 
 test("fresh ASA Start never accepts preview or spawned-process receipt for another map",async({page})=>{
@@ -9091,7 +9099,7 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   await expect(recovery).toBeVisible();
   await expect(recovery).toContainText("Régi PID: 44117");
   await recovery.getByRole("button",{
-    name:"Futó régi ASA ellenőrzése és Restart-napló rendezése"
+    name:"Futó ASA/Loader ellenőrzése és Restart-napló rendezése"
   }).click();
   // The receipt is authoritative; a late OLD read-only journal response
   // must not revive the just-audited blocker.

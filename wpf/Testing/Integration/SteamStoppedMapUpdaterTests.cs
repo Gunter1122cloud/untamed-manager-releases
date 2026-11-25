@@ -52,7 +52,15 @@ public static class SteamStoppedMapUpdaterTests
         string test=Path.Combine(sandbox,"stopped-steam-"+Guid.NewGuid().ToString("N"));
         string fakeSteamPath=Path.Combine(test,"steamcmd","steamcmd.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(fakeSteamPath)!);
-        File.WriteAllText(fakeSteamPath,"SteamCMD placeholder, never launched");
+        // Inert PE header only; the separately compiled FakeSteamCMD is the only child.
+        byte[] steamPeFixture=new byte[512];
+        steamPeFixture[0]=(byte)'M';steamPeFixture[1]=(byte)'Z';
+        BitConverter.GetBytes(0x80).CopyTo(steamPeFixture,0x3c);
+        steamPeFixture[0x80]=(byte)'P';steamPeFixture[0x81]=(byte)'E';
+        BitConverter.GetBytes((ushort)0x014c).CopyTo(steamPeFixture,0x84);
+        BitConverter.GetBytes((ushort)1).CopyTo(steamPeFixture,0x86);
+        BitConverter.GetBytes((ushort)0x00e0).CopyTo(steamPeFixture,0x94);
+        File.WriteAllBytes(fakeSteamPath,steamPeFixture);
         string install=Path.Combine(test,"asa-island");
         Prepare(install);
         string beforeWorld=File.ReadAllText(Path.Combine(install,"ShooterGame",
@@ -62,7 +70,8 @@ public static class SteamStoppedMapUpdaterTests
         string beforePlugin=File.ReadAllText(Path.Combine(install,"ShooterGame",
             "Binaries","Win64","ArkApi","Plugins","Inventory","config.json"));
 
-        await using var manager=new ClusterService("CI-stopped-update",test,IsStopped);
+        ProcessCheck observed=IsStopped(new LocalMap());
+        await using var manager=new ClusterService("CI-stopped-update",test,_=>observed);
         var map=new LocalMap{
             Name="The Island",InstallationPath=install,ExecutablePath=Path.Combine(
                 install,"ShooterGame","Binaries","Win64","ArkAscendedServer.exe"),
@@ -71,6 +80,31 @@ public static class SteamStoppedMapUpdaterTests
         manager.AddMap(map);
         string storeSentinel=Path.Combine(test,"kova-store-v1-external-stays-unchanged.txt");
         File.WriteAllText(storeSentinel,"NO_STORE_V1_WRITES");
+        // Exercise the real guarded Core updater with a harmless child,
+        // not just a UI refusal. All blocked observations precede backup and
+        // child execution, including contradictory ConfirmedStopped flags.
+        var child=new ProcessIdentity{Pid=2272,StartedUtc=DateTimeOffset.UtcNow,
+            ExecutablePath=map.ExecutablePath};
+        var loader=new ProcessIdentity{Pid=18336,StartedUtc=child.StartedUtc.AddMinutes(-1),
+            ExecutablePath=Path.Combine(Path.GetDirectoryName(map.ExecutablePath)!,"AsaApiLoader.exe")};
+        foreach(var blocked in new[]{
+            new ProcessCheck(true,"ASA only",child),
+            new ProcessCheck(false,"Loader only",null,false,loader),
+            new ProcessCheck(true,"ASA and Loader",child,false,loader),
+            new ProcessCheck(false,"contradictory stopped plus Loader",null,true,loader)
+        })
+        {
+            observed=blocked;
+            bool refused=false;
+            try{await SteamStoppedMapUpdater.RunFakeFixtureAsync(manager,map,
+                fakeSteamPath,fakeSteam,1024L*1024*1024,TimeSpan.FromMinutes(2));}
+            catch(InvalidOperationException ex) when(ex.Message=="UM-STEAM-SHARED-INSTALL-NOT-STOPPED")
+            {refused=true;}
+            Check(refused&&AsaSteamBuildCatalog.InstalledBuild(install)=="123456"&&
+                !Directory.Exists(Path.Combine(manager.Store.Root,"verified-pre-steam-update")),
+                blocked.Status+": actual updater refuses before backup or child can modify installation");
+        }
+        observed=IsStopped(map);
         var receipt=await SteamStoppedMapUpdater.RunFakeFixtureAsync(manager,map,
             fakeSteamPath,fakeSteam,1024L*1024*1024,TimeSpan.FromMinutes(2));
 
