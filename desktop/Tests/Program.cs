@@ -4649,8 +4649,18 @@ try
                 "interrupted per-host Steam update refuses automatic retry");
             var blocked=await Call(updater.HandleAsync,"steam.stoppedPreview",
                 new{mapId=target.Id});
-            Check(IsError(blocked,"UM-STEAM-JOURNAL-NEEDS-REVIEW"),
+            Check(IsError(blocked,"UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW")&&executions==2,
                 "native update preflight cannot bypass interrupted persistent queue");
+            var blockedPublished=await Call(updater.HandleAsync,"steam.publishedBuild",new{mapId=target.Id});
+            Check(IsError(blockedPublished,"UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW")&&executions==2,
+                "published build lookup respects the distinct persistent queue blocker");
+            var blockedDiagnostics=await Call(updater.HandleAsync,"steam.stoppedDiagnostics",new{mapId=target.Id});
+            IsOk(blockedDiagnostics,"interrupted queue diagnostics remain readable");
+            var queueDiagnostic=blockedDiagnostics.GetProperty("data");
+            Check(queueDiagnostic.GetProperty("queueJournalBlocked").GetBoolean()&&
+                  queueDiagnostic.GetProperty("queueJournalBlockingCode").GetString()=="UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW"&&
+                  !queueDiagnostic.GetProperty("canPreview").GetBoolean()&&executions==2,
+                "diagnostics and preview agree on persistent queue refusal without dispatch");
         }
         finally{File.Delete(journalPath);}
     }
