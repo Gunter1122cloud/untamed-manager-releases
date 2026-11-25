@@ -6,7 +6,7 @@ using System.Threading;
 
 namespace UntamedManager.Core;
 
-public enum AsaStopPhase { Pending, Completed, NeedsOperator, OperatorReviewed }
+public enum AsaStopPhase { Pending, Completed, NeedsOperator, OperatorReviewed, Recovered }
 
 /// <summary>
 /// Machine-local, installation-identity-bound graceful Stop journal.
@@ -164,7 +164,7 @@ public sealed class AsaManualStopJournal
             var existing=Observe();
             if(existing!=null&&existing.Phase is
                 (AsaStopPhase.Pending or AsaStopPhase.NeedsOperator))
-                throw new IOException("UM-ASA-STOP-JOURNAL-NEEDS-OPERATOR");
+                throw new IOException("UM-ASA-STOP-JOURNAL-IN-PROGRESS");
             if(existing!=null)DemandReviewedAudit(existing);
             var now=DateTimeOffset.UtcNow;
             var record=new AsaManualStopRecord(1,Guid.NewGuid(),mapId,
@@ -191,16 +191,47 @@ public sealed class AsaManualStopJournal
         });
     }
 
+    public AsaManualStopRecord? AutoRecoverPending(Guid mapId)
+    {
+        if(mapId==Guid.Empty)throw new InvalidDataException("UM-ASA-STOP-JOURNAL-MAP");
+        return Exclusive(()=>{
+            var current=Observe();
+            if(current==null)return null;
+            if(current.MapId!=mapId)
+                throw new InvalidDataException("UM-ASA-STOP-JOURNAL-MAP-MISMATCH");
+            if(current.Phase is not (AsaStopPhase.Pending or AsaStopPhase.NeedsOperator))
+                return current;
+            bool failed=current.Phase==AsaStopPhase.NeedsOperator;
+            bool abandoned=current.Phase==AsaStopPhase.Pending&&
+                DateTimeOffset.UtcNow-current.ChangedUtc>=TimeSpan.FromMinutes(5);
+            if(!failed&&!abandoned)return current;
+            byte[] bytes=File.ReadAllBytes(path);
+            string audit=Path.Combine(folder,key+"-"+current.Id.ToString("N")+
+                ".auto-recovered.json");
+            if(File.Exists(audit))
+            {
+                if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+                   !CryptographicOperations.FixedTimeEquals(
+                       SHA256.HashData(File.ReadAllBytes(audit)),SHA256.HashData(bytes)))
+                    throw new InvalidDataException("UM-ASA-STOP-AUTO-RECOVERY-ARCHIVE-MISMATCH");
+            }
+            else
+            {
+                using var output=new FileStream(audit,FileMode.CreateNew,FileAccess.Write,
+                    FileShare.None,4096,FileOptions.WriteThrough);
+                output.Write(bytes);output.Flush(true);
+            }
+            var recovered=current with{Phase=AsaStopPhase.Recovered,
+                ChangedUtc=DateTimeOffset.UtcNow};
+            Write(recovered);return recovered;
+        });
+    }
+
     public void DemandNoPending(Guid mapId)
     {
-        if(mapId==Guid.Empty)
-            throw new InvalidDataException("UM-ASA-STOP-JOURNAL-MAP");
-        var current=Observe();
-        if(current!=null&&current.MapId!=mapId)
-            throw new InvalidDataException("UM-ASA-STOP-JOURNAL-MAP-MISMATCH");
+        var current=AutoRecoverPending(mapId);
         if(current?.Phase is AsaStopPhase.Pending or AsaStopPhase.NeedsOperator)
-            throw new InvalidOperationException(
-                "UM-ASA-STOP-JOURNAL-NEEDS-OPERATOR");
+            throw new InvalidOperationException("UM-ASA-STOP-IN-PROGRESS");
         if(current!=null)DemandReviewedAudit(current);
     }
 

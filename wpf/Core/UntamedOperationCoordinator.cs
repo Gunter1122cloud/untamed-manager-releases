@@ -10,7 +10,7 @@ using System.Threading;
 namespace UntamedManager.Core;
 
 public enum UntamedOperationKind { Launch, Configuration, PluginChange, Backup, Restore, Update, EmergencyKill }
-public enum UntamedOperationPhase { Prepared, Mutating, Completed, CancelledBeforeMutation, NeedsOperator, OperatorReviewed }
+public enum UntamedOperationPhase { Prepared, Mutating, Completed, CancelledBeforeMutation, NeedsOperator, OperatorReviewed, Recovered }
 public sealed record UntamedOperationRecord(int Schema,string Resource,Guid Operation,
     UntamedOperationKind Kind,UntamedOperationPhase Phase,DateTimeOffset UpdatedUtc);
 
@@ -89,8 +89,17 @@ public sealed class UntamedOperationCoordinator
             Directory.CreateDirectory(LocalPath(stateRoot));
             string journal=Path.Combine(stateRoot,key+".json");
             var old=Read(journal,key);
-            if(old!=null&&old.Phase is not (UntamedOperationPhase.Completed or UntamedOperationPhase.CancelledBeforeMutation or UntamedOperationPhase.OperatorReviewed))
-                throw new IOException("UNTAMED_OPERATION_NEEDS_OPERATOR");
+            if(old!=null&&old.Phase is not (UntamedOperationPhase.Completed or
+                UntamedOperationPhase.CancelledBeforeMutation or UntamedOperationPhase.OperatorReviewed or
+                UntamedOperationPhase.Recovered))
+            {
+                // YARK's process-scoped lock is authoritative: acquiring this
+                // OS semaphore proves the previous Manager worker no longer
+                // owns the installation. Preserve its receipt and recover it.
+                ArchiveInterrupted(journal,old);
+                Write(journal,old with{Phase=UntamedOperationPhase.Recovered,
+                    UpdatedUtc=DateTimeOffset.UtcNow});
+            }
             var record=new UntamedOperationRecord(1,key,Guid.NewGuid(),kind,
                 UntamedOperationPhase.Prepared,DateTimeOffset.UtcNow);
             Write(journal,record);
@@ -101,6 +110,53 @@ public sealed class UntamedOperationCoordinator
             if(entered)semaphore.Release();semaphore.Dispose();throw;
         }
     }
+    /// <summary>
+    /// YARK-style recovery of a durable operation whose process-scoped OS
+    /// lease is no longer owned. It preserves the exact old receipt and makes
+    /// the map available again; it never replays the old command.
+    /// </summary>
+    public bool AutoRecoverPending(string installation)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return false;
+        try
+        {
+            string journal=Path.Combine(stateRoot,key+".json");
+            var old=Read(journal,key);
+            if(old==null||old.Phase is (UntamedOperationPhase.Completed or
+                UntamedOperationPhase.CancelledBeforeMutation or UntamedOperationPhase.OperatorReviewed or
+                UntamedOperationPhase.Recovered))return false;
+            ArchiveInterrupted(journal,old);
+            Write(journal,old with{Phase=UntamedOperationPhase.Recovered,
+                UpdatedUtc=DateTimeOffset.UtcNow});
+            return true;
+        }
+        finally{semaphore.Release();}
+    }
+
+    private static void ArchiveInterrupted(string journal,UntamedOperationRecord record)
+    {
+        byte[] bytes=File.ReadAllBytes(journal);
+        string audit=journal+"."+record.Operation.ToString("N")+".auto-recovered.json";
+        if(File.Exists(audit))
+        {
+            if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+               !CryptographicOperations.FixedTimeEquals(
+                   SHA256.HashData(File.ReadAllBytes(audit)),SHA256.HashData(bytes)))
+                throw new InvalidDataException("UNTAMED_OPERATION_AUTO_RECOVERY_ARCHIVE_MISMATCH");
+            return;
+        }
+        string temp=audit+"."+Guid.NewGuid().ToString("N")+".tmp";
+        try
+        {
+            using(var output=new FileStream(temp,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+            {output.Write(bytes);output.Flush(true);}
+            File.Move(temp,audit);
+        }
+        finally{if(File.Exists(temp))File.Delete(temp);}
+    }
+
     // Prepared is the durable pre-mutation boundary. An unowned stale
     // Prepared receipt can be cancelled, never marked successful or replayed.
     // Secondary restart/stop/save receipts are deliberately left untouched.
@@ -753,10 +809,14 @@ public sealed class UntamedOperationCoordinator
             disposed=true;
             try
             {
-                if(!completed)Write(journal,record with {
-                    Phase=record.Phase==UntamedOperationPhase.Prepared?
-                        UntamedOperationPhase.CancelledBeforeMutation:UntamedOperationPhase.NeedsOperator,
-                    UpdatedUtc=DateTimeOffset.UtcNow});
+                if(!completed)
+                {
+                    ArchiveInterrupted(journal,record);
+                    Write(journal,record with {
+                        Phase=record.Phase==UntamedOperationPhase.Prepared?
+                            UntamedOperationPhase.CancelledBeforeMutation:UntamedOperationPhase.Recovered,
+                        UpdatedUtc=DateTimeOffset.UtcNow});
+                }
             }
             finally{semaphore.Release();semaphore.Dispose();}
         }
