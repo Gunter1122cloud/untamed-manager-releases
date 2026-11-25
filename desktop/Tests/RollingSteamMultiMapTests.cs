@@ -80,11 +80,23 @@ internal static class RollingSteamMultiMapTests
         string journal=Path.Combine(cluster.Store.Root,"rolling-steam-v1.json");
         void Claim(LocalMap m,string stage)
         {
-            // The fixture observes an atomic replace journal concurrently
-            // with the progress writer. Permit rename while holding the old
-            // immutable file handle, just as a concurrent native observer.
-            using var input=new FileStream(journal,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
-            using var doc=JsonDocument.Parse(input);
+            // Read through the same native named mutex as the writer.
+            // FILE_SHARE_DELETE alone does not guarantee Windows replace
+            // semantics for an open destination handle.
+            string identity=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(cluster.Store.Root)).ToUpperInvariant())));
+            using var mutex=new Mutex(false,@"Global\Untamed-RollingSteam-"+identity);
+            bool held=false;
+            string snapshot;
+            try
+            {
+                try{held=mutex.WaitOne(TimeSpan.FromSeconds(5));}
+                catch(AbandonedMutexException){held=true;}
+                Check(held,"native rolling journal read lock acquired");
+                snapshot=File.ReadAllText(journal);
+            }
+            finally{if(held)mutex.ReleaseMutex();}
+            using var doc=JsonDocument.Parse(snapshot);
             var run=doc.RootElement.GetProperty("current");
             Check(run.GetProperty("mapId").GetGuid()==m.Id&&run.GetProperty("state").GetString()=="running"&&
                 run.GetProperty("stage").GetString()==stage,"durable "+stage+" claim before "+m.Name);
