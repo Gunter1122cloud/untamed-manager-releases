@@ -314,8 +314,8 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
            preview.GetProperty("maps").GetArrayLength()!=1||preview.GetProperty("maps")[0].GetString()!=map.Name)
             throw new InvalidOperationException("UM-ROLLING-UPDATE-SCOPE");
         ct.ThrowIfCancellationRequested();
-        var applied=Decode(await steam.HandleAsync(Message("steam.stoppedApply",new{
-            token=preview.GetProperty("token").GetGuid(),confirm=true})));
+        var applied=Decode(await steam.HandleRollingApplyAsync(Message("steam.stoppedApply",new{
+            token=preview.GetProperty("token").GetGuid(),confirm=true}),target));
         if(!Yes(applied,"started"))throw new InvalidOperationException("UM-ROLLING-UPDATE-REJECTED");
         Guid job=applied.GetProperty("jobId").GetGuid();
         var until=DateTimeOffset.UtcNow.AddHours(3);

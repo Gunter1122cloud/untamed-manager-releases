@@ -303,7 +303,10 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         };
     }
 
-    public async Task<string> HandleAsync(string raw)
+    public Task<string> HandleAsync(string raw)=>HandleCoreAsync(raw,null);
+    internal Task<string> HandleRollingApplyAsync(string raw,string expectedBuild)=>
+        HandleCoreAsync(raw,expectedBuild);
+    private async Task<string> HandleCoreAsync(string raw,string? rollingTarget)
     {
         string? id=null;
         try
@@ -323,6 +326,9 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                 "steam.publishedBuild" or "steam.selectExecutable" or "steam.prepareExecutable" or
                "steam.discoverExecutables" or "steam.acceptDiscoveredExecutable"))
                 return Fail(id,"UM-METHOD-DENIED");
+            if(rollingTarget!=null&&(method!="steam.stoppedApply"||
+                rollingTarget.Length is <1 or >20||!rollingTarget.All(char.IsAsciiDigit)))
+                return Fail(id,"UM-STEAM-ROLLING-TARGET");
             await mutex.WaitAsync();
             try
             {
@@ -826,7 +832,11 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     });
                     try
                     {
-                        var verified=await runner(map,progress);
+                        var verified=rollingTarget!=null&&!isolatedExecution?
+                            await SteamStoppedMapUpdater.UpdateRollingAsync(cluster,map,
+                                cluster.Config.SteamCmdExecutable,Reserve,TimeSpan.FromHours(2),rollingTarget,progress,
+                                member=>ObserveForSteam(member),member=>ObserveForSteam(member,true)):
+                            await runner(map,progress);
                         if(verified.MapId!=map.Id||!verified.ProtectedFilesIntact)
                             throw new InvalidDataException("UM-STEAM-RECEIPT-INVALID");
                         Stage(task,"completed","verified",verified);
@@ -836,7 +846,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     {
                         lock(sync)
                         {
-                            task.ErrorCode=ex.Message is "UM-STEAM-EXTERNAL-PROCESS-BUSY" or "UM-STEAM-EXTERNAL-PROCESS-UNVERIFIED" or "UM-STEAM-INSTALLED-BUILD-INVALID" or "UM-STEAM-INSTALLED-BUILD-CHANGED"?ex.Message:"UM-STEAM-UPDATE-FAILED";
+                            task.ErrorCode=NativeLifecycleFailureCode.From(ex);
                             Stage(task,"needsOperator",task.Stage);
                         }
                         events.Emit("terminal","uncertain","STEAM_UPDATE_FAILED_NATIVE_JOURNAL_REVIEW");
