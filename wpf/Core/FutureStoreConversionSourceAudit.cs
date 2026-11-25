@@ -70,7 +70,7 @@ public static class FutureStoreConversionSourceAudit
            value.StartsWith(@"\\",StringComparison.Ordinal)||
            value.Any(char.IsControl)||value.Contains('~'))
             Deny("LOCAL-ROOT");
-        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(value));
+        return FutureStoreInstallationPath.Canonical(value);
     }
     private static string[] Mods(JsonElement obj,string name)
     {
@@ -154,7 +154,8 @@ public static class FutureStoreConversionSourceAudit
         {
             string id=Uid(row,"id"),key=Text(row,"map");
             string root=CanonicalLocal(Text(row,"root"));
-            if(!SafeKey(key)||!ids.Add(id)||!keys.Add(key)||!roots.Add(root))
+            if(!SafeKey(key)||!ids.Add(id)||!keys.Add(key)||
+               roots.Any(existing=>FutureStoreInstallationPath.Overlaps(existing,root))||!roots.Add(root))
                 Deny("MEMBER-IDENTITY");
             // Keep the definite assignment of both source rows explicit.
             // No subsequent record inspection is reachable on a missing row.

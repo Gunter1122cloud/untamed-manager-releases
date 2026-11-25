@@ -37,8 +37,7 @@ public static class FutureStoreConversionAttemptGate
            !Path.IsPathFullyQualified(map.InstallationPath)||
            map.InstallationPath.StartsWith(@"\\",StringComparison.Ordinal))
             Deny("MAP-ROOT");
-        return Path.GetFullPath(map.InstallationPath)
-            .TrimEnd(Path.DirectorySeparatorChar);
+        return FutureStoreInstallationPath.Canonical(map.InstallationPath);
     }
 
     private static void ValidateOwner(LocalMap map,
@@ -54,9 +53,7 @@ public static class FutureStoreConversionAttemptGate
         if(registeredMaps.Count(x=>x.Id==map.Id)!=1||
            registeredMaps.Any(x=>x.Id!=map.Id&&
                !string.IsNullOrWhiteSpace(x.InstallationPath)&&
-               Path.GetFullPath(x.InstallationPath)
-                .TrimEnd(Path.DirectorySeparatorChar)
-                .Equals(root,StringComparison.OrdinalIgnoreCase))||
+               FutureStoreInstallationPath.Overlaps(x.InstallationPath,root))||
            map.HistoricalStoreProtected||
            !string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256)||
            !string.IsNullOrWhiteSpace(map.FreshStoreClusterId)||
