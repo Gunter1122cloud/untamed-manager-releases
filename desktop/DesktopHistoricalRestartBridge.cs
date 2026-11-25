@@ -221,8 +221,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             restartJournalUnreadable=journalDiagnosis.RestartUnreadable,
             operationJournalErrorCode=journalDiagnosis.OperationErrorCode,
             restartJournalErrorCode=journalDiagnosis.RestartErrorCode,
-            blocked=pendingRestart||pendingOperation||pendingSave||
-                running!=null||localNeedsOperator,
+            blocked=running!=null,
             requiresOperator=false,
             inMemoryRunning=running!=null,jobId=running?.Id,
             oldPid=entry?.OldPid,newPid=entry?.NewPid,

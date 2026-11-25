@@ -157,11 +157,11 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted,refreshRe
       const result=await managerBridge.historicalRestartApply(proof.token);
       if(!belongs(requested))return;
       if(!result.jobId||!result.started||result.forceKill||
-         result.storeTouched||result.automaticRetry)
+         result.storeTouched||!result.automaticRetry)
         throw new Error("UM-STORE-RESTART-JOB-RECEIPT-MISMATCH");
       setJobId(result.jobId);
       setNotice("Store-v1 Restart elindult a kiválasztott mapon. "+
-        "Új ASA csak igazolt régi PID-kilépés után indulhat.");
+        "A YARK-alapú automatikus startup-helyreállítás legfeljebb három próbát végez.");
     }catch(e){
       if(belongs(requested)){
         const code=e instanceof Error?e.message:"";

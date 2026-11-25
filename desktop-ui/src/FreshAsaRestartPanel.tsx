@@ -115,7 +115,6 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     return ()=>{active=false;window.clearInterval(timer);};
   },[jobId,mapId,onRestarted]);
 
-  const pendingJournalReview=false; // YARK-style automatic recovery replaces operator review.
   const run=async()=>{
     if(mutationInFlight.current||!mapId||!running||busy||jobId)return;
     mutationInFlight.current=true;
