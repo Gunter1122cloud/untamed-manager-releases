@@ -256,7 +256,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
     }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const check=async()=>{
-    if(!mapId||blocked)return;
+    if(!mapId||settingsBlocked)return;
     const requested=mapId,epoch=mapEpoch.current;
     setBusy(true);setError("");
     try{
