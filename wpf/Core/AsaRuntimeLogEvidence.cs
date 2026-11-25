@@ -61,92 +61,126 @@ internal static class AsaRuntimeLogEvidence
 
         if(loader!=null && map.StartWithAsaApi)
         {
-            // The officially documented API log may be emitted from either
-            // of these supported layouts. Never recurse into plugin folders.
-            foreach(string relative in new[]{
-                Path.Combine("ShooterGame","Win64","logs","ArkApi.log"),
-                Path.Combine("ShooterGame","Binaries","Win64","logs","ArkApi.log")})
-            {
-                try
-                {
-                    string root=Path.GetFullPath(map.InstallationPath);
-                    string log=Path.Combine(root,relative);
-                    for(DirectoryInfo? node=new(Path.GetDirectoryName(log)!);
-                        node!=null;node=node.Parent)
-                        if(node.Exists && (node.Attributes&FileAttributes.ReparsePoint)!=0)
-                            throw new InvalidDataException("Linked API log path");
-                    var file=new FileInfo(log);
-                    if(!file.Exists ||file.Length is <1 or >100_000_000 ||
-                        (file.Attributes&FileAttributes.ReparsePoint)!=0 ||
-                        file.LastWriteTimeUtc<loader.StartedUtc.UtcDateTime.AddSeconds(-2))
-                        continue;
-                    // The timestamp *on the positive load line*, not merely
-                    // the file's LastWriteTime, must be from this loader run.
-                    bool loaded=false,hooks=false,pluginsComplete=false;
-                    // Real ArkApi logs can initialize hooks BEFORE printing
-                    // "API was successfully loaded"; other versions may emit
-                    // the reverse order. Do not require one particular order.
-                    // Pair only positive markers within the current startup
-                    // window. A new "Loading..." or repeated positive marker
-                    // invalidates the earlier pair, so stale initialization
-                    // from an earlier attempt cannot certify a new attempt.
-                    // The log has minute timestamps; native ASA/Loader PID
-                    // identity is independently rechecked after this scan.
-                    foreach(string line in Tail(log,1_048_576))
-                    {
-                        bool isLoad=line.Contains("API was successfully loaded",
-                            StringComparison.Ordinal);
-                        bool isHooks=line.Contains("Initialized hooks",
-                            StringComparison.Ordinal);
-                        bool isPluginsComplete=line.Contains("Loaded all plugins",
-                            StringComparison.Ordinal);
-                        bool sessionStart=line.TrimEnd().EndsWith("Loading...",
-                            StringComparison.Ordinal);
-                        if(!isLoad&&!isHooks&&!isPluginsComplete&&!sessionStart)continue;
-                        var match=ApiTime.Match(line);
-                        if(!match.Success ||
-                           !DateTime.TryParseExact(match.Groups["ts"].Value,
-                            "MM/dd/yy HH:mm",CultureInfo.InvariantCulture,
-                            DateTimeStyles.AssumeLocal|DateTimeStyles.AdjustToUniversal,
-                            out var when))continue;
-                        var at=new DateTimeOffset(when,TimeSpan.Zero);
-                        if(at<loader.StartedUtc.AddMinutes(-2) ||
-                           at>DateTimeOffset.UtcNow.AddMinutes(2))continue;
-                        if(sessionStart)
-                        {
-                            loaded=false;hooks=false;pluginsComplete=false;
-                            apiInitialized=false;pluginsInitialized=false;
-                        }
-                        else if(isLoad)
-                        {
-                            // Repeated load means a NEW attempt without a
-                            // corresponding fresh hook marker yet.
-                            if(loaded){hooks=false;pluginsComplete=false;}
-                            loaded=true;
-                        }
-                        else if(isHooks)
-                        {
-                            // A second hook marker after a completed pair
-                            // starts a new initialization attempt.
-                            if(hooks){loaded=false;pluginsComplete=false;}
-                            hooks=true;
-                        }
-                        if(isPluginsComplete)pluginsComplete=true;
-                        // Keep scanning the full current-run log tail. A later
-                        // Loading... must invalidate an earlier positive pair.
-                        apiInitialized=loaded&&hooks;
-                        pluginsInitialized=apiInitialized&&pluginsComplete;
-                    }
-                }
-                catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
-                    InvalidDataException or ArgumentException or NotSupportedException)
-                {
-                    // Missing, unreadable or suspicious API log is NOT a
-                    // successful runtime initialization witness.
-                }
-            }
+            var api=InspectCurrentApiLogs(map,server,loader);
+            apiInitialized=api.ApiInitialized;
+            pluginsInitialized=api.PluginsInitialized;
         }
         return new(advertised,apiInitialized,pluginsInitialized);
+    }
+
+    // ASA API's logger normally writes ArkApi_<ASA PID>*.log rather than
+    // a single ArkApi.log. The PID comes from GetCurrentProcessId() inside
+    // AsaApi.dll, so it identifies the exact ASA child, not the Loader parent.
+    // StaticLogPath/older builds may still produce ArkApi.log.
+    private static (bool ApiInitialized,bool PluginsInitialized) InspectCurrentApiLogs(
+        LocalMap map,ProcessIdentity server,ProcessIdentity loader)
+    {
+        string root=Path.GetFullPath(map.InstallationPath);
+        string bin=Path.Combine(root,"ShooterGame","Binaries","Win64");
+        string[] folders={
+            Path.Combine(bin,"logs"),
+            Path.Combine(root,"ShooterGame","Win64","logs"),
+            Path.Combine(bin,"ArkApi","logs"),
+            Path.Combine(root,"ShooterGame","Win64","ArkApi","logs")
+        };
+        string prefix="ArkApi_"+server.Pid.ToString(CultureInfo.InvariantCulture);
+        var pidLogs=new System.Collections.Generic.List<string>();
+        var legacyLogs=new System.Collections.Generic.List<string>();
+        foreach(string folder in folders.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                if(!Directory.Exists(folder))continue;
+                foreach(string path in Directory.EnumerateFiles(folder,"ArkApi*.log",
+                    SearchOption.TopDirectoryOnly))
+                {
+                    string name=Path.GetFileName(path);
+                    if(name.StartsWith(prefix,StringComparison.OrdinalIgnoreCase)&&
+                       (name.Length==prefix.Length+4||
+                        name[prefix.Length]=='_'||name[prefix.Length]=='.'))
+                        pidLogs.Add(path);
+                    else if(string.Equals(name,"ArkApi.log",StringComparison.OrdinalIgnoreCase))
+                        legacyLogs.Add(path);
+                }
+            }
+            catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
+                ArgumentException or NotSupportedException)
+            { }
+        }
+        // If an exact-PID log exists, NEVER fall back to a different PID's
+        // file or a stale generic log. Read all current PID rotations in
+        // chronological order because a busy server may rotate during boot.
+        string[] files=(pidLogs.Count>0?pidLogs:legacyLogs)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(path=>{
+                try{
+                    var info=new FileInfo(path);
+                    return info.Exists&&info.Length is >=1 and <=100_000_000&&
+                        (info.Attributes&FileAttributes.ReparsePoint)==0&&
+                        info.LastWriteTimeUtc>=loader.StartedUtc.UtcDateTime.AddSeconds(-2);
+                }catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
+                    ArgumentException or NotSupportedException){return false;}
+            })
+            .OrderBy(File.GetLastWriteTimeUtc)
+            .ThenBy(Path.GetFileName,StringComparer.OrdinalIgnoreCase)
+            .Take(8).ToArray();
+        bool loaded=false,hooks=false,pluginsComplete=false;
+        bool apiInitialized=false,pluginsInitialized=false;
+        foreach(string log in files)
+        {
+            try
+            {
+                for(DirectoryInfo? node=new(Path.GetDirectoryName(log)!);
+                    node!=null;node=node.Parent)
+                    if(node.Exists&&(node.Attributes&FileAttributes.ReparsePoint)!=0)
+                        throw new InvalidDataException("Linked API log path");
+                foreach(string line in Tail(log,1_048_576))
+                {
+                    bool isLoad=line.Contains("API was successfully loaded",
+                        StringComparison.Ordinal);
+                    bool isHooks=line.Contains("Initialized hooks",
+                        StringComparison.Ordinal);
+                    bool isPluginsComplete=line.Contains("Loaded all plugins",
+                        StringComparison.Ordinal);
+                    bool sessionStart=line.TrimEnd().EndsWith("Loading...",
+                        StringComparison.Ordinal);
+                    if(!isLoad&&!isHooks&&!isPluginsComplete&&!sessionStart)continue;
+                    var match=ApiTime.Match(line);
+                    if(!match.Success||
+                       !DateTime.TryParseExact(match.Groups["ts"].Value,
+                        "MM/dd/yy HH:mm",CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeLocal|DateTimeStyles.AdjustToUniversal,
+                        out var when))continue;
+                    var at=new DateTimeOffset(when,TimeSpan.Zero);
+                    if(at<loader.StartedUtc.AddMinutes(-2)||
+                       at>DateTimeOffset.UtcNow.AddMinutes(2))continue;
+                    if(sessionStart)
+                    {
+                        loaded=false;hooks=false;pluginsComplete=false;
+                        apiInitialized=false;pluginsInitialized=false;
+                    }
+                    else if(isLoad)
+                    {
+                        if(loaded){hooks=false;pluginsComplete=false;}
+                        loaded=true;
+                    }
+                    else if(isHooks)
+                    {
+                        if(hooks){loaded=false;pluginsComplete=false;}
+                        hooks=true;
+                    }
+                    if(isPluginsComplete)pluginsComplete=true;
+                    apiInitialized=loaded&&hooks;
+                    pluginsInitialized=apiInitialized&&pluginsComplete;
+                }
+            }
+            catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
+                InvalidDataException or ArgumentException or NotSupportedException)
+            {
+                // A missing, unreadable or suspicious log is not positive evidence.
+            }
+        }
+        return(apiInitialized,pluginsInitialized);
     }
 
     private static string[] Tail(string path,int bytes)
