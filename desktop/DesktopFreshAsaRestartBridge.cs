@@ -164,6 +164,15 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     // attempted restart's success: prove a newer process family, exact
     // executable/launch configuration, Loader-child relationship and RCON
     // listener owner, then audit only the old Restart-v1 receipt.
+    private static bool SameProcessIdentity(ProcessIdentity? left,ProcessIdentity? right)
+    {
+        if(left==null||right==null)return left==right;
+        return left.Pid>0&&left.Pid==right.Pid&&
+            left.StartedUtc==right.StartedUtc&&
+            string.Equals(Path.GetFullPath(left.ExecutablePath),
+                Path.GetFullPath(right.ExecutablePath),StringComparison.OrdinalIgnoreCase)&&
+            string.Equals(left.Arguments,right.Arguments,StringComparison.Ordinal);
+    }
     private ProcessCheck ReviewReplacementOwner(LocalMap map,AsaRestartRecord record,
         DateTimeOffset failureChangedUtc,int expectedPid=0,
         DateTimeOffset expectedStartedUtc=default,int expectedLoaderPid=0,
@@ -217,6 +226,14 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         if(eligible.Pid!=asa.Pid||eligible.StartedUtc!=asa.StartedUtc||
            !string.Equals(eligible.ExecutablePath,asa.ExecutablePath,
                 StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-REPLACEMENT-PROCESS-CHANGED");
+        // Re-observe the complete family after the eligibility preflight so a
+        // Loader swap/reparent or ASA PID reuse cannot slip between proofs.
+        var confirmed=cluster.Check(map);
+        if(!confirmed.Running||confirmed.ConfirmedStopped||
+           !SameProcessIdentity(confirmed.Identity,asa)||
+           !SameProcessIdentity(confirmed.LoaderIdentity,loader)||
+           !portOwner(map.RconPort,asa.Pid))
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-REPLACEMENT-PROCESS-CHANGED");
         if(expectedPid>0&&(asa.Pid!=expectedPid||asa.StartedUtc!=expectedStartedUtc))
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-REPLACEMENT-PROCESS-CHANGED");
