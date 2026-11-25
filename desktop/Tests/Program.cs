@@ -496,6 +496,50 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     await recovery.TickOnceAsync(now.AddSeconds(140));
     Check(launches==1&&(await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0].GetProperty("status").GetString()=="needsReview","reused PID cannot transfer crash recovery permission");
 }
+// Two independent crashed installations must not wait on each other's readiness.
+{
+    string multiRoot=Path.Combine(root,"watchdog-independent-maps-fixture");
+    await using var service=new ClusterService("watchdog-independent-maps",multiRoot);
+    var a=new LocalMap{Name="Recovery A",InstallationPath=Path.Combine(multiRoot,"a"),
+        RconHost="127.0.0.1",RconPort=45710,GamePort=45711,QueryPort=45712,RconPasswordProtected="synthetic"};
+    var b=new LocalMap{Name="Recovery B",InstallationPath=Path.Combine(multiRoot,"b"),
+        RconHost="127.0.0.1",RconPort=45720,GamePort=45721,QueryPort=45722,RconPasswordProtected="synthetic"};
+    service.Config.LocalMaps.AddRange(new[]{a,b});service.Save();
+    var began=DateTimeOffset.UtcNow.AddHours(-1);
+    var identities=new Dictionary<Guid,ProcessIdentity>{
+        [a.Id]=new(){Pid=52501,StartedUtc=began,ExecutablePath="synthetic-a"},
+        [b.Id]=new(){Pid=52502,StartedUtc=began,ExecutablePath="synthetic-b"}};
+    var witnesses=new Dictionary<int,SyntheticRecoveryExitWitness>{
+        [52501]=new(),[52502]=new()};
+    var stopped=new HashSet<Guid>();
+    var starts=new List<Guid>();
+    bool ready=true;
+    using var gate=new SemaphoreSlim(1,1);
+    Task<string> Never(string raw)=>throw new InvalidOperationException("no real native call");
+    using var recovery=new DesktopWatchdogRecovery(service,gate,()=>true,()=>{},()=>false,
+        Never,Never,Never,m=>stopped.Contains(m.Id)?new ProcessCheck(false,"stopped",null,true):
+            new ProcessCheck(true,"running",identities[m.Id],false),
+        id=>witnesses[id.Pid],_=>new string('D',64),(_,_)=>Task.FromResult(ready),
+        m=>{
+            starts.Add(m.Id);
+            var old=identities[m.Id];
+            var replacement=new ProcessIdentity{Pid=old.Pid+100,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath=old.ExecutablePath};
+            identities[m.Id]=replacement;stopped.Remove(m.Id);
+            return Task.FromResult((replacement.Pid,replacement.StartedUtc));
+        });
+    IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=a.Id,confirm=true}),"arm independent map A");
+    IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=b.Id,confirm=true}),"arm independent map B");
+    ready=false;stopped.Add(a.Id);stopped.Add(b.Id);
+    foreach(var w in witnesses.Values){w.Exited=true;w.Code=unchecked((int)0xC0000005);}
+    var now=DateTimeOffset.UtcNow;
+    await recovery.TickOnceAsync(now.AddSeconds(10));
+    await recovery.TickOnceAsync(now.AddSeconds(20));
+    await recovery.TickOnceAsync(now.AddSeconds(30));
+    Check(starts.Count==2&&starts.Distinct().Count()==2&&recovery.HasPendingRecovery(a.Id)&&recovery.HasPendingRecovery(b.Id),
+        "both crashed maps dispatch once without waiting for the other map's readiness");
+    await recovery.TickOnceAsync(now.AddSeconds(40));
+    Check(starts.Count==2,"pending readiness does not duplicate either native start");
+}
 // Independently timestamped ticks must not multiply one cached process
 // inventory into the required three stopped observations.
 {
