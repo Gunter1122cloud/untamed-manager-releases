@@ -108,7 +108,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
            state.Settings.Any(s=>s==null||s.MapId==Guid.Empty||s.Fingerprint is not {Length:64}||!s.Fingerprint.All(Uri.IsHexDigit))||
            state.Settings.Select(s=>s.MapId).Distinct().Count()!=state.Settings.Count||
            (state.Current!=null&&(state.Current.Id==Guid.Empty||state.Current.MapId==Guid.Empty||
-             state.Current.State is not ("running" or "completed" or "needs-review" or "reviewed"))))
+             state.Current.State is not ("running" or "completed" or "needs-review" or "reviewed" or "recovered"))))
             throw new InvalidDataException("UM-ROLLING-JOURNAL-INVALID");
         return state;
     }
@@ -157,7 +157,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
     }));
     private void DemandEligible(LocalMap m)
     {
-        if(m.Maintenance||m.ObservedReadOnlyImported||m.HistoricalLaunchModeNeedsApproval||m.ModChangesPending||
+        if(m.Maintenance||m.ObservedReadOnlyImported||m.ModChangesPending||
            !AsaReadyProbe.IsRegisteredServerBinary(m)||m.RconHost!="127.0.0.1"||m.RconPort is <1024 or >65535||
            string.IsNullOrWhiteSpace(m.RconPasswordProtected)||KovaCompatibleWorldBackup.InstallationRecoveryRequired(m))
             throw new InvalidOperationException("UM-ROLLING-MAP-INELIGIBLE");
@@ -182,11 +182,12 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
     }
     private void DemandClearJournals(LocalMap m)
     {
+        new AsaManualRestartJournal(m.InstallationPath).AutoRecoverPending();
+        new AsaManualStopJournal(m.InstallationPath).AutoRecoverPending(m.Id);
+        LegacyStoreV1SaveEvidenceJournal.AutoRecoverInterrupted(cluster.Store.Root,m.Id);
+        cluster.Operations.AutoRecoverPending(m.InstallationPath);
         new AsaManualRestartJournal(m.InstallationPath).DemandNoPending();
         new AsaManualStopJournal(m.InstallationPath).DemandNoPending(m.Id);
-        var journal=cluster.Operations.Observe(m.InstallationPath);
-        if(journal?.Phase is UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
-            throw new InvalidOperationException("UM-ROLLING-LOCAL-JOURNAL-NEEDS-REVIEW");
     }
     // Read-only diagnostic: saving future opt-in is separate from permission
     // to execute. Unknown or unreadable journals still fail closed at runtime.
@@ -448,8 +449,45 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
         }
         catch(Exception ex)
         {
-            SetRun(run with{State="needs-review",Error=NativeLifecycleFailureCode.From(ex),ChangedUtc=DateTimeOffset.UtcNow});
-            throw;
+            string failure=NativeLifecycleFailureCode.From(ex);
+            bool installMayHaveChanged=YarkRecoveryPolicy.UpdateInstallMayHaveChanged(run.NativeSteamStage);
+            bool serverActive=Observe(map).Running;
+            if(YarkRecoveryPolicy.ShouldRestartServerAfterPreSteamCmdAbort(
+                run.OriginallyRunning,installMayHaveChanged,serverActive))
+            {
+                try
+                {
+                    var stopped=Observe(map);
+                    if(!Stopped(stopped))
+                        throw new InvalidOperationException("UM-ROLLING-AUTO-RESTORE-STOP-NOT-VERIFIED");
+                    Stage("recovery-starting");
+                    await LifecycleAsync(map,"start",CancellationToken.None,stopped);
+                    var restored=Observe(map);
+                    if(!restored.Running||restored.ConfirmedStopped||
+                       restored.Identity is not {Pid:>0} child||
+                       !ownsPort(map.RconPort,child.Pid))
+                        throw new InvalidOperationException("UM-ROLLING-AUTO-RESTORE-START-NOT-VERIFIED");
+                    SetRun(run with{State="recovered",Stage="update-failed-server-restored",
+                        Error=failure,ChangedUtc=DateTimeOffset.UtcNow});
+                    return;
+                }
+                catch(Exception restoreError)
+                {
+                    // A failed pre-SteamCMD backup must never strand the
+                    // previously running server behind a manual review gate.
+                    // Preserve the error and keep the ordinary Start control live.
+                    SetRun(run with{State="recovered",Stage="update-failed-restore-attempted",
+                        Error=failure+"; restart="+NativeLifecycleFailureCode.From(restoreError),
+                        ChangedUtc=DateTimeOffset.UtcNow});
+                    return;
+                }
+            }
+            // If SteamCMD has already entered its file stage, do not start
+            // against a possibly partial installation. The transaction is
+            // terminal and the normal Start control remains available.
+            SetRun(run with{State="recovered",
+                Stage=installMayHaveChanged?"update-failed-after-file-stage":"update-failed-while-stopped",
+                Error=failure,ChangedUtc=DateTimeOffset.UtcNow});
         }
     }
     private static bool CanResumeVerifiedFiles(Run? run)=>run!=null&&
