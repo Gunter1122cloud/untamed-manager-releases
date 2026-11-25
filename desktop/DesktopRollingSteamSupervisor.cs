@@ -176,6 +176,13 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
         if(journal?.Phase is UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
             throw new InvalidOperationException("UM-ROLLING-LOCAL-JOURNAL-NEEDS-REVIEW");
     }
+    // Read-only diagnostic: saving future opt-in is separate from permission
+    // to execute. Unknown or unreadable journals still fail closed at runtime.
+    private string? JournalBlocker(LocalMap m)
+    {
+        try{DemandClearJournals(m);return null;}
+        catch(Exception ex){return NativeLifecycleFailureCode.From(ex);}
+    }
     private ProcessCheck Observe(LocalMap m)
     {
         if(!m.HistoricalStoreProtected)return cluster.Check(m);
@@ -405,6 +412,10 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                 try{DemandProfile(setting,true);}
                 catch{continue;} // no mutation or claim on an invalid target
                 var map=Owned(setting.MapId);
+                // A stale per-map journal is not a failed rolling transaction.
+                // Skip only that map before querying Steam or claiming work.
+                // RunMapAsync still rechecks all journals before any mutation.
+                if(JournalBlocker(map)!=null)continue;
                 if(latest==null)
                 {
                     // Reuse the native read-only build endpoint so the same
@@ -458,7 +469,9 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             if(method=="steam.rollingStatus")
             {
                 var state=Locked(Read);
-                return Task.FromResult(Ok(new{settings=state.Settings.Select(x=>new{x.MapId,x.Enabled,x.ApiRiskAccepted}),
+                return Task.FromResult(Ok(new{settings=state.Settings.Select(x=>new{x.MapId,x.Enabled,x.ApiRiskAccepted,
+                        journalBlocker=x.Enabled?cluster.Config.LocalMaps.FirstOrDefault(m=>m.Id==x.MapId) is { } m?
+                            JournalBlocker(m):"UM-MAP-NOT-OWNED":null}),
                     current=state.Current,busy=Busy,intervalMinutes=15,warningMinutes=AsaShutdownCountdown.Minutes,
                     hostLocalOnly=true,runnerStarted=Volatile.Read(ref started)!=0}));
             }
@@ -472,7 +485,9 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                 {
                     if(Busy||Volatile.Read(ref started)==0||map.StartWithAsaApi&&!apiRisk)
                         return Task.FromResult(Fail("UM-ROLLING-ENABLE-BLOCKED"));
-                    DemandEligible(map);DemandClearJournals(map);
+                    DemandEligible(map);
+                    // Opt-in records intent only. A prior per-map journal
+                    // remains intact and continues to prevent all dispatch.
                 }
                 var result=Locked(()=>{
                     var state=Read();
@@ -481,7 +496,8 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                     var row=new Setting(map.Id,enabled,enabled&&apiRisk,Fingerprint(map));
                     state.Settings.RemoveAll(x=>x.MapId==map.Id);state.Settings.Add(row);Write(state);return row;
                 });
-                return Task.FromResult(Ok(new{result.MapId,result.Enabled,result.ApiRiskAccepted}));
+                return Task.FromResult(Ok(new{result.MapId,result.Enabled,result.ApiRiskAccepted,
+                    journalBlocker=result.Enabled?JournalBlocker(map):null}));
             }
             if(method=="steam.rollingReview")
             {

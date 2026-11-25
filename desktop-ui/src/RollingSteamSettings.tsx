@@ -15,7 +15,9 @@ export function RollingSteamSettings({mapId}:{mapId:string}){
     void poll();const timer=setInterval(poll,5000);
     return ()=>{live=false;clearInterval(timer);};
   },[mapId]);
-  const enabled=status?.settings.find(s=>s.mapId===mapId)?.enabled===true;
+  const setting=status?.settings.find(s=>s.mapId===mapId);
+  const enabled=setting?.enabled===true;
+  const journalBlocker=enabled?setting?.journalBlocker:null;
   const unresolved=status?.current&&(status.current.state==="needs-review"||
     status.current.state==="running"&&!status.busy);
   const change=async(value:boolean)=>{
@@ -28,7 +30,8 @@ export function RollingSteamSettings({mapId}:{mapId:string}){
     <div className="panel-inner">
       <p>Alapból kikapcsolva. Az engedélyezett helyi mapok 15 percenként ellenőrzött új publikus build esetén egymás után frissülnek. A futó map 5 perces játékbeli figyelmeztetést, szabályos leállítást, ellenőrzött mentést és frissítést, majd ellenőrzött indítást kap. A már leállított map leállítva marad.</p>
       <p className="muted small">Csak önálló helyi telepítések. A másik host külön sor. A közös Store és pluginfájlok nem frissülnek automatikusan. A következő ASA kiadás megtörheti az API/plugin kompatibilitást.</p>
-      <p role="status">Automatikus frissítés: <b>{enabled?"Bekapcsolva":"Kikapcsolva"}</b></p>
+      <p role="status">Automatikus frissítés: <b>{enabled?(journalBlocker?"Bekapcsolva – blokkolva":"Bekapcsolva"):"Kikapcsolva"}</b></p>
+      {journalBlocker&&<p role="alert" className="warning-inline">A beállítás mentve, de ez a map nem frissül a helyi műveleti napló rendezéséig. A többi engedélyezett map ettől függetlenül frissülhet. A napló rendezése után a következő ellenőrzéskor automatikusan jogosult lehet. · {journalBlocker}</p>}
       {!enabled&&<label><input type="checkbox" checked={risk} disabled={busy||status?.busy===true}
         onChange={e=>setRisk(e.target.checked)}/> Elfogadom az automatikus szerverfrissítést ASA API használatakor is, a pluginok kompatibilitási kockázatával.</label>}
       <div className="button-row">

@@ -22,6 +22,7 @@ internal static class RollingSteamMultiMapTests
         await Scenario(root,"steam-failure");
         await Scenario(root,"wrong-build");
         await Scenario(root,"start-failure");
+        await Scenario(root,"blocked-map");
     }
     private static async Task Scenario(string root,string mode)
     {
@@ -149,10 +150,21 @@ internal static class RollingSteamMultiMapTests
             using var doc=JsonDocument.Parse(await supervisor.HandleAsync(JsonSerializer.Serialize(data)));
             return doc.RootElement.Clone();
         }
+        AsaManualRestartJournal? blockedJournal=null;
+        AsaRestartRecord? blockedRecord=null;
+        if(mode=="blocked-map")
+        {
+            blockedJournal=new AsaManualRestartJournal(a.InstallationPath);
+            var claim=blockedJournal.Begin(a.Id,observed[a.Id].Identity!.Pid);
+            blockedRecord=blockedJournal.Change(claim.Id,AsaRestartPhase.NeedsOperator);
+        }
         foreach(var m in maps.Take(3))
         {
             var accepted=await Call("steam.rollingSet",new{mapId=m.Id,enabled=true,confirm=true,apiRiskAccepted=false});
             Check(accepted.GetProperty("ok").GetBoolean(),"explicit opt-in "+m.Name+": "+accepted.GetRawText());
+            if(mode=="blocked-map"&&m.Id==a.Id)
+                Check(accepted.GetProperty("data").GetProperty("journalBlocker").ValueKind==JsonValueKind.String,
+                    "blocked map opt-in stores intent and reports blocker without clearing journal");
         }
         bool failed=false;
         using(var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(60)))
@@ -173,7 +185,21 @@ internal static class RollingSteamMultiMapTests
         Check(entered==1&&left==1&&gate.CurrentCount==1&&checks==1,"one host lane and one published build query");
         Check(AsaSteamBuildCatalog.InstalledBuild(disabled.InstallationPath)=="123456"&&observed[disabled.Id].Running&&
             !trace.Any(x=>x.StartsWith(disabled.Name+":",StringComparison.Ordinal)),"non-opted map untouched");
-        if(mode=="success")
+        if(mode=="blocked-map")
+        {
+            var setting=status.GetProperty("settings").EnumerateArray().Single(x=>x.GetProperty("mapId").GetGuid()==a.Id);
+            Check(!failed&&setting.GetProperty("enabled").GetBoolean()&&
+                setting.GetProperty("journalBlocker").ValueKind==JsonValueKind.String&&
+                blockedJournal!.Observe()==blockedRecord&&observed[a.Id].Running&&
+                AsaSteamBuildCatalog.InstalledBuild(a.InstallationPath)=="123456"&&
+                trace.SequenceEqual(new[]{"Ragnarok:steam","The Island:stop","The Island:steam","The Island:start"})&&
+                minuteWaits==5&&current.GetProperty("state").GetString()=="completed",
+                "blocked first map remains untouched while other local maps update");
+            Check(AsaSteamBuildCatalog.InstalledBuild(b.InstallationPath)=="123457"&&
+                AsaSteamBuildCatalog.InstalledBuild(c.InstallationPath)=="123457",
+                "eligible siblings complete despite old per-map journal");
+        }
+        else if(mode=="success")
         {
             Check(!failed&&current.GetProperty("state").GetString()=="completed"&&
                 trace.SequenceEqual(new[]{"Astraeos:stop","Astraeos:steam","Astraeos:start","Ragnarok:steam",
