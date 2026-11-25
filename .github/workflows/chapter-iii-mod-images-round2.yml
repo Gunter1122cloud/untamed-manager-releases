@@ -1,0 +1,95 @@
+name: Chapter III mod image references round 2
+on:
+  push:
+    branches: ['media/chapter-iii-sourcepack']
+    paths: ['.github/workflows/chapter-iii-mod-images-round2.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  collect:
+    if: github.ref == 'refs/heads/media/chapter-iii-sourcepack'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Collect public author-gallery reference images
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet Pillow
+          python3 - <<'PY'
+          import concurrent.futures, hashlib, io, json, pathlib, urllib.request
+          from PIL import Image, ImageOps, ImageDraw
+          root=pathlib.Path("mod-reference-pack-round2")
+          root.mkdir()
+          base="https://83374.media.forgecdn.net/attachments/"
+          items=[
+            ("asr_fort","1213/22/jibbenfort01-jpg.jpg"),
+            ("asr_mountain_cottage","1213/23/jibbenmountaincottage01-jpg.jpg"),
+            ("asr_watchtower","1213/27/jibbenwatchtower-jpg.jpg"),
+            ("asr_homestead","934/309/redmustangscute01.jpg"),
+            ("asr_lighthouse","934/314/gimlighthouse01.jpg"),
+            ("ckf_55","1107/226/ckf_55-jpg.jpg"),
+            ("ckf_33","1085/286/ckf_33.jpg"),
+            ("ckf_52","1107/223/ckf_52-jpg.jpg"),
+            ("ckf_50","1107/221/ckf_50-jpg.jpg"),
+            ("ckf_7","1085/297/ckf_7.jpg"),
+            ("runic_flame_sunset","1072/764/runicflame_sunset_smaller.png"),
+            ("runic_glacial_breath","1072/759/20240614213823_1.jpg"),
+            ("runic_flame_breath","1072/760/20240614214123_1.jpg"),
+          ]
+          # Try the Primitive Plus gallery; accept only author-gallery attachment URLs.
+          import re, html
+          gallery="https://www.curseforge.com/ark-survival-ascended/mods/primplus/gallery"
+          try:
+              req=urllib.request.Request(gallery,headers={"User-Agent":"Mozilla/5.0"})
+              with urllib.request.urlopen(req,timeout=15) as f:
+                  page=html.unescape(f.read(5000000).decode("utf-8","replace")).replace("\\/","/")
+              paths=list(dict.fromkeys(re.findall(r"83374\.media\.forgecdn\.net/attachments/(\d+/\d+/[^\s\"'<>?]+?\.(?:png|jpg|jpeg))",page,re.I)))
+              for i,p in enumerate(paths[:6]): items.append((f"primplus_gallery_{i+1}",p))
+              print("Primitive Plus gallery candidates:",len(paths))
+          except Exception as e:
+              print("Primitive Plus gallery unavailable:",e)
+          def collect(item):
+              name,path=item
+              row={"name":name,"url":base+path,"reuse_permission":"not verified; reference only"}
+              try:
+                  req=urllib.request.Request(row["url"],headers={"User-Agent":"Mozilla/5.0"})
+                  with urllib.request.urlopen(req,timeout=18) as f:
+                      data=f.read(12000001)
+                  if len(data)>12000000: raise ValueError("oversize")
+                  im=Image.open(io.BytesIO(data))
+                  im.load()
+                  if im.format not in ("PNG","JPEG"): raise ValueError("unsupported format")
+                  ext=".png" if im.format=="PNG" else ".jpg"
+                  filename=name+ext
+                  (root/filename).write_bytes(data)
+                  row.update({"status":"downloaded","file":filename,"width":im.width,"height":im.height,"bytes":len(data),"sha256":hashlib.sha256(data).hexdigest()})
+              except Exception as e:
+                  row.update({"status":"failed","error":str(e)})
+              return row
+          with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+              rows=list(pool.map(collect,items))
+          (root/"REPORT.json").write_text(json.dumps(rows,indent=2))
+          ok=[r for r in rows if r["status"]=="downloaded"]
+          if ok:
+              sheet=Image.new("RGB",(960,220*((len(ok)+2)//3)),(20,20,20))
+              draw=ImageDraw.Draw(sheet)
+              for i,r in enumerate(ok):
+                  thumb=ImageOps.contain(Image.open(root/r["file"]).convert("RGB"),(312,180))
+                  x=(i%3)*320
+                  y=(i//3)*220
+                  sheet.paste(thumb,(x+(320-thumb.width)//2,y))
+                  draw.text((x+5,y+183),r["name"],fill="white")
+                  draw.text((x+5,y+198),f'{r["width"]}x{r["height"]}',fill="white")
+              sheet.save(root/"CONTACT.jpg",quality=90)
+          (root/"README.txt").write_text("Third-party public gallery references for review only. No publication or reuse rights verified. Confirm each mod is installed on Chapter III before use. Some ASR builds also use other mods. No video files in this pack.")
+          print(json.dumps(rows,indent=2))
+          PY
+      - name: Upload temporary working reference pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_Mod_Image_References_Round2
+          path: mod-reference-pack-round2/
+          if-no-files-found: error
+          retention-days: 3
