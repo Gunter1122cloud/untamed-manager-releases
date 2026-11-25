@@ -257,6 +257,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopCredentialBridge _credentials;
     private readonly DesktopModDraftBridge _modDrafts;
     private readonly DesktopModRepairBridge _modRepair;
+    private readonly DesktopInstallationRelocationBridge _relocation;
     private readonly DesktopModCopyBridge _modCopy;
     private readonly DesktopModProfileBridge _modProfiles;
     private readonly DesktopOfflineAsaArchiveBridge _offlineClusterArchive;
@@ -344,6 +345,7 @@ public sealed class ObsidianWindow : Form
         _updateInstall = new DesktopObsidianUpdateInstallBridge(_bridge.LocalCluster);
         _modDrafts = new DesktopModDraftBridge(_bridge.LocalCluster);
         _modRepair = new DesktopModRepairBridge(_bridge.LocalCluster);
+        _relocation = new DesktopInstallationRelocationBridge(_bridge.LocalCluster);
         _modCopy = new DesktopModCopyBridge(_bridge.LocalCluster);
         _modProfiles = new DesktopModProfileBridge(_bridge.LocalCluster);
         _offlineClusterArchive = new DesktopOfflineAsaArchiveBridge();
@@ -628,6 +630,7 @@ public sealed class ObsidianWindow : Form
                 bool resourcesRoute = false;
                 bool draftRoute = false;
                 bool modRepairRoute = false;
+                bool relocationRoute = false;
                 bool modCopyRoute = false;
                 bool modProfileRoute = false;
                 bool offlineClusterArchiveRoute = false;
@@ -774,6 +777,7 @@ public sealed class ObsidianWindow : Form
                             "cluster.multiHostRestoreRecoveryList" or
                             "cluster.multiHostRestoreRecoveryPreview" or "cluster.multiHostRestoreRecoveryApply" or
                             "cluster.multiHostRestoreStatus" or "cluster.multiHostCancel";
+                        relocationRoute = name is "servers.relocationPreview" or "servers.relocationApply";
                         modRepairRoute = name is "mods.localRepairPreview" or "mods.localRepairApply" or "mods.localRepairStatus";
                         draftRoute = name is
                             "mods.draftStart" or "mods.draftStage" or
@@ -893,6 +897,7 @@ public sealed class ObsidianWindow : Form
                         : offlineClusterArchiveRoute ? await _offlineClusterArchive.HandleAsync(incoming)
                         : modProfileRoute ? await _modProfiles.HandleAsync(incoming)
                         : modCopyRoute ? await _modCopy.HandleAsync(incoming)
+                        : relocationRoute ? await _relocation.HandleAsync(incoming)
                         : modRepairRoute ? await _modRepair.HandleAsync(incoming)
                         : draftRoute ? await _modDrafts.HandleAsync(incoming)
                             : iniRoute ? await _iniEditor.HandleAsync(incoming)
