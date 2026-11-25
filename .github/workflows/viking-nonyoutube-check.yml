@@ -1,0 +1,40 @@
+name: Viking Age non-YouTube media check
+on:
+  push:
+    branches: ['media/chapter-iii-sourcepack']
+    paths: ['.github/workflows/viking-nonyoutube-check.yml']
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify public Reddit video candidates
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import urllib.request, urllib.error, json, concurrent.futures
+          def fetch(url,limit=1000000,partial=False):
+              h={'User-Agent':'Mozilla/5.0 (compatible; media-reference-check/1.0)'}
+              if partial: h['Range']='bytes=0-4095'
+              with urllib.request.urlopen(urllib.request.Request(url,headers=h),timeout=12) as r:
+                  return r.status,dict(r.headers),r.read(limit)
+          def media(url):
+              try:
+                  status,h,b=fetch(url,4096,True)
+                  return {'url':url,'http':status,'type':h.get('Content-Type'),'range':h.get('Content-Range'),'mp4_signature':b'ftyp' in b[:64]}
+              except Exception as e:return {'url':url,'error':str(e)}
+          urls=['https://v.redd.it/nxw5ea9vimgc1/DASH_1080.mp4','https://v.redd.it/nxw5ea9vimgc1/DASH_720.mp4','https://v.redd.it/nxw5ea9vimgc1/DASH_480.mp4']
+          def post(postid):
+              url='https://www.reddit.com/comments/'+postid+'.json'
+              try:
+                  _,_,b=fetch(url)
+                  d=json.loads(b)[0]['data']['children'][0]['data']
+                  v=(d.get('secure_media') or d.get('media') or {}).get('reddit_video',{})
+                  return {'post':postid,'title':d.get('title'),'video':v,'url':d.get('url')}
+              except Exception as e:return {'post':postid,'error':str(e)}
+          with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+              results=list(pool.map(media,urls))+list(pool.map(post,['1aiwsjq','1s7v1je','1j9adrh','1k9589t','1tuvcjn']))
+          print(json.dumps(results,indent=2))
+          PY
