@@ -670,15 +670,33 @@ export type FreshAsaStartStatus = {
   readyCertified:false;status:string;
   evidence:"LOCAL_OS_PROCESS_OBSERVATION_NOT_ASA_READINESS";
 };
+export type SteamCmdCandidate = {
+  token:string;path:string;source:string;lengthBytes:number;
+  sha256:string;lastModifiedUtc:string;
+};
 export type StoppedSteamDiagnostics = {
   mapId:string;mapName:string;installRoot:string;installedBuild?:string|null;
   processes:Array<{mapName:string;confirmedStopped:boolean;running:boolean;
     pid:number|null;loaderPid:number|null;reason:string}>;
   overlaps:Array<{mapName:string;installRoot:string}>;
   steamCmdFound:boolean;steamCmdConfigured:boolean;
-  steamCmdError?:string|null;externalSteamError?:string|null;asaBinaryRegistered?:boolean;
+  steamCmdError?:string|null;steamCmdPath?:string|null;
+  steamCmdConfiguredPath?:string|null;steamCmdSha256?:string|null;
+  steamCmdLastModifiedUtc?:string|null;
+  externalSteamError?:string|null;asaBinaryRegistered?:boolean;
   availableBytes:number;requiredBytes:number;
-  journalBlocked:boolean;historicalBlocked:boolean;safeInstallation:boolean;
+  journalBlocked:boolean;queueJournalBlocked?:boolean;localJournalBlocked?:boolean;
+  queueJournalPhase?:string|null;queueJournalBlockingCode?:string|null;
+  operationJournalPhase?:string|null;operationJournalKind?:string|null;
+  operationJournalBlockingCode?:string|null;
+  restartJournalPhase?:string|null;restartJournalBlockingCode?:string|null;
+  localJournalUnreadable?:boolean;
+  journalBlockers?:Array<{category:string;code:string;phase?:string|null;nextStep:string}>;
+  processBlockers?:Array<{category:string;code:string;subject:string;nextStep:string}>;
+  storeBlockers?:Array<{category:string;code:string;subject:string;nextStep:string}>;
+  installationBlockerCode?:string|null;
+  blockers?:Array<{category:string;code:string;subject:string;nextStep:string}>;
+  historicalBlocked:boolean;safeInstallation:boolean;
   canPreview:boolean;
   noProcessAutoStop:true;remoteWrites:false;
   evidence:"REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY";
@@ -2091,6 +2109,14 @@ export const managerBridge = {
     request<DurableSteamQueue>("steam.stoppedCurrent"),
   steamStoppedDiagnostics: (mapId:string) =>
     request<StoppedSteamDiagnostics>("steam.stoppedDiagnostics",{mapId}),
+  steamDiscoverExecutables: (mapId:string) =>
+    request<{mapId:string;candidates:SteamCmdCandidate[];updateStarted:false;
+      serverStopped:false;settingsOnly:true;requiresExplicitAcceptance:true}>(
+        "steam.discoverExecutables",{mapId}),
+  steamAcceptDiscoveredExecutable: (mapId:string,token:string) =>
+    request<{configured:true;cancelled:false;path:string;sha256:string;
+      source:string;updateStarted:false;serverStopped:false;settingsOnly:true}>(
+        "steam.acceptDiscoveredExecutable",{mapId,token,confirm:true}),
   steamStoppedPreview: (mapId:string) =>
     request<StoppedSteamPreview>("steam.stoppedPreview",{mapId}),
   steamPrepareExecutable: () => request<{cancelled:boolean;configured:boolean;updateStarted:false;serverStopped:false}>("steam.prepareExecutable"),
