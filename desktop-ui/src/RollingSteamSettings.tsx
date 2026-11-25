@@ -36,11 +36,13 @@ export function RollingSteamSettings({mapId}:{mapId:string}){
         onChange={e=>setRisk(e.target.checked)}/> Elfogadom az automatikus szerverfrissítést ASA API használatakor is, a pluginok kompatibilitási kockázatával.</label>}
       <div className="button-row">
         <button type="button" className={enabled?"secondary":"primary"}
-          disabled={busy||!status||!enabled&&(!status.runnerStarted||status.busy||!!unresolved)}
+          disabled={busy||!status||!enabled&&(!status.runnerStarted||status.busy||!!unresolved&&!["preflight","countdown"].includes(status.current?.stage??""))}
           onClick={()=>{void change(!enabled);}}>{enabled?"Automatikus frissítés kikapcsolása":"Automatikus frissítés bekapcsolása"}</button>
       </div>
       {status?.current&&<p role="status">Helyi sor: {status.current.state} · {status.current.stage} · {status.current.oldBuild} → {status.current.targetBuild}{status.current.error?" · "+status.current.error:""}</p>}
-      {unresolved&&status?.current&&<><p className="warning-inline">Ellenőrizd a natív Stop, SteamCMD és Start naplókat, valamint az érintett map állapotát. A félbeszakadt frissítést nem ismételjük meg.</p>
+      {unresolved&&status?.current&&["preflight","countdown"].includes(status.current.stage)&&
+        <p role="status">A megszakadt előkészítést a következő ellenőrzés automatikusan archiválja; még nem indult leállítás vagy SteamCMD.</p>}
+      {unresolved&&status?.current&&!["preflight","countdown"].includes(status.current.stage)&&<><p className="warning-inline">Ellenőrizd a natív Stop, SteamCMD és Start naplókat, valamint az érintett map állapotát. A félbeszakadt frissítést nem ismételjük meg.</p>
         <button type="button" disabled={busy||status.busy} onClick={async()=>{
           setBusy(true);setError("");
           try{await managerBridge.steamRollingReview(status.current!.id);await load();}

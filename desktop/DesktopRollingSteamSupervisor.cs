@@ -235,6 +235,40 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
     }
     private static bool Yes(JsonElement r,string key)=>r.TryGetProperty(key,out var value)&&value.ValueKind==JsonValueKind.True;
     private void SetRun(Run run)=>Locked(()=>{var state=Read();state.Current=run;Write(state);return true;});
+
+    private static bool BeforeLifecycle(Run? run)=>run!=null&&
+        run.State is ("running" or "needs-review")&&run.Stage is ("preflight" or "countdown");
+
+    // The host worker/file lease must already be held. No Stop or SteamCMD
+    // can have been dispatched in these stages: Stage is flushed before
+    // either call. Archive the exact run, not a fabricated successful update.
+    private bool CloseBeforeLifecycle()=>Locked(()=>{
+        var state=Read();var run=state.Current;
+        if(!BeforeLifecycle(run))return false;
+        var prior=run!;
+        string audit=Path.Combine(root,"rolling-steam-abandoned-"+prior.Id.ToString("N")+".json");
+        byte[] original=JsonSerializer.SerializeToUtf8Bytes(prior,Json);
+        if(File.Exists(audit))
+        {
+            if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+               !File.ReadAllBytes(audit).SequenceEqual(original))
+                throw new InvalidDataException("UM-ROLLING-ABANDONED-AUDIT-MISMATCH");
+        }
+        else
+        {
+            string tmp=audit+"."+Guid.NewGuid().ToString("N")+".tmp";
+            try
+            {
+                using(var stream=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+                {stream.Write(original);stream.Flush(true);}
+                File.Move(tmp,audit);
+            }
+            finally{if(File.Exists(tmp))File.Delete(tmp);}
+        }
+        state.Current=prior with{State="reviewed",ChangedUtc=DateTimeOffset.UtcNow,
+            Error=prior.Error??"UM-ROLLING-INTERRUPTED-BEFORE-LIFECYCLE"};
+        Write(state);return true;
+    });
     private async Task LifecycleAsync(LocalMap map,string action,CancellationToken ct,ProcessCheck expected)
     {
         var preview=Decode(await lifecycle.HandleAsync(Message("operations.lifecycleBatchPreview",new{
@@ -391,7 +425,9 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
     }
     internal async Task TickOnceAsync(CancellationToken ct=default)
     {
-        if(frozen()||!Locked(()=>{var s=Read();return s.Current?.State is not ("running" or "needs-review")&&s.Settings.Any(x=>x.Enabled);}))
+        if(frozen()||!Locked(()=>{var s=Read();return
+            (BeforeLifecycle(s.Current)||s.Current?.State is not ("running" or "needs-review"))&&
+            s.Settings.Any(x=>x.Enabled);}))
             return;
         if(!await hostGate.WaitAsync(0,ct))return;
         bool entered=false;
@@ -402,6 +438,11 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             using var lease=Lease();
             Interlocked.Exchange(ref busy,1);
             var state=Locked(Read);
+            if(BeforeLifecycle(state.Current))
+            {
+                CloseBeforeLifecycle();
+                state=Locked(Read);
+            }
             if(state.Current?.State is "running" or "needs-review")return;
             var settings=state.Settings.Where(s=>s.Enabled).ToArray();
             string? latest=null;
@@ -430,7 +471,22 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                     latest=report.GetProperty("availableBuild").GetString();
                     if(string.IsNullOrWhiteSpace(latest))return;
                 }
-                await RunMapAsync(setting,latest,ct); // no parallel map mutations
+                try{await RunMapAsync(setting,latest,ct);} // no parallel map mutations
+                catch(Exception ex) when(ex is not OperationCanceledException)
+                {
+                    var failed=Locked(Read).Current;
+                    if(failed?.MapId==map.Id&&BeforeLifecycle(failed))
+                    {
+                        CloseBeforeLifecycle();
+                        // A failed warning can leave its own local admin
+                        // journal. Do not replay it; other maps are independent.
+                        continue;
+                    }
+                    // Only a claimed stopping/updating/starting phase may
+                    // have touched the server files/process. Preserve it.
+                    if(failed?.State is "running" or "needs-review")throw;
+                    System.Diagnostics.Trace.TraceWarning("Rolling preflight {0}: {1}",map.Id,NativeLifecycleFailureCode.From(ex));
+                }
             }
         }
         finally
@@ -491,7 +547,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                 }
                 var result=Locked(()=>{
                     var state=Read();
-                    if(enabled&&state.Current?.State is ("running" or "needs-review"))
+                    if(enabled&&state.Current?.State is ("running" or "needs-review")&&!BeforeLifecycle(state.Current))
                         throw new InvalidOperationException("UM-ROLLING-PRIOR-REVIEW");
                     var row=new Setting(map.Id,enabled,enabled&&apiRisk,Fingerprint(map));
                     state.Settings.RemoveAll(x=>x.MapId==map.Id);state.Settings.Add(row);Write(state);return row;

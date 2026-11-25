@@ -41,11 +41,20 @@ internal static class DesktopRestartReconciler
     {
         try
         {
-            if(map.Maintenance||!GeneralClear(cluster,map))return false;
+            if(map.Maintenance)return false;
+            var general=cluster.Operations.Observe(map.InstallationPath);
+            bool paired=general?.Phase is UntamedOperationPhase.Prepared or
+                UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator;
+            if(paired&&(general!.Kind!=UntamedOperationKind.Launch||
+                DateTimeOffset.UtcNow-general.UpdatedUtc<TimeSpan.FromMinutes(3)))return false;
             var journal=new AsaManualRestartJournal(map.InstallationPath);
             var record=journal.Observe();
-            if(record==null||record.MapId!=map.Id||record.Phase!=AsaRestartPhase.NeedsOperator||
-                record.NewPid==record.OldPid||DateTimeOffset.UtcNow-record.ChangedUtc<TimeSpan.FromMinutes(3))
+            if(record==null||record.MapId!=map.Id||
+                (record.Phase!=AsaRestartPhase.NeedsOperator&&
+                 !(paired&&record.Phase==AsaRestartPhase.OperatorReviewed))||
+                record.NewPid==record.OldPid||
+                (record.Phase!=AsaRestartPhase.OperatorReviewed&&
+                 DateTimeOffset.UtcNow-record.ChangedUtc<TimeSpan.FromMinutes(3)))
                 return false;
             new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
             // A separate uncertain SaveWorld is not silently cleared.
@@ -61,7 +70,8 @@ internal static class DesktopRestartReconciler
             {
                 var fresh=journal.Observe();
                 if(fresh==null||!ReferenceEquals(cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==map.Id),map)||
-                    JsonSerializer.Serialize(map)!=profile||!GeneralClear(cluster,map))return false;
+                    JsonSerializer.Serialize(map)!=profile||
+                    cluster.Operations.Observe(map.InstallationPath)!=general)return false;
                 // Allow only the exact original snapshot or our audited terminal
                 // transition; never adopt an unrelated new journal.
                 if(fresh!=record&&(fresh.Phase!=AsaRestartPhase.OperatorReviewed||
@@ -75,8 +85,12 @@ internal static class DesktopRestartReconciler
                 return Valid(current,map,record)&&current.Source==first.Source&&
                     Same(current.Asa,first.Asa)&&Same(current.Loader,first.Loader);
             }
-            cluster.Operations.ReviewReplacementOriginalRestartOnly(map.InstallationPath,map.Id,
-                record.Id,record.OldPid,record.NewPid,Verify);
+            if(paired)
+                cluster.Operations.ReviewStoppedOriginalPaired(map.InstallationPath,general!.Operation,
+                    map.Id,record.Id,record.OldPid,Verify,record.NewPid,replacement:true);
+            else
+                cluster.Operations.ReviewReplacementOriginalRestartOnly(map.InstallationPath,map.Id,
+                    record.Id,record.OldPid,record.NewPid,Verify);
             return true;
         }
         catch(Exception ex) when(IsRecoverable(ex))
@@ -109,7 +123,7 @@ internal static class DesktopRestartReconciler
                 UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator;
             if(paired&&general!.Kind!=UntamedOperationKind.Launch)return false;
             if(record==null||record.MapId!=map.Id||record.NewPid==record.OldPid||
-                (record.Phase!=AsaRestartPhase.NeedsOperator&&
+                (record.Phase is not (AsaRestartPhase.NeedsOperator or AsaRestartPhase.Stopping or AsaRestartPhase.Starting)&&
                  !(paired&&record.Phase==AsaRestartPhase.OperatorReviewed))||
                 (record.Phase!=AsaRestartPhase.OperatorReviewed&&
                  DateTimeOffset.UtcNow-record.ChangedUtc<TimeSpan.FromMinutes(3)))return false;

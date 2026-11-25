@@ -199,8 +199,9 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
            !phase||failureChangedUtc==default||map.Maintenance)
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-REPLACEMENT-JOURNAL-INVALID");
         var general=cluster.Operations.Observe(map.InstallationPath);
-        if(general?.Phase is UntamedOperationPhase.Prepared or
-            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
+        if(general?.Phase is (UntamedOperationPhase.Prepared or
+            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)&&
+            (!reconcileCurrentOwner||general.Kind!=UntamedOperationKind.Launch))
             throw new InvalidOperationException("UM-ASA-RESTART-REVIEW-GENERAL-PENDING");
         var state=reviewObserve(map);
         if(!state.Running||state.ConfirmedStopped||
