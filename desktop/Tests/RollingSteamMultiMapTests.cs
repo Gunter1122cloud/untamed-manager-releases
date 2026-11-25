@@ -25,6 +25,7 @@ internal static class RollingSteamMultiMapTests
         await Scenario(root,"start-failure");
         await Scenario(root,"blocked-map");
         await Scenario(root,"interrupted-countdown");
+        await Scenario(root,"interrupted-verified-files");
     }
     private static async Task Scenario(string root,string mode)
     {
@@ -79,11 +80,23 @@ internal static class RollingSteamMultiMapTests
         string journal=Path.Combine(cluster.Store.Root,"rolling-steam-v1.json");
         void Claim(LocalMap m,string stage)
         {
-            // The fixture observes an atomic replace journal concurrently
-            // with the progress writer. Permit rename while holding the old
-            // immutable file handle, just as a concurrent native observer.
-            using var input=new FileStream(journal,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
-            using var doc=JsonDocument.Parse(input);
+            // Read through the same native named mutex as the writer.
+            // FILE_SHARE_DELETE alone does not guarantee Windows replace
+            // semantics for an open destination handle.
+            string identity=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(cluster.Store.Root)).ToUpperInvariant())));
+            using var mutex=new Mutex(false,@"Global\Untamed-RollingSteam-"+identity);
+            bool held=false;
+            string snapshot;
+            try
+            {
+                try{held=mutex.WaitOne(TimeSpan.FromSeconds(5));}
+                catch(AbandonedMutexException){held=true;}
+                Check(held,"native rolling journal read lock acquired");
+                snapshot=File.ReadAllText(journal);
+            }
+            finally{if(held)mutex.ReleaseMutex();}
+            using var doc=JsonDocument.Parse(snapshot);
             var run=doc.RootElement.GetProperty("current");
             Check(run.GetProperty("mapId").GetGuid()==m.Id&&run.GetProperty("state").GetString()=="running"&&
                 run.GetProperty("stage").GetString()==stage,"durable "+stage+" claim before "+m.Name);
@@ -182,6 +195,20 @@ internal static class RollingSteamMultiMapTests
                 new JsonSerializerOptions(JsonSerializerDefaults.Web));
             File.WriteAllText(journal,persisted.ToJsonString());
         }
+        if(mode=="interrupted-verified-files")
+        {
+            // Real native update has finished; rolling worker exited before
+            // Start dispatch. Persist exact settings fingerprint and build.
+            Build(a,"123457");observed[a.Id]=Stopped();
+            var persisted=JsonNode.Parse(File.ReadAllText(journal))!.AsObject();
+            string fingerprint=persisted["settings"]!.AsArray()
+                .Single(x=>x!["mapId"]!.GetValue<Guid>()==a.Id)!["fingerprint"]!.GetValue<string>();
+            persisted["current"]=JsonSerializer.SerializeToNode(new DesktopRollingSteamSupervisor.Run(
+                Guid.NewGuid(),a.Id,"running","files-verified","123456","123457",true,
+                DateTimeOffset.UtcNow.AddMinutes(-10),ProfileFingerprint:fingerprint),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            File.WriteAllText(journal,persisted.ToJsonString());
+        }
         bool failed=false;
         using(var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(60)))
         {
@@ -214,6 +241,13 @@ internal static class RollingSteamMultiMapTests
             Check(AsaSteamBuildCatalog.InstalledBuild(b.InstallationPath)=="123457"&&
                 AsaSteamBuildCatalog.InstalledBuild(c.InstallationPath)=="123457",
                 "eligible siblings complete despite old per-map journal");
+        }
+        else if(mode=="interrupted-verified-files")
+        {
+            Check(!failed&&trace.SequenceEqual(new[]{"Astraeos:start","Ragnarok:steam",
+                "The Island:stop","The Island:steam","The Island:start"})&&minuteWaits==5&&
+                observed[a.Id].Running&&current.GetProperty("state").GetString()=="completed",
+                "verified-files recovery starts only the previously running map without a second Steam update");
         }
         else if(mode=="success"||mode=="interrupted-countdown")
         {

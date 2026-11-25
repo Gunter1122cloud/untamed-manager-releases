@@ -39,9 +39,11 @@ export function RollingSteamSettings({mapId}:{mapId:string}){
           disabled={busy||!status||!enabled&&(!status.runnerStarted||status.busy||!!unresolved&&!["preflight","countdown"].includes(status.current?.stage??""))}
           onClick={()=>{void change(!enabled);}}>{enabled?"Automatikus frissítés kikapcsolása":"Automatikus frissítés bekapcsolása"}</button>
       </div>
-      {status?.current&&<p role="status">Helyi sor: {status.current.state} · {status.current.stage} · {status.current.oldBuild} → {status.current.targetBuild}{status.current.error?" · "+status.current.error:""}</p>}
+      {status?.current&&<p role="status">Helyi sor: {status.current.state} · {status.current.stage}{status.current.nativeSteamStage?" / "+status.current.nativeSteamStage:""} · {status.current.oldBuild} → {status.current.targetBuild}{status.current.error?" · "+status.current.error:""}</p>}
       {unresolved&&status?.current&&["preflight","countdown"].includes(status.current.stage)&&
         <p role="status">A megszakadt előkészítést a következő ellenőrzés automatikusan archiválja; még nem indult leállítás vagy SteamCMD.</p>}
+      {unresolved&&status?.current?.stage==="files-verified"&&
+        <p role="status">A fájlfrissítés már ellenőrzött; a következő ciklus a változatlan, engedélyezett map indítását folytathatja.</p>}
       {unresolved&&status?.current&&!["preflight","countdown"].includes(status.current.stage)&&<><p className="warning-inline">Ellenőrizd a natív Stop, SteamCMD és Start naplókat, valamint az érintett map állapotát. A félbeszakadt frissítést nem ismételjük meg.</p>
         <button type="button" disabled={busy||status.busy} onClick={async()=>{
           setBusy(true);setError("");

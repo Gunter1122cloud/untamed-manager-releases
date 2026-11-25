@@ -2157,7 +2157,7 @@ export const managerBridge = {
     request<StoppedSteamBatchJob>("steam.batchStatus",{jobId}),
   steamRollingStatus: () => request<{
     settings:{mapId:string;enabled:boolean;apiRiskAccepted:boolean;journalBlocker?:string|null}[];
-    current:{id:string;mapId:string;state:string;stage:string;oldBuild:string;targetBuild:string;error?:string|null}|null;
+    current:{id:string;mapId:string;state:string;stage:string;oldBuild:string;targetBuild:string;error?:string|null;nativeSteamStage?:string|null}|null;
     busy:boolean;intervalMinutes:number;warningMinutes:number;hostLocalOnly:boolean;runnerStarted:boolean
   }>("steam.rollingStatus"),
   steamRollingSet: (mapId:string,enabled:boolean,apiRiskAccepted:boolean) =>
