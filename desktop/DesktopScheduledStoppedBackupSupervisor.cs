@@ -19,7 +19,7 @@ namespace UntamedDesktop;
 /// </summary>
 public sealed record ScheduledStoppedBackup(Guid MapId,int IntervalMinutes,
     string MapFingerprint,bool Enabled,DateTimeOffset NextDueUtc,
-    DateTimeOffset? LastAttemptUtc,string LastStatus,string? LastPoint,bool FullLocal=false);
+    DateTimeOffset? LastAttemptUtc,string LastStatus,string? LastPoint,bool FullLocal=false,bool ProfilesOnly=false);
 
 public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
 {
@@ -141,8 +141,8 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                s.IntervalMinutes is <60 or >10080 ||
                s.MapFingerprint==null||s.MapFingerprint.Length!=64||
                !s.MapFingerprint.All(Uri.IsHexDigit)||
-               s.LastStatus==null||s.LastStatus.Length>96||
-               (s.LastPoint!=null&&!(s.FullLocal?
+               s.LastStatus==null||s.LastStatus.Length>96||s.FullLocal&&s.ProfilesOnly||
+               (s.LastPoint!=null&&!(s.FullLocal||s.ProfilesOnly?
                    System.Text.RegularExpressions.Regex.IsMatch(s.LastPoint,@"\A[0-9]{14}-[0-9a-f]{32}\z"):
                    Guid.TryParse(s.LastPoint,out _))))||
            state.Schedules.Select(s=>s.MapId).Distinct().Count()!=state.Schedules.Count)
@@ -187,7 +187,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
         Locked(()=>Read().Schedules.ToArray());
 
     public ScheduledStoppedBackup Configure(Guid mapId,int intervalMinutes,
-        DateTimeOffset? now=null,bool fullLocal=false)
+        DateTimeOffset? now=null,bool fullLocal=false,bool profilesOnly=false)
     {
         if(Volatile.Read(ref disposed)!=0)throw new ObjectDisposedException(GetType().Name);
         if(intervalMinutes is <60 or >10080)
@@ -195,6 +195,8 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
         var map=Owned(mapId);
         if(!CanSchedule(map))
             throw new UnauthorizedAccessException("UM-SCHEDULED-BACKUP-STORE-V1-DENIED");
+        if(profilesOnly&&(fullLocal||UntamedWorldBackup.HasLiveOrHistoricalStore(map)||FreshStoreEnrollmentPolicy.IsEnrolled(map)))
+            throw new UnauthorizedAccessException("UM-BACKUP-PROFILE-SCOPE-NONSTORE-ONLY");
         AsaSaveLayoutResolver.DemandUniqueOwner(map,cluster.Config.LocalMaps);
         string fingerprint=Fingerprint(map);
         DateTimeOffset next=(now??DateTimeOffset.UtcNow).ToUniversalTime()
@@ -202,7 +204,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
         return Locked(()=>{
             var data=Read();
             var entry=new ScheduledStoppedBackup(map.Id,intervalMinutes,
-                fingerprint,true,next,null,"scheduled",null,fullLocal);
+                fingerprint,true,next,null,"scheduled",null,fullLocal,profilesOnly);
             int index=data.Schedules.FindIndex(s=>s.MapId==mapId);
             if(index>=0)data.Schedules[index]=entry;
             else
@@ -229,6 +231,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
     }
 
     private string FullCollection(LocalMap map)=>Path.Combine(cluster.Store.Root,"local-backups",map.Id.ToString("N"));
+    private string ProfileCollection(LocalMap map)=>Path.Combine(cluster.Store.Root,"player-profile-backups",map.Id.ToString("N"));
     private static bool Overlap(string a,string b)
     {
         a=Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar);
@@ -271,7 +274,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                     if(index<0)return false;
                     var current=data.Schedules[index];
                     if(!current.Enabled||current.NextDueUtc!=observed.NextDueUtc||
-                       current.MapFingerprint!=observed.MapFingerprint||current.FullLocal!=observed.FullLocal)return false;
+                       current.MapFingerprint!=observed.MapFingerprint||current.FullLocal!=observed.FullLocal||current.ProfilesOnly!=observed.ProfilesOnly)return false;
                     data.Schedules[index]=current with {
                         NextDueUtc=now.AddMinutes(current.IntervalMinutes),
                         LastAttemptUtc=now,
@@ -310,13 +313,15 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                                     "UM-SCHEDULED-BACKUP-STATE-CHANGED");
                             bool authorized=Locked(()=>Read().Schedules.Any(x=>
                                 x.MapId==observed.MapId&&x.Enabled&&
-                                x.MapFingerprint==observed.MapFingerprint&&x.FullLocal==observed.FullLocal&&
+                                x.MapFingerprint==observed.MapFingerprint&&x.FullLocal==observed.FullLocal&&x.ProfilesOnly==observed.ProfilesOnly&&
                                 x.LastAttemptUtc==now&&
                                 x.LastStatus=="claimed-no-auto-retry"));
                             if(!authorized)
                                 throw new UnauthorizedAccessException(
                                     "UM-SCHEDULED-BACKUP-CLAIM-REVOKED");
                             if(observed.FullLocal)DemandFullPaths(current);
+                            if(observed.ProfilesOnly&&(UntamedWorldBackup.HasLiveOrHistoricalStore(current)||FreshStoreEnrollmentPolicy.IsEnrolled(current)))
+                                throw new InvalidOperationException("UM-BACKUP-PROFILE-SCOPE-NONSTORE-ONLY");
                             return inspect(current);
                         }
                         var state=SafeInspection();
@@ -327,7 +332,20 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                         {
                             // Core re-checks stop state before and after copy.
                             // It only writes a new verified local archive.
-                            if(observed.FullLocal)
+                            if(observed.ProfilesOnly)
+                            {
+                                string collection=ProfileCollection(map);
+                                _=UntamedOperationCoordinator.ResourceKey(collection);
+                                if(cluster.Config.LocalMaps.Any(x=>Overlap(collection,x.InstallationPath)||
+                                    x.Id!=map.Id&&Overlap(map.InstallationPath,x.InstallationPath)))
+                                    throw new InvalidOperationException("UM-BACKUP-PROFILE-PATH-OVERLAP");
+                                string package=DateTime.UtcNow.ToString("yyyyMMddHHmmss",System.Globalization.CultureInfo.InvariantCulture)+"-"+Guid.NewGuid().ToString("N");
+                                LocalBackupWorkflow.Create(map,state,Path.Combine(collection,package),LocalBackupScope.PlayerProfiles,
+                                    checkCurrent:SafeInspection,limits:BackupResourcePolicy.ForManagerProfile(cluster.Store.Root));
+                                point=package;
+                                result="verified-player-profiles-created";
+                            }
+                            else if(observed.FullLocal)
                             {
                                 string package=DateTime.UtcNow.ToString("yyyyMMddHHmmss",System.Globalization.CultureInfo.InvariantCulture)+"-"+Guid.NewGuid().ToString("N");
                                 string installation=Path.GetFullPath(map.InstallationPath);
@@ -371,7 +389,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                     }
                     return true;
                 });
-                DesktopDiscordNotifications.Record(cluster,observed.MapId,"backup",result is not ("verified-backup-created" or "verified-full-local-backup-created"));
+                DesktopDiscordNotifications.Record(cluster,observed.MapId,"backup",result is not ("verified-backup-created" or "verified-full-local-backup-created" or "verified-player-profiles-created"));
             }
             return Snapshot();
         }
