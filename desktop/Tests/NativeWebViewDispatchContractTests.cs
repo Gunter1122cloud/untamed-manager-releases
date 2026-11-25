@@ -227,7 +227,11 @@ internal static class NativeWebViewDispatchContractTests
         // Regression: it must actually be reachable from the shipped React
         // Plugin Center for eligible local maps, not only exist as a dead
         // standalone source file. Plugin DLL installation stays manual-only.
-        string pluginCenter=Read("desktop-ui/src/App.tsx");
+        string pluginCenter=Read("desktop-ui/src/AppPluginPage.tsx");
+        string appShell=Read("desktop-ui/src/App.tsx");
+        Check(appShell.Contains("<PluginCenter",StringComparison.Ordinal)&&
+              appShell.Contains("from \"./AppPluginPage\"",StringComparison.Ordinal),
+            "modular Plugin Center remains mounted by production App shell");
         string apiCoreUi=Read("desktop-ui/src/AsaApiCoreInstaller.tsx");
         Check(pluginCenter.Contains(
                 "import { AsaApiCoreInstaller } from \"./AsaApiCoreInstaller\";",
