@@ -227,7 +227,7 @@ public static class RconProtocol
     // Persistent, per-map read session. Mutating/lifecycle commands keep their
     // existing independently authenticated, one-shot dispatch boundary.
     private static readonly ConcurrentDictionary<Guid,OwnedReadSession> ReadSessions=new();
-    private static readonly Timer ReadSessionSweep=new(_=>{
+    private static readonly System.Threading.Timer ReadSessionSweep=new(_=>{
         foreach(var session in ReadSessions.Values)
             session.ExpireIdle();
     },null,TimeSpan.FromSeconds(30),TimeSpan.FromSeconds(30));
