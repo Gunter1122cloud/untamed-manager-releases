@@ -178,7 +178,11 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
                     return Error(id,"UM-ORIGINAL-RCON-SOURCE-EPOCH-CHANGED");
                 if(response==null)
                     return Error(id,"UM-ORIGINAL-RCON-NO-RESPONSE");
-                if(response.Length>32_768)response=response[..32_768];
+                if(response.Length>32_768)
+                {
+                    if(command=="ListPlayers")return Error(id,"UM-ORIGINAL-RCON-OVERSIZED-PLAYERS");
+                    response=response[..32_768];
+                }
                 // ASA logs are untrusted; never forward the current original
                 // DPAPI credential even when a plugin has echoed it in a log.
                 response=UntamedPresentation.Redact(response).Replace(
