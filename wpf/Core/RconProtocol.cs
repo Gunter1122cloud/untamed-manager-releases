@@ -153,7 +153,26 @@ public static class RconProtocol
         // a read-only completion barrier would report a false failure after
         // the irreversible action already reached ASA. Never claim executed.
         if(adminDispatch && dispatchOnly)
+        {
+            // Wait briefly for the exact command acknowledgement. Empty
+            // ASA replies are valid; no reply is uncertain, never replayed.
+            if(command=="DestroyWildDinos")
+            {
+                using var replyDeadline=CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+                replyDeadline.CancelAfter(TimeSpan.FromSeconds(3));
+                try
+                {
+                    var reply=await ReadPacket(stream,replyDeadline.Token);
+                    if(reply.Id==commandId&&reply.Type==0&&
+                        (string.IsNullOrWhiteSpace(reply.Body)||
+                         reply.Body.Trim().Equals("Server received, But no response!!",StringComparison.OrdinalIgnoreCase)))
+                        return "ADMIN_RCON_ACKNOWLEDGED_NO_GAMEPLAY_PROOF";
+                }
+                catch(Exception ex) when(ex is OperationCanceledException or IOException or InvalidDataException or SocketException)
+                { /* Possibly executed. Never retry. */ }
+            }
             return "ADMIN_RCON_DISPATCHED_EXECUTION_NOT_VERIFIED";
+        }
         // The ASA process can close its RCON socket immediately after DoExit.
         // A successful flush proves dispatch, not durable game data. The
         // lifecycle caller verifies process exit separately.

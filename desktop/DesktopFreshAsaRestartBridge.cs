@@ -327,6 +327,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             jobId=item.Id,state=item.State,stage=item.Stage,
             oldPid=item.OldPid,newPid=item.NewPid,
             newAsaServerPid=item.NewAsaServerPid,
+            newAsaStartedUtc=item.Readiness?.AsaStartedUtc,
             apiChildAndRconVerified=item.ApiChildAndRconVerified,
             preExitWorldMetadataObserved=item.PreExitWorldMetadataObserved,
             newProcessRole=item.NewProcessRole,
