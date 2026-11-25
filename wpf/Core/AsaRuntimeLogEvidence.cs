@@ -136,7 +136,8 @@ internal static class AsaRuntimeLogEvidence
                         // Loading... must invalidate an earlier positive pair.
                         apiInitialized=loaded&&hooks;
                         pluginsInitialized=apiInitialized&&pluginsComplete;
-                    }                }
+                    }
+                }
                 catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
                     InvalidDataException or ArgumentException or NotSupportedException)
                 {
