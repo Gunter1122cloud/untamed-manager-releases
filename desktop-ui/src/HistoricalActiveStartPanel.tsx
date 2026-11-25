@@ -285,16 +285,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted,refresh
         Az Obsidianba jóváhagyottan átvett map helyi indítása nem igényli a másik
         host korábbi kezelőalkalmazás ACTIVE/DONE-jelölőjét; a tényleges clusterutazás külön bizonyítandó.</p>
       <div className="details-line"><span>Kiválasztott indítás</span>
-        <b>{state?.launchModeApprovalRequired?
-          "Még nem jóváhagyott · indítás tiltva":
-          state?.requestedMode==="asaApiLoader"?"ASA API Loader":"Közvetlen ASA"}</b></div>
-      {state?.launchModeApprovalRequired&&<div className="warning-inline" role="alert">
-        <Shield size={17}/> A mapot leállított eredeti profilból importáltad. Az
-        eredeti indítási mód nem bizonyítható a futó folyamat nélkül.
-        Az első Start előtt jóvá kell hagyni az ASA API Loader vagy
-        közvetlen ASA módot; ez a meglévő RCON csatlakoztatása előtt is elvégezhető.
-        Addig az Obsidian natív rétege semmilyen indítást nem enged.
-      </div>}
+        <b>{state?.requestedMode==="asaApiLoader"?"ASA API Loader":"Közvetlen ASA"}</b></div>
       <div className="details-line"><span>Megfigyelt ASA</span>
         <b>{state?.running?"Fut · ASA PID "+(state.serverPid??"nem igazolt"):
           state?.loaderPid?"Loader PID "+state.loaderPid+" · ASA még nem igazolt":

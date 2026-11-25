@@ -14,7 +14,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
   const [status,setStatus]=useState<FreshAsaRestartStatus|null>(null);
   const [message,setMessage]=useState(()=>latestRestart.get(mapId)??"");
   const [error,setError]=useState("");
-  const [needsLocalReview,setNeedsLocalReview]=useState(false);
+  const [,setNeedsLocalReview]=useState(false);
   const [durable,setDurable]=useState<AsaRestartJournalStatus|null>(null);
   const [auditConfirmed,setAuditConfirmed]=useState(false);
   const reviewInFlight=useRef(false);
