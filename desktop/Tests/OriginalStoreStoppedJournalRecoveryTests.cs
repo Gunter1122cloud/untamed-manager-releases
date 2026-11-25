@@ -288,6 +288,103 @@ internal static class OriginalStoreStoppedJournalRecoveryTests
                 "failed new-child restart original journal bytes survive separate audit");
         }
 
+        // Exact HP Astraeos case: completed Launch, abandoned Restart with
+        // NewPid=0, and a separately started ASA + API Loader. The proof is
+        // synthetic; no real Windows process or Store session is touched.
+        string liveInstall=Path.Combine(testRoot,"astra-completed-launch-loader-review");
+        Directory.CreateDirectory(liveInstall);
+        await using(var liveCluster=new ClusterService("astra-loader-review-test",
+            Path.Combine(testRoot,"astra-loader-review-profile"),
+            _=>throw new InvalidOperationException("UNEXPECTED LIVE PROCESS INSPECTION")))
+        {
+            var liveMap=new LocalMap{
+                Id=Guid.NewGuid(),Name="Astraeos",InstallationPath=liveInstall,
+                HistoricalStoreProtected=true,HistoricalArchiveSha256=new string('A',64),
+                HistoricalMapKey="Astraeos_WP",RconPort=37085,
+                StartWithAsaApi=true,AutoStart=false,MonitorRcon=false
+            };
+            liveCluster.AddMap(liveMap);
+            using(var lease=liveCluster.Operations.Acquire(liveInstall,UntamedOperationKind.Launch))
+                lease.Complete();
+            string liveKey=UntamedOperationCoordinator.ResourceKey(liveInstall);
+            string liveCommon=Path.Combine(UntamedOperationCoordinator.DefaultRoot,liveKey+".json");
+            string originalLiveCommon=File.ReadAllText(liveCommon);
+            var liveRestart=new AsaManualRestartJournal(liveInstall);
+            var liveClaim=liveRestart.Begin(liveMap.Id,16476);
+            liveRestart.Change(liveClaim.Id,AsaRestartPhase.Starting);
+            liveRestart.Change(liveClaim.Id,AsaRestartPhase.NeedsOperator);
+            string liveFile=Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
+                liveKey+".json");
+            File.WriteAllText(liveFile,JsonSerializer.Serialize(liveRestart.Observe()! with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-12)
+            }));
+            string originalLiveRestart=File.ReadAllText(liveFile);
+            var childStarted=DateTimeOffset.UtcNow.AddMinutes(-5);
+            var loaderStarted=childStarted.AddMinutes(-1);
+            int loaderPid=18336;
+            bool loaderPresent=true;
+            var liveBridge=new DesktopAsaLifecycleJournalBridge(liveCluster,
+                _=>throw new InvalidOperationException("UM-RECOVERY-OLD-PID-MISMATCH"),
+                (_,_)=>throw new InvalidOperationException("UM-RECOVERY-NOT-STOPPED"),
+                _=>new LegacyStoreV1GracefulStop.Owned(liveMap,new ProcessIdentity{
+                    Pid=2272,StartedUtc=childStarted,ExecutablePath="synthetic-asa"
+                },new string('D',64)){
+                    LoaderIdentity=loaderPresent?new ProcessIdentity{
+                        Pid=loaderPid,StartedUtc=loaderStarted,ExecutablePath="synthetic-loader"
+                    }:null
+                });
+            async Task<JsonElement> Preview()=>await Call(liveBridge,
+                "servers.lifecycleRecoveryPreview",liveMap.Id);
+            async Task<JsonElement> Apply(JsonElement pre)=>await Call(liveBridge,
+                "servers.lifecycleRecoveryApply",liveMap.Id,new{
+                    token=pre.GetProperty("data").GetProperty("token").GetString(),
+                    confirm=true,ackUnknownOutcome=true,typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+                });
+            bool Untouched()=>File.ReadAllText(liveFile)==originalLiveRestart&&
+                File.ReadAllText(liveCommon)==originalLiveCommon;
+            loaderPresent=false;
+            Check(!(await Preview()).GetProperty("ok").GetBoolean()&&Untouched(),
+                "API-mode replacement cannot be approved without its Loader");
+            loaderPresent=true;
+            var livePreview=await Preview();
+            Check(livePreview.GetProperty("ok").GetBoolean()&&
+                livePreview.GetProperty("data").GetProperty("currentLoaderPid").GetInt32()==18336&&
+                livePreview.GetProperty("data").GetProperty("currentLoaderStartedUtc").GetDateTimeOffset()==loaderStarted,
+                "replacement preview identifies exact Loader PID and creation epoch");
+            loaderPid++;
+            Check(!(await Apply(livePreview)).GetProperty("ok").GetBoolean()&&Untouched(),
+                "Loader PID replacement invalidates approval without touching either journal");
+            loaderPid=18336;
+            livePreview=await Preview();
+            loaderStarted=loaderStarted.AddSeconds(1);
+            Check(!(await Apply(livePreview)).GetProperty("ok").GetBoolean()&&Untouched(),
+                "same Loader PID with different creation epoch invalidates approval");
+            livePreview=await Preview();
+            loaderPresent=false;
+            Check(!(await Apply(livePreview)).GetProperty("ok").GetBoolean()&&Untouched(),
+                "Loader disappearance invalidates approval without changing the journals");
+            loaderPresent=true;
+            livePreview=await Preview();
+            var liveReceipt=await Apply(livePreview);
+            Check(liveReceipt.GetProperty("ok").GetBoolean()&&
+                liveReceipt.GetProperty("data").GetProperty("currentLoaderPid").GetInt32()==loaderPid&&
+                liveReceipt.GetProperty("data").GetProperty("currentLoaderStartedUtc").GetDateTimeOffset()==loaderStarted&&
+                !liveReceipt.GetProperty("data").GetProperty("restartMarkedSuccessful").GetBoolean()&&
+                !liveReceipt.GetProperty("data").GetProperty("processStarted").GetBoolean()&&
+                !liveReceipt.GetProperty("data").GetProperty("processStopped").GetBoolean()&&
+                !liveReceipt.GetProperty("data").GetProperty("rconCommandSent").GetBoolean()&&
+                liveRestart.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+                liveRestart.Observe()?.NewPid==0&&File.ReadAllText(liveCommon)==originalLiveCommon,
+                "stable replacement Loader allows restart-only audit; completed Launch remains intact");
+            string liveAudit=Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
+                liveKey+"-"+liveClaim.Id.ToString("N")+".operator-reviewed.json");
+            Check(File.ReadAllText(liveAudit)==originalLiveRestart,
+                "original failed Astraeos Restart-v1 bytes remain unchanged in audit");
+            liveRestart.DemandNoPending();
+            Check(!(await Apply(livePreview)).GetProperty("ok").GetBoolean(),
+                "replacement review approval cannot be replayed");
+        }
+
         // Separate exact #2961 branch: a consistent expanded local source
         // cannot silently replace the original approved five-map hash. The
         // second operator consent is mandatory for the journal review alone.

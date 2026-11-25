@@ -61,7 +61,15 @@ ClusterService? ryzen=null;
 try
 {
     string steamFixture=Path.Combine(root,"steamcmd.exe");
-    File.WriteAllText(steamFixture,"offline synthetic steamcmd file");
+    // Inert test PE header; real SteamCMD is never executed by this fixture.
+    byte[] steamFixtureImage=new byte[512];
+    steamFixtureImage[0]=(byte)'M';steamFixtureImage[1]=(byte)'Z';
+    BitConverter.GetBytes(0x80).CopyTo(steamFixtureImage,0x3c);
+    steamFixtureImage[0x80]=(byte)'P';steamFixtureImage[0x81]=(byte)'E';
+    BitConverter.GetBytes((ushort)0x014c).CopyTo(steamFixtureImage,0x84);
+    BitConverter.GetBytes((ushort)1).CopyTo(steamFixtureImage,0x86);
+    BitConverter.GetBytes((ushort)0x00e0).CopyTo(steamFixtureImage,0x94);
+    File.WriteAllBytes(steamFixture,steamFixtureImage);
     await OperationalFeaturesTests.Run(root,fake,args.Length>3?args[3]:null);
     await SteamCmdIsolatedUpdaterTests.Run(root,args.Length>3?args[3]:null);
     await SteamStoppedMapUpdaterTests.Run(root,args.Length>3?args[3]:null);
@@ -136,7 +144,7 @@ try
     Assert(steam.LengthBytes==new FileInfo(steamFixture).Length &&
         steam.Sha256==Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
             File.ReadAllBytes(steamFixture))),"SteamCMD offline preflight hashes a local fixed file");
-    Assert(File.ReadAllText(steamFixture)=="offline synthetic steamcmd file",
+    Assert(File.ReadAllBytes(steamFixture).SequenceEqual(steamFixtureImage),
         "SteamCMD preflight is read-only");
     bool wrongExecutableBlocked=false;
     try{SteamCmdPreflight.Inspect(Path.Combine(root,"other.exe"));}
@@ -294,7 +302,7 @@ try
         _=>new ProcessCheck(false,"stopped",null,true),1024*1024);}
     catch(UnauthorizedAccessException){foreignInstallDenied=true;}
     Assert(foreignInstallDenied,"Steam planner refuses installation without a locally registered map");
-    Assert(File.ReadAllText(steamFixture)=="offline synthetic steamcmd file",
+    Assert(File.ReadAllBytes(steamFixture).SequenceEqual(steamFixtureImage),
         "SteamCMD source executable is never run or altered by dry-run");
 
     // Mod order must be explicit, exact and local-only; it is never an update/download.

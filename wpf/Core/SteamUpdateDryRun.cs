@@ -44,7 +44,8 @@ public static class SteamUpdateDryRun
         var info=groups.Single();
         long free=new DriveInfo(Path.GetPathRoot(full)!).AvailableFreeSpace;
         bool stopped=selected.All(x=>{var state=check(x);
-            return state.ConfirmedStopped&&!state.Running && !x.Maintenance;});
+            return state.ConfirmedStopped&&!state.Running && state.Identity==null &&
+                state.LoaderIdentity==null && !x.Maintenance;});
         bool ready=stopped && info.ServerExecutablePresent &&
             free>=estimatedDownloadBytes+Math.Max(256L*1024*1024,estimatedDownloadBytes/4);
         return new(full,selected.Select(x=>x.Name).ToArray(),steam.Sha256,

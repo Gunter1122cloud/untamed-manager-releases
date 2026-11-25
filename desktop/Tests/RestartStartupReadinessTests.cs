@@ -16,8 +16,10 @@ internal static class RestartStartupReadinessTests
         Console.WriteLine("PASS restart readiness: "+label);
     }
     private static RestartStartupProof Proof(bool loader,bool asa,bool dll,
-        bool plugins,bool rcon,bool join,string reason="WAITING")=>
-        new(42887,DateTimeOffset.UtcNow,loader,asa,dll,plugins,rcon,join,reason);
+        bool plugins,bool rcon,bool join,string reason="WAITING",
+        bool apiLog=true,bool pluginLog=true)=>
+        new(42887,DateTimeOffset.UtcNow,loader,asa,dll,plugins,rcon,join,reason)
+        {ApiLogInitialized=apiLog,PluginLogInitialized=pluginLog};
 
     public static async Task Run(string root)
     {
@@ -109,6 +111,15 @@ internal static class RestartStartupReadinessTests
             "no advertising-for-join means not ready");
         Check(!Proof(false,true,true,true,true,true).Ready(true),
             "orphaned Loader never certifies API mode");
+        Check(!Proof(true,true,true,true,true,true,"UM-RESTART-ASA-API-LOG-NOT-INITIALIZED",
+            apiLog:false).Ready(true),
+            "loaded AsaApi.dll without current-run API log initialization is not ready");
+        Check(!Proof(true,true,false,true,true,true,"UM-RESTART-ASA-API-DLL-NOT-LOADED",
+            apiLog:true).Ready(true),
+            "positive API log cannot replace exact ASA-process DLL evidence");
+        Check(!Proof(true,true,true,true,true,true,"UM-RESTART-PLUGIN-LOG-NOT-INITIALIZED",
+            pluginLog:false).Ready(true),
+            "loaded plugin modules without current-run plugin completion log are not ready");
         // A failure from yesterday's ASA run must not be mistaken for
         // this new restart; the parser is pinned to the latest log-open.
         DateTimeOffset today=DateTimeOffset.UtcNow;
@@ -140,6 +151,17 @@ internal static class RestartStartupReadinessTests
             CancellationToken.None);
         Check(late.Ready(true)&&attempts==3,
             "late authenticated RCON becomes ready without a second Start");
+        attempts=0;
+        var lateApiLog=await RestartStartupReadiness.WaitAsync(_=>
+        {
+            attempts++;
+            return Task.FromResult(attempts==1?
+                Proof(true,true,true,true,true,true,"UM-RESTART-ASA-API-LOG-NOT-INITIALIZED",apiLog:false):
+                Proof(true,true,true,true,true,true,"UM-RESTART-READY"));
+        },true,TimeSpan.FromSeconds(3),TimeSpan.FromMilliseconds(1),
+            CancellationToken.None);
+        Check(lateApiLog.Ready(true)&&attempts==2,
+            "late current-run API log readiness is observed without dispatching another Start");
         attempts=0;
         var earlyExit=await RestartStartupReadiness.WaitAsync(_=>
         {

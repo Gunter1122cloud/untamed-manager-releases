@@ -25,7 +25,19 @@ public static class SteamCmdIsolatedUpdaterTests
         if(string.IsNullOrWhiteSpace(fixture)||!File.Exists(fixture))
             throw new InvalidDataException("CI must supply a compiled FakeSteamCMD.exe");
         string placeholder=Path.Combine(root,"steamcmd.exe");
-        if(!File.Exists(placeholder))File.WriteAllText(placeholder,"Synthetic SteamCMD preflight file");
+        if(!File.Exists(placeholder))
+        {
+            byte[] image=new byte[512];
+            image[0]=(byte)'M';image[1]=(byte)'Z';
+            BitConverter.GetBytes(0x80).CopyTo(image,0x3c);
+            image[0x80]=(byte)'P';image[0x81]=(byte)'E';
+            BitConverter.GetBytes((ushort)0x014c).CopyTo(image,0x84);
+            BitConverter.GetBytes((ushort)1).CopyTo(image,0x86);
+            BitConverter.GetBytes((ushort)0x00e0).CopyTo(image,0x94);
+            File.WriteAllBytes(placeholder,image);
+        }
+        string placeholderSha=Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(placeholder)));
 
         (string Install,string Profile,LocalMap Map,Func<LocalMap,ProcessCheck> Inspect)
             Setup(string name)
@@ -147,8 +159,7 @@ public static class SteamCmdIsolatedUpdaterTests
             confirmedStopped:true);
         Check(!live.Allowed,
             "isolated SteamCMD adapter never unlocks production update gate");
-        Check(File.ReadAllText(placeholder)=="offline synthetic steamcmd file" ||
-              File.ReadAllText(placeholder)=="Synthetic SteamCMD preflight file",
-            "operator-provided SteamCMD test placeholder remains unchanged");
+        Check(SteamCmdPreflight.Inspect(placeholder).Sha256==placeholderSha,
+            "operator-provided synthetic PE SteamCMD placeholder remains unchanged");
     }
 }

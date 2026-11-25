@@ -83,15 +83,16 @@ export type NativeAsaScheduleStatus={
 export type NativeScheduleReviewPreview={
   token:string;mapId:string;kind:NativeScheduleKind;runId:string;
   previousStatus:string;outcomeStillUnknown:true;automaticRetry:false;
-  scheduledTaskWillBeDisabled:true;journalBytesWillBeAudited:true;
+  scheduledTaskWillBeDisabled:true;canKeepFutureRestart?:boolean;journalBytesWillBeAudited:true;
   originalRunWillNotExecute:true;
   evidence:"SCHEDULE_DURABLE_UNCERTAIN_SLOT_REVIEW_PREVIEW";
 };
 export type NativeScheduleReviewReceipt={
   mapId:string;kind:NativeScheduleKind;runId:string;
-  reviewed:true;outcomeStillUnknown:true;jobDisabled:true;
+  reviewed:true;outcomeStillUnknown:true;jobDisabled:boolean;
+  futureRestartRetained?:boolean;nextDueUtc?:string|null;
   noRconSent:true;noAutomaticReplay:true;oldJournalArchived:true;
-  evidence:"SCHEDULE_UNKNOWN_SLOT_AUDITED_AND_DISABLED";
+  evidence:"SCHEDULE_UNKNOWN_SLOT_AUDITED_AND_DISABLED"|"SCHEDULE_UNKNOWN_SLOT_AUDITED_FUTURE_RESTART_ONLY";
 };
 export type NativeScheduleResumeReceipt={
   supervisorResumed:boolean;oldSlotReplayed:false;
@@ -516,6 +517,9 @@ export type OriginalStoreLifecycleRecoveryPreview = {
   restartId?:string|null;restartPhase?:string|null;restartOldPid?:number|null;
   restartNewPid?:number|null;pairedJournals?:number;
   reviewMode?:"running"|"stopped"|"replacement";currentRunningPid?:number|null;
+  currentRunningStartedUtc?:string|null;currentLoaderPid?:number|null;
+  currentLoaderStartedUtc?:string|null;loaderRequired?:boolean;
+  replacementStartEpochVerified?:boolean;launchParametersVerified?:boolean;
   exactWindowsProcessVerified:boolean;stoppedWindowsProcessVerified?:boolean;
   rconListenerAbsent?:boolean;historicalSelectedOwnerVerified?:boolean;
   originalStoreSessionVerified:boolean;
@@ -556,19 +560,29 @@ export type FreshAsaRestartReviewPreview = {
   token:string;mapId:string;mapName:string;
   oldPid:number;oldStartedUtc:string|null;journalId:string;phase:string;
   exactOldProcessVerified:boolean;rconOwnerVerified:boolean;
+  reviewMode?:"original"|"replacement"|"stopped";
+  replacementOwnerVerified?:boolean;replacementStartEpochVerified?:boolean;
+  launchParametersVerified?:boolean;loaderRequired?:boolean;
+  currentRunningPid?:number|null;currentRunningStartedUtc?:string|null;
+  currentLoaderPid?:number|null;currentLoaderStartedUtc?:string|null;
   stoppedFamilyVerified?:boolean;portsFree?:boolean;attemptedNewPid?:number;
   previousOutcomeUnknown:true;restartWillNotReplay:true;
   serverStarted:false;serverStopped:false;rconSent:false;
   evidence:"FRESH_ASA_OLD_RUNNING_PID_LOCAL_RESTART_REVIEW_PREVIEW"|
-    "FRESH_ASA_STOPPED_FAMILY_RESTART_REVIEW_PREVIEW";
+    "FRESH_ASA_STOPPED_FAMILY_RESTART_REVIEW_PREVIEW"|
+    "FRESH_ASA_NEWER_REPLACEMENT_OWNER_RESTART_REVIEW_PREVIEW";
 };
 export type FreshAsaRestartReviewReceipt = {
   mapId:string;oldPid:number;state:"operatorReviewed";
+  reviewMode?:"original"|"replacement"|"stopped";
+  currentRunningPid?:number|null;currentRunningStartedUtc?:string|null;
+  currentLoaderPid?:number|null;currentLoaderStartedUtc?:string|null;
   previousOutcomeUnknown:true;newRestartSucceeded:false;
   serverStarted:false;serverStopped:false;rconSent:false;
   originalJournalAudited:true;nextActionRequiresNewApproval:true;
   evidence:"FRESH_ASA_OLD_RUNNING_PID_RESTART_JOURNAL_AUDITED"|
-    "FRESH_ASA_STOPPED_FAMILY_RESTART_JOURNAL_AUDITED";
+    "FRESH_ASA_STOPPED_FAMILY_RESTART_JOURNAL_AUDITED"|
+    "FRESH_ASA_REPLACEMENT_OWNER_RESTART_JOURNAL_AUDITED";
 };
 export type FreshAsaRestartPreview = {
   token:string;mapId:string;mapName:string;currentPid:number;
@@ -587,7 +601,8 @@ export type FreshAsaRestartStatus = {
   newAsaServerPid?:number;apiChildAndRconVerified?:boolean;
   saveCompleteProven:false;readinessCertified:boolean;
   loaderRunning?:boolean;asaRunning?:boolean;asaApiDllLoaded?:boolean;
-  pluginLoadingComplete?:boolean;rconResponding?:boolean;joinAdvertised?:boolean;
+  asaApiLogInitialized?:boolean;pluginLoadingComplete?:boolean;
+  pluginLogInitialized?:boolean;rconResponding?:boolean;joinAdvertised?:boolean;
   readinessFailureCode?:string|null;failureCode?:string|null;
   preExitSaveEvidenceObserved:boolean;preExitWorldMetadataObserved?:boolean;
   finalDoExitSaveCertified:false;
@@ -666,15 +681,33 @@ export type FreshAsaStartStatus = {
   readyCertified:false;status:string;
   evidence:"LOCAL_OS_PROCESS_OBSERVATION_NOT_ASA_READINESS";
 };
+export type SteamCmdCandidate = {
+  token:string;path:string;source:string;lengthBytes:number;
+  sha256:string;lastModifiedUtc:string;
+};
 export type StoppedSteamDiagnostics = {
   mapId:string;mapName:string;installRoot:string;installedBuild?:string|null;
   processes:Array<{mapName:string;confirmedStopped:boolean;running:boolean;
     pid:number|null;loaderPid:number|null;reason:string}>;
   overlaps:Array<{mapName:string;installRoot:string}>;
   steamCmdFound:boolean;steamCmdConfigured:boolean;
-  steamCmdError?:string|null;externalSteamError?:string|null;asaBinaryRegistered?:boolean;
+  steamCmdError?:string|null;steamCmdPath?:string|null;
+  steamCmdConfiguredPath?:string|null;steamCmdSha256?:string|null;
+  steamCmdLastModifiedUtc?:string|null;
+  externalSteamError?:string|null;asaBinaryRegistered?:boolean;
   availableBytes:number;requiredBytes:number;
-  journalBlocked:boolean;historicalBlocked:boolean;safeInstallation:boolean;
+  journalBlocked:boolean;queueJournalBlocked?:boolean;localJournalBlocked?:boolean;
+  queueJournalPhase?:string|null;queueJournalBlockingCode?:string|null;
+  operationJournalPhase?:string|null;operationJournalKind?:string|null;
+  operationJournalBlockingCode?:string|null;
+  restartJournalPhase?:string|null;restartJournalBlockingCode?:string|null;
+  localJournalUnreadable?:boolean;
+  journalBlockers?:Array<{category:string;code:string;phase?:string|null;nextStep:string}>;
+  processBlockers?:Array<{category:string;code:string;subject:string;nextStep:string}>;
+  storeBlockers?:Array<{category:string;code:string;subject:string;nextStep:string}>;
+  installationBlockerCode?:string|null;
+  blockers?:Array<{category:string;code:string;subject:string;nextStep:string}>;
+  historicalBlocked:boolean;safeInstallation:boolean;
   canPreview:boolean;
   noProcessAutoStop:true;remoteWrites:false;
   evidence:"REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY";
@@ -1240,7 +1273,8 @@ export type HistoricalRestartStatus = {
   preExitWorldMetadataObserved?:boolean;
   readyCertified:boolean;gameClientRejoinVerified:false;
   loaderRunning?:boolean;asaRunning?:boolean;asaApiDllLoaded?:boolean;
-  pluginLoadingComplete?:boolean;rconResponding?:boolean;joinAdvertised?:boolean;
+  asaApiLogInitialized?:boolean;pluginLoadingComplete?:boolean;
+  pluginLogInitialized?:boolean;rconResponding?:boolean;joinAdvertised?:boolean;
   readinessFailureCode?:string|null;failureCode?:string|null;
   finalDoExitSaveCertified:false;automaticRetry:false;
   forceKill:false;storeTouched:false;
@@ -1793,7 +1827,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.gracefulStopCurrent" | "servers.gracefulStopReview" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" |
   "servers.restartReviewPreview" | "servers.restartReviewApply" |
   "servers.freshReadiness" | "servers.lifecycleJournal" |
-  "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStart" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.selectExecutable" | "steam.prepareExecutable" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStart" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" | "steam.rollingStatus" | "steam.rollingSet" | "steam.rollingReview" |
+  "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStart" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.selectExecutable" | "steam.prepareExecutable" | "steam.discoverExecutables" | "steam.acceptDiscoveredExecutable" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStart" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" | "steam.rollingStatus" | "steam.rollingSet" | "steam.rollingReview" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "servers.apiModeStatus" |
   "servers.apiModePreview" | "servers.apiModeApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
@@ -1850,6 +1884,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
   intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;postRestartWipe?:boolean;wipeDelaySeconds?:number;delaySeconds?:number;
   timeZoneId?:string;dayMinutes?:number[];onceAtLocal?:string;
+  keepFutureRestart?:boolean;
   gamePort?: number; queryPort?: number; customLevel?: string; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; apiRiskAccepted?:boolean; channel?: "stable"|"preview";
@@ -2086,6 +2121,14 @@ export const managerBridge = {
     request<DurableSteamQueue>("steam.stoppedCurrent"),
   steamStoppedDiagnostics: (mapId:string) =>
     request<StoppedSteamDiagnostics>("steam.stoppedDiagnostics",{mapId}),
+  steamDiscoverExecutables: (mapId:string) =>
+    request<{mapId:string;candidates:SteamCmdCandidate[];updateStarted:false;
+      serverStopped:false;settingsOnly:true;requiresExplicitAcceptance:true}>(
+        "steam.discoverExecutables",{mapId}),
+  steamAcceptDiscoveredExecutable: (mapId:string,token:string) =>
+    request<{configured:true;cancelled:false;path:string;sha256:string;
+      source:string;updateStarted:false;serverStopped:false;settingsOnly:true}>(
+        "steam.acceptDiscoveredExecutable",{mapId,token,confirm:true}),
   steamStoppedPreview: (mapId:string) =>
     request<StoppedSteamPreview>("steam.stoppedPreview",{mapId}),
   steamPrepareExecutable: () => request<{cancelled:boolean;configured:boolean;updateStarted:false;serverStopped:false}>("steam.prepareExecutable"),
@@ -2188,8 +2231,8 @@ export const managerBridge = {
     request<NativeAsaScheduleStatus>("schedule.nativeStatus",{mapId}),
   nativeScheduleReviewPreview: (mapId:string,kind:NativeScheduleKind,runId:string) =>
     request<NativeScheduleReviewPreview>("schedule.nativeReviewPreview",{mapId,kind,runId}),
-  nativeScheduleReviewApply: (mapId:string,token:string) =>
-    request<NativeScheduleReviewReceipt>("schedule.nativeReviewApply",{mapId,token,confirm:true}),
+  nativeScheduleReviewApply: (mapId:string,token:string,keepFutureRestart=false) =>
+    request<NativeScheduleReviewReceipt>("schedule.nativeReviewApply",{mapId,token,confirm:true,keepFutureRestart}),
   nativeScheduleResume: (mapId:string) =>
     request<NativeScheduleResumeReceipt>("schedule.nativeResume",{mapId,confirm:true}),
   nativeScheduleSet: (mapId:string,kind:NativeScheduleKind,

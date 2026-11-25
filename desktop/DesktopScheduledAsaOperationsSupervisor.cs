@@ -33,7 +33,8 @@ public sealed record ScheduledAsaExecution(
 public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
 {
     private sealed record ScheduleReviewApproval(Guid Token,Guid MapId,
-        string Kind,Guid RunId,string JournalSha256,DateTimeOffset CreatedUtc);
+        string Kind,Guid RunId,string JournalSha256,DateTimeOffset CreatedUtc,
+        bool CanKeepFutureRestart);
     private readonly Dictionary<Guid,ScheduleReviewApproval> reviewTokens=new();
     private readonly TimeSpan minimumReviewAge;
     private static bool UnknownSlot(string status)=>status is
@@ -250,10 +251,13 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         state.History.Add(entry with{TerminalPublicationPending=true});
         if(state.History.Count>MaxHistory)
         {
-            int remove=state.History.Count-MaxHistory;
-            if(state.History.Take(remove).Any(x=>x.TerminalPublicationPending))
-                eventStream.MarkGap();
-            state.History.RemoveRange(0,remove);
+            // Unresolved claims are authorization blockers, not disposable
+            // display history. Never evict them to make room for newer rows.
+            int index=state.History.FindIndex(x=>!UnknownSlot(x.Status));
+            if(index<0||index==state.History.Count-1)
+                throw new InvalidDataException("UM-ASA-SCHEDULE-HISTORY-REVIEW-REQUIRED");
+            if(state.History[index].TerminalPublicationPending)eventStream.MarkGap();
+            state.History.RemoveAt(index);
         }
     }
     private void PublishTerminal(ScheduledAsaExecution entry,bool recovered)
@@ -383,7 +387,35 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     {
         Owned(mapId);
         return Locked(()=>Read().History.Where(x=>x.MapId==mapId)
-            .OrderByDescending(x=>x.ClaimedUtc).Take(100).ToArray());
+            .OrderByDescending(x=>UnknownSlot(x.Status)).ThenByDescending(x=>x.ClaimedUtc)
+            .Take(100).ToArray());
+    }
+
+    // Explicit opt-in may preserve ONLY an already enabled recurring
+    // restart, after all installation journals are closed. No inference
+    // that a past scheduled command succeeded; no dispatch from this path.
+    private bool CanKeepFutureRestart(State state,Guid mapId,string kind,Guid runId)
+    {
+        if(kind!="Restart"||RuntimeState is "journal-write-needs-operator" or
+            "journal-recovery-needs-operator"||
+            state.History.Any(x=>x.MapId==mapId&&x.Kind==kind&&
+                x.RunId!=runId&&UnknownSlot(x.Status)))return false;
+        var job=state.Jobs.SingleOrDefault(x=>x.MapId==mapId&&x.Kind==kind);
+        if(job==null||!job.Enabled||job.Frequency!="Daily")return false;
+        try
+        {
+            var map=Owned(mapId);
+            if(!Eligible(map)||Fingerprint(map)!=job.Fingerprint||
+                AutomaticRecoveryPending?.Invoke(mapId)==true)return false;
+            var local=AsaLocalJournalReadOnly.Inspect(cluster.Operations,map.InstallationPath);
+            return !local.AnyUnreadable&&
+                (local.Operation==null||local.Operation.Phase is
+                    UntamedOperationPhase.Completed or UntamedOperationPhase.CancelledBeforeMutation or
+                    UntamedOperationPhase.OperatorReviewed)&&
+                (local.Restart==null||(local.Restart.MapId==mapId&&local.Restart.Phase is
+                    (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed)));
+        }
+        catch(Exception){return false;}
     }
 
     public ScheduledAsaOperation Configure(Guid mapId,string kind,string frequency,
@@ -597,15 +629,22 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     // An old persisted claim might still be inside another
                     // Manager's long-running RCON worker. This is NOT a
                     // timeout unlock: the OS semaphore is mandatory.
-                    using(var slot=AcquireOwnedSlot(mapId,reviewKind)){}
+                    using var slot=AcquireOwnedSlot(mapId,reviewKind);
                     var previewToken=Guid.NewGuid();
+                    var snapshot=Locked(()=>{
+                        var state=Read();
+                        if(!state.History.Any(x=>x==candidate))
+                            throw new InvalidOperationException("UM-ASA-SCHEDULE-REVIEW-RUN-CHANGED");
+                        return (Hash:JournalHash(),Keep:CanKeepFutureRestart(state,mapId,reviewKind,runId));
+                    });
                     reviewTokens[mapId]=new(previewToken,mapId,reviewKind,runId,
-                        Locked(JournalHash),DateTimeOffset.UtcNow);
+                        snapshot.Hash,DateTimeOffset.UtcNow,snapshot.Keep);
                     return Task.FromResult(Ok(id,new{
                         token=previewToken,mapId,kind=reviewKind,runId,
                         previousStatus=candidate.Status,
                         outcomeStillUnknown=true,automaticRetry=false,
                         scheduledTaskWillBeDisabled=true,
+                        canKeepFutureRestart=snapshot.Keep,
                         journalBytesWillBeAudited=true,
                         originalRunWillNotExecute=true,
                         evidence="SCHEDULE_DURABLE_UNCERTAIN_SLOT_REVIEW_PREVIEW"
@@ -623,6 +662,10 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 reviewTokens.Remove(mapId); // tokens cannot be replayed
                 if(DateTimeOffset.UtcNow-permit.CreatedUtc>TimeSpan.FromMinutes(5))
                     return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-REVIEW-EXPIRED"));
+                bool keepFuture=args.TryGetProperty("keepFutureRestart",out var keep)&&
+                    keep.ValueKind==JsonValueKind.True;
+                if(keepFuture&&!permit.CanKeepFutureRestart)
+                    return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-FUTURE-RESTART-NOT-VERIFIED"));
                 using var reviewSlot=AcquireOwnedSlot(mapId,permit.Kind);
                 var finalized=Locked(()=>{
                     if(JournalHash()!=permit.JournalSha256)
@@ -639,6 +682,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                         state.History[index].ClaimedUtc<minimumReviewAge)
                         throw new InvalidOperationException(
                             "UM-ASA-SCHEDULE-REVIEW-TOO-RECENT");
+                    if(keepFuture&&!CanKeepFutureRestart(state,permit.MapId,permit.Kind,permit.RunId))
+                        throw new InvalidOperationException("UM-ASA-SCHEDULE-FUTURE-RESTART-NOT-VERIFIED");
                     // Preserve a SHA-correlated BYTE-EXACT copy of original
                     // durable receipt BEFORE changing its status. Never
                     // delete or truncate this old journal or invent success.
@@ -670,15 +715,37 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     };
                     int ix=state.Jobs.FindIndex(x=>x.MapId==permit.MapId&&
                         x.Kind==permit.Kind);
-                    if(ix>=0)state.Jobs[ix]=state.Jobs[ix] with{
-                        Enabled=false,LastStatus="operator-reviewed-unknown-no-replay",
-                        LastEvidence="OLD_SLOT_UNKNOWN_NEEDS_NEW_OPT_IN"
-                    };
+                    DateTimeOffset? nextDueUtc=null;
+                    if(ix>=0)
+                    {
+                        var existing=state.Jobs[ix];
+                        if(keepFuture)
+                        {
+                            var cutoff=DateTimeOffset.UtcNow;
+                            if(previous.ClaimedUtc>cutoff)cutoff=previous.ClaimedUtc;
+                            if(previous.ScheduledUtc>cutoff)cutoff=previous.ScheduledUtc;
+                            // Never move the cursor backwards, even if the wall
+                            // clock changed or several later slots were skipped.
+                            nextDueUtc=existing.NextDueUtc>cutoff?
+                                existing.NextDueUtc:Next(existing,cutoff);
+                            state.Jobs[ix]=existing with{
+                                NextDueUtc=nextDueUtc.Value,Revision=Guid.NewGuid(),
+                                LastStatus="operator-reviewed-unknown-no-replay",
+                                LastEvidence="OLD_SLOT_AUDITED_FUTURE_RESTART_ONLY"
+                            };
+                        }
+                        else state.Jobs[ix]=existing with{
+                            Enabled=false,LastStatus="operator-reviewed-unknown-no-replay",
+                            LastEvidence="OLD_SLOT_UNKNOWN_NEEDS_NEW_OPT_IN"
+                        };
+                    }
                     Write(state);
                     return new {mapId=permit.MapId,kind=permit.Kind,runId=permit.RunId,
-                        reviewed=true,outcomeStillUnknown=true,jobDisabled=true,
+                        reviewed=true,outcomeStillUnknown=true,jobDisabled=!keepFuture,
+                        futureRestartRetained=keepFuture,nextDueUtc,
                         noRconSent=true,noAutomaticReplay=true,oldJournalArchived=true,
-                        evidence="SCHEDULE_UNKNOWN_SLOT_AUDITED_AND_DISABLED"};
+                        evidence=keepFuture?"SCHEDULE_UNKNOWN_SLOT_AUDITED_FUTURE_RESTART_ONLY":
+                            "SCHEDULE_UNKNOWN_SLOT_AUDITED_AND_DISABLED"};
                 });
                 return Task.FromResult(Ok(id,finalized));
             }

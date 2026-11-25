@@ -24,7 +24,9 @@ public sealed class DesktopAsaLifecycleJournalBridge
         int Pid,DateTimeOffset StartedUtc,string SourceSha,string ProfileJson,
         Guid? RestartId,string? RestartSnapshot,bool RestartOnly,DateTimeOffset ExpiresUtc,
         int AttemptedNewPid=0,bool StoppedReview=false,bool SourceReapprovalRequired=false,
-        string CurrentSourceHash="",string PreviousSourceHash="",int ReplacementPid=0);
+        string CurrentSourceHash="",string PreviousSourceHash="",int ReplacementPid=0,
+        int? LoaderPid=null,DateTimeOffset? LoaderStartedUtc=null,
+        string? LoaderExecutablePath=null,string? LoaderArguments=null);
     internal sealed record StoppedProof(LocalMap Map,int OldPid,string SourceSha,
         bool SourceReapprovalRequired=false,string CurrentSourceHash="",
         string PreviousSourceHash="");
@@ -104,6 +106,13 @@ public sealed class DesktopAsaLifecycleJournalBridge
            witness.Process.Pid==record.NewPid||witness.Process.StartedUtc<=originalFailureUtc||
            witness.SourceSha.Length!=64||!witness.SourceSha.All(Uri.IsHexDigit))
             throw new InvalidDataException("UM-RECOVERY-REPLACEMENT-OWNER-UNVERIFIED");
+        var loader=witness.LoaderIdentity;
+        if(witness.Map.StartWithAsaApi!=(loader!=null)||
+           (loader!=null&&(loader.Pid<=0||loader.Pid==witness.Process.Pid||
+             loader.Pid==record.OldPid||loader.Pid==record.NewPid||
+             loader.StartedUtc<=originalFailureUtc||loader.StartedUtc>witness.Process.StartedUtc||
+             string.IsNullOrWhiteSpace(loader.ExecutablePath))))
+            throw new InvalidDataException("UM-RECOVERY-REPLACEMENT-LOADER-UNVERIFIED");
         return witness;
     }
     private StoppedProof ProductionStoppedProof(Guid mapId,int oldPid)
@@ -318,6 +327,7 @@ public sealed class DesktopAsaLifecycleJournalBridge
                             InvalidOperationException or UnauthorizedAccessException or IOException)
                         {
                             running=null;
+                            Exception? replacementFailure=null;
                             if(restart.Phase==AsaRestartPhase.NeedsOperator)
                             {
                                 try
@@ -326,10 +336,24 @@ public sealed class DesktopAsaLifecycleJournalBridge
                                     replacement=true;
                                 }
                                 catch(Exception replacementError) when(replacementError is InvalidDataException or
-                                    InvalidOperationException or UnauthorizedAccessException or IOException)
-                                {running=null;}
+                                    InvalidOperationException or UnauthorizedAccessException or IOException or
+                                    ArgumentException or NotSupportedException)
+                                {
+                                    replacementFailure=replacementError;
+                                    running=null;
+                                }
                             }
-                            if(!replacement)stopped=await Task.Run(()=>VerifyStopped(mapId,restart.OldPid));
+                            if(!replacement)
+                            {
+                                try{stopped=await Task.Run(()=>VerifyStopped(mapId,restart.OldPid));}
+                                catch(Exception) when(replacementFailure!=null)
+                                {
+                                    string code=SafeCode.IsMatch(replacementFailure!.Message)?
+                                        replacementFailure.Message:
+                                        "UM-RECOVERY-REPLACEMENT-OWNER-UNVERIFIED";
+                                    throw new InvalidOperationException(code);
+                                }
+                            }
                         }
                     }
                     else running=await Task.Run(()=>Proof(mapId));
@@ -354,7 +378,11 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         SourceReapprovalRequired:stopped?.SourceReapprovalRequired==true,
                         CurrentSourceHash:stopped?.CurrentSourceHash??"",
                         PreviousSourceHash:stopped?.PreviousSourceHash??"",
-                        ReplacementPid:replacement?running!.Process.Pid:0);
+                        ReplacementPid:replacement?running!.Process.Pid:0,
+                        LoaderPid:running?.LoaderIdentity?.Pid,
+                        LoaderStartedUtc:running?.LoaderIdentity?.StartedUtc,
+                        LoaderExecutablePath:running?.LoaderIdentity?.ExecutablePath,
+                        LoaderArguments:running?.LoaderIdentity?.Arguments);
                     return Ok(id,new{
                         token,mapId,mapName=map.Name,
                         operationId=old?.Operation??Guid.Empty,
@@ -372,6 +400,12 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         expiresUtc=pending.ExpiresUtc,
                         reviewMode=replacement?"replacement":stopped!=null?"stopped":"running",
                         currentRunningPid=replacement?running!.Process.Pid:(int?)null,
+                        currentRunningStartedUtc=replacement?running!.Process.StartedUtc:(DateTimeOffset?)null,
+                        currentLoaderPid=replacement?running!.LoaderIdentity?.Pid:(int?)null,
+                        currentLoaderStartedUtc=replacement?running!.LoaderIdentity?.StartedUtc:(DateTimeOffset?)null,
+                        loaderRequired=replacement&&map.StartWithAsaApi,
+                        replacementStartEpochVerified=replacement,
+                        launchParametersVerified=replacement,
                         exactWindowsProcessVerified=running!=null,
                         stoppedWindowsProcessVerified=stopped!=null,
                         rconListenerAbsent=stopped!=null,
@@ -448,6 +482,12 @@ public sealed class DesktopAsaLifecycleJournalBridge
                     return ReferenceEquals(now.Map,map)&&
                         now.Process.Pid==(pinned.ReplacementPid>0?pinned.ReplacementPid:pinned.Pid)&&
                         now.Process.StartedUtc==pinned.StartedUtc&&
+                        now.LoaderIdentity?.Pid==pinned.LoaderPid&&
+                        now.LoaderIdentity?.StartedUtc==pinned.LoaderStartedUtc&&
+                        string.Equals(now.LoaderIdentity?.ExecutablePath,pinned.LoaderExecutablePath,
+                            StringComparison.OrdinalIgnoreCase)&&
+                        string.Equals(now.LoaderIdentity?.Arguments,pinned.LoaderArguments,
+                            StringComparison.Ordinal)&&
                         now.SourceSha==pinned.SourceSha&&
                         JsonSerializer.Serialize(now.Map)==pinned.ProfileJson;
                 }
@@ -496,6 +536,9 @@ public sealed class DesktopAsaLifecycleJournalBridge
                     restartMarkedSuccessful=false,
                     oldRunningPid=pinned.StoppedReview||pinned.ReplacementPid>0?(int?)null:pinned.Pid,
                     currentRunningPid=pinned.ReplacementPid>0?pinned.ReplacementPid:(int?)null,
+                    currentRunningStartedUtc=pinned.ReplacementPid>0?pinned.StartedUtc:(DateTimeOffset?)null,
+                    currentLoaderPid=pinned.LoaderPid,
+                    currentLoaderStartedUtc=pinned.LoaderStartedUtc,
                     oldStoppedPid=pinned.StoppedReview?pinned.Pid:(int?)null,
                     reviewMode=pinned.ReplacementPid>0?"replacement":pinned.StoppedReview?"stopped":"running",
                     storeBytesModified=false,

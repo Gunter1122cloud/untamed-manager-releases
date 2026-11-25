@@ -18,7 +18,7 @@ using var journalScope=UntamedOperationCoordinator.UseIsolatedRootForTests(
     isolatedOperations);
 if(UntamedOperationCoordinator.DefaultRoot!=Path.GetFullPath(isolatedOperations))
     throw new InvalidOperationException("Targeted test journal isolation failed");
-File.WriteAllText(Path.Combine(root,"steamcmd.exe"),"offline synthetic steamcmd file");
+// SteamCmdIsolatedUpdaterTests creates its own inert PE fixture when absent.
 await SteamCmdIsolatedUpdaterTests.Run(root,args[0]);
 await ModDependencyPlannerTests.Run();
 await CurseForgeDependencyResolverTests.Run();

@@ -225,22 +225,28 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
         (e instanceof Error?e.message:"Ismeretlen, csak olvasható ellenőrzési hiba"));
     }finally{if(target===currentMap.current)setReviewing(false);}
   };
-  const approveSlot=async()=>{
+  const approveSlot=async(keepFutureRestart=false)=>{
     if(reviewing||busy||!reviewPreview)return;
     const target=mapId,proof=reviewPreview;
     setReviewing(true);setReviewPreview(null);setReviewNotice("");
     try{
-      const receipt=await managerBridge.nativeScheduleReviewApply(target,proof.token);
+      if(keepFutureRestart&&!proof.canKeepFutureRestart)
+        throw new Error("UM-ASA-SCHEDULE-FUTURE-RESTART-NOT-VERIFIED");
+      const receipt=await managerBridge.nativeScheduleReviewApply(target,proof.token,keepFutureRestart);
       if(target!==currentMap.current)return;
       if(receipt.mapId.toLowerCase()!==target.toLowerCase()||
          receipt.runId!==proof.runId||!receipt.outcomeStillUnknown||
          !receipt.noRconSent||!receipt.noAutomaticReplay||
-         !receipt.oldJournalArchived||!receipt.jobDisabled)
+         !receipt.oldJournalArchived||
+         (keepFutureRestart?receipt.jobDisabled||receipt.futureRestartRetained!==true||!receipt.nextDueUtc:
+           !receipt.jobDisabled||receipt.futureRestartRetained===true))
         throw new Error("UM-ASA-SCHEDULE-REVIEW-INVALID-RECEIPT");
       await reload();
       setReviewNotice("A régi slot kimenetele ISMERETLEN marad. "+
-        "A napló auditálva, az adott feladat kikapcsolva. "+
-        "Nincs parancsismétlés; későbbi aktiváláshoz új jóváhagyás kell.");
+        (keepFutureRestart?"A napló auditálva; a következő jövőbeli restart: "+
+          localDate(receipt.nextDueUtc??null)+". Kimaradt slotot nem pótolunk.":
+          "A napló auditálva, az adott feladat kikapcsolva. "+
+          "Nincs parancsismétlés; későbbi aktiváláshoz új jóváhagyás kell."));
     }catch(e){
       if(target===currentMap.current)setError("A naplófelülvizsgálat eredménye nem igazolható. "+
         "Frissítsd a helyi státuszt; ne indítsd újra a régi parancsot. "+
@@ -315,9 +321,11 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
       <div><b>{reviewPreview.kind} · {reviewPreview.runId.slice(0,8)}</b>
         <p>Az eredeti parancs kimenetele ISMERETLEN marad.
           Csak a napló változatlan előzménye kerül archiválásra;
-          az adott feladat kikapcsolódik, nem lesz RCON, Stop, Restart
-          vagy automatikus ismétlés.</p>
-        <button type="button" className="primary" disabled={reviewing||busy}
+          nem lesz RCON, Stop, Restart vagy automatikus ismétlés.
+          Alapesetben az adott feladat kikapcsolódik.</p>
+        {reviewPreview.canKeepFutureRestart&&<button type="button" className="primary" disabled={reviewing||busy}
+          onClick={()=>{void approveSlot(true);}}>Régi slot rendezése és jövőbeli restart megtartása</button>}
+        <button type="button" className="secondary" disabled={reviewing||busy}
           onClick={()=>{void approveSlot();}}>Régi slot naplórendezésének jóváhagyása</button>
         <button type="button" className="secondary" disabled={reviewing||busy}
           onClick={()=>setReviewPreview(null)}>Mégsem</button>
@@ -331,7 +339,7 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
     {status&&<section className="native-schedule-history" aria-label="Végrehajtási napló">
       <details>
         <summary>Végrehajtási napló ({status.history.length} bejegyzés)</summary>
-        <p className="muted small">A legutóbbi 100 maponkénti esemény. A natív napló a Manager újraindítása után is megmarad. A kimaradt feladatokat nem pótolja automatikusan.</p>
+        <p className="muted small">Legfeljebb 100 maponkénti esemény, a rendezetlen slotok előre sorolva. A natív napló a Manager újraindítása után is megmarad. A kimaradt feladatokat nem pótolja automatikusan.</p>
         {status.history.length===0?<p className="muted">Még nincs végrehajtási esemény ezen a mapon.</p>:
           <div className="native-schedule-history-list">
             {status.history.map(entry=><article key={entry.runId} className="native-schedule-history-event">

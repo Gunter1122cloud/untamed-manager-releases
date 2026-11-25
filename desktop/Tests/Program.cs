@@ -215,6 +215,9 @@ await RollingSteamPolicyTests.Run(root);
 await RollingSteamMultiMapTests.Run(root);
 await OriginalStoreStoppedJournalRecoveryTests.Run(root);
 await RestartStartupReadinessTests.Run(root);
+AsaRuntimeLogEvidenceTests.Run(root);
+await FreshAsaRestartReplacementReviewTests.Run(root);
+await SteamCmdDiscoveryTests.Run(root);
 ScheduledRestartOutageLedgerTests.Run(root);
  await HistoricalAsaApiModeTests.Run(root);
  SteamProtectedFileCoverageTests.Run(root);
@@ -2114,6 +2117,55 @@ try
             Check(journalDispatches==countBefore,
                 "reviewed old claim never runs automatically after Manager reload");
         }
+        // An abandoned recurring restart can be explicitly audited while
+        // retaining its future calendar, but never replaying the old claim.
+        Directory.CreateDirectory(m1.InstallationPath);
+        int failedRestartDispatches=0;
+        DateTimeOffset failedDue;
+        using(var failRestart=new DesktopScheduledAsaOperationsSupervisor(
+            scheduleCluster,rcon,restarter,(id,kind,ct)=>{
+                failedRestartDispatches++;
+                throw new InvalidOperationException("UM-SYNTHETIC-RESTART-FAILED");
+            },_=>true,isolatedMinimumReviewAge:TimeSpan.Zero))
+        {
+            failedDue=failRestart.Configure(m1.Id,"Restart","Daily",0,240,127).NextDueUtc;
+            await failRestart.TickOnceAsync(failedDue);
+            Check(failedRestartDispatches==1,"synthetic recurring restart leaves exactly one unknown slot");
+        }
+        using(var futureOnly=new DesktopScheduledAsaOperationsSupervisor(
+            scheduleCluster,rcon,restarter,SyntheticRunner,_=>true,
+            isolatedMinimumReviewAge:TimeSpan.Zero))
+        {
+            var failedSlot=futureOnly.History(m1.Id).Single(x=>x.Kind=="Restart"&&
+                x.Status=="failed-needs-operator-no-retry");
+            int beforeReview=sent;
+            var skippedDue=futureOnly.Snapshot().Single(x=>x.MapId==m1.Id&&x.Kind=="Restart").NextDueUtc;
+            await futureOnly.TickOnceAsync(skippedDue);
+            Check(sent==beforeReview,"unknown restart blocks next slot before explicit review");
+            var cursor=futureOnly.Snapshot().Single(x=>x.MapId==m1.Id&&x.Kind=="Restart").NextDueUtc;
+            var preview=await Call(futureOnly.HandleAsync,"schedule.nativeReviewPreview",
+                new{mapId=m1.Id,kind="Restart",runId=failedSlot.RunId});
+            IsOk(preview,"old restart review is available after installation journals are clear");
+            Check(preview.GetProperty("data").GetProperty("canKeepFutureRestart").GetBoolean(),
+                "unchanged enabled recurring restart may be retained explicitly");
+            string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+            var result=await Call(futureOnly.HandleAsync,"schedule.nativeReviewApply",
+                new{mapId=m1.Id,token,confirm=true,keepFutureRestart=true});
+            IsOk(result,"explicit future-only restart review audits the old slot");
+            var next=futureOnly.Snapshot().Single(x=>x.MapId==m1.Id&&x.Kind=="Restart");
+            Check(next.Enabled&&next.NextDueUtc>=cursor&&next.NextDueUtc>skippedDue&&
+                result.GetProperty("data").GetProperty("futureRestartRetained").GetBoolean()&&
+                !result.GetProperty("data").GetProperty("jobDisabled").GetBoolean()&&
+                result.GetProperty("data").GetProperty("outcomeStillUnknown").GetBoolean()&&sent==beforeReview,
+                "future-only review preserves calendar and never dispatches or certifies old restart");
+            await futureOnly.TickOnceAsync(skippedDue);
+            Check(sent==beforeReview,"skipped restart cannot be replayed after audit");
+            await futureOnly.TickOnceAsync(next.NextDueUtc);
+            Check(sent==beforeReview+1,"only the next genuinely due restart can run");
+            var replay=await Call(futureOnly.HandleAsync,"schedule.nativeReviewApply",
+                new{mapId=m1.Id,token,confirm=true,keepFutureRestart=true});
+            Check(!replay.GetProperty("ok").GetBoolean(),"future-only approval remains one shot");
+        }
     }
 
     // An adopted running ASA map keeps the same local registry size.
@@ -2784,7 +2836,15 @@ try
     string steamDir=Path.Combine(root,"steam-toolkit");
     Directory.CreateDirectory(steamDir);
     string steamExe=Path.Combine(steamDir,"steamcmd.exe");
-    File.WriteAllText(steamExe,"SYNTHETIC STEAMCMD EXE - DO NOT EXECUTE");
+    // Synthetic PE header only: the injected runner never executes this file.
+    byte[] syntheticSteamPe=new byte[512];
+    syntheticSteamPe[0]=(byte)'M';syntheticSteamPe[1]=(byte)'Z';
+    BitConverter.GetBytes(0x80).CopyTo(syntheticSteamPe,0x3c);
+    syntheticSteamPe[0x80]=(byte)'P';syntheticSteamPe[0x81]=(byte)'E';
+    BitConverter.GetBytes((ushort)0x014c).CopyTo(syntheticSteamPe,0x84);
+    BitConverter.GetBytes((ushort)1).CopyTo(syntheticSteamPe,0x86);
+    BitConverter.GetBytes((ushort)0x00e0).CopyTo(syntheticSteamPe,0x94);
+    File.WriteAllBytes(steamExe,syntheticSteamPe);
     int fakeRuns=0;
     IProgress<SteamInstallProgress>? lateFreshInstallProgress=null;
     async Task<SteamFreshInstallReceipt> SyntheticSteamRunner(
@@ -4606,8 +4666,18 @@ try
                 "interrupted per-host Steam update refuses automatic retry");
             var blocked=await Call(updater.HandleAsync,"steam.stoppedPreview",
                 new{mapId=target.Id});
-            Check(IsError(blocked,"UM-STEAM-JOURNAL-NEEDS-REVIEW"),
+            Check(IsError(blocked,"UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW")&&executions==2,
                 "native update preflight cannot bypass interrupted persistent queue");
+            var blockedPublished=await Call(updater.HandleAsync,"steam.publishedBuild",new{mapId=target.Id});
+            Check(IsError(blockedPublished,"UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW")&&executions==2,
+                "published build lookup respects the distinct persistent queue blocker");
+            var blockedDiagnostics=await Call(updater.HandleAsync,"steam.stoppedDiagnostics",new{mapId=target.Id});
+            IsOk(blockedDiagnostics,"interrupted queue diagnostics remain readable");
+            var queueDiagnostic=blockedDiagnostics.GetProperty("data");
+            Check(queueDiagnostic.GetProperty("queueJournalBlocked").GetBoolean()&&
+                  queueDiagnostic.GetProperty("queueJournalBlockingCode").GetString()=="UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW"&&
+                  !queueDiagnostic.GetProperty("canPreview").GetBoolean()&&executions==2,
+                "diagnostics and preview agree on persistent queue refusal without dispatch");
         }
         finally{File.Delete(journalPath);}
     }
