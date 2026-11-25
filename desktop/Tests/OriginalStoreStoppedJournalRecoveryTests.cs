@@ -194,6 +194,46 @@ internal static class OriginalStoreStoppedJournalRecoveryTests
                 key+"-"+autoStopped.Id.ToString("N")+".operator-reviewed.json"))==autoRestartBytes&&
             !bridge.TryReconcileStopped(map),"automatic stopped reconciliation archives both originals and is idempotent");
 
+        // A crashed generic Prepared lease cannot have entered mutation.
+        // The active lease is never cancelled, and a Mutating receipt is not
+        // treated as pre-mutation even after its age threshold.
+        string prepareRoot=Path.Combine(home,"prepared-fixture");
+        Directory.CreateDirectory(prepareRoot);
+        string prepareKey=UntamedOperationCoordinator.ResourceKey(prepareRoot);
+        string prepareFile=Path.Combine(UntamedOperationCoordinator.DefaultRoot,prepareKey+".json");
+        UntamedOperationRecord prepared;
+        using(var hold=cluster.Operations.Acquire(prepareRoot,UntamedOperationKind.Configuration))
+        {
+            prepared=cluster.Operations.Observe(prepareRoot)! with{UpdatedUtc=DateTimeOffset.UtcNow.AddMinutes(-10)};
+            File.WriteAllText(prepareFile,JsonSerializer.Serialize(prepared));
+            Check(!cluster.Operations.TryCancelAbandonedPrepared(prepareRoot),"held lease cannot be auto-cancelled");
+        }
+        File.WriteAllText(prepareFile,JsonSerializer.Serialize(prepared));
+        string preparedBytes=File.ReadAllText(prepareFile);
+        Check(cluster.Operations.TryCancelAbandonedPrepared(prepareRoot)&&
+            cluster.Operations.Observe(prepareRoot)?.Phase==UntamedOperationPhase.CancelledBeforeMutation&&
+            File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,
+                prepareKey+"-"+prepared.Operation.ToString("N")+".pre-mutation-cancelled.json"))==preparedBytes&&
+            !cluster.Operations.TryCancelAbandonedPrepared(prepareRoot),"abandoned Prepared is archived and cancelled, not replayed");
+        File.WriteAllText(prepareFile,JsonSerializer.Serialize(prepared with{Phase=UntamedOperationPhase.Mutating}));
+        Check(!cluster.Operations.TryCancelAbandonedPrepared(prepareRoot),"mutating receipt cannot be pre-mutation cancelled");
+
+        string stopRoot=Path.Combine(home,"stopped-receipt-fixture");
+        Directory.CreateDirectory(stopRoot);
+        var stopMap=Guid.NewGuid();
+        var stopJournal=new AsaManualStopJournal(stopRoot);
+        var stopRecord=stopJournal.Begin(stopMap,1234,DateTimeOffset.UtcNow.AddHours(-1));
+        string stopKey=UntamedOperationCoordinator.ResourceKey(stopRoot);
+        string stopFile=Path.Combine(UntamedOperationCoordinator.DefaultRoot,"GracefulStop-v1",stopKey+".json");
+        // Preserve the journal's internal date ordering.
+        stopRecord=stopRecord with{CreatedUtc=DateTimeOffset.UtcNow.AddMinutes(-15),ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-10)};
+        File.WriteAllText(stopFile,JsonSerializer.Serialize(stopRecord,new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        Check(!cluster.Operations.TryReconcileStoppedReceipt(stopRoot,stopMap,stopJournal,stopRecord,()=>false)&&
+            stopJournal.Observe()==stopRecord,"unknown Stop does not clear without stopped-family proof");
+        Check(cluster.Operations.TryReconcileStoppedReceipt(stopRoot,stopMap,stopJournal,stopRecord,()=>true)&&
+            stopJournal.Observe()?.Phase==AsaStopPhase.OperatorReviewed,"abandoned Stop closes with stopped-family proof");
+        stopJournal.DemandNoPending(stopMap);
+
         // HP / Astraeos, 2026-11-24: the *new* ASA/Loader may launch
         // and then exit BEFORE join readiness. NewPid is nonzero and no
         // live RCON listener exists, but the operator must still be able

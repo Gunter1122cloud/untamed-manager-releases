@@ -101,6 +101,74 @@ public sealed class UntamedOperationCoordinator
             if(entered)semaphore.Release();semaphore.Dispose();throw;
         }
     }
+    // Prepared is the durable pre-mutation boundary. An unowned stale
+    // Prepared receipt can be cancelled, never marked successful or replayed.
+    // Secondary restart/stop/save receipts are deliberately left untouched.
+    internal bool TryCancelAbandonedPrepared(string installation)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return false;
+        try
+        {
+            string journal=Path.Combine(stateRoot,key+".json");
+            var old=Read(journal,key);
+            if(old==null||old.Phase!=UntamedOperationPhase.Prepared||
+                old.UpdatedUtc==default||DateTimeOffset.UtcNow-old.UpdatedUtc<TimeSpan.FromMinutes(3))
+                return false;
+            string audit=Path.Combine(stateRoot,key+"-"+old.Operation.ToString("N")+".pre-mutation-cancelled.json");
+            byte[] bytes=File.ReadAllBytes(journal);
+            if(File.Exists(audit))
+            {
+                if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+                    new FileInfo(audit).Length!=bytes.Length||
+                    !CryptographicOperations.FixedTimeEquals(File.ReadAllBytes(audit),bytes))
+                    throw new InvalidDataException("UNTAMED_OPERATION_PREPARED_AUDIT_MISMATCH");
+            }
+            else
+            {
+                string tmp=audit+"."+Guid.NewGuid().ToString("N")+".tmp";
+                try
+                {
+                    using(var stream=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+                    {stream.Write(bytes);stream.Flush(true);}
+                    File.Move(tmp,audit);
+                }
+                finally{if(File.Exists(tmp))File.Delete(tmp);}
+            }
+            if(Read(journal,key)!=old||!File.ReadAllBytes(journal).SequenceEqual(bytes))
+                throw new IOException("UNTAMED_OPERATION_PREPARED_CHANGED");
+            Write(journal,old with{Phase=UntamedOperationPhase.CancelledBeforeMutation,UpdatedUtc=DateTimeOffset.UtcNow});
+            return true;
+        }
+        finally{semaphore.Release();}
+    }
+
+    // Automatic recovery for an abandoned standalone Stop when the entire
+    // local process family is independently absent. Never replay DoExit.
+    internal bool TryReconcileStoppedReceipt(string installation,Guid mapId,
+        AsaManualStopJournal stop,AsaManualStopRecord expected,Func<bool> verifyStopped)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return false;
+        try
+        {
+            var common=Read(Path.Combine(stateRoot,key+".json"),key);
+            if(common?.Phase is (UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator))
+                return false;
+            if(expected.MapId!=mapId||expected.Resource!=key||
+                expected.Phase is not (AsaStopPhase.Pending or AsaStopPhase.NeedsOperator)||
+                DateTimeOffset.UtcNow-expected.ChangedUtc<TimeSpan.FromMinutes(3)||
+                stop.Observe()!=expected||!verifyStopped())return false;
+            new AsaManualRestartJournal(installation).DemandNoPending();
+            if(stop.Observe()!=expected||!verifyStopped())return false;
+            stop.ReviewStopped(mapId,expected.Id);
+            return true;
+        }
+        finally{semaphore.Release();}
+    }
+
     public UntamedOperationRecord? Observe(string installation)
     {
         string key=ResourceKey(installation);
