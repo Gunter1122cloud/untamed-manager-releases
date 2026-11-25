@@ -1276,36 +1276,49 @@ function LogsCenter({ snapshot, selected, setSelected, mapLocked=false }: {
   const [query, setQuery] = useState("");
   const [level, setLevel] = useState<"all" | "info" | "warning" | "error">("all");
   const [generation, setGeneration] = useState(0);
+  const [follow,setFollow]=useState(false);
   useEffect(() => {
     let active = true;
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    // Each effect owns its exact map and generation. Read-only follow waits
+    // for the previous response before the next tick, including slow disks.
     setResult(null); setError("");
     if (!selected) return;
-    managerBridge.logTail(selected)
-      .then(data=>{
+    const read=async()=>{
+      try{
+        const data=await managerBridge.logTail(selected);
         if(!active)return;
         if(data.mapId.toLowerCase()!==selected.toLowerCase()||
            data.evidence!=="SANITIZED_LOCAL_LOG_TAIL_NOT_SERVER_HEALTH")
           throw new Error("UM-LOG-OTHER-MAP");
-        setResult(data);
-      })
-      .catch(()=>{
-        if(active)setError("A helyi ASA napló nem olvasható, vagy a válasz másik maphoz tartozik. Más szerver naplóját nem jelenítjük meg.");
-      });
-    return () => { active = false; };
-  }, [selected, generation]);
-  const filtered = useMemo(() => (result?.lines ?? []).filter(row =>
+        setResult(data);setError("");
+      }catch{
+        if(active){
+          setResult(null);
+          setError("A helyi ASA napló nem olvasható, vagy a válasz másik maphoz tartozik. Más szerver naplóját nem jelenítjük meg.");
+        }
+      }finally{
+        if(active&&follow)timer=setTimeout(()=>{void read();},5000);
+      }
+    };
+    void read();
+    return () => { active=false;if(timer!==undefined)clearTimeout(timer); };
+  }, [selected, generation, follow]);
+  // Render-time scope check also covers the render before effect cleanup.
+  const visibleResult=result?.mapId.toLowerCase()===selected.toLowerCase()?result:null;
+  const filtered = useMemo(() => (visibleResult?.lines ?? []).filter(row =>
     (level === "all" || row.level === level) &&
     row.content.toLocaleLowerCase("hu-HU").includes(query.toLocaleLowerCase("hu-HU"))
-  ), [result, query, level]);
+  ), [visibleResult, query, level]);
   const logStats=useMemo(()=>{
-    const rows=result?.lines??[];
+    const rows=visibleResult?.lines??[];
     return {
       loaded:rows.length,
       warnings:rows.filter(line=>line.level==="warning").length,
       errors:rows.filter(line=>line.level==="error").length,
       filtered:filtered.length
     };
-  },[result,filtered]);
+  },[visibleResult,filtered]);
   return <div className="premium-log-page">
     <div className="page-intro"><span className="eyebrow">LOCAL ASA / SAFE LOG TAIL</span><h1>Naplóközpont</h1>
       <p>Legfeljebb 300, a meglévő C# által titokszűrt naplósor — csak regisztrált helyi mapról. Nem jelent ASA állapot- vagy mentési bizonyítékot.</p></div>
@@ -1333,15 +1346,19 @@ function LogsCenter({ snapshot, selected, setSelected, mapLocked=false }: {
         <input aria-label="Keresés a naplóban" value={query} maxLength={128}
           onChange={e => setQuery(e.target.value)} placeholder="Szöveg szűrése..."/>
       </label>
+      <label className="log-select-label"><span>Élő követés (5 mp)</span>
+        <input type="checkbox" aria-label="Napló élő követése" checked={follow}
+          onChange={e=>setFollow(e.target.checked)}/>
+      </label>
       <button className="icon-button" aria-label="Napló újraolvasása" onClick={() => setGeneration(x => x+1)}><RefreshCw size={18}/></button>
     </div>
     <div className="premium-log-view">
-    <Panel title={result ? `Naplórészlet · ${result.mapName}` : "Naplórészlet"}
-      action={result && <span className="muted tiny">Módosítva: {observedAt(result.lastModifiedUtc)} · {result.truncated ? "Részlet (levágva)" : "Teljes olvasott rész"}</span>}>
+    <Panel title={visibleResult ? `Naplórészlet · ${visibleResult.mapName}` : "Naplórészlet"}
+      action={visibleResult && <span className="muted tiny">Módosítva: {observedAt(visibleResult.lastModifiedUtc)} · {visibleResult.truncated ? "Részlet (levágva)" : "Teljes olvasott rész"}</span>}>
       {error && <div role="status" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
       {!selected && <div className="empty">Nincs kiválasztott helyi map.</div>}
-      {selected && !result && !error && <div className="empty">Naplósorok betöltése...</div>}
-      {result && <div className="log-list premium-log-list" role="log" aria-label="Titokszűrt helyi napló">
+      {selected && !visibleResult && !error && <div className="empty">Naplósorok betöltése...</div>}
+      {visibleResult && <div className="log-list premium-log-list" role="log" aria-label="Titokszűrt helyi napló">
         {filtered.length===0 && <div className="empty">Nincs a szűrőnek megfelelő naplósor.</div>}
         {filtered.map(row => <div key={row.number} className={`log-row log-${row.level}`}>
           <span className="log-number">{row.number}</span><span className="log-level">{row.level}</span>

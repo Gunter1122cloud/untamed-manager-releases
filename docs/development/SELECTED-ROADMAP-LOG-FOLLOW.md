@@ -1,0 +1,2 @@
+# UI-06 — bounded live log follow
+The existing local log center gains opt-in, five-second serial read-only follow. Stop timer on map change/unmount; never display a late response belonging to another map. Preserve existing search/severity. Native log tail now reads at most the configured byte budget even if the active ASA file grows during the read. No deletion, rotation, log retention or external file access is added. Includes native synthetic and browser checks. Central cross-host history/aggregation remains pending.

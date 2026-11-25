@@ -50,8 +50,21 @@ public static class LocalLogCenter
             long length=stream.Length;
             long offset=Math.Max(0,length-maxBytes);
             stream.Seek(offset,SeekOrigin.Begin);
-            using var reader=new StreamReader(stream,new UTF8Encoding(false,false),
-                detectEncodingFromByteOrderMarks:true,bufferSize:4096,leaveOpen:false);
+            // Pin the byte budget to the observed length. Reading directly
+            // until EOF on a continuously growing log could exceed maxBytes
+            // or keep the native RPC busy indefinitely.
+            int budget=checked((int)(length-offset));
+            byte[] bytes=new byte[budget];
+            int count=0;
+            while(count<budget)
+            {
+                int n=stream.Read(bytes,count,budget-count);
+                if(n==0)break;
+                count+=n;
+            }
+            using var snapshot=new MemoryStream(bytes,0,count,writable:false);
+            using var reader=new StreamReader(snapshot,new UTF8Encoding(false,false),
+                detectEncodingFromByteOrderMarks:offset==0,bufferSize:4096,leaveOpen:false);
             if(offset>0)reader.ReadLine(); // partial first line must not be displayed
             long row=0;
             while(reader.ReadLine() is { } line)
@@ -65,7 +78,7 @@ public static class LocalLogCenter
                 if(lines.Count>maxLines)lines.RemoveAt(0);
             }
             return new(map.Id,relative,length,new DateTimeOffset(file.LastWriteTimeUtc,TimeSpan.Zero),
-                offset>0||row>maxLines,lines.ToArray());
+                offset>0||row>maxLines||count<budget,lines.ToArray());
         }
     }
     public static IReadOnlyList<LocalLogLine> Filter(LocalLogSnapshot snapshot,

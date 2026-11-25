@@ -5396,6 +5396,11 @@ test("Steam installation preflight and redacted log center are read-only and fil
   await page.getByRole("combobox", {name:"Naplószint"}).selectOption("error");
   await expect(page.getByText("Synthetic failure detected")).toBeVisible();
   await expect(page.getByText("Synthetic ASA startup line")).toHaveCount(0);
+  await page.getByRole("checkbox",{name:"Napló élő követése"}).check();
+  await expect(page.getByRole("checkbox",{name:"Napló élő követése"})).toBeChecked();
+  await expect(page.getByText("Synthetic failure detected")).toBeVisible();
+  await page.getByRole("checkbox",{name:"Napló élő követése"}).uncheck();
+  await expect(page.getByRole("checkbox",{name:"Napló élő követése"})).not.toBeChecked();
   await page.getByRole("textbox", {name:"Keresés a naplóban"}).fill("no match");
   await expect(page.getByText("Nincs a szűrőnek megfelelő naplósor.")).toBeVisible();
   await page.screenshot({path:"test-results/log-center-filter-1366.png",fullPage:true});
