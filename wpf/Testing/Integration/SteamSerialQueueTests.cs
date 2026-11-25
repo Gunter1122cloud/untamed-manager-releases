@@ -76,8 +76,31 @@ public static class SteamSerialQueueTests
         });}
         catch(InvalidOperationException){blocked=true;}
         Check(blocked&&invoked==0&&
-            sharedQueue.Observe()?.Phase==SteamQueuePhase.NeedsOperator,
-            "shared-install running sibling blocks binary maintenance before the first map");
+            sharedQueue.Observe()?.Phase==SteamQueuePhase.AbandonedBetweenMaps,
+            "shared-install running sibling blocks dispatch without poisoning the host queue");
+        var independent=await sharedQueue.ExecuteAsync(new[]{b},registered,Stopped,(_,_)=>{
+            invoked++;return Task.CompletedTask;
+        });
+        Check(independent.Phase==SteamQueuePhase.Completed&&invoked==1,
+            "independent map can proceed after preflight rejection");
+
+        string legacyProfile=Path.Combine(root,"queue-legacy-"+Guid.NewGuid().ToString("N"));
+        var legacy=new SteamSerialMaintenanceQueue(legacyProfile,"CI-LEGACY");
+        string folder=Path.Combine(legacyProfile,"steam-maintenance-queue");
+        Directory.CreateDirectory(folder);
+        var prior=new SteamQueueSnapshot(Guid.NewGuid(),SteamQueuePhase.NeedsOperator,"CI-LEGACY",1,
+            new[]{a.Id,b.Id},null,DateTimeOffset.UtcNow.AddMinutes(-5),"Legacy preflight failure");
+        string path=Path.Combine(folder,"queue-v1.json");
+        File.WriteAllText(path,System.Text.Json.JsonSerializer.Serialize(prior));
+        byte[] original=File.ReadAllBytes(path);
+        Check(legacy.TryCloseIdleCheckpoint()&&legacy.Observe()?.Phase==SteamQueuePhase.AbandonedBetweenMaps&&
+            File.ReadAllBytes(Path.Combine(folder,"queue-"+prior.QueueId.ToString("N")+".abandoned.json")).SequenceEqual(original),
+            "legacy idle checkpoint archives original bytes");
+        Check(!legacy.TryCloseIdleCheckpoint(),"reconciliation is idempotent");
+        var newJob=await legacy.ExecuteAsync(new[]{b},registered,Stopped,(map,_)=>{
+            Check(map.Id==b.Id,"completed prefix never replays");return Task.CompletedTask;
+        });
+        Check(newJob.Phase==SteamQueuePhase.Completed,"new independent Steam work succeeds");
 
         // Hold the host-wide semaphore across an await. A second profile must
         // fail immediately; asynchronous continuation must still release it.

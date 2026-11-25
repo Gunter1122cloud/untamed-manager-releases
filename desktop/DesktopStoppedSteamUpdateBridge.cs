@@ -171,9 +171,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         {
             var journal=new SteamSerialMaintenanceQueue(
                 cluster.Store.Root,cluster.Config.LocalHostId).Observe();
-            return journal!=null && journal.Phase is
-                (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress
-                    or SteamQueuePhase.NeedsOperator)
+            return SteamSerialMaintenanceQueue.BlocksNewWork(journal)
                 ?"UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW":null;
         }
         catch{return "UM-STEAM-QUEUE-JOURNAL-UNREADABLE";}
@@ -182,8 +180,9 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     {
         try
         {
-            var journal=new SteamSerialMaintenanceQueue(
-                cluster.Store.Root,cluster.Config.LocalHostId).Observe();
+            var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
+            queue.TryCloseIdleCheckpoint();
+            var journal=queue.Observe();
             return journal!=null && journal.Phase is
                 (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress);
         }
@@ -466,9 +465,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     try{queue=new SteamSerialMaintenanceQueue(
                         cluster.Store.Root,cluster.Config.LocalHostId).Observe();}
                     catch{queueUnreadable=true;}
-                    bool queueJournalBlocked=queueUnreadable||queue!=null&&
-                        queue.Phase is (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress or
-                            SteamQueuePhase.NeedsOperator);
+                    bool queueJournalBlocked=queueUnreadable||SteamSerialMaintenanceQueue.BlocksNewWork(queue);
                     string? queueCode=queueUnreadable?"UM-STEAM-QUEUE-JOURNAL-UNREADABLE":
                         queueJournalBlocked?"UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW":null;
                     if(queueCode!=null)
@@ -675,9 +672,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     if(journal==null)
                         return Ok(id,new{exists=false,needsOperatorReview=false,
                             autoResumeAllowed=false,activeJob});
-                    bool needsReview=!active && journal.Phase is
-                        (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress
-                            or SteamQueuePhase.NeedsOperator);
+                    bool needsReview=!active&&SteamSerialMaintenanceQueue.BlocksNewWork(journal);
                     string? mapName=cluster.Config.LocalMaps.FirstOrDefault(
                         m=>m.Id==journal.ActiveMap)?.Name;
                     return Ok(id,new{
