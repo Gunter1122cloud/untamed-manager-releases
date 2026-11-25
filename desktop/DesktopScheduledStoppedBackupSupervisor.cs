@@ -34,12 +34,16 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
     private readonly string path,mutexName;
     private readonly CancellationTokenSource cancel=new();
     private readonly SemaphoreSlim tickGate=new(1,1);
+    private readonly DiscordMapReservation discordScope=new();
+    internal bool TryReserveDiscord(Guid[] ids)=>Volatile.Read(ref updateFrozen)==0&&discordScope.TryReserve(ids);
+    internal void ReleaseDiscord()=>discordScope.Release();
     private int updateFrozen;
     // Host calls only under the native updater dispatch gate. No active
     // scheduled copy or lifecycle may be interrupted to update the Manager.
     internal bool TryFreezeForManagerUpdate()
     {
         if(!tickGate.Wait(0))return false;
+        if(discordScope.HasReservation){tickGate.Release();return false;}
         Volatile.Write(ref updateFrozen,1);
         return true;
     }
@@ -266,6 +270,9 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                 .OrderBy(x=>x.NextDueUtc).ToArray());
             foreach(var observed in due)
             {
+                if(!discordScope.TryBeginWorker(observed.MapId))continue;
+                try
+                {
                 // Durable claim BEFORE expensive disk work; no catch-up.
                 bool missed=now-observed.NextDueUtc>TimeSpan.FromMinutes(5);
                 var claimed=Locked(()=>{
@@ -390,6 +397,8 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                     return true;
                 });
                 DesktopDiscordNotifications.Record(cluster,observed.MapId,"backup",result is not ("verified-backup-created" or "verified-full-local-backup-created" or "verified-player-profiles-created"));
+                }
+                finally{discordScope.EndWorker(observed.MapId);}
             }
             return Snapshot();
         }

@@ -720,6 +720,19 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         deniedEvent.RegistrationState=="loader-child-arguments-conflict"&&!deniedEvent.Controllable,
         "conflicting Event parent/child metadata is never published as an exact launch list");
 }
+// Map scope reservations never evict a live same-map worker; unrelated
+// operations can proceed, and every terminal/failure finally releases scope.
+{
+    var scope=new DiscordMapReservation();Guid a=Guid.NewGuid(),b=Guid.NewGuid(),c=Guid.NewGuid();
+    Check(scope.TryBeginWorker(a)&&!scope.TryReserve(new[]{a}),"Discord scope denies same active map");
+    Check(scope.TryReserve(new[]{b})&&scope.HasReservation&&!scope.TryBeginWorker(b)&&scope.TryBeginWorker(c),
+        "Discord scope allows unrelated maps and excludes new same-map schedules");
+    scope.Release();scope.EndWorker(a);scope.EndWorker(c);
+    Check(scope.TryBeginWorker(b),"Discord scope releases after dispatch");
+    scope.EndWorker(b);
+    Check(scope.TryReserve(new[]{a,b}),"Discord scope permits later operations on released maps");
+    scope.Release();
+}
 // Test the exact API authorization/dispatch boundary using an isolated profile.
 // No actual server, network listener, RCON or SteamCMD is invoked.
 {

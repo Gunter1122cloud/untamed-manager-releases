@@ -89,13 +89,16 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     // Accessed only under tickGate. One active worker per registered map,
     // across every schedule kind and every retry delay.
     private readonly Dictionary<Guid,Task> activeMapWorkers=new();
+    private readonly DiscordMapReservation discordScope=new();
+    internal bool TryReserveDiscord(Guid[] ids)=>Volatile.Read(ref updateFrozen)==0&&discordScope.TryReserve(ids);
+    internal void ReleaseDiscord()=>discordScope.Release();
     private int updateFrozen;
     // Host calls only under the native updater dispatch gate. No active
     // scheduled copy or lifecycle may be interrupted to update the Manager.
     internal bool TryFreezeForManagerUpdate()
     {
         if(!tickGate.Wait(0))return false;
-        if(activeMapWorkers.Values.Any(task=>!task.IsCompleted))
+        if(discordScope.HasReservation||activeMapWorkers.Values.Any(task=>!task.IsCompleted))
         {tickGate.Release();return false;}
         Volatile.Write(ref updateFrozen,1);
         return true;
@@ -1237,10 +1240,17 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             var queued=new List<Task>();
             foreach(var group in due.GroupBy(x=>x.MapId))
             {
-                if(activeMapWorkers.ContainsKey(group.Key))continue;
+                if(activeMapWorkers.ContainsKey(group.Key)||!discordScope.TryBeginWorker(group.Key))continue;
                 var mapDue=group.ToArray();
-                var task=Task.Run(()=>RunDueMapAsync(mapDue,now,token));
-                activeMapWorkers.Add(group.Key,task);queued.Add(task);
+                var workerMapId=group.Key;
+                Task task;
+                try{
+                    task=Task.Run(async()=>{
+                        try{await RunDueMapAsync(mapDue,now,token);}
+                        finally{discordScope.EndWorker(workerMapId);}
+                    });
+                }catch{discordScope.EndWorker(workerMapId);throw;}
+                activeMapWorkers.Add(workerMapId,task);queued.Add(task);
             }
             if(waitForWorkers)
             {
