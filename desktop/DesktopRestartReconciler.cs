@@ -181,7 +181,16 @@ internal static class DesktopRestartReconciler
                  !(paired&&record.Phase==AsaRestartPhase.OperatorReviewed))||
                 (record.Phase!=AsaRestartPhase.OperatorReviewed&&
                  DateTimeOffset.UtcNow-record.ChangedUtc<TimeSpan.FromMinutes(3)))return false;
-            new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
+            var stopJournal=new AsaManualStopJournal(map.InstallationPath);
+            var stop=stopJournal.Observe();
+            bool pendingStop=stop?.Phase is AsaStopPhase.Pending or AsaStopPhase.NeedsOperator;
+            if(pendingStop)
+            {
+                if(stop!.MapId!=map.Id||stop.OldPid!=record.OldPid||
+                    stop.Resource!=UntamedOperationCoordinator.ResourceKey(map.InstallationPath)||
+                    DateTimeOffset.UtcNow-stop.ChangedUtc<TimeSpan.FromMinutes(3))return false;
+            }
+            else stopJournal.DemandNoPending(map.Id);
             bool SaveClear()=>!map.HistoricalStoreProtected||
                 LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id)?.Phase is not
                     ("prepared" or "needsOperator");
@@ -198,15 +207,34 @@ internal static class DesktopRestartReconciler
                 if(current!=record&&(current.Phase!=AsaRestartPhase.OperatorReviewed||
                     current!=(record with{Phase=AsaRestartPhase.OperatorReviewed,ChangedUtc=current.ChangedUtc})))
                     return false;
-                new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
+                var liveStop=stopJournal.Observe();
+                if(pendingStop)
+                {
+                    if(liveStop!=stop)
+                    {
+                        if(liveStop==null||liveStop!=(stop! with{Phase=AsaStopPhase.OperatorReviewed,
+                            ChangedUtc=liveStop.ChangedUtc}))return false;
+                        stopJournal.DemandNoPending(map.Id);
+                    }
+                }
+                else
+                {
+                    if(liveStop!=stop)return false;
+                    stopJournal.DemandNoPending(map.Id);
+                }
                 return SaveClear()&&observeStopped(current)==source;
             }
+            Action? secondary=pendingStop?()=>{
+                if(stopJournal.Observe()!=stop||!Verify())
+                    throw new InvalidOperationException("UM-RECOVERY-PAIRED-STOP-CHANGED");
+                stopJournal.ReviewStopped(map.Id,stop!.Id);
+            }:null;
             if(paired)
                 cluster.Operations.ReviewStoppedOriginalPaired(map.InstallationPath,general!.Operation,
-                    map.Id,record.Id,record.OldPid,Verify,record.NewPid);
+                    map.Id,record.Id,record.OldPid,Verify,record.NewPid,reviewSecondary:secondary);
             else
                 cluster.Operations.ReviewStoppedOriginalRestartOnly(map.InstallationPath,map.Id,
-                    record.Id,record.OldPid,record.NewPid,Verify);
+                    record.Id,record.OldPid,record.NewPid,Verify,secondary);
             return true;
         }
         catch(Exception ex) when(IsRecoverable(ex)){return false;}

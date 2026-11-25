@@ -505,9 +505,9 @@ public sealed class UntamedOperationCoordinator
     /// </summary>
     internal void ReviewStoppedOriginalRestartOnly(string installation,
         Guid expectedMapId,Guid expectedRestartId,int oldPid,
-        int attemptedNewPid,Func<bool> verifyStopped)=>
+        int attemptedNewPid,Func<bool> verifyStopped,Action? reviewSecondary=null)=>
         ReviewAbandonedOriginalRestartOnly(installation,expectedMapId,expectedRestartId,
-            oldPid,attemptedNewPid,verifyStopped,false);
+            oldPid,attemptedNewPid,verifyStopped,false,reviewSecondary);
 
     internal void ReviewReplacementOriginalRestartOnly(string installation,
         Guid expectedMapId,Guid expectedRestartId,int oldPid,
@@ -517,7 +517,7 @@ public sealed class UntamedOperationCoordinator
 
     private void ReviewAbandonedOriginalRestartOnly(string installation,
         Guid expectedMapId,Guid expectedRestartId,int oldPid,
-        int attemptedNewPid,Func<bool> verifyStopped,bool replacement)
+        int attemptedNewPid,Func<bool> verifyStopped,bool replacement,Action? reviewSecondary=null)
     {
         ArgumentNullException.ThrowIfNull(verifyStopped);
         if(expectedMapId==Guid.Empty||expectedRestartId==Guid.Empty||
@@ -549,6 +549,8 @@ public sealed class UntamedOperationCoordinator
             if(!verifyStopped())
                 throw new UnauthorizedAccessException(
                     "UM-RECOVERY-STOPPED-PROOF-CHANGED");
+            reviewSecondary?.Invoke();
+            if(!verifyStopped())throw new UnauthorizedAccessException("UM-RECOVERY-SECONDARY-PROOF-CHANGED");
             restart.ReviewOriginalStoppedFamily(expectedMapId,
                 expectedRestartId,oldPid,attemptedNewPid);
             if(!verifyStopped())
@@ -571,9 +573,11 @@ public sealed class UntamedOperationCoordinator
     internal void ReviewStoppedOriginalPaired(string installation,
         Guid expectedOperation,Guid expectedMapId,Guid expectedRestartId,
         int oldPid,Func<bool> verifyStopped,int attemptedNewPid=0,
-        bool replacement=false)
+        bool replacement=false,Action? reviewSecondary=null)
     {
         ArgumentNullException.ThrowIfNull(verifyStopped);
+        if(replacement&&reviewSecondary!=null)
+            throw new InvalidOperationException("UM-RECOVERY-SECONDARY-REQUIRES-STOPPED");
         if(expectedOperation==Guid.Empty||expectedMapId==Guid.Empty||
            expectedRestartId==Guid.Empty||oldPid<=0)
             throw new InvalidDataException("UM-RECOVERY-STOPPED-APPROVAL-INVALID");
@@ -637,6 +641,8 @@ public sealed class UntamedOperationCoordinator
             if(!verifyStopped())
                 throw new UnauthorizedAccessException(
                     "UM-RECOVERY-STOPPED-PROOF-CHANGED");
+            reviewSecondary?.Invoke();
+            if(!verifyStopped())throw new UnauthorizedAccessException("UM-RECOVERY-SECONDARY-PROOF-CHANGED");
             // The original Restart ID is reviewed, never marked Completed.
             // If the process reappears before the common journal commit, the
             // common NeedsOperator state still blocks Start / Stop / RCON.

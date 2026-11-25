@@ -194,6 +194,27 @@ internal static class OriginalStoreStoppedJournalRecoveryTests
                 key+"-"+autoStopped.Id.ToString("N")+".operator-reviewed.json"))==autoRestartBytes&&
             !bridge.TryReconcileStopped(map),"automatic stopped reconciliation archives both originals and is idempotent");
 
+        // Stop + Restart must not mutually block an independently confirmed
+        // stopped installation. All original receipts are archived, no replay.
+        var combinedStop=new AsaManualStopJournal(installation);
+        var stopPair=combinedStop.Begin(map.Id,oldPid,DateTimeOffset.UtcNow.AddHours(-1));
+        string stopPairFile=Path.Combine(UntamedOperationCoordinator.DefaultRoot,"GracefulStop-v1",key+".json");
+        stopPair=stopPair with{CreatedUtc=DateTimeOffset.UtcNow.AddMinutes(-15),ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-10)};
+        File.WriteAllText(stopPairFile,JsonSerializer.Serialize(stopPair,new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        string stopPairBytes=File.ReadAllText(stopPairFile);
+        var combinedRestart=restarts.Begin(map.Id,oldPid);
+        restarts.Change(combinedRestart.Id,AsaRestartPhase.NeedsOperator);
+        File.WriteAllText(restartFile,JsonSerializer.Serialize(restarts.Observe()! with{ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-10)}));
+        stopped=false;
+        Check(!bridge.TryReconcileStopped(map)&&File.ReadAllText(stopPairFile)==stopPairBytes,
+            "paired stop and restart cannot reconcile without stopped proof");
+        stopped=true;
+        Check(bridge.TryReconcileStopped(map)&&combinedStop.Observe()?.Phase==AsaStopPhase.OperatorReviewed&&
+            restarts.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+            File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,"GracefulStop-v1",
+                key+"-"+stopPair.Id.ToString("N")+".operator-reviewed.json"))==stopPairBytes,
+            "paired stop and restart archive both receipts under one installation lease");
+
         // A crashed generic Prepared lease cannot have entered mutation.
         // The active lease is never cancelled, and a Mutating receipt is not
         // treated as pre-mutation even after its age threshold.

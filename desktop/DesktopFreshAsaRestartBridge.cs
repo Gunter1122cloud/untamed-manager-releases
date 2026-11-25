@@ -281,12 +281,12 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
 
     internal bool TryReconcileStopped(LocalMap map)=>
         !map.HistoricalStoreProtected&&!HasActive(map.Id)&&DesktopRestartReconciler.TryReconcileStopped(cluster,map,record=>
-            ReviewStoppedFamily(map,record)?DesktopFreshAsaStartBridge.IniFingerprint(map)+":"+
+            ReviewStoppedFamily(map,record,allowPendingStop:true)?DesktopFreshAsaStartBridge.IniFingerprint(map)+":"+
                 AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map):null);
 
     // Unlike running-old-PID recovery, a failed new startup needs no
     // dead RCON owner. Confirm absence of BOTH ASA and Loader and free ports.
-    private bool ReviewStoppedFamily(LocalMap map,AsaRestartRecord record)
+    private bool ReviewStoppedFamily(LocalMap map,AsaRestartRecord record,bool allowPendingStop=false)
     {
         if(record.MapId!=map.Id||record.OldPid<=0||record.NewPid==record.OldPid||
            map.AutoStart||map.Maintenance||HasActive(map.Id)||
@@ -303,7 +303,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                    AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments)||
                    AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments))return false;
             }
-            new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
+            if(!allowPendingStop)new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
             var state=reviewObserve(map);
             return AsaReadyProbe.IsRegisteredServerBinary(map)&&
                 AsaRconConfigurationEvidence.Matches(map)&&
