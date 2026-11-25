@@ -1,4 +1,5 @@
 import {useState} from "react";
+import {LootSimulator} from "./LootSimulator";
 import {editCrate,inspectCrates,newCrate,newSet,newEntry,type LootCrate,type LootRow,type LootSet,type LootEntry} from "./state/lootCrates";
 export function LootEditor({content,disabled,onDraft}:{content:string;disabled:boolean;onDraft:(next:string)=>void}){
   const [loaded,setLoaded]=useState<{base:string;rows:LootRow[];unknown:number}|null>(null);
@@ -46,6 +47,7 @@ export function LootEditor({content,disabled,onDraft}:{content:string;disabled:b
         <button type="button" className="secondary" disabled={disabled||crate.sets.length===1} onClick={()=>setCrate({...crate,sets:crate.sets.filter((_,k)=>k!==i)})}>Set eltávolítása</button>
       </fieldset>)}
       <button type="button" className="secondary" disabled={disabled||crate.sets.length>=12} onClick={()=>setCrate({...crate,sets:[...crate.sets,newSet()]})}>Item set hozzáadása</button>
+      <LootSimulator crate={crate}/>
       <button type="button" className="primary" disabled={disabled||active.unknown>0} onClick={apply}>Loot beillesztése az INI-piszkozatba</button>
       <button type="button" className="quiet" onClick={()=>setLoaded(null)}>Elvetés</button>
     </>}
