@@ -1,0 +1,47 @@
+name: YARK engine integration (Windows)
+on:
+  pull_request:
+    paths:
+      - 'vendor/yark'
+      - '.gitmodules'
+      - 'integration/yark/**'
+      - '.github/workflows/yark-engine-integration.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  upstream-and-overlay:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+      - name: Verify exact upstream commit
+        shell: pwsh
+        run: |
+          $actual = (git -C vendor/yark rev-parse HEAD).Trim()
+          if ($actual -ne 'a9b5e0be72b3bd3618a917caf207bbd80c3451ef') { throw 'Unexpected source revision' }
+      - name: Install original engine dependencies
+        working-directory: vendor/yark
+        run: npm ci
+      - name: Original engine typecheck
+        working-directory: vendor/yark
+        run: npm run typecheck
+      - name: Original engine tests
+        working-directory: vendor/yark
+        run: npm test
+      - name: Apply isolated Obsidian preview overlay
+        run: node integration/yark/prepare-preview.cjs
+      - name: Preview typecheck
+        working-directory: vendor/yark
+        run: npm run typecheck
+      - name: Preview build (no installer, no release)
+        working-directory: vendor/yark
+        run: npm run build
