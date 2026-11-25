@@ -87,6 +87,27 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                 cluster,map,identity,TimeSpan.FromMinutes(2),evidenceStage:stage)
             :(map,identity,_)=>execute(map,identity));
     }
+    internal bool TryReconcileStoppedReceipt(LocalMap map)
+    {
+        if(map.HistoricalStoreProtected||map.Maintenance||map.ObservedReadOnlyImported)return false;
+        lock(sync)if(jobsByMap.TryGetValue(map.Id,out var job)&&job.State is ("queued" or "running"))return false;
+        var journal=Journal(map);var record=journal.Observe();
+        if(record==null||record.Phase is not (AsaStopPhase.Pending or AsaStopPhase.NeedsOperator))return false;
+        string profile=JsonSerializer.Serialize(map);
+        bool Verify()
+        {
+            if(!ReferenceEquals(Owned(map.Id),map)||JsonSerializer.Serialize(map)!=profile||
+                !AsaReadyProbe.IsRegisteredServerBinary(map)||
+                KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))return false;
+            if(FreshStoreEnrollmentPolicy.IsEnrolled(map))FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+            else FreshAsaInstallationSafety.Demand(cluster,map);
+            var state=cluster.Check(map);
+            return state.ConfirmedStopped&&!state.Running&&state.Identity==null&&state.LoaderIdentity==null&&
+                AsaLocalPortPreflight.CanStart(map);
+        }
+        return cluster.Operations.TryReconcileStoppedReceipt(map.InstallationPath,map.Id,journal,record,Verify);
+    }
+
     private LocalMap? Owned(Guid id)=>
         cluster.Config.LocalMaps.SingleOrDefault(map=>map.Id==id);
     private static bool GuidProperty(JsonElement item,string name,out Guid id)

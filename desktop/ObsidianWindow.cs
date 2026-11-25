@@ -384,7 +384,8 @@ public sealed class ObsidianWindow : Form
             TryEnterWatchdogLane,ReleaseRecoveryLane,()=>_updateHandoff||_suppressScheduledMutations,
             map=>map.HistoricalStoreProtected?
                 (_lifecycleJournal.TryReconcileCurrentOwner(map)||_lifecycleJournal.TryReconcileStopped(map)):
-                (_freshRestart.TryReconcileCurrentOwner(map)||_freshRestart.TryReconcileStopped(map)));
+                (_freshRestart.TryReconcileCurrentOwner(map)||_freshRestart.TryReconcileStopped(map)||
+                 _freshStop.TryReconcileStoppedReceipt(map)));
         _asaDiscovery = new DesktopAutomaticAsaDiscoverySupervisor(_bridge.LocalCluster);
         _bridge.AttachAutomaticAsaDiscovery(_asaDiscovery);
         _readOnlySupervisor = new DesktopRecurringReadOnlySupervisor(_bridge.LocalCluster);

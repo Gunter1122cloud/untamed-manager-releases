@@ -185,7 +185,17 @@ internal sealed class DesktopRestartReconciliationSupervisor : IDisposable
                 foreach(var map in cluster.Config.LocalMaps.ToArray())
                 {
                     if(paused()||ct.IsCancellationRequested)break;
-                    try{reconcile(map);}catch(Exception ex)
+                    try
+                    {
+                        if(!map.Maintenance&&!map.ObservedReadOnlyImported)
+                        {
+                            // Only an unowned Prepared journal is known to
+                            // have no mutation. Secondary receipts are checked
+                            // independently by their native reconciliation.
+                            cluster.Operations.TryCancelAbandonedPrepared(map.InstallationPath);
+                            reconcile(map);
+                        }
+                    }catch(Exception ex)
                     {
                         System.Diagnostics.Trace.TraceWarning("Restart reconciliation {0}: {1}",map.Id,ex.GetType().Name);
                     }
