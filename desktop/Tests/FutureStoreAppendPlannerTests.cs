@@ -117,6 +117,29 @@ internal static class FutureStoreAppendPlannerTests
         duplicatePort[3]=duplicatePortDoc.ToJsonString();
         Check(Denied(()=>FutureStoreConversionSourceAudit.Inspect(duplicatePort)),
             "Store source audit rejects conflicting historical UDP ports");
+        var relocation=HistoricalStoreRelocationPlanner.Stage(beforeImages,Guid.Parse(ids[0]),Path.Combine(root,"ssd-new-location"));
+        HistoricalStoreRelocationPlanner.Verify(beforeImages,relocation);
+        var relocatedAudit=FutureStoreConversionSourceAudit.Inspect(relocation.AfterImages);
+        Check(relocatedAudit.LocalRoots[0]==relocation.NewRoot&&
+            relocatedAudit.MapIds.SequenceEqual(originalAudit.MapIds)&&
+            relocatedAudit.MapKeys.SequenceEqual(originalAudit.MapKeys)&&
+            relocatedAudit.UdpPorts.SequenceEqual(originalAudit.UdpPorts)&&
+            !relocation.StoreWriteAuthorized&&!relocation.CopyVerified&&!relocation.ProfileSwitched,
+            "historical relocation stages only a root rebind preserving GUID, level, ports and session");
+        using(var movedStore=JsonDocument.Parse(relocation.AfterImages[1]))
+        using(var previousStore=JsonDocument.Parse(beforeImages[1]))
+        {
+            var moved=movedStore.RootElement.GetProperty("maps").GetProperty(ids[0]);
+            var previous=previousStore.RootElement.GetProperty("maps").GetProperty(ids[0]);
+            Check(moved.GetProperty("backupId").GetString()==previous.GetProperty("backupId").GetString()&&
+                moved.GetProperty("sharedSession").GetString()==session,
+                "historical relocation preserves backup and shared session");
+        }
+        Check(Denied(()=>HistoricalStoreRelocationPlanner.Stage(beforeImages,Guid.Parse(ids[0]),members[1].root)),
+            "historical relocation rejects other map installation");
+        var changedMove=relocation.AfterImages.ToArray();changedMove[3]=beforeImages[3];
+        Check(Denied(()=>HistoricalStoreRelocationPlanner.Verify(beforeImages,relocation with{AfterImages=changedMove})),
+            "historical relocation rejects changed proposed launch image");
         FutureStoreAppendInvariant.Verify(beforeImages,afterImages,extraId);
         Check(true,"offline append invariant accepts exactly one new member");
         var forgedCluster=JsonNode.Parse(afterImages[0])!;
