@@ -8,19 +8,24 @@ using System.Threading;
 
 namespace UntamedManager.Core;
 
-/// <summary>Manager-owned encrypted Game.ini draft; never writes a running
+/// <summary>Manager-owned encrypted per-file INI draft; never writes a running
 /// map. ETag conflict is local to this draft, not a host operation blocker.</summary>
 public static class PendingGameIni
 {
-    private sealed record Draft(Guid MapId,string RootIdentity,string BaseSha,string NextSha,string Content,bool Consumed=false);
+    private sealed record Draft(Guid MapId,string RootIdentity,string BaseSha,string NextSha,string Content,bool Consumed=false,string? FileName=null);
     public sealed record Receipt(Guid MapId,string State,string? NextSha256=null);
-    private static string Game(LocalMap map)=>Path.Combine(map.InstallationPath,"ShooterGame","Saved","Config","WindowsServer","Game.ini");
-    private static string FileFor(string profile,Guid id)
+    private static string Ini(LocalMap map,string name)
+    {
+        if(name is not ("Game.ini" or "GameUserSettings.ini"))throw new InvalidDataException("UM-INI-INVALID-FILE");
+        return Path.Combine(map.InstallationPath,"ShooterGame","Saved","Config","WindowsServer",name);
+    }
+    private static string FileFor(string profile,Guid id,string name)
     {
         if(id==Guid.Empty)throw new InvalidDataException("UM-INI-DRAFT-MAP");
         string dir=Path.Combine(profile,"pending-game-ini");
         _=UntamedOperationCoordinator.ResourceKey(dir);
-        string file=Path.Combine(dir,id.ToString("N")+".dpapi");
+        if(name is not ("Game.ini" or "GameUserSettings.ini"))throw new InvalidDataException("UM-INI-INVALID-FILE");
+        string file=Path.Combine(dir,id.ToString("N")+(name=="Game.ini"?"":"-gus")+".dpapi");
         if(File.Exists(file)&&(File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0)
             throw new InvalidDataException("UM-INI-DRAFT-LINKED");
         return file;
@@ -75,51 +80,52 @@ public static class PendingGameIni
     }
     internal static void StageLocal(string profile,LocalMap map,ConfigSnapshot snapshot,string content)
     {
-        string file=FileFor(profile,map.Id);
+        string name=Path.GetFileName(snapshot.Path);
+        string file=FileFor(profile,map.Id,name);
         Locked(file,()=>{
-            var current=SafeConfigEditor.ReadGameDraft(Game(map),map.InstallationPath);
+            var current=SafeConfigEditor.ReadGameDraft(Ini(map,name),map.InstallationPath);
             if(!Path.GetFullPath(snapshot.Path).Equals(current.Path,StringComparison.OrdinalIgnoreCase)||
                snapshot.Sha256!=current.Sha256)
                 throw new ConfigEtagConflictException("UM-INI-DRAFT-BASE-CHANGED");
             var preview=SafeConfigEditor.Preview(current,content);
             if(!preview.Changed)throw new InvalidDataException("UM-INI-DRAFT-NO-CHANGES");
-            Write(file,new(map.Id,StorePathIdentity.LocalDirectoryFingerprint(map.InstallationPath),current.Sha256,preview.NewSha256,content));
+            Write(file,new(map.Id,StorePathIdentity.LocalDirectoryFingerprint(map.InstallationPath),current.Sha256,preview.NewSha256,content,FileName:name));
             return true;
         });
     }
     public static void Stage(ClusterService cluster,LocalMap map,ConfigSnapshot snapshot,string content)
     {DemandEligible(cluster,map);StageLocal(cluster.Store.Root,map,snapshot,content);}
-    public static Receipt Status(ClusterService cluster,LocalMap map)
+    public static Receipt Status(ClusterService cluster,LocalMap map,string name="Game.ini")
     {
         try{
-            string file=FileFor(cluster.Store.Root,map.Id);
+            string file=FileFor(cluster.Store.Root,map.Id,name);
             return Locked(file,()=>{
                 var d=Read(file);
                 if(d==null)return new Receipt(map.Id,"none");
-                if(d.MapId!=map.Id||d.RootIdentity!=StorePathIdentity.LocalDirectoryFingerprint(map.InstallationPath))
+                if((d.FileName??"Game.ini")!=name||d.MapId!=map.Id||d.RootIdentity!=StorePathIdentity.LocalDirectoryFingerprint(map.InstallationPath))
                     return new Receipt(map.Id,"conflict",d.NextSha);
-                var current=SafeConfigEditor.ReadGameDraft(Game(map),map.InstallationPath);
+                var current=SafeConfigEditor.ReadGameDraft(Ini(map,name),map.InstallationPath);
                 return new Receipt(map.Id,current.Sha256==d.NextSha?"applied":!d.Consumed&&current.Sha256==d.BaseSha?"queued":"conflict",d.NextSha);
             });
         }catch{return new(map.Id,"unavailable");}
     }
-    public static void Discard(ClusterService cluster,LocalMap map)
+    public static void Discard(ClusterService cluster,LocalMap map,string name="Game.ini")
     {
-        string file=FileFor(cluster.Store.Root,map.Id);
+        string file=FileFor(cluster.Store.Root,map.Id,name);
         Locked(file,()=>{if(File.Exists(file))File.Delete(file);return true;});
     }
-    internal static bool ApplyLocal(string profile,LocalMap map,Func<ProcessCheck> inspect,Action mark)
+    internal static bool ApplyLocal(string profile,LocalMap map,Func<ProcessCheck> inspect,Action mark,string name="Game.ini")
     {
         // No pending file means the normal launch is entirely unchanged.
         string file;
-        try{file=FileFor(profile,map.Id);if(!File.Exists(file))return false;}
+        try{file=FileFor(profile,map.Id,name);if(!File.Exists(file))return false;}
         catch{return false;}
         return Locked(file,()=>{
             Draft? d;ConfigSnapshot current;
             try{
                 d=Read(file);
-                if(d==null||d.Consumed||d.MapId!=map.Id||d.RootIdentity!=StorePathIdentity.LocalDirectoryFingerprint(map.InstallationPath))return false;
-                current=SafeConfigEditor.ReadGameDraft(Game(map),map.InstallationPath);
+                if(d==null||d.Consumed||(d.FileName??"Game.ini")!=name||d.MapId!=map.Id||d.RootIdentity!=StorePathIdentity.LocalDirectoryFingerprint(map.InstallationPath))return false;
+                current=SafeConfigEditor.ReadGameDraft(Ini(map,name),map.InstallationPath);
                 if(current.Sha256!=d.BaseSha||SafeConfigEditor.Preview(current,d.Content).NewSha256!=d.NextSha)return false;
             }catch{return false;}
             bool marked=false;
@@ -136,9 +142,17 @@ public static class PendingGameIni
     }
     internal static bool ApplyBeforeLaunch(ClusterService cluster,LocalMap map,Func<ProcessCheck> inspect,Action mark)
     {
-        string file;
-        try{file=FileFor(cluster.Store.Root,map.Id);if(!File.Exists(file))return false;DemandEligible(cluster,map);}
+        string profile=cluster.Store.Root;
+        try
+        {
+            if(!File.Exists(FileFor(profile,map.Id,"Game.ini"))&&!File.Exists(FileFor(profile,map.Id,"GameUserSettings.ini")))return false;
+            DemandEligible(cluster,map);
+        }
         catch{return false;}
-        return ApplyLocal(cluster.Store.Root,map,inspect,mark);
+        bool marked=false;
+        void MarkOnce(){if(!marked){mark();marked=true;}}
+        ApplyLocal(profile,map,inspect,MarkOnce,"Game.ini");
+        ApplyLocal(profile,map,inspect,MarkOnce,"GameUserSettings.ini");
+        return marked;
     }
 }
