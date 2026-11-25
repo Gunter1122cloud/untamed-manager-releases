@@ -163,7 +163,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
             return "UM-STEAM-LOCAL-RESTART-JOURNAL-NEEDS-REVIEW";
         return null;
     }
-    private bool HasBlockedJournal()
+    private string? QueueJournalBlockerCode()
     {
         try
         {
@@ -171,10 +171,12 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                 cluster.Store.Root,cluster.Config.LocalHostId).Observe();
             return journal!=null && journal.Phase is
                 (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress
-                    or SteamQueuePhase.NeedsOperator);
+                    or SteamQueuePhase.NeedsOperator)
+                ?"UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW":null;
         }
-        catch{return true;}
+        catch{return "UM-STEAM-QUEUE-JOURNAL-UNREADABLE";}
     }
+    private bool HasBlockedJournal()=>QueueJournalBlockerCode()!=null;
     private bool HasActiveSteamQueue()
     {
         try
@@ -622,8 +624,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                             if(job.State is "queued" or "running")
                                 return Fail(id,"UM-STEAM-UPDATE-IN-PROGRESS");
                     }
-                    if(HasBlockedJournal())
-                        return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
+                    if(QueueJournalBlockerCode() is { } queueBlocker)
+                        return Fail(id,queueBlocker);
                     if(!AsaReadyProbe.IsRegisteredServerBinary(candidate))
                         return Fail(id,"UM-STEAM-ASA-BINARY-INVALID");
                     string? steamProblem=SteamCmdError(cluster.Config.SteamCmdExecutable);
@@ -720,8 +722,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     string? localJournalCode=LocalJournalBlocker(owned);
                     if(localJournalCode!=null)return Fail(id,localJournalCode);
                     if(!Stopped(owned))return Fail(id,"UM-STEAM-STOPPED-ONLY");
-                    if(HasBlockedJournal())
-                        return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
+                    if(QueueJournalBlockerCode() is { } queueBlocker)
+                        return Fail(id,queueBlocker);
                     string? steamProblem=SteamCmdError(cluster.Config.SteamCmdExecutable);
                     if(steamProblem!=null)return Fail(id,steamProblem);
                     var steam=SteamCmdPreflight.Inspect(cluster.Config.SteamCmdExecutable);
@@ -776,8 +778,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                 if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
                 string? applyJournalCode=LocalJournalBlocker(map);
                 if(applyJournalCode!=null)return Fail(id,applyJournalCode);
-                if(HasBlockedJournal())
-                    return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
+                if(QueueJournalBlockerCode() is { } queueBlocker)
+                    return Fail(id,queueBlocker);
                 if(!Stopped(map)||
                    !string.Equals(map.InstallationPath,saved.Root,
                        StringComparison.OrdinalIgnoreCase)||
