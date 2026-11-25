@@ -2770,7 +2770,15 @@ try
     string steamDir=Path.Combine(root,"steam-toolkit");
     Directory.CreateDirectory(steamDir);
     string steamExe=Path.Combine(steamDir,"steamcmd.exe");
-    File.WriteAllText(steamExe,"SYNTHETIC STEAMCMD EXE - DO NOT EXECUTE");
+    // Synthetic PE header only: the injected runner never executes this file.
+    byte[] syntheticSteamPe=new byte[512];
+    syntheticSteamPe[0]=(byte)'M';syntheticSteamPe[1]=(byte)'Z';
+    BitConverter.GetBytes(0x80).CopyTo(syntheticSteamPe,0x3c);
+    syntheticSteamPe[0x80]=(byte)'P';syntheticSteamPe[0x81]=(byte)'E';
+    BitConverter.GetBytes((ushort)0x014c).CopyTo(syntheticSteamPe,0x84);
+    BitConverter.GetBytes((ushort)1).CopyTo(syntheticSteamPe,0x86);
+    BitConverter.GetBytes((ushort)0x00e0).CopyTo(syntheticSteamPe,0x94);
+    File.WriteAllBytes(steamExe,syntheticSteamPe);
     int fakeRuns=0;
     IProgress<SteamInstallProgress>? lateFreshInstallProgress=null;
     async Task<SteamFreshInstallReceipt> SyntheticSteamRunner(
