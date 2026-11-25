@@ -176,7 +176,6 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         }
         catch{return "UM-STEAM-QUEUE-JOURNAL-UNREADABLE";}
     }
-    private bool HasBlockedJournal()=>QueueJournalBlockerCode()!=null;
     private bool HasActiveSteamQueue()
     {
         try
