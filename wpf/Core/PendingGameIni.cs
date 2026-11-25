@@ -12,7 +12,7 @@ namespace UntamedManager.Core;
 /// map. ETag conflict is local to this draft, not a host operation blocker.</summary>
 public static class PendingGameIni
 {
-    private sealed record Draft(Guid MapId,string RootIdentity,string BaseSha,string NextSha,string Content);
+    private sealed record Draft(Guid MapId,string RootIdentity,string BaseSha,string NextSha,string Content,bool Consumed=false);
     public sealed record Receipt(Guid MapId,string State,string? NextSha256=null);
     private static string Game(LocalMap map)=>Path.Combine(map.InstallationPath,"ShooterGame","Saved","Config","WindowsServer","Game.ini");
     private static string FileFor(string profile,Guid id)
@@ -99,7 +99,7 @@ public static class PendingGameIni
                 if(d.MapId!=map.Id||d.RootIdentity!=StorePathIdentity.LocalDirectoryFingerprint(map.InstallationPath))
                     return new Receipt(map.Id,"conflict",d.NextSha);
                 var current=SafeConfigEditor.ReadGameDraft(Game(map),map.InstallationPath);
-                return new Receipt(map.Id,current.Sha256==d.NextSha?"applied":current.Sha256==d.BaseSha?"queued":"conflict",d.NextSha);
+                return new Receipt(map.Id,current.Sha256==d.NextSha?"applied":!d.Consumed&&current.Sha256==d.BaseSha?"queued":"conflict",d.NextSha);
             });
         }catch{return new(map.Id,"unavailable");}
     }
@@ -118,13 +118,16 @@ public static class PendingGameIni
             Draft? d;ConfigSnapshot current;
             try{
                 d=Read(file);
-                if(d==null||d.MapId!=map.Id||d.RootIdentity!=StorePathIdentity.LocalDirectoryFingerprint(map.InstallationPath))return false;
+                if(d==null||d.Consumed||d.MapId!=map.Id||d.RootIdentity!=StorePathIdentity.LocalDirectoryFingerprint(map.InstallationPath))return false;
                 current=SafeConfigEditor.ReadGameDraft(Game(map),map.InstallationPath);
                 if(current.Sha256!=d.BaseSha||SafeConfigEditor.Preview(current,d.Content).NewSha256!=d.NextSha)return false;
             }catch{return false;}
             bool marked=false;
             try{
-                SafeConfigEditor.ApplyGameDraftUnderLaunchLease(current,d.Content,map.InstallationPath,inspect,()=>{mark();marked=true;});
+                SafeConfigEditor.ApplyGameDraftUnderLaunchLease(current,d.Content,map.InstallationPath,inspect,()=>{
+                    Write(file,d with{Consumed=true});
+                    mark();marked=true;
+                });
                 // Keep encrypted receipt. Matching desired hash prevents
                 // a second apply after a crash or a subsequent restart.
                 return marked;

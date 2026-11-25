@@ -1,3 +1,4 @@
+import {describeNativeError} from "./state/nativeErrors";
 import {useState} from "react";
 import {managerBridge,type RelocationPreview} from "./bridge";
 export function InstallationRelocationPanel({mapId,running,onConfigured}:{mapId:string;running:boolean;onConfigured:()=>Promise<void>}){
@@ -20,7 +21,7 @@ export function InstallationRelocationPanel({mapId,running,onConfigured}:{mapId:
         if(reply.mapId!==mapId||!reply.sourceRetained)throw Error("UM-MOVE-PREVIEW");
         setPreview(reply);
       }
-    }catch(e){setNotice("A költöztetés eredménye nem igazolható. Az eredeti fájlok megmaradnak; ellenőrizd a profil útvonalát és az új mappát. "+(e instanceof Error?e.message:""));}
+    }catch(e){setNotice(describeNativeError(e instanceof Error?e.message:"UM-MOVE-UNAVAILABLE","A költöztetés eredménye nem igazolható. Az eredeti fájlok megmaradnak; ellenőrizd a profil útvonalát és az új mappát."));}
     finally{setBusy(false);}
   };
   return <details className="premium-panel" style={{padding:16}}>

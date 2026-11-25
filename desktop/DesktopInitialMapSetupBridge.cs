@@ -190,7 +190,7 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     pending[token]=new(token,map.Id,session,game,query,map.Name,level,
                         map.Arguments,map.GamePort,map.QueryPort,map.ExecutablePath,
                         map.InstallationPath,map.FreshInstallMapLevel,map.StartWithAsaApi,
-                        map.ApiLoaderPath,map.ApiLoaderArguments,map.RconPasswordProtected,map.MapModProjectId,mapModId,mapModName,
+                        map.ApiLoaderPath,map.ApiLoaderArguments,map.RconPasswordProtected,map.MapModProjectId??"",mapModId,mapModName,
                         DateTimeOffset.UtcNow);
                     return Success(id,new{
                         token,mapId=map.Id,mapName=map.Name,sessionName=session,
@@ -226,7 +226,7 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                    owned.StartWithAsaApi!=saved.BaselineUseApi ||
                    owned.ApiLoaderPath!=saved.BaselineLoaderPath ||
                    owned.ApiLoaderArguments!=saved.BaselineLoaderArguments ||
-                   owned.RconPasswordProtected!=saved.BaselineRconSecret||owned.MapModProjectId!=saved.BaselineMapModId)
+                   owned.RconPasswordProtected!=saved.BaselineRconSecret||(owned.MapModProjectId??"")!=saved.BaselineMapModId)
                 {
                     // A stale preview must not authorize a different installed
                     // level, API launch mode or credential profile. Require a
@@ -252,7 +252,7 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     ?? throw new InvalidDataException("Could not prepare local map profile");
                 copy.GamePort=saved.Game;
                 copy.QueryPort=saved.Query;
-                copy.MapModProjectId=saved.MapModId;
+                copy.MapModProjectId=string.IsNullOrEmpty(saved.MapModId)?null:saved.MapModId;
                 copy.Arguments=MapModIdentity.BuildInitialArguments(
                     saved.Level,saved.Session,saved.Game,saved.Query,saved.MapModId);
                 MapModIdentity.DemandLaunch(copy);
@@ -269,6 +269,10 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                 });
             }
             finally {gate.Release();}
+        }
+        catch(Exception ex) when(ex.Message is "UM-INITIAL-MAP-MOD-ID" or "UM-INITIAL-MAP-MOD-CATEGORY" or "UM-MAP-MOD-MUST-BE-ACTIVE" or "UM-MAP-MOD-REMASTER-FLAG")
+        {
+            return Fail(id,ex.Message);
         }
         catch(Exception)
         {

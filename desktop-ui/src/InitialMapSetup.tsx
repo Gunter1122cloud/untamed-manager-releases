@@ -1,3 +1,4 @@
+import {describeNativeError} from "./state/nativeErrors";
 import { useEffect, useState, type FormEvent } from "react";
 import { AlertTriangle, CheckCircle2, RefreshCw, Shield, Server, Settings2 } from "lucide-react";
 import {
@@ -99,8 +100,7 @@ export function InitialMapSetup({mapId,onConfigured}: {
           ? "A kiválasztott Game vagy Query UDP-portot már egy Windows-folyamat használja. Válassz szabad portokat, majd ellenőrizd újra; a Manager-profil nem módosult."
           : code==="UM-INITIAL-PORT-UNVERIFIED"
             ? "A Windows UDP-portfoglalásai most nem ellenőrizhetők megbízhatóan. Nem állítjuk, hogy a port foglalt vagy szabad; kérj új előnézetet, ha a rendszerállapot rendeződött."
-            : "A Manager nem fogadta el az indítási paramétereket ("+code+
-            "). Lehetséges helyi portütközés, futó map vagy módosult konfiguráció.");
+            : describeNativeError(code,"A Manager nem fogadta el az indítási paramétereket. Lehetséges helyi portütközés, futó map vagy módosult konfiguráció."));
     }finally{setBusy(false);}
   };
   const apply=async()=>{
