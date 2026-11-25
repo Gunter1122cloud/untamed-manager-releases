@@ -333,6 +333,45 @@ public sealed class AsaManualRestartJournal
     }
 
     /// <summary>
+    /// YARK crash-recovery port: after an unexpected ASA exit, preserve the
+    /// failed attempt and reset the same restart transaction for the next
+    /// bounded retry. The caller must prove the complete ASA/Loader family
+    /// stopped before the next Process.Start is permitted.
+    /// </summary>
+    internal AsaRestartRecord ClaimAutomaticRetry(Guid id,int failedAttempt,
+        Func<bool> verifyStopped)
+    {
+        ArgumentNullException.ThrowIfNull(verifyStopped);
+        return Exclusive(()=>{
+            var old=Observe()??throw new InvalidDataException("UM-RESTART-RETRY-JOURNAL-MISSING");
+            if(old.Id!=id||old.Phase!=AsaRestartPhase.Starting||old.NewPid<=0||
+               old.StartupAttempt!=failedAttempt||failedAttempt is <1 or >=3)
+                throw new InvalidOperationException("UM-RESTART-AUTO-RETRY-CLAIM-INVALID");
+            if(!verifyStopped())throw new InvalidOperationException("UM-RESTART-AUTO-RETRY-FAMILY-RUNNING");
+            string audit=Path.Combine(folder,key+"-"+id.ToString("N")+
+                "-startup-"+failedAttempt+".auto-retry-failed.json");
+            byte[] bytes=File.ReadAllBytes(path);
+            if(File.Exists(audit))
+            {
+                if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+                   !CryptographicOperations.FixedTimeEquals(
+                       SHA256.HashData(File.ReadAllBytes(audit)),SHA256.HashData(bytes)))
+                    throw new InvalidDataException("UM-RESTART-AUTO-RETRY-ARCHIVE-MISMATCH");
+            }
+            else
+            {
+                using var output=new FileStream(audit,FileMode.CreateNew,FileAccess.Write,
+                    FileShare.None,4096,FileOptions.WriteThrough);
+                output.Write(bytes);output.Flush(true);
+            }
+            if(!verifyStopped())throw new InvalidOperationException("UM-RESTART-AUTO-RETRY-FAMILY-CHANGED");
+            var next=old with{NewPid=0,StartupAttempt=failedAttempt+1,
+                ChangedUtc=DateTimeOffset.UtcNow};
+            Write(next);return next;
+        });
+    }
+
+    /// <summary>
     /// Automatically archives a failed restart after its worker has exited.
     /// A live Stopping/Starting transaction is retained for its normal
     /// ten-minute readiness window; NeedsOperator is a terminal failure,
