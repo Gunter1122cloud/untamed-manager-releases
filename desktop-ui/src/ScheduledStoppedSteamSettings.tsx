@@ -21,13 +21,12 @@ export function ScheduledStoppedSteamSettings({mapId}:{mapId:string}) {
     return ()=>{active=false;};
   },[mapId]);
   const legacy=overview?.schedules.find(s=>s.mapId===mapId);
-  return <section className="historical-preview" aria-label="Kizárólag kézi ASA SteamCMD frissítés">
-    <h3><Shield size={17}/> SteamCMD – kizárólag kézi frissítés</h3>
-    <p className="muted small">Az automatikus SteamCMD-frissítés teljesen le van tiltva:
-      nem indul alkalmazásstartkor, időzítésre, új build észlelésekor vagy újracsatlakozáskor.
-      A „Frissítés ellenőrzése” csak lekérdez; az egyes mapokat kizárólag a
-      „Frissítés” külön, kifejezett jóváhagyásával lehet módosítani.</p>
-    <p role="status"><Shield size={15}/> Automatikus frissítés: kikapcsolva.
+  return <section className="historical-preview" aria-label="Korábbi SteamCMD ütemezések">
+    <h3><Shield size={17}/> SteamCMD – korábbi ütemezések</h3>
+    <p className="muted small">A korábbi automatikus SteamCMD-ütemezések inaktívak maradnak.
+      Az új gördülő frissítés külön engedélyezhető; a régi időzítőket nem lehet visszakapcsolni.
+      A kézi frissítés továbbra is külön jóváhagyással működik.</p>
+    <p role="status"><Shield size={15}/> Régi automatikus frissítés: kikapcsolva.
       {legacy?" · Korábbi ütemezés megtartva, de inaktív.":""}</p>
     {legacy?.lastStatus==="needs-operator"&&
       <p className="warning-inline"><AlertTriangle size={16}/>

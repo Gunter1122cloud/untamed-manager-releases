@@ -663,7 +663,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     approvalsByMap[map.Id]=permit;
                     return Ok(id,new{
                         token=permit.Token,mapId=map.Id,mapName=map.Name,
-                        currentPid=original.Pid,saveWorldBeforeExit=true,
+                        currentPid=original.Pid,currentStartedUtc=original.StartedUtc,saveWorldBeforeExit=true,
                         verifiesOldProcessExit=true,autoRetry=false,
                         killPerformed=false,storeTouched=false,
                         evidence="REAL_LOCAL_NONSTORE_RESTART_PREVIEW_NO_WRITES"

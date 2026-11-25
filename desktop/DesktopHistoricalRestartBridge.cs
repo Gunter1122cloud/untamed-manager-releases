@@ -320,7 +320,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     approvalsByMap[mapId]=permit;
                     return Ok(id,new{
                         token=permit.Token,mapId,mapName=map.Name,
-                        pid=owned.Process.Pid,rconPort=map.RconPort,
+                        pid=owned.Process.Pid,currentStartedUtc=owned.Process.StartedUtc,rconPort=map.RconPort,
                         launchMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",
                         liveModOrder=permit.LiveMods?.Enabled,
                         nextModOrder=permit.RestartMods?.Enabled,

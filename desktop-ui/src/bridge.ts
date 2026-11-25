@@ -1827,7 +1827,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.gracefulStopCurrent" | "servers.gracefulStopReview" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" |
   "servers.restartReviewPreview" | "servers.restartReviewApply" |
   "servers.freshReadiness" | "servers.lifecycleJournal" |
-  "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStart" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.selectExecutable" | "steam.prepareExecutable" | "steam.discoverExecutables" | "steam.acceptDiscoveredExecutable" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStart" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
+  "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStart" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.selectExecutable" | "steam.prepareExecutable" | "steam.discoverExecutables" | "steam.acceptDiscoveredExecutable" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStart" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" | "steam.rollingStatus" | "steam.rollingSet" | "steam.rollingReview" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "servers.apiModeStatus" |
   "servers.apiModePreview" | "servers.apiModeApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
@@ -1887,7 +1887,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   keepFutureRestart?:boolean;
   gamePort?: number; queryPort?: number; customLevel?: string; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
-  plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
+  plugin?: string; enabled?: boolean; apiRiskAccepted?:boolean; channel?: "stable"|"preview";
   assetName?:string;transactionId?:string;
   expectedTag?:string;expectedSha256?:string;
   point?:string; action?:string; message?:string; typedApproval?:string; confirmation?:string;
@@ -2155,6 +2155,15 @@ export const managerBridge = {
       }),
   steamBatchStatus: (jobId:string) =>
     request<StoppedSteamBatchJob>("steam.batchStatus",{jobId}),
+  steamRollingStatus: () => request<{
+    settings:{mapId:string;enabled:boolean;apiRiskAccepted:boolean}[];
+    current:{id:string;mapId:string;state:string;stage:string;oldBuild:string;targetBuild:string;error?:string|null}|null;
+    busy:boolean;intervalMinutes:number;warningMinutes:number;hostLocalOnly:boolean;runnerStarted:boolean
+  }>("steam.rollingStatus"),
+  steamRollingSet: (mapId:string,enabled:boolean,apiRiskAccepted:boolean) =>
+    request<{mapId:string;enabled:boolean;apiRiskAccepted:boolean}>("steam.rollingSet",{mapId,enabled,apiRiskAccepted,confirm:true}),
+  steamRollingReview: (runId:string) =>
+    request<{reviewed:boolean;allDisabled:boolean;noReplay:boolean}>("steam.rollingReview",{runId,confirm:true}),
   steamScheduledStatus: () =>
     request<ScheduledStoppedSteamOverview>("steam.scheduleStatus"),
   steamScheduledSet: (mapId:string,intervalMinutes:number,typedApproval:string) =>

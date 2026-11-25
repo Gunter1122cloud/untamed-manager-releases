@@ -189,6 +189,14 @@ class ObsidianControl(commands.Cog):
         return Identity(member.id,ch.id,())
 
     async def call(self, label, who, kind, *, interaction=None, **data):
+        # Read-only status uses the native observation lane. Never wait
+        # behind an unrelated mutation in the adapter either.
+        if kind in ("status","players","job","events","scheduleHistory","backupHistory"):
+            result = await async_call(self.hosts[label],guild_id=self.guild_id,channel_id=who.channel_id,
+                user_id=who.user_id,role_ids=who.role_ids,kind=kind,**data)
+            if not result["ok"]:
+                raise RuntimeError(clean(result.get("error","API rejected"),100))
+            return result["data"]
         async with self.host_locks[label]:
             # A request may have waited behind a long backup/update. Re-fetch
             # actual permissions once the lock is acquired, not before waiting.
@@ -451,7 +459,8 @@ class ObsidianControl(commands.Cog):
         await interaction.followup.send("Jóváhagyás (90 mp): "+clean(summary,1500),view=Confirm(self,who.user_id,label,plan,summary),ephemeral=True,allowed_mentions=NONE)
 
     async def apply(self, interaction, actor, label, plan, summary):
-        await interaction.response.defer(ephemeral=True,thinking=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True,thinking=True)
         try:
             who=await self.identity(interaction,actor)
         except Exception:
@@ -578,15 +587,21 @@ class Confirm(discord.ui.View):
         self.used=False
         button=discord.ui.Button(label="Jóváhagyom",style=discord.ButtonStyle.danger)
         async def approve(interaction):
-            # Reject another actor before consuming the local view.
+            # Acknowledge the interaction before a potentially slow Discord
+            # member/role fetch. Only the original actor can consume the view.
+            if interaction.user.id!=actor:
+                await interaction.response.send_message("Hozzáférés megtagadva.",ephemeral=True)
+                return
+            await interaction.response.defer(ephemeral=True,thinking=True)
             try:await cog.identity(interaction,actor)
             except Exception:
-                if not interaction.response.is_done():await interaction.response.send_message("Hozzáférés megtagadva.",ephemeral=True)
+                await interaction.followup.send("Hozzáférés megtagadva.",ephemeral=True)
                 return
             if self.used:
-                await interaction.response.send_message("A jóváhagyás már felhasznált.",ephemeral=True)
+                await interaction.followup.send("A jóváhagyás már felhasznált.",ephemeral=True)
                 return
             self.used=True
+            button.disabled=True
             self.stop()
             await cog.apply(interaction,actor,label,plan,summary)
         button.callback=approve

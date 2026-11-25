@@ -1,10 +1,10 @@
 """Offline UI and transport checks; no Discord/ASA network connections."""
 import tempfile
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
 from obsidian_discord_client import Host
-from obsidian_discord_cog import ObsidianControl, MapPicker, ACTIONS, Identity
+from obsidian_discord_cog import ObsidianControl, MapPicker, ACTIONS, Identity, Confirm
 
 class TestHost(unittest.TestCase):
     def test_reject_public_and_invalid_credentials(self):
@@ -79,5 +79,45 @@ class TestPanel(unittest.IsolatedAsyncioTestCase):
                     with self.assertRaises(PermissionError):
                         await cog.call("test",who,"preview")
                     transport.assert_not_awaited()
+            finally:
+                cog.panel.stop()
+
+    async def test_confirm_defers_before_slow_role_check_and_is_single_use(self):
+        actor=123456789012345678
+        cog=MagicMock()
+        interaction=MagicMock()
+        interaction.user.id=actor
+        interaction.response.defer=AsyncMock()
+        interaction.followup.send=AsyncMock()
+        async def identity(*args):
+            interaction.response.defer.assert_awaited()
+            return Identity(actor,223456789012345678,())
+        cog.identity=AsyncMock(side_effect=identity)
+        cog.apply=AsyncMock()
+        view=Confirm(cog,actor,"test",{"action":"restart"},"fixture")
+        try:
+            await view.children[0].callback(interaction)
+            await view.children[0].callback(interaction)
+            cog.apply.assert_awaited_once()
+            self.assertTrue(view.used)
+            interaction.followup.send.assert_awaited_once()
+        finally:
+            view.stop()
+
+    async def test_read_only_events_do_not_wait_for_mutation_lock(self):
+        import asyncio
+        with tempfile.TemporaryDirectory() as temp:
+            cog=ObsidianControl(None,dict(guild_id=123456789012345678,
+                role_ids=[223456789012345678],state_file=str(Path(temp)/"state.json"),
+                hosts={"test":{"address":"127.0.0.1","port":19443,
+                    "certificate_sha256":"a"*64,"credential":"b"*64}}))
+            who=Identity(323456789012345678,423456789012345678,(223456789012345678,))
+            try:
+                with patch("obsidian_discord_cog.async_call",new_callable=AsyncMock) as transport:
+                    transport.return_value={"ok":True,"data":{"events":[]}}
+                    async with cog.host_locks["test"]:
+                        result=await asyncio.wait_for(cog.call("test",who,"events"),timeout=1)
+                    self.assertEqual(result,{"events":[]})
+                    transport.assert_awaited_once()
             finally:
                 cog.panel.stop()

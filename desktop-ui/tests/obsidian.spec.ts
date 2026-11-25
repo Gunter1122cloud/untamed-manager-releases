@@ -273,6 +273,7 @@ test.beforeEach(async ({ page }) => {
       .__UNTAMED_API_CORE_INSTALLS__=()=>apiCoreInstalls;
     let steamUpdateStarted = false;
     let steamExecutableConfigured=true;
+    const rollingSteamSettings=new Map<string,{mapId:string;enabled:boolean;apiRiskAccepted:boolean}>();
     (window as typeof window & {__UNTAMED_STEAM_PATH_MISSING__?:()=>void})
       .__UNTAMED_STEAM_PATH_MISSING__=()=>{steamExecutableConfigured=false;};
     let singleSteamHeld=false;
@@ -3381,6 +3382,15 @@ test.beforeEach(async ({ page }) => {
             changedUtc:"2026-11-10T09:30:00Z",
             serverStopRequested:false,remoteHostTouched:false,
             storeWriterTouched:false,automaticRetry:false};
+        case "steam.rollingStatus": return {
+          settings:[...rollingSteamSettings.values()],current:null,busy:false,
+          intervalMinutes:15,warningMinutes:5,hostLocalOnly:true,runnerStarted:true};
+        case "steam.rollingSet": {
+          if(!m.confirm||!m.mapId||typeof m.enabled!=="boolean")throw new Error("UM-ROLLING-APPROVAL");
+          const value={mapId:m.mapId,enabled:m.enabled,apiRiskAccepted:!!m.apiRiskAccepted&&m.enabled};
+          rollingSteamSettings.set(m.mapId,value);return value;
+        }
+        case "steam.rollingReview": return {reviewed:true,allDisabled:true,noReplay:true};
         case "steam.scheduleStatus": return {
           hostId:state.local.hostId,runnerState:"manual-only",
           schedules:[],
@@ -3703,7 +3713,7 @@ test("real native per-map SaveWorld and Restart schedule controls save in one de
   await expect(restart.getByRole("checkbox",{name:/Kifejezetten jóváhagyom/})).toHaveCount(0);
   await restart.getByRole("button",{name:"Ütemezés mentése"}).click();
   await expect(restart.getByText("Bekapcsolva")).toBeVisible();
-  await expect(panel.getByText(/Automatikus SteamCMD-frissítés nem engedélyezett/)).toBeVisible();
+  await expect(panel.getByText(/Automatikus SteamCMD-frissítés külön a Frissítés fülön engedélyezhető/)).toBeVisible();
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.getByLabel("Fő navigáció").getByRole("button",{name:"Üzemeltetés",exact:true}).click();
   const row=page.locator(".ops-compact-table tbody tr").nth(1);
@@ -8498,20 +8508,27 @@ test("real stopped-map SteamCMD update is opt-in and reports verified outcome",a
   await expect(page.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toHaveCount(0);
 });
 
-test("SteamCMD schedule is permanently disabled; only separately approved manual update remains",async({page})=>{
+test("Legacy SteamCMD schedules stay disabled; new rolling mode requires opt-in",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await page.getByRole("tab",{name:"Frissítés"}).click();
   const policy=page.getByRole("region",{
-    name:"Kizárólag kézi ASA SteamCMD frissítés"
+    name:"Korábbi SteamCMD ütemezések"
   });
   await expect(policy).toBeVisible();
-  await expect(policy).toContainText("Automatikus frissítés: kikapcsolva");
-  await expect(policy).toContainText("kizárólag");
+  await expect(policy).toContainText("Régi automatikus frissítés: kikapcsolva");
+  await expect(policy).toContainText("inaktívak maradnak");
   await expect(policy.getByRole("textbox")).toHaveCount(0);
   await expect(policy.getByRole("spinbutton")).toHaveCount(0);
   await expect(policy.getByRole("button")).toHaveCount(0);
+  const rolling=page.getByRole("region",{name:"Automatikus szerverfrissítés",exact:true});
+  await expect(rolling).toContainText("Automatikus frissítés: Kikapcsolva");
+  await rolling.getByRole("checkbox").check();
+  await rolling.getByRole("button",{name:"Automatikus frissítés bekapcsolása"}).click();
+  await expect(rolling).toContainText("Automatikus frissítés: Bekapcsolva");
+  await rolling.getByRole("button",{name:"Automatikus frissítés kikapcsolása"}).click();
+  await expect(rolling).toContainText("Automatikus frissítés: Kikapcsolva");
 });
 
 test("another map's SteamCMD job releases its global lock after completion without replay",async({page})=>{

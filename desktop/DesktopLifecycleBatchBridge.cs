@@ -206,15 +206,32 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
     }
     private void Write(Receipt receipt)
     {
-        NoLinks();
-        string tmp=journal+"."+Guid.NewGuid().ToString("N")+".tmp";
-        try
+        // HandleAsync reads the same journal under sync. Do not replace an
+        // open Windows file concurrently with a status poll in this process.
+        // A write failure must never cause a lifecycle command to be replayed.
+        lock(sync)
         {
-            using(var f=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough))
-            {JsonSerializer.Serialize(f,receipt,json);f.Flush(true);}
-            File.Move(tmp,journal,true);
+            NoLinks();
+            string tmp=journal+"."+Guid.NewGuid().ToString("N")+".tmp";
+            try
+            {
+                using(var f=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough))
+                {JsonSerializer.Serialize(f,receipt,json);f.Flush(true);}
+                File.Move(tmp,journal,true);
+            }
+            finally{if(File.Exists(tmp))File.Delete(tmp);}
         }
-        finally{if(File.Exists(tmp))File.Delete(tmp);}
+    }
+    private void Finish(Receipt receipt,FileStream held)
+    {
+        // Publish the terminal receipt and release the owner lease as one
+        // observation boundary. A caller cannot observe completed and race
+        // the still-held owner lease while preparing the next serial stage.
+        lock(sync)
+        {
+            Write(receipt);
+            held.Dispose();
+        }
     }
     // A running or uncertain durable batch keeps manager update on hold.
     internal bool CanManagerUpdate()
@@ -373,17 +390,23 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                     {
                         Set(i,"unknown",NativeLifecycleFailureCode.From(ex));
                         for(int j=i+1;j<approved.Plans.Length;j++)Set(j,"skipped","HALTED_AFTER_UNCERTAIN_NATIVE_OPERATION");
-                        receipt=receipt with{State="needsReview",UpdatedUtc=DateTimeOffset.UtcNow};Write(receipt);
+                        receipt=receipt with{State="needsReview",UpdatedUtc=DateTimeOffset.UtcNow};Finish(receipt,held);
                         events.Emit("terminal","uncertain","BATCH_HALTED_AFTER_UNCERTAIN_NATIVE_OPERATION");
                         DesktopDiscordNotifications.Record(cluster,plan.MapId,"lifecycle",true);return;
                     }
                     if(i+1<approved.Plans.Length&&approved.DelaySeconds>0)
                         await Task.Delay(TimeSpan.FromSeconds(approved.DelaySeconds),ct);
                 }
-                receipt=receipt with{State="completed",UpdatedUtc=DateTimeOffset.UtcNow};Write(receipt);
+                receipt=receipt with{State="completed",UpdatedUtc=DateTimeOffset.UtcNow};Finish(receipt,held);
                 events.Emit("terminal","limited",receipt.Targets.All(t=>t.State=="completed")?"BATCH_LOCAL_RECEIPTS_CLIENT_GAMEPLAY_UNVERIFIED":"BATCH_COMPLETED_WITH_SKIPPED_TARGETS");
             }
-            catch{/* The disk claim survives any write failure or process exit. Never replay. */}
+            catch(Exception ex)
+            {
+                // The disk claim survives any write failure or process exit.
+                // Record only the bounded code, never paths or raw exceptions.
+                System.Diagnostics.Trace.TraceError("Lifecycle batch journal: "+NativeLifecycleFailureCode.From(ex));
+                events.Emit("terminal","uncertain",NativeLifecycleFailureCode.From(ex));
+            }
         }
     }
     public void Dispose(){lock(sync){disposed=true;pending=null;closing.Cancel();}}
