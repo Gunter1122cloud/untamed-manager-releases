@@ -98,9 +98,9 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
           latestRestart.set(mapId,summary);
           setMessage(summary);
           onRestarted().catch(()=>{});
-        }else if(state.state==="needsOperator"){
-          setJobId(null);setNeedsLocalReview(true);
-          setError("A szerver újraindítása félbeszakadt. Automatikus ismétlés nem történt. Ellenőrizd a Windows-folyamatot és a natív műveleti naplót.");
+        }else if(state.state==="needsOperator"||state.state==="failed"){
+          setJobId(null);setNeedsLocalReview(false);setAuditConfirmed(true);
+          setError("Az előző Restart sikertelen volt. A Manager automatikusan archiválja a félbemaradt műveletet; új Start/Restart indítható.");
         }
       }catch{
         if(active&&belongs(mapId)){
@@ -115,10 +115,9 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     return ()=>{active=false;window.clearInterval(timer);};
   },[jobId,mapId,onRestarted]);
 
-  const pendingJournalReview=durable?.needsOperatorReview===true&&!auditConfirmed;
+  const pendingJournalReview=false; // YARK-style automatic recovery replaces operator review.
   const run=async()=>{
-    if(mutationInFlight.current||!mapId||!running||busy||jobId||journalBlocked||
-       needsLocalReview||pendingJournalReview||reconciling||reconcileFailed)return;
+    if(mutationInFlight.current||!mapId||!running||busy||jobId)return;
     mutationInFlight.current=true;
     const requested=mapId;
     setBusy(true);setError("");setMessage("");
@@ -252,17 +251,15 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     }
   };
 
-  const showRecovery=!jobId&&!reconciling&&!reconcileFailed&&!auditConfirmed&&
-    !!(durable?.needsOperatorReview||needsLocalReview)&&
-    (durable===null||durable.belongsToMap);
+  const showRecovery=false; // No manual journal-rearrangement panel.
   return <section className="premium-panel" aria-label="Valódi ASA normál újraindítása" style={{padding:20,marginBlock:18}}>
     <header className="premium-panel-heading">
       <h2><RotateCcw size={19}/> ASA normál újraindítása</h2>
     </header>
     <p>A C# Manager a régi szerveren új, stabil .ark mentési bizonyítékot figyel, naplójelzéssel, ha az ASA naplózza. DoExit és a régi PID megszűnése után egyszer indítja el az új folyamatot. ASA API módban a Loader gyermekének és az RCON tulajdonosának ellenőrzése is szükséges. Csak saját, helyi normál vagy újonnan regisztrált Store-mapokhoz; a történeti korábbi Manager Store-mapok külön védett műveleteket használnak.</p>
-    <p className="muted small">Kizárólag a kiválasztott map ({mapId}): SaveWorld → DoExit → régi PID megszűnésének natív igazolása → új indítás. Nincs Kill vagy automatikus ismétlés.</p>
+    <p className="muted small">Kizárólag a kiválasztott map ({mapId}): SaveWorld → DoExit → régi PID megszűnésének igazolása → új indítás. YARK-alapú, legfeljebb három automatikus startup-próba; nincs Kill.</p>
     <button type="button" className="primary"
-      disabled={!running||busy||!!jobId||journalBlocked||needsLocalReview||pendingJournalReview||reconciling||reconcileFailed}
+      disabled={!running||busy||!!jobId||journalBlocked}
       onClick={()=>{void run();}}><RotateCcw size={16}/> Szerver újraindítása</button>
     {reconciling&&<p role="status">Korábbi Restart-feladat ellenőrzése…</p>}
     {reconcileFailed&&<button type="button" className="secondary"
@@ -299,6 +296,6 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     </div>}
     {message&&<div className="success-inline" role="status"><CheckCircle2 size={17}/>{message}</div>}
     {error&&<div className="error-inline" role="alert"><AlertTriangle size={17}/>{error}</div>}
-    <p className="muted tiny">A Manager nem végez kényszerített Kill-t, nem módosít karakter- vagy Store-v1-fájlokat, és hiba után nem indít másodszor automatikusan.</p>
+    <p className="muted tiny">A Manager nem végez kényszerített Kill-t és nem módosít karakter- vagy Store-v1-fájlokat. Indítási összeomlás esetén korlátozott automatikus helyreállítást használ.</p>
   </section>;
 }

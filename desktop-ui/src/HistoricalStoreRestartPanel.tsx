@@ -83,10 +83,9 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted,refreshRe
             if(alive&&belongs(mapId))
               setError("Az új ASA PID natív visszaigazolása megvan, de a dashboard nem frissült; nem indítjuk újra a műveletet.");
           }
-        }else if(result.state==="needsOperator"&&!finished.current){
+        }else if((result.state==="needsOperator"||result.state==="failed")&&!finished.current){
           finished.current=true;
-          setError("A Store-v1 Restart megszakadt. Nincs automatikus ismétlés. "+
-            "Ellenőrizd az eredeti ASA PID-et és az újraindítási naplót.");
+          setError("A Store-v1 Restart sikertelen. A hibás műveleti állapot automatikusan rendeződik; az Indítás gomb újra használható.");
         }
       }catch{
         if(alive&&belongs(mapId))setError("A natív Store-v1 Restart állapota nem olvasható; ne indítsd újra.");
@@ -99,7 +98,7 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted,refreshRe
   const refreshRecovery=async(automatic=false)=>{
     // Read-only check: clearing a SaveWorld recovery receipt in its own
     // panel must not require closing/restarting this Manager or repeating RCON.
-    if(busy||(jobId&&job?.state!=="completed"&&job?.state!=="needsOperator"))return;
+    if(busy||(jobId&&job?.state!=="completed"&&job?.state!=="needsOperator"&&job?.state!=="failed"))return;
     const requested=mapId;
     setBusy(true);setChecked(false);setError("");if(!automatic)setNotice("");
     
@@ -139,7 +138,7 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted,refreshRe
       }
     }finally{if(belongs(requested))setBusy(false);}
   };
-  useMapEvidenceRefresh(refreshRevision,busy||!!jobId&&job?.state!=="completed"&&job?.state!=="needsOperator",()=>refreshRecovery(true));
+  useMapEvidenceRefresh(refreshRevision,busy||!!jobId&&job?.state!=="completed"&&job?.state!=="needsOperator"&&job?.state!=="failed",()=>refreshRecovery(true));
   const inspect=async()=>{
     if(actionInFlight.current||busy||!running||!checked||!recovery||
        recovery.blocked||recovery.inMemoryRunning||jobId||error)return;
@@ -189,11 +188,7 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted,refreshRe
         DoExit → a régi Windows PID kilépése → a megőrzött -usestore
         indítás újbóli ellenőrzése → új helyi ASA PID. Az opcionális ASA API Loader
         módnál a gyermek ASA PID és RCON-tulajdonlás külön igazolandó.
-        A kétgépes Store session/lock változatlan. Nincs automatikus újrapróbálás vagy konverzió.</p>
-      <button type="button" className="secondary" disabled={busy}
-        onClick={()=>{void refreshRecovery();}}>
-        <RefreshCw size={16}/> Store-v1 napló újraellenőrzése
-      </button>
+        A kétgépes Store session/lock változatlan. A sikertelen indításokat a Manager automatikusan, korlátozottan újrapróbálja.</p>
       <p className="muted small">Hatókör: kizárólag a kiválasztott map ({mapId}).
         A gomb SaveWorld, szabályos DoExit, igazolt régi PID-kilépés,
         majd ugyanennek a mapnak új indítását kéri; nem Kill vagy konverzió.</p>
@@ -221,7 +216,7 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted,refreshRe
       {job&&<div className="details-line" role="status">
         <span><RefreshCw size={15}/> {job.state==="running"?"Folyamatban":
           job.state==="completed"?"Új ASA kész":
-          job.state==="needsOperator"?"Kézi ellenőrzés szükséges":"Sorban áll"}</span>
+          job.state==="needsOperator"||job.state==="failed"?"Sikertelen – új indítás elérhető":"Sorban áll"}</span>
         <b>{job.step}</b>
       </div>}
       {job&&<div className="details-line" role="status"
