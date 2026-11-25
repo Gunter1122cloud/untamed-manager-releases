@@ -95,7 +95,9 @@ internal static class LegacyStoreV1NativeStartPlanner
         ClusterService cluster,LocalMap map,string pinnedProfile)
     {
         var source=LegacyStoreV1OriginalImport.Inspect(pinnedProfile);
-        LegacyStoreV1PinnedSource.RequireImmutableIdentity(map,source);
+        if(string.Equals(pinnedProfile,LocalOriginal,StringComparison.OrdinalIgnoreCase))
+            LegacyStoreV1PinnedSource.DemandRegisteredLocalRuntimeSource(map,source);
+        else LegacyStoreV1PinnedSource.RequireImmutableIdentity(map,source);
         var original=LegacyStoreV1PinnedSource.ReadOriginalCluster(pinnedProfile);
         string clusterId=string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)?
             original.RuntimeClusterId:map.HistoricalRuntimeClusterId;
