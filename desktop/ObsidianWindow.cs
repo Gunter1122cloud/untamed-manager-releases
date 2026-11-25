@@ -162,7 +162,7 @@ public sealed class ObsidianWindow : Form
             "servers.lifecycleJournal" or
             "servers.lifecycleRecoveryPreview" or
             "operations.snapshot" or "operations.map" or "operations.lifecycleBatchCurrent" or "notifications.status" or
-            "schedule.nativeStatus" or "schedule.nativeOverview" or
+            "schedule.nativeStatus" or "schedule.nativeOverview" or "steam.rollingStatus" or "steam.rollingSet" or "steam.rollingReview" or
             "servers.gracefulStopStatus" or "servers.gracefulStopCurrent" or "servers.restartStatus" or
             "servers.restartCurrent" or "servers.freshStartStatus" or
             "historical.restartStatus" or "historical.restartRecovery" or
@@ -286,6 +286,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopRconConfigurationBridge _rconConfig;
     private readonly DesktopStoppedSteamUpdateBridge _steamUpdate;
     private readonly DesktopStoppedSteamBatchBridge _steamBatch;
+    private readonly DesktopRollingSteamSupervisor _rollingSteam;
     private readonly DesktopScheduledStoppedSteamSupervisor _scheduledSteam;
     private readonly DesktopScheduledStoppedSteamBridge _scheduledSteamBridge;
     private readonly DesktopFreshAsaStartBridge _freshStart;
@@ -398,6 +399,8 @@ public sealed class ObsidianWindow : Form
             TryEnterWatchdogLane,ReleaseRecoveryLane,()=>_updateHandoff,
             _freshStart.HandleAsync,_historicalStart.HandleAsync,_historicalReadOnlyRcon.HandleAsync);
         _nativeSchedules.AutomaticRecoveryPending=_recovery.HasPendingRecovery;
+        _rollingSteam=new DesktopRollingSteamSupervisor(_bridge.LocalCluster,_lifecycleBatch,_steamUpdate,_bridgeGate,
+            ()=>_recovery.CanManagerUpdate()&&TryEnterWatchdogLane(),ReleaseRecoveryLane,()=>_updateHandoff||_suppressScheduledMutations);
         _discordControl = new DesktopDiscordControlApi(_bridge.LocalCluster,_bridgeGate,()=>_updateHandoff,
             TryEnterRecoveryLane,ReleaseRecoveryLane,DispatchDiscordNative,_asaDiscovery.Snapshot,_nativeSchedules.LegacyOperationHistory);
         _liveMods=new DesktopHistoricalLiveModSync(_bridge.LocalCluster,_bridgeGate,
@@ -459,6 +462,7 @@ public sealed class ObsidianWindow : Form
                     _notifications.Start();
                     _recovery.Start();
                     _discordControl.Start();
+                    _rollingSteam.Start();
                 }
                 _scheduledSteam.Start();
                 try { await _bridge.LocalCluster.BeginLanAsync(); }
@@ -468,6 +472,8 @@ public sealed class ObsidianWindow : Form
         };
         FormClosing += (_, e) =>
         {
+            if(_rollingSteam.Busy&&e.CloseReason==CloseReason.UserClosing&&_reallyExit)
+            {e.Cancel=true;return;}
             if (!_reallyExit && e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
@@ -482,6 +488,7 @@ public sealed class ObsidianWindow : Form
             _asaDiscovery.Dispose();
             _readOnlySupervisor.Dispose();
             _scheduledBackups.Dispose();
+            _rollingSteam.Dispose();
             _scheduledSteam.Dispose();
             _nativeSchedules.Dispose();
             _lifecycleBatch.Dispose();
@@ -813,6 +820,7 @@ public sealed class ObsidianWindow : Form
                         ? NativeErrorResponse(incoming,"UM-UPDATE-MANAGER-HANDOFF")
                         : IsManualOnlyDeniedPluginMethod(methodName)
                         ? NativeErrorResponse(incoming,"UM-PLUGIN-MANUAL-FOLDER-ONLY")
+                        : methodName is "steam.rollingStatus" or "steam.rollingSet" or "steam.rollingReview" ? await _rollingSteam.HandleAsync(incoming)
                         : apiCoreRoute ? await _apiCore.HandleAsync(incoming)
                         : lanRoute ? await _lan.HandleAsync(incoming)
                         : nativeScheduleRoute ? await _nativeSchedules.HandleAsync(incoming)

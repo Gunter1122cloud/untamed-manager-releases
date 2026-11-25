@@ -52,6 +52,7 @@ import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
 import { OperationsCenter } from "./OperationsCenter";
 import { NativeMapScheduler } from "./NativeMapScheduler";
+import { RollingSteamSettings } from "./RollingSteamSettings";
 import { MapMaintenancePanel } from "./MapMaintenancePanel";
 import { LanSettingsPanel } from "./LanSettingsPanel";
 import { ClusterRegistryPanel } from "./ClusterRegistryPanel";
@@ -2005,6 +2006,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured,onOpenCluste
         <div className="warning-inline"><Shield size={17}/> Eredeti Store-v1: a natív SteamCMD-frissítés csak teljesen leállított helyi ASA/Loader folyamatokkal, előzetes védőmentéssel és jóváhagyással hajtható végre. A közös Store és a másik gép nem módosul.</div>}
       {map.freshStoreEnrolled&&
         <div className="warning-inline"><Shield size={17}/> Új Store-map: csak az egyedül birtokolt, igazoltan leállított helyi ASA-telepítés frissíthető, a ClusterRegistry- és transzfer-fájlazonosság újraellenőrzésével. A közös transzferadatokat nem módosítjuk, és nincs automatikus újraindítás.</div>}
+      <RollingSteamSettings key={mapId} mapId={mapId}/>
       <StoppedSteamUpdate maps={[map]} fixedMapId={mapId}/>
     </div>}
     {section==="mods" && <Mods key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>} 

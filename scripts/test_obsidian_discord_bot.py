@@ -1,10 +1,10 @@
 """Offline UI and transport checks; no Discord/ASA network connections."""
 import tempfile
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
 from obsidian_discord_client import Host
-from obsidian_discord_cog import ObsidianControl, MapPicker, ACTIONS, Identity
+from obsidian_discord_cog import ObsidianControl, MapPicker, ACTIONS, Identity, Confirm
 
 class TestHost(unittest.TestCase):
     def test_reject_public_and_invalid_credentials(self):
@@ -81,3 +81,25 @@ class TestPanel(unittest.IsolatedAsyncioTestCase):
                     transport.assert_not_awaited()
             finally:
                 cog.panel.stop()
+
+    async def test_confirm_defers_before_slow_role_check_and_is_single_use(self):
+        actor=123456789012345678
+        cog=MagicMock()
+        interaction=MagicMock()
+        interaction.user.id=actor
+        interaction.response.defer=AsyncMock()
+        interaction.followup.send=AsyncMock()
+        async def identity(*args):
+            interaction.response.defer.assert_awaited()
+            return Identity(actor,223456789012345678,())
+        cog.identity=AsyncMock(side_effect=identity)
+        cog.apply=AsyncMock()
+        view=Confirm(cog,actor,"test",{"action":"restart"},"fixture")
+        try:
+            await view.children[0].callback(interaction)
+            await view.children[0].callback(interaction)
+            cog.apply.assert_awaited_once()
+            self.assertTrue(view.used)
+            interaction.followup.send.assert_awaited_once()
+        finally:
+            view.stop()
