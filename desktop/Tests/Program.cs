@@ -57,6 +57,31 @@ static bool IsError(JsonElement value,string code)=>
     !value.GetProperty("ok").GetBoolean() &&
     value.GetProperty("error").GetString()==code;
 
+// Missing/failed SaveWorld telemetry must not strand an otherwise owned Stop.
+var noSaveWitness=await AsaGracefulStop.ObserveSaveBrieflyAsync(null,()=>{},CancellationToken.None);
+Check(!noSaveWitness.LogAndWorld&&!noSaveWitness.WorldMetadata,
+    "missing save witness remains unverified instead of blocking shutdown");
+int fallbackChecks=0;
+Check(!await AsaGracefulStop.TrySendSaveAsync(
+    ()=>Task.FromException(new IOException("synthetic lost RCON transport")),
+    ()=>fallbackChecks++,null,CancellationToken.None)&&fallbackChecks==1,
+    "failed SaveWorld transport permits DoExit only after owner recheck");
+bool changedOwnerDenied=false;
+try{await AsaGracefulStop.TrySendSaveAsync(
+    ()=>Task.FromException(new IOException("synthetic lost transport")),
+    ()=>throw new InvalidOperationException("synthetic changed owner"),null,CancellationToken.None);}
+catch(InvalidOperationException){changedOwnerDenied=true;}
+Check(changedOwnerDenied,"changed owner prevents DoExit fallback");
+using(var cancelledSave=new CancellationTokenSource())
+{
+    cancelledSave.Cancel();
+    bool cancellationPreserved=false;
+    try{await AsaGracefulStop.TrySendSaveAsync(
+        ()=>Task.FromCanceled(cancelledSave.Token),()=>fallbackChecks++,null,cancelledSave.Token);}
+    catch(OperationCanceledException){cancellationPreserved=true;}
+    Check(cancellationPreserved&&fallbackChecks==1,"cancelled operation does not permit DoExit fallback");
+}
+
 OriginalStoreExpandedDonePeerTests.Run();
 LocalLogCenterBoundedTests.Run();
 await HostedResourcesTests.RunAsync();
