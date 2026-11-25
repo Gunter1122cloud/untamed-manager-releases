@@ -36,7 +36,7 @@ export function RollingSteamSettings({mapId}:{mapId:string}){
         onChange={e=>setRisk(e.target.checked)}/> Elfogadom az automatikus szerverfrissítést ASA API használatakor is, a pluginok kompatibilitási kockázatával.</label>}
       <div className="button-row">
         <button type="button" className={enabled?"secondary":"primary"}
-          disabled={busy||!status||!enabled&&(!status.runnerStarted||status.busy||!!unresolved&&!["preflight","countdown"].includes(status.current?.stage??""))}
+          disabled={busy||!status||!enabled&&(!status.runnerStarted||status.busy||!!unresolved&&status.current?.mapId===mapId&&!["preflight","countdown"].includes(status.current?.stage??""))}
           onClick={()=>{void change(!enabled);}}>{enabled?"Automatikus frissítés kikapcsolása":"Automatikus frissítés bekapcsolása"}</button>
       </div>
       {status?.current&&<p role="status">Helyi sor: {status.current.state} · {status.current.stage}{status.current.nativeSteamStage?" / "+status.current.nativeSteamStage:""} · {status.current.oldBuild} → {status.current.targetBuild}{status.current.error?" · "+status.current.error:""}</p>}
@@ -49,7 +49,7 @@ export function RollingSteamSettings({mapId}:{mapId:string}){
           setBusy(true);setError("");
           try{await managerBridge.steamRollingReview(status.current!.id);await load();}
           catch(e){setError(String(e));}finally{setBusy(false);}
-        }}>Korábbi sor naplózása és minden automatikus frissítés kikapcsolása</button></>}
+        }}>Korábbi sor naplózása és az érintett map automatikus frissítésének kikapcsolása</button></>}
       {error&&<p role="alert" className="error-inline">{error}</p>}
     </div>
   </section>;

@@ -99,15 +99,17 @@ public sealed class ObsidianWindow : Form
         if(_scheduledBackups.TryFreezeForManagerUpdate())return true;
         _nativeSchedules.ReleaseManagerUpdateFreeze();return false;
     }
+    private bool NativeWorkerBusy()=>_freshStop.RecoveryLaneBusy()||_historicalStop.RecoveryLaneBusy()||
+        _freshRestart.RecoveryLaneBusy()||_historicalRestart.RecoveryLaneBusy()||
+        _steamUpdate.RecoveryLaneBusy()||_steamBatch.RecoveryLaneBusy()||
+        _freshInstall.RecoveryLaneBusy()||_worldBackup.RecoveryLaneBusy()||
+        _multiHostBackup.RecoveryLaneBusy();
+
     private bool TryEnterWatchdogLane()
     {
         // The caller holds the UI/Discord host gate. Do not race an already
         // accepted native worker which has not yet acquired its Core lease.
-        if(_freshStop.RecoveryLaneBusy()||_historicalStop.RecoveryLaneBusy()||
-            _freshRestart.RecoveryLaneBusy()||_historicalRestart.RecoveryLaneBusy()||
-            _steamUpdate.RecoveryLaneBusy()||_steamBatch.RecoveryLaneBusy()||
-            _freshInstall.RecoveryLaneBusy()||_worldBackup.RecoveryLaneBusy()||
-            _multiHostBackup.RecoveryLaneBusy())return false;
+        if(NativeWorkerBusy())return false;
         return TryEnterRecoveryLane();
     }
     private void ReleaseRecoveryLane()
@@ -121,6 +123,8 @@ public sealed class ObsidianWindow : Form
     {
         // update.install is dispatched under the host command gate. Hold the
         // independent scheduler lanes too; if busy, leave the running task alone.
+        if(NativeWorkerBusy()||_rollingSteam.Busy)
+            return NativeErrorResponse(raw,"UM-UPDATE-NATIVE-WORKER-IN-PROGRESS");
         if(!_recovery.CanManagerUpdate())
             return NativeErrorResponse(raw,"UM-UPDATE-WATCHDOG-RECOVERY-IN-PROGRESS");
         if(!_lifecycleBatch.CanManagerUpdate())

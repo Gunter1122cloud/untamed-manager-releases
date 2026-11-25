@@ -620,7 +620,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                 }
                 var result=Locked(()=>{
                     var state=Read();
-                    if(enabled&&state.Current?.State is ("running" or "needs-review")&&!BeforeLifecycle(state.Current))
+                    if(enabled&&state.Current?.MapId==map.Id&&state.Current.State is ("running" or "needs-review")&&!BeforeLifecycle(state.Current))
                         throw new InvalidOperationException("UM-ROLLING-PRIOR-REVIEW");
                     var row=new Setting(map.Id,enabled,enabled&&apiRisk,Fingerprint(map));
                     state.Settings.RemoveAll(x=>x.MapId==map.Id);state.Settings.Add(row);Write(state);return row;
@@ -640,9 +640,9 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                     var archive=Path.Combine(root,"rolling-steam-reviewed-"+runId.ToString("N")+".json");
                     using(var audit=new FileStream(archive,FileMode.CreateNew,FileAccess.Write,FileShare.None))
                     {JsonSerializer.Serialize(audit,previous,Json);audit.Flush(true);}
-                    s.Settings=s.Settings.Select(x=>x with{Enabled=false}).ToList();
+                    s.Settings=s.Settings.Select(x=>x.MapId==previous.MapId?x with{Enabled=false}:x).ToList();
                     s.Current=previous with{State="reviewed",ChangedUtc=DateTimeOffset.UtcNow};
-                    Write(s);return new{reviewed=true,allDisabled=true,noReplay=true};
+                    Write(s);return new{reviewed=true,allDisabled=false,disabledMapId=previous.MapId,noReplay=true};
                 })));
             }
             return Task.FromResult(Fail("UM-METHOD-DENIED"));
