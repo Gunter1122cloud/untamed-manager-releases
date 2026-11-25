@@ -1,0 +1,2 @@
+# STM-01 first slice
+The existing Steam Center receives an expandable unified local status view for fresh installation, single update, batch update and rolling update. Reuses only read-only native routes and serial polling, with per-source failures reported. Provider percentage only; queue position is never download progress. No new dispatcher or retry, no speed/ETA fabrication. Real byte/speed/ETA propagation, cross-view persistent history and native queue consolidation remain pending.
