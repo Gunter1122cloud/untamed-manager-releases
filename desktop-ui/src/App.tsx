@@ -6,6 +6,7 @@ import {DownloadsOverview} from "./DownloadsOverview";
 import {ModPlatformAdvisory} from "./ModPlatformAdvisory";
 import {EngramPointsEditor} from "./EngramPointsEditor";
 import {NamedEngramEditor} from "./NamedEngramEditor";
+import {LootEditor} from "./LootEditor";
 import {
   AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
   FileText, HardDrive, LayoutDashboard, Layers3, Monitor, CloudDownload, Activity,
@@ -1643,6 +1644,8 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
           <><EngramPointsEditor key={opened.token} content={content} disabled={busy}
             onDraft={next=>{setContent(next);setPreview(null);setNotice("");}}/>
           <NamedEngramEditor key={"named:"+opened.token} content={content} disabled={busy}
+            onDraft={next=>{setContent(next);setPreview(null);setNotice("");}}/>
+          <LootEditor key={"loot:"+opened.token} content={content} disabled={busy}
             onDraft={next=>{setContent(next);setPreview(null);setNotice("");}}/></>}
         <label className="ini-editor-label" htmlFor="ini-contents">Az eredeti fájl szerkeszthető tartalma</label>
         <textarea id="ini-contents" className="ini-editor" spellCheck={false} value={content}
