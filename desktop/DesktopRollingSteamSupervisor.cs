@@ -169,7 +169,16 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             var proof=LegacyStoreV1GracefulStop.Preview(cluster,m.Id);
             if(LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(proof)!=null)
                 throw new InvalidOperationException("UM-ROLLING-ASA-NOT-READY");
-            return new ProcessCheck(true,"Verified historical owner",proof.Process,false,proof.LoaderIdentity);
+            // Reobserve the complete OS process family independently of the
+            // historical stop proof DTO. The existing proof validates the
+            // source and RCON listener; the second witness binds the Loader.
+            var family=cluster.ObserveLocalProcessesReadOnly(m);
+            if(!family.Running||family.ConfirmedStopped||!Same(family.Identity,proof.Process)||
+               m.StartWithAsaApi!=(family.LoaderIdentity is {Pid:>0})||
+               family.LoaderIdentity?.Pid==proof.Process.Pid||
+               !RconPortOwnership.IsOwnedListener(m.RconPort,proof.Process.Pid))
+                throw new InvalidOperationException("UM-ROLLING-FAMILY-CHANGED");
+            return family;
         }
         catch{ return HistoricalLocalConfigGuard.DemandStopped(cluster,m); }
     }
