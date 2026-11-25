@@ -779,7 +779,8 @@ public sealed class ObsidianWindow : Form
                             "mods.draftStart" or "mods.draftStage" or
                             "mods.draftUndo" or "mods.draftRedo" or
                             "mods.draftDiscard" or "mods.draftSave";
-                        iniRoute = name is "ini.open" or "ini.preview" or
+                        iniRoute = name is "ini.openDraft" or "ini.stageDraft" or "ini.pendingStatus" or "ini.pendingDiscard" or
+                            "ini.open" or "ini.preview" or
                             "ini.rebasePreview" or "ini.save" or "ini.close" or
                             "ini.createGamePreview" or "ini.createGameApply";
                         registryRoute = name is "servers.inspectLocal" or

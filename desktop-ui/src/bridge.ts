@@ -983,11 +983,12 @@ export type ModDraftSave = {
   disabled: string[]; evidence: "CONFIGURED_ONLY_PENDING_REAL_RESTART";
 };
 
+export type PendingGameIniStatus={mapId:string;state:"none"|"queued"|"conflict"|"applied"|"unavailable";nextSha256?:string|null};
 export type IniFile = "Game.ini" | "GameUserSettings.ini";
 export type IniDocument = {
   token: string; mapId: string; file: IniFile; content: string;
   encoding: string; sha256: string; bytes: number;
-  evidence: "STOPPED_LOCAL_INI_SNAPSHOT";
+  evidence: "STOPPED_LOCAL_INI_SNAPSHOT"|"LOCAL_GAME_INI_DRAFT_SNAPSHOT";
 };
 export type IniPreview = {
   previewToken: string; changed: boolean; oldLines: number; newLines: number;
@@ -1819,6 +1820,7 @@ type WireRequest = { id: string; method: "mods.localRepairPreview" | "mods.local
   "cluster.multiHostRestoreRecoveryApply" |
   "plugins.jsonOpen" | "plugins.jsonPreview" | "plugins.jsonSave" | "plugins.jsonClose" |
   "cluster.restoreLabPreview" | "cluster.restoreLabApply" | "cluster.restoreLabStatus" |
+  "ini.openDraft" | "ini.stageDraft" | "ini.pendingStatus" | "ini.pendingDiscard" |
   "ini.open" | "ini.preview" | "ini.rebasePreview" | "ini.save" | "ini.close" |
   "ini.createGamePreview" | "ini.createGameApply" |
   "servers.runningLocal" | "servers.inspectLocal" | "servers.importLocal" |
@@ -2387,6 +2389,10 @@ export const managerBridge = {
   offlineRestoreLabStatus: (jobId:string) =>
     request<OfflineAsaRestoreStatus>("cluster.restoreLabStatus",{jobId}),
   iniOpen: (mapId: string, file: IniFile) => request<IniDocument>("ini.open", { mapId, file }),
+  iniOpenDraft:(mapId:string)=>request<IniDocument>("ini.openDraft",{mapId,file:"Game.ini"}),
+  iniStageDraft:(token:string)=>request<PendingGameIniStatus>("ini.stageDraft",{token,confirm:true}),
+  iniPendingStatus:(mapId:string)=>request<PendingGameIniStatus>("ini.pendingStatus",{mapId}),
+  iniPendingDiscard:(mapId:string)=>request<PendingGameIniStatus>("ini.pendingDiscard",{mapId,confirm:true}),
   iniCreateGamePreview: (mapId:string) =>
     request<IniGameCreatePreview>("ini.createGamePreview",{mapId}),
   iniCreateGameApply: (token:string) =>

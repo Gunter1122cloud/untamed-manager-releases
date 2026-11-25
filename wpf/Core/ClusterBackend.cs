@@ -1830,7 +1830,8 @@ public sealed partial class ClusterService : IAsyncDisposable
         // Mark BEFORE spawn. An interrupted start must never be retried
         // automatically; the operator can reattach to its exact process.
         RecoveryNativeStartBoundary.Demand(id);
-        lease.MarkMutationStarted();
+        bool marked=PendingGameIni.ApplyBeforeLaunch(this,map,()=>Check(map),lease.MarkMutationStarted);
+        if(!marked)lease.MarkMutationStarted();
         var identity=_inspector.Launch(map);
         // The server may outlive the Manager UI. The durable identity is used
         // to recognize the original process and reject PID reuse.
@@ -1880,7 +1881,10 @@ public sealed partial class ClusterService : IAsyncDisposable
         exact.ApiLoaderPath=inspected.UseApi?map.ApiLoaderPath:"";
         exact.ApiLoaderArguments=inspected.UseApi?inspected.Arguments:"";
         RecoveryNativeStartBoundary.Demand(mapId);
-        lease.MarkMutationStarted(); // durable interruption marker BEFORE Process.Start
+        bool marked=PendingGameIni.ApplyBeforeLaunch(this,map,
+            ()=>LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(map,Config.LocalMaps),
+            lease.MarkMutationStarted);
+        if(!marked)lease.MarkMutationStarted(); // durable marker BEFORE Process.Start
         var started=_inspector.Launch(exact);
         string expectedExe=inspected.UseApi?map.ApiLoaderPath:map.ExecutablePath;
         if(started.Pid<=0||started.StartedUtc==default||

@@ -62,6 +62,7 @@ LocalLogCenterBoundedTests.Run();
 await HostedResourcesTests.RunAsync();
 PlayerProfileBackupTests.Run();
 LocalModRepairTests.Run();
+PendingGameIniTests.Run();
 
 AsaInitialRconSettings.ValidateExistingAdminPassword("Old7!xx");
 Check(true,"existing ASA INI credentials may be shorter than new credentials");
