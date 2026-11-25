@@ -1,9 +1,9 @@
 import {useEffect,useState} from "react";
-import {managerBridge,type HostedResourcesStatus} from "./bridge";
+import {managerBridge,type HostedResourcesStatus,type HostedResourceKind} from "./bridge";
 const kinds=["AdminListURL","BanListURL","BadWordListURL","BadWordWhiteListURL","CustomDynamicConfigUrl","CustomNotificationURL","CustomLiveTuningUrl"] as const;
 export function HostedResourcesPanel(){
   const [status,setStatus]=useState<HostedResourcesStatus|null>(null);
-  const [kind,setKind]=useState<string>(kinds[0]);
+  const [kind,setKind]=useState<HostedResourceKind>(kinds[0]);
   const [port,setPort]=useState("18765");
   const [content,setContent]=useState("");
   const [busy,setBusy]=useState(false);
@@ -26,7 +26,7 @@ export function HostedResourcesPanel(){
       Az ASA INI és a CousinCustomRates változatlan marad. A pontos erőforrásformátumot az adott ASA funkció határozza meg.</p>
     <p>Állapot: {status?status.running?"Fut · localhost:"+status.port:"Leállítva":"Nem igazolt"}</p>
     <label>Helyi TCP-port <input aria-label="Hosted Resources port" type="number" min={1024} max={65535} value={port} disabled={busy||status?.running} onChange={e=>setPort(e.target.value)}/></label>
-    <label>Erőforrás <select aria-label="Hosted Resources típus" value={kind} onChange={e=>{setKind(e.target.value);setContent("");}} disabled={busy}>{kinds.map(x=><option key={x}>{x}</option>)}</select></label>
+    <label>Erőforrás <select aria-label="Hosted Resources típus" value={kind} onChange={e=>{setKind(e.target.value as HostedResourceKind);setContent("");}} disabled={busy}>{kinds.map(x=><option key={x}>{x}</option>)}</select></label>
     <label>Kiszolgálandó szöveg <textarea aria-label="Hosted Resources tartalom" rows={5} maxLength={65536} value={content} disabled={busy} onChange={e=>setContent(e.target.value)}/></label>
     <button type="button" className="primary" disabled={busy||!status||!Number.isInteger(Number(port))||Number(port)<1024||Number(port)>65535} onClick={()=>{void change(false);}}>Közzététel / frissítés localhoston</button>
     <button type="button" className="secondary" disabled={busy||!status?.running} onClick={()=>{void change(true);}}>Szolgáltatás leállítása és tartalom törlése</button>
