@@ -7,6 +7,8 @@ import {dashboardRemotes,managerBridge,type DashboardSnapshot,type PublicMap} fr
 import {MapCover} from "./MapArtwork";
 import {ClusterMapGallery} from "./ClusterMapGallery";
 import {LiveTelemetryPanel} from "./LiveTelemetryPanel";
+import {PlayerActivityPanel} from "./PlayerActivityPanel";
+import {parsePlayerList,loadPlayerHistory,savePlayerHistory,observePlayerList,type PlayerSample,type PlayerHistory} from "./state/playerActivity";
 
 type Props={
   snapshot:DashboardSnapshot;
@@ -29,14 +31,7 @@ function Metric({icon:Icon,value,label,detail,tone="mint"}:{
 
 /** ASA ListPlayers: never guess zero on errors, unsupported output or stale peers. */
 export function parseAsaPlayerCount(raw:string):number|null {
-  const response=raw.trim();
-  if(/^No Players Connected\.?$/i.test(response))return 0;
-  const lines=response.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
-  if(!lines.length||lines.length>100)return null;
-  // Names may contain punctuation/commas. The server-provided player ID
-  // follows the final comma; no identifiers are stored or rendered here.
-  if(!lines.every(line=>/^\d+\.\s+.+,\s*[A-Za-z0-9]{16,64}$/.test(line)))return null;
-  return lines.length;
+  return parsePlayerList(raw)?.length??null;
 }
 
 function ServerRow({map,host,local,onSelect,playerCount,rconFailures=0}:{
@@ -132,6 +127,12 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
   const [playerCounts,setPlayerCounts]=useState<Record<string,number|null>>({});
   const [rconRetries,setRconRetries]=useState<Record<string,number>>({});
   const [playerProofs,setPlayerProofs]=useState<Record<string,{count:number;utc:string}>>({});
+  const [activityEnabled,setActivityEnabled]=useState(false);
+  const [activity,setActivity]=useState<PlayerHistory>(()=>loadPlayerHistory(snapshot.local.hostId));
+  const activityRef=useRef(activity);activityRef.current=activity;
+  const activitySamples=useRef(new Map<string,PlayerSample>());
+  const [activityError,setActivityError]=useState("");
+  const changeActivity=(enabled:boolean)=>{activitySamples.current.clear();setActivityEnabled(enabled);};
   const reconnect=useRef(new Map<string,{failures:number;after:number;count:number|null}>());
   const eligiblePlayers=local.filter(map=>map.running&&!map.observedReadOnlyImported&&
     map.rconConfigured&&!map.maintenance)
@@ -146,7 +147,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
       return {id:item.slice(0,colon),historical:item.slice(colon+1)==="historical"};
     }):[];
     setPlayerCounts({});setRconRetries({});setPlayerProofs({});
-    reconnect.current.clear();
+    reconnect.current.clear();activitySamples.current.clear();
     const refresh=async()=>{
       if(closed||busy||!maps.length)return;
       busy=true;
@@ -163,6 +164,16 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
             if(!closed){
               const utc=Date.parse(answer.observedUtc);
               const verified=count!==null&&Number.isFinite(utc)&&utc<=Date.now()+5000&&Date.now()-utc<=60000;
+              if(activityEnabled){
+                const players=verified?parsePlayerList(answer.response):null;
+                if(players){
+                  const sample={utc,players};
+                  const next=observePlayerList(activityRef.current,map.id,activitySamples.current.get(map.id),sample);
+                  activitySamples.current.set(map.id,sample);
+                  activityRef.current=next;setActivity(next);
+                  setActivityError(savePlayerHistory(snapshot.local.hostId,next)?"":"A helyi játékoselőzmény nem menthető.");
+                }else activitySamples.current.delete(map.id);
+              }
               setPlayerProofs(old=>{
                 const next={...old};
                 if(verified&&count!==null)next[map.id]={count,utc:answer.observedUtc};
@@ -172,6 +183,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
             }
           }catch{
             // A failed fresh probe invalidates its previous graph evidence.
+            if(!closed)activitySamples.current.delete(map.id);
             if(!closed)setPlayerProofs(old=>{
               const next={...old};delete next[map.id];return next;
             });
@@ -192,7 +204,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
     void refresh();
     const poll=window.setInterval(()=>{void refresh();},15000);
     return ()=>{closed=true;window.clearInterval(poll);};
-  },[eligiblePlayers]);
+  },[eligiblePlayers,activityEnabled,snapshot.local.hostId]);
   const maps=useMemo(()=>{
     const term=query.trim().toLocaleLowerCase("hu-HU");
     return [
@@ -325,5 +337,10 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
     </div>
     <LiveTelemetryPanel key={snapshot.local.hostId} snapshot={snapshot}
       runningMapIds={runningLocal.map(m=>m.id)} playerProofs={playerProofs}/>
+    <PlayerActivityPanel enabled={activityEnabled} onEnabled={changeActivity} data={activity}
+      maps={local} error={activityError} onClear={()=>{
+        activitySamples.current.clear();const empty:PlayerHistory={records:[]};activityRef.current=empty;setActivity(empty);
+        setActivityError(savePlayerHistory(snapshot.local.hostId,empty)?"":"A helyi játékoselőzmény nem törölhető.");
+      }}/>
   </div>;
 }
