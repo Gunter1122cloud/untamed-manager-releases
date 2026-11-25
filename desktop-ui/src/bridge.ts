@@ -2394,10 +2394,10 @@ export const managerBridge = {
   offlineRestoreLabStatus: (jobId:string) =>
     request<OfflineAsaRestoreStatus>("cluster.restoreLabStatus",{jobId}),
   iniOpen: (mapId: string, file: IniFile) => request<IniDocument>("ini.open", { mapId, file }),
-  iniOpenDraft:(mapId:string)=>request<IniDocument>("ini.openDraft",{mapId,file:"Game.ini"}),
+  iniOpenDraft:(mapId:string,file:IniFile="Game.ini")=>request<IniDocument>("ini.openDraft",{mapId,file}),
   iniStageDraft:(token:string)=>request<PendingGameIniStatus>("ini.stageDraft",{token,confirm:true}),
-  iniPendingStatus:(mapId:string)=>request<PendingGameIniStatus>("ini.pendingStatus",{mapId}),
-  iniPendingDiscard:(mapId:string)=>request<PendingGameIniStatus>("ini.pendingDiscard",{mapId,confirm:true}),
+  iniPendingStatus:(mapId:string,file:IniFile="Game.ini")=>request<PendingGameIniStatus>("ini.pendingStatus",{mapId,file}),
+  iniPendingDiscard:(mapId:string,file:IniFile="Game.ini")=>request<PendingGameIniStatus>("ini.pendingDiscard",{mapId,file,confirm:true}),
   iniCreateGamePreview: (mapId:string) =>
     request<IniGameCreatePreview>("ini.createGamePreview",{mapId}),
   iniCreateGameApply: (token:string) =>

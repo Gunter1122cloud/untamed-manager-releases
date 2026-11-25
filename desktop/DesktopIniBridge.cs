@@ -195,15 +195,17 @@ public sealed class DesktopIniBridge : IDisposable
                 if(method is "ini.pendingStatus" or "ini.pendingDiscard")
                 {
                     if(!GetGuid(data,"mapId",out var pendingId))return Fail(id,"UM-INI-INVALID-REQUEST");
+                    string pendingFile=data.TryGetProperty("file",out var requestedFile)?requestedFile.GetString()??"":"Game.ini";
+                    if(pendingFile is not ("Game.ini" or "GameUserSettings.ini"))return Fail(id,"UM-INI-INVALID-FILE");
                     var map=Owned(pendingId);
                     if(map==null||map.ObservedReadOnlyImported)return Fail(id,"UM-MAP-NOT-OWNED");
                     if(method=="ini.pendingDiscard")
                     {
                         if(!data.TryGetProperty("confirm",out var confirm)||confirm.ValueKind!=JsonValueKind.True)
                             return Fail(id,"UM-INI-DRAFT-APPROVAL");
-                        PendingGameIni.Discard(cluster,map);
+                        PendingGameIni.Discard(cluster,map,pendingFile);
                     }
-                    return Ok(id,PendingGameIni.Status(cluster,map));
+                    return Ok(id,PendingGameIni.Status(cluster,map,pendingFile));
                 }
                 if(method is "ini.open" or "ini.openDraft")
                 {
@@ -218,7 +220,6 @@ public sealed class DesktopIniBridge : IDisposable
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
                     if(map.ObservedReadOnlyImported)return Fail(id,"UM-LIVE-OBSERVED-MAP-READONLY");
-                    if(draftOnly&&file!="Game.ini")return Fail(id,"UM-INI-DRAFT-GAME-ONLY");
                     ProcessCheck? check=null;
                     if(draftOnly)PendingGameIni.DemandEligible(cluster,map);
                     else
@@ -304,12 +305,12 @@ public sealed class DesktopIniBridge : IDisposable
                 if(method=="ini.stageDraft")
                 {
                     if(openedFile.PreviewedContent==null||openedFile.Preview?.Changed!=true||
-                       Path.GetFileName(openedFile.Snapshot.Path)!="Game.ini"||
+                       Path.GetFileName(openedFile.Snapshot.Path) is not ("Game.ini" or "GameUserSettings.ini")||
                        !data.TryGetProperty("confirm",out var consent)||consent.ValueKind!=JsonValueKind.True)
                         return Fail(id,"UM-INI-DRAFT-APPROVAL");
                     PendingGameIni.Stage(cluster,owned,openedFile.Snapshot,openedFile.PreviewedContent);
                     opened.Remove(tokenId);
-                    return Ok(id,PendingGameIni.Status(cluster,owned));
+                    return Ok(id,PendingGameIni.Status(cluster,owned,Path.GetFileName(openedFile.Snapshot.Path)));
                 }
                 if(openedFile.DraftOnly)return Fail(id,"UM-INI-DRAFT-NO-LIVE-SAVE");
                 if(method=="ini.rebasePreview")

@@ -40,8 +40,8 @@ public static class SafeConfigEditor
     // witness is fabricated; this path never authorizes a disk replacement.
     public static ConfigSnapshot ReadGameDraft(string path,string mapInstallation)
     {
-        if(Path.GetFileName(path)!="Game.ini")
-            throw new InvalidDataException("UM-INI-DRAFT-GAME-ONLY");
+        if(Path.GetFileName(path) is not ("Game.ini" or "GameUserSettings.ini"))
+            throw new InvalidDataException("UM-INI-INVALID-FILE");
         ValidatePath(path,mapInstallation,ConfigKind.GameIni,null,false,requireStopped:false);
         return ReadBytes(path,ConfigKind.GameIni);
     }
