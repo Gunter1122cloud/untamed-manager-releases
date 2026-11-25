@@ -47,6 +47,18 @@ internal static class AsaRuntimeLogEvidenceTests
         Check(ready.ApiInitialized&&ready.PluginsInitialized,
             "current Loader-run API and plugin success markers are independently recognized");
 
+        // Current ASA API builds rotate their log using the ASA child PID.
+        string pidLog=Path.Combine(Path.GetDirectoryName(apiLog)!,
+            "ArkApi_"+server.Pid+"_2026-11-25_07-00.log");
+        File.WriteAllText(pidLog,string.Join("\\r\\n",new[]{
+            Line("Loading..."),Line("API was successfully loaded"),
+            Line("Initialized hooks"),Line("Loaded all plugins")
+        })+"\\r\\n",new UTF8Encoding(false));
+        var pidScoped=AsaRuntimeLogEvidence.Inspect(map,server,loader);
+        Check(pidScoped.ApiInitialized&&pidScoped.PluginsInitialized,
+            "rotated ArkApi_<ASA PID> logs are discovered and bound to the exact ASA child");
+        File.Delete(pidLog);
+
         File.WriteAllText(apiLog,string.Join("\r\n",new[]{
             Line("Loading..."),
             Line("API was successfully loaded"),
@@ -79,5 +91,16 @@ internal static class AsaRuntimeLogEvidenceTests
             loader with{StartedUtc=DateTimeOffset.UtcNow.AddMinutes(8)});
         Check(!stale.ApiInitialized&&!stale.PluginsInitialized,
             "positive API log markers predating the exact Loader start epoch are rejected");
+
+        File.Delete(apiLog);
+        string wrongPidLog=Path.Combine(Path.GetDirectoryName(apiLog)!,
+            "ArkApi_16476_2026-11-25_07-00.log");
+        File.WriteAllText(wrongPidLog,string.Join("\\r\\n",new[]{
+            Line("Loading..."),Line("API was successfully loaded"),
+            Line("Initialized hooks"),Line("Loaded all plugins")
+        })+"\\r\\n",new UTF8Encoding(false));
+        var wrongPid=AsaRuntimeLogEvidence.Inspect(map,server,loader);
+        Check(!wrongPid.ApiInitialized&&!wrongPid.PluginsInitialized,
+            "a successful ArkApi log belonging to a different ASA PID is rejected");
     }
 }
