@@ -8,7 +8,7 @@ import {MapCover} from "./MapArtwork";
 import {ClusterMapGallery} from "./ClusterMapGallery";
 import {LiveTelemetryPanel} from "./LiveTelemetryPanel";
 import {PlayerActivityPanel} from "./PlayerActivityPanel";
-import {parsePlayerList,type PlayerHistory} from "./state/playerActivity";
+import {parsePlayerList,savePlayerHistory,type PlayerHistory} from "./state/playerActivity";
 
 type Props={
   snapshot:DashboardSnapshot;
@@ -150,7 +150,10 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
   const changeActivity=async(enabled:boolean,clear=false)=>{
     if(activityBusy.current)return;
     activityBusy.current=true;++activityVersion.current;
-    try{updateActivity(clear?await managerBridge.activityClear():await managerBridge.activitySetEnabled(enabled));}
+    try{
+      updateActivity(clear?await managerBridge.activityClear():await managerBridge.activitySetEnabled(enabled));
+      if(clear&&!savePlayerHistory(snapshot.local.hostId,{records:[]}))setActivityError("A régi WebView-előzmény törlése nem igazolható.");
+    }
     catch{setActivityError("A játékoselőzmény módosítása sikertelen.");}
     finally{activityBusy.current=false;}
   };

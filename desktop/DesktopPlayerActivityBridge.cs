@@ -11,7 +11,7 @@ using UntamedManager.Core;
 namespace UntamedDesktop;
 
 /// <summary>Host-local, opt-in activity sampling independent of WebView navigation.
-//// Only authenticated fixed ListPlayers reads. Never writes to ASA or shared Store.</summary>
+/// Only authenticated fixed ListPlayers reads. Never writes to ASA or shared Store.</summary>
 public sealed class DesktopPlayerActivityBridge : IDisposable
 {
     private sealed record Player(string Id,string Name);
@@ -147,7 +147,7 @@ public sealed class DesktopPlayerActivityBridge : IDisposable
     }
     private void Observe(Guid mapId,Sample current)
     {
-        var next=Clean(records,current.Utc).ToDictionary(r=>(r.MapId,r.Id));
+        var next=Clean(records,Now()).ToDictionary(r=>(r.MapId,r.Id));
         previous.TryGetValue(mapId,out var prior);
         long delta=prior==null?0:current.Utc-prior.Utc;
         if(delta<=0&&prior!=null)return;
@@ -161,7 +161,7 @@ public sealed class DesktopPlayerActivityBridge : IDisposable
             next[(mapId,p.Id)]=new(mapId,p.Id,p.Name,old?.FirstSeen??current.Utc,current.Utc,(old?.Seconds??0)+seconds,
                 old==null?1:old.Samples==int.MaxValue?int.MaxValue:old.Samples+1);
         }
-        records=Clean(next.Values,current.Utc);previous[mapId]=current;
+        records=Clean(next.Values,Now());previous[mapId]=current;
     }
     public async Task PollAsync(IEnumerable<(Guid MapId,bool Historical)> eligible)
     {
