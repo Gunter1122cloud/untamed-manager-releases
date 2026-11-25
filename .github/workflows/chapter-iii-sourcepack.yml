@@ -1,4 +1,4 @@
-name: Diagnose Dropbox original video download
+name: Extract high-quality ARK trailer samples
 on:
   push:
     branches: ['media/chapter-iii-sourcepack']
@@ -7,39 +7,45 @@ on:
 permissions:
   contents: read
 jobs:
-  inspect:
+  extract:
     if: github.ref == 'refs/heads/media/chapter-iii-sourcepack'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
-      - name: Inspect original video download responses
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+      - name: Inspect and extract original 4K trailer segments
         shell: bash
         run: |
-          set +e
-          mkdir -p debug
+          set -euo pipefail
+          mkdir -p samples
           A='https://www.dropbox.com/scl/fo/si5q3wva0tkn38fm2oslv/AEEnE_N8aYMsLvMuiiHcP7s/Trailer/Astraeos_Complete_Trailer.mp4?rlkey=fz35z7tvnqppxdx8b89y4l8h7&dl=1'
-          B='https://www.dropbox.com/scl/fo/noqpi9macywaku3r783wh/AGLhffAjveEJDVsi83scvKg/Trailer/Astraeos_MegaUpdate_Launch%20Trailer.mp4?rlkey=xhaypm1tpnqppxdx8b89y4l8h7&dl=1'
-          curl -sSIL -A 'Mozilla/5.0' "$A" > debug/a_headers.txt
-          curl -sSL -A 'Mozilla/5.0' --max-filesize 1000000 "$A" -o debug/a_body.bin 2>debug/a_error.txt
-          curl -sSIL -A 'Mozilla/5.0' "$B" > debug/b_headers.txt
-          curl -sSL -A 'Mozilla/5.0' --max-filesize 1000000 "$B" -o debug/b_body.bin 2>debug/b_error.txt
-          C='https://www.dropbox.com/scl/fo/si5q3wva0tkn38fm2oslv/AEEnE_N8aYMsLvMuiiHcP7s/Trailer/Astraeos_Complete_Trailer.mp4?rlkey=fz35z7tvnqppxdx8b89y4l8h7&dl=0'
-          curl -fsSL -A 'Mozilla/5.0' "$C" -o debug/a_preview.html
+          ffprobe -v error -rw_timeout 60000000 -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate -of json "$A" > samples/astraeos_source_probe.json
+          cat samples/astraeos_source_probe.json
+          for spec in "00:00:12 10 opening" "00:00:32 12 mid" "00:01:00 12 action" "00:01:30 12 finale"; do
+            read -r start dur name <<< "$spec"
+            ffmpeg -hide_banner -y -loglevel warning -rw_timeout 60000000 -ss "$start" -i "$A" -t "$dur" -map 0:v:0 -map '0:a:0?' -vf "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,fps=60,format=yuv420p" -c:v libx264 -preset veryfast -crf 19 -c:a aac -b:a 160k -movflags +faststart "samples/astraeos_$name.mp4"
+          done
+          curl -fL -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/ayv0fdldrcwwq3b0uvbjk/AE9fOY7R7B_IRVJ4k_oEPAA/01.%20ARK%3A%20Survival%20Ascended/Trailer?rlkey=bllrthgroxyud79tqjm2b8lcj&dl=0' -o samples/ark_general_trailer_folder.html
           python3 - <<'PY'
-          import pathlib,re
-          for p in pathlib.Path("debug").iterdir():
-              print("\n###",p.name,"size",p.stat().st_size)
-              if p.suffix==".txt" or p.name.endswith(".bin"):
-                  print(p.read_bytes()[:4000].decode("utf8","replace"))
-              elif p.suffix==".html":
-                  s=p.read_text(errors="ignore")
-                  for term in ["previews.dropboxusercontent.com","video","mp4","m3u8","raw=1","download_url","media_url"]:
-                      print("TERM",term,"COUNT",s.lower().count(term.lower()))
-                  for m in re.findall(r'https?[^"\\s<>]{0,500}(?:mp4|m3u8|webm)[^"\\s<>]{0,200}',s,re.I): print("MEDIA",m[:1000])
+          import pathlib,re,base64
+          s=pathlib.Path("samples/ark_general_trailer_folder.html").read_text(errors="ignore")
+          for m in re.finditer(r'registerStreamedPrefetch\("([^"]+)",\s*"([^"]+)"',s):
+              key=base64.b64decode(m.group(1)+"===")
+              if b"SharedContentLinkFolderEntriesPropsPrefetch" not in key: continue
+              payload=base64.b64decode(m.group(2)+"===")
+              txt=payload.decode("latin1","replace")
+              for hit in re.findall(r"[ -~]{5,}",txt):
+                  if any(x in hit.lower() for x in ["dropbox.com","mp4","mov","webm","trailer","1080p","4k","tides"]): print("ARK_GENERAL",hit[:1200])
           PY
-      - name: Upload Dropbox response diagnostics
+          for f in samples/*.mp4; do echo "=== $f ==="; ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate -of json "$f"; done
+      - name: Upload high-quality trailer samples
         uses: actions/upload-artifact@v4
         with:
-          name: ChapterIII_Dropbox_Download_Diagnostics
-          path: debug/
+          name: ChapterIII_Astraeos_4K_Samples
+          path: samples/
+          if-no-files-found: error
+          compression-level: 0
           retention-days: 7
