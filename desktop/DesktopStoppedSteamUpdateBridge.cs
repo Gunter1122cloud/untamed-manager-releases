@@ -227,7 +227,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         if(!string.IsNullOrWhiteSpace(programFiles))
             yield return(Path.Combine(programFiles,"Steam","steamcmd.exe"),
                 "Steam telepítési könyvtár");
-        yield return(@"C:\SteamCMD\steamcmd.exe","C:\SteamCMD");
+        yield return(@"C:\SteamCMD\steamcmd.exe",@"C:\SteamCMD");
     }
     internal static bool SameSteamCmdCandidate(SteamCmdFileStatus before,
         SteamCmdFileStatus current)=>
