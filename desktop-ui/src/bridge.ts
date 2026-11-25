@@ -1787,7 +1787,10 @@ export type ConfiguredMods = {
 export type HostedResourceKind="AdminListURL"|"BanListURL"|"BadWordListURL"|"BadWordWhiteListURL"|"CustomDynamicConfigUrl"|"CustomNotificationURL"|"CustomLiveTuningUrl";
 export type HostedResourcesStatus={running:boolean;port:number;resources:Array<{kind:string;url:string;bytes:number}>;loopbackOnly:true;persistent:false};
 
-type WireRequest = { id: string; method: "resources.status" | "resources.publish" | "resources.stop" | "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
+export type ModRepairStatus={mapId:string;modId:string;folders:string[];diskOnly:true;runtimeVerified:false};
+export type ModRepairPreview=ModRepairStatus&{token:string};
+export type ModRepairReceipt={mapId:string;modId:string;quarantined:number;remainingFolders:number;serverStarted:false;downloadVerified:false};
+type WireRequest = { id: string; method: "mods.localRepairPreview" | "mods.localRepairApply" | "mods.localRepairStatus" | "resources.status" | "resources.publish" | "resources.stop" | "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
   "operations.scheduleCreate" | "operations.scheduleDisable" | "operations.watchdogStart" |
   "notifications.status" | "notifications.save" | "notifications.clear" | "notifications.test" |
   "recovery.status" | "recovery.arm" | "recovery.disarm" | "recovery.suspend" |
@@ -1985,6 +1988,9 @@ export const managerBridge = {
     request<ClusterMembershipReceipt>("cluster.membership.apply",{token,confirm:true}),
   historicalExpansionInspect: (mapId:string,clusterId:string) =>
     request<HistoricalExpansionReadiness>("cluster.historicalExpansionInspect",{mapId,clusterId}),
+  modRepairStatus:(mapId:string,modId:string)=>request<ModRepairStatus>("mods.localRepairStatus",{mapId,modId}),
+  modRepairPreview:(mapId:string,modId:string)=>request<ModRepairPreview>("mods.localRepairPreview",{mapId,modId}),
+  modRepairApply:(token:string)=>request<ModRepairReceipt>("mods.localRepairApply",{token,confirm:true}),
   hostedResourcesStatus:()=>request<HostedResourcesStatus>("resources.status"),
   hostedResourcesPublish:(kind:HostedResourceKind,content:string,port:number)=>request<HostedResourcesStatus>("resources.publish",{kind,content,port,confirm:true}),
   hostedResourcesStop:()=>request<HostedResourcesStatus>("resources.stop",{confirm:true}),
