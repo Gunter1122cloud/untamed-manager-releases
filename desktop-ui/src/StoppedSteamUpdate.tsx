@@ -380,7 +380,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
       <p>Helyi telepített build: {diagnostics.installedBuild??"ismeretlen"}. A publikus build státusza ettől független.</p>
       <p>Szabad tárhely: {Math.floor(diagnostics.availableBytes/1073741824)} GiB;
         szükséges tartalék: {Math.ceil(diagnostics.requiredBytes/1073741824)} GiB.</p>
-      <p>SteamCMD: {diagnostics.steamCmdFound?"érvényes":"nem érvényes"}.
+      <p>SteamCMD: {diagnostics.steamCmdFound?"Helyi elérési út ellenőrizve":steamReason(diagnostics.steamCmdError)??(diagnostics.steamCmdConfigured?"Hiányzik vagy érvénytelen":"Nincs SteamCMD beállítva")}.
         Beállított útvonal: <code>{diagnostics.steamCmdConfiguredPath??"nincs beállítva"}</code>.
         {diagnostics.steamCmdSha256&&<> · SHA-256: <code>{diagnostics.steamCmdSha256}</code></>}</p>
       <p>Gépfrissítési napló: {diagnostics.queueJournalPhase??"nincs"} 
@@ -389,6 +389,8 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
         {diagnostics.operationJournalBlockingCode&&" · "+diagnostics.operationJournalBlockingCode}.
         Restart-v1: {diagnostics.restartJournalPhase??"nincs"}
         {diagnostics.restartJournalBlockingCode&&" · "+diagnostics.restartJournalBlockingCode}.</p>
+      <p>Közös telepítés tulajdonjoga: {diagnostics.safeInstallation?
+        "ellenőrzött, a helyi, leállított telepítés mapjai":"nem igazolható"}.</p>
       {diagnostics.blockers&&diagnostics.blockers.length>0?
         <div className="warning-inline" role="alert">
           <Shield size={16}/>
@@ -398,7 +400,9 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
             </p>)}
           </div>
         </div>:
-        <p className="success-inline">A helyi frissítési előfeltételek ellenőrzése nem talált blokkoló hibát.</p>}
+        diagnostics.canPreview&&!blocked?
+          <p className="success-inline">A helyi frissítési előfeltételek ellenőrzése nem talált blokkoló hibát.</p>:
+          <p role="status" className="muted small">A frissítés nem engedélyezhető; ellenőrizd a fenti állapotokat és naplókat.</p>}
       {diagnostics.externalSteamError&&<p role="alert">{steamReason(diagnostics.externalSteamError)} ({diagnostics.externalSteamError})</p>}
       {diagnostics.processes.map(p=><p key={p.mapName}>
         {p.mapName}: {p.confirmedStopped&&!p.running?"Leállítás igazolva":"NEM igazoltan leállítva"}
