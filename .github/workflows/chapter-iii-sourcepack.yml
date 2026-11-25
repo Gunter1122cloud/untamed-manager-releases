@@ -1,4 +1,4 @@
-name: Inspect ARK Tides and franchise press-kit folders
+name: Inspect ARK Bob's Tall Tales and base game media
 on:
   push:
     branches: ['media/chapter-iii-sourcepack']
@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Fetch public press-kit folder manifests
+      - name: Fetch relevant official ARK subfolder manifests
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p presskits
-          curl -fL -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/xv8vc2a0bigdauu3px9mh/AJUZR9-hZDCTF-Xay5bQ1So?rlkey=j16k2zhipes4socx3htf3b4au&st=3f39beru&dl=0' -o presskits/tides.html
-          curl -fL -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/ayv0fdldrcwwq3b0uvbjk/AJOFe6UcEEg3JZ-YwwTlxo4?rlkey=bllrthgroxyud79tqjm2b8lcj&dl=0' -o presskits/all_ark.html
+          curl -fL -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/ayv0fdldrcwwq3b0uvbjk/ALGaxmR4GcJY3rKKGm0aOx8/05.%20ARK%3A%20Bob%27s%20Tall%20Tales?rlkey=bllrthgroxyud79tqjm2b8lcj&dl=0' -o presskits/bob_tall_tales.html
+          curl -fL -A 'Mozilla/5.0' 'https://www.dropbox.com/scl/fo/ayv0fdldrcwwq3b0uvbjk/AFS2SwAKxSQfo0zdCgPjOPs/01.%20ARK%3A%20Survival%20Ascended?rlkey=bllrthgroxyud79tqjm2b8lcj&dl=0' -o presskits/asa_base.html
           python3 - <<'PY'
           import pathlib,re,base64
           for p in pathlib.Path("presskits").glob("*.html"):
@@ -28,17 +28,16 @@ jobs:
               for m in re.finditer(r'registerStreamedPrefetch\("([^"]+)",\s*"([^"]+)"',s):
                   key=base64.b64decode(m.group(1)+"===")
                   if b"SharedContentLinkFolderEntriesPropsPrefetch" not in key: continue
-                  payload=base64.b64decode(m.group(2)+"===")
-                  txt=payload.decode("latin1","replace");out.append(txt)
+                  payload=base64.b64decode(m.group(2)+"===");txt=payload.decode("latin1","replace");out.append(txt)
                   print("PAYLOAD_BYTES",len(payload))
                   for hit in re.findall(r"[ -~]{5,}",txt):
-                      if any(x in hit.lower() for x in ["dropbox.com","mp4","mov","webm","m4v","trailer","video","tides","ark"]): print(hit[:1000])
+                      if any(x in hit.lower() for x in ["dropbox.com","mp4","mov","webm","m4v","trailer","video","tides","fortune","bob"]): print(hit[:1000])
               (p.parent/(p.stem+"_entries.txt")).write_text("\n\n".join(out),encoding="utf-8")
               if not out: print("NO FOLDER ENTRIES PREFETCH FOUND")
           PY
-      - name: Upload press-kit manifests
+      - name: Upload ARK subfolder manifests
         uses: actions/upload-artifact@v4
         with:
-          name: ChapterIII_Tides_and_ARK_Manifests
+          name: ChapterIII_ARK_Bob_and_Base_Manifests
           path: presskits/
           retention-days: 7
