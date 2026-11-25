@@ -239,6 +239,26 @@ internal static class OriginalStoreStoppedJournalRecoveryTests
             Check(!outageRace.GetProperty("ok").GetBoolean()&&
                   File.ReadAllText(failedRestartFile)==failedRestartOriginal,
                 "a reappearing ASA/Loader blocks stopped-journal repair");
+            var manualStart=DateTimeOffset.UtcNow.AddMinutes(-5);
+            var manualPid=43009;
+            var replacementBridge=new DesktopAsaLifecycleJournalBridge(failedCluster,
+                _=>throw new InvalidOperationException("UM-RECOVERY-OLD-PID-MISMATCH"),
+                (_,_)=>throw new InvalidOperationException("UM-RECOVERY-NOT-STOPPED"),
+                _=>new LegacyStoreV1GracefulStop.Owned(failedMap,new ProcessIdentity{
+                    Pid=manualPid,StartedUtc=manualStart,ExecutablePath="synthetic"
+                },new string('D',64)));
+            var replacementPreview=await Call(replacementBridge,"servers.lifecycleRecoveryPreview",failedMap.Id);
+            Check(replacementPreview.GetProperty("ok").GetBoolean()&&
+                replacementPreview.GetProperty("data").GetProperty("reviewMode").GetString()=="replacement"&&
+                replacementPreview.GetProperty("data").GetProperty("currentRunningPid").GetInt32()==manualPid,
+                "independently started newer ASA permits local failed restart review without stopping it");
+            string replacementToken=replacementPreview.GetProperty("data").GetProperty("token").GetString()!;
+            manualPid++;
+            var replacementRace=await Call(replacementBridge,"servers.lifecycleRecoveryApply",failedMap.Id,new{
+                token=replacementToken,confirm=true,ackUnknownOutcome=true,typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+            });
+            Check(!replacementRace.GetProperty("ok").GetBoolean()&&File.ReadAllText(failedRestartFile)==failedRestartOriginal,
+                "replacement PID changes invalidate the audit token");
             noFamily=true;
             outagePreview=await Call(failedBridge,
                 "servers.lifecycleRecoveryPreview",failedMap.Id);

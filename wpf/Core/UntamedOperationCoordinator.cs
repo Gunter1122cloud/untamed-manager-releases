@@ -403,7 +403,19 @@ public sealed class UntamedOperationCoordinator
     /// </summary>
     internal void ReviewStoppedOriginalRestartOnly(string installation,
         Guid expectedMapId,Guid expectedRestartId,int oldPid,
-        int attemptedNewPid,Func<bool> verifyStopped)
+        int attemptedNewPid,Func<bool> verifyStopped)=>
+        ReviewAbandonedOriginalRestartOnly(installation,expectedMapId,expectedRestartId,
+            oldPid,attemptedNewPid,verifyStopped,false);
+
+    internal void ReviewReplacementOriginalRestartOnly(string installation,
+        Guid expectedMapId,Guid expectedRestartId,int oldPid,
+        int attemptedNewPid,Func<bool> verifyReplacement)=>
+        ReviewAbandonedOriginalRestartOnly(installation,expectedMapId,expectedRestartId,
+            oldPid,attemptedNewPid,verifyReplacement,true);
+
+    private void ReviewAbandonedOriginalRestartOnly(string installation,
+        Guid expectedMapId,Guid expectedRestartId,int oldPid,
+        int attemptedNewPid,Func<bool> verifyStopped,bool replacement)
     {
         ArgumentNullException.ThrowIfNull(verifyStopped);
         if(expectedMapId==Guid.Empty||expectedRestartId==Guid.Empty||
@@ -430,6 +442,8 @@ public sealed class UntamedOperationCoordinator
                     AsaRestartPhase.NeedsOperator or AsaRestartPhase.OperatorReviewed))
                 throw new InvalidOperationException(
                     "UM-RECOVERY-STOPPED-RESTART-ONLY-CHANGED");
+            if(replacement&&state.Phase is not (AsaRestartPhase.NeedsOperator or AsaRestartPhase.OperatorReviewed))
+                throw new InvalidOperationException("UM-RECOVERY-REPLACEMENT-RESTART-NOT-TERMINAL");
             if(!verifyStopped())
                 throw new UnauthorizedAccessException(
                     "UM-RECOVERY-STOPPED-PROOF-CHANGED");
@@ -454,7 +468,8 @@ public sealed class UntamedOperationCoordinator
     /// </summary>
     internal void ReviewStoppedOriginalPaired(string installation,
         Guid expectedOperation,Guid expectedMapId,Guid expectedRestartId,
-        int oldPid,Func<bool> verifyStopped,int attemptedNewPid=0)
+        int oldPid,Func<bool> verifyStopped,int attemptedNewPid=0,
+        bool replacement=false)
     {
         ArgumentNullException.ThrowIfNull(verifyStopped);
         if(expectedOperation==Guid.Empty||expectedMapId==Guid.Empty||
@@ -488,6 +503,8 @@ public sealed class UntamedOperationCoordinator
                    AsaRestartPhase.OperatorReviewed))
                 throw new InvalidOperationException(
                     "UM-RECOVERY-STOPPED-RESTART-JOURNAL-CHANGED");
+            if(replacement&&observed.Phase is not (AsaRestartPhase.NeedsOperator or AsaRestartPhase.OperatorReviewed))
+                throw new InvalidOperationException("UM-RECOVERY-REPLACEMENT-RESTART-NOT-TERMINAL");
             if(observed.Phase!=AsaRestartPhase.OperatorReviewed&&
                DateTimeOffset.UtcNow-observed.ChangedUtc<TimeSpan.FromMinutes(3))
                 throw new InvalidOperationException(

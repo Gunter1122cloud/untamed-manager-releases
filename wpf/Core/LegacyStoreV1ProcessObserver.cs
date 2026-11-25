@@ -46,6 +46,62 @@ public static class LegacyStoreV1ProcessObserver
         return text;
     }
 
+    private static string[]? OriginalTokens(string args,bool supplemental)
+    {
+        if(string.IsNullOrWhiteSpace(args)||args.IndexOfAny(new[]{'\r','\n','\0'})>=0)return null;
+        var tokens=args.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries);
+        if(!supplemental)return args.Contains('"')?null:tokens;
+        for(int i=0;i<tokens.Length;i++)
+        {
+            var token=tokens[i];
+            // Accept quoting only for simple complete tokens or no-space values.
+            // Canonical source paths and all flag values still match exactly.
+            if(token.Length>=2&&token[0]=='"'&&token[^1]=='"')
+                token=token[1..^1];
+            else
+            {
+                int eq=token.IndexOf('=');
+                if(eq>0&&eq+2<token.Length&&token[eq+1]=='"'&&token[^1]=='"')
+                    token=token[..(eq+1)]+token[(eq+2)..^1];
+            }
+            if(token.Length==0||token.Contains('"'))return null;
+            tokens[i]=token;
+        }
+        return tokens;
+    }
+
+    private static bool SameSupplementalTokens(string[] supplied,IReadOnlyList<string> expected)=>
+        supplied.Length==expected.Count&&supplied.Length>0&&
+        supplied[0].Equals(expected[0],StringComparison.OrdinalIgnoreCase)&&
+        supplied.Skip(1).OrderBy(x=>x,StringComparer.OrdinalIgnoreCase).SequenceEqual(
+            expected.Skip(1).OrderBy(x=>x,StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+
+    public static string DescribeSupplementalLaunchMismatch(string? commandLine,
+        string expectedExe,IReadOnlyList<string> canonical)
+    {
+        try
+        {
+            var args=ExtractArguments(commandLine,expectedExe);
+            if(args==null)return "COMMAND-EXE-OR-FRAME";
+            var supplied=OriginalTokens(args,true);
+            if(supplied==null)return "ARGS-MISSING-OR-MALFORMED";
+            if(canonical.Count==0||!supplied[0].Equals(canonical[0],StringComparison.OrdinalIgnoreCase))
+                return "MAP-KEY";
+            foreach(var (prefix,label) in new[]{
+                ("-Port=","GAME-PORT"),("-QueryPort=","QUERY-PORT"),
+                ("-mods=","MOD-ORDER"),("-passivemods=","PASSIVE-MODS"),
+                ("-clusterid=","CLUSTER-ID"),("-ClusterDirOverride=","TRANSFER-DIRECTORY")})
+                if(!supplied.Where(x=>x.StartsWith(prefix,StringComparison.OrdinalIgnoreCase)).SequenceEqual(
+                    canonical.Where(x=>x.StartsWith(prefix,StringComparison.OrdinalIgnoreCase)),
+                    StringComparer.OrdinalIgnoreCase))return label;
+            if(supplied.Count(x=>x.Equals("-usestore",StringComparison.OrdinalIgnoreCase))!=1)return "STORE-FLAG";
+            return SameSupplementalTokens(supplied,canonical)?"MATCHER-OTHER":"EXTRA-OR-MISSING-SWITCH";
+        }
+        catch(Exception ex) when(ex is ArgumentException or InvalidDataException or NotSupportedException)
+        {return "COMMAND-EXE-OR-FRAME";}
+    }
+
     public static bool MatchesOriginalActiveCommand(string? commandLine,
         string expectedExe,LocalMap map)=>
         MatchesOriginalActiveCommand(commandLine,expectedExe,map,false);
@@ -63,10 +119,9 @@ public static class LegacyStoreV1ProcessObserver
         try
         {
             string? remaining=ExtractArguments(commandLine,expectedExe);
-            if(string.IsNullOrWhiteSpace(remaining) ||
-               remaining.IndexOfAny(new[]{'"','\r','\n','\0'})>=0)return false;
-            string[] supplied=remaining.Split((char[]?)null,
-                StringSplitOptions.RemoveEmptyEntries);
+            if(remaining==null)return false;
+            var supplied=OriginalTokens(remaining,map.HistoricalSupplementalSource);
+            if(supplied==null)return false;
             // The original active source has a canonical, ordered argument
             // grammar. Other flags and any conversion requests are UNKNOWN
             // and must not be presented as a verified original process.
@@ -113,8 +168,9 @@ public static class LegacyStoreV1ProcessObserver
                     SourcePinnedClusterOnly:string.IsNullOrWhiteSpace(
                         map.HistoricalRuntimeClusterId)));
             return supplied.Length==canonical.Arguments.Length &&
-                   supplied.SequenceEqual(canonical.Arguments,
-                       StringComparer.OrdinalIgnoreCase) &&
+                   (map.HistoricalSupplementalSource?
+                       SameSupplementalTokens(supplied,canonical.Arguments):
+                       supplied.SequenceEqual(canonical.Arguments,StringComparer.OrdinalIgnoreCase)) &&
                    canonical.Arguments.Count(x=>x.Equals("-usestore",
                        StringComparison.OrdinalIgnoreCase))==1;
         }
@@ -172,7 +228,10 @@ public static class LegacyStoreV1ProcessObserver
                 string? aliasArgs=ExtractArguments(childCommand,loader);
                 string? parentArgs=ExtractArguments(loaderCommand,loader);
                 return aliasArgs!=null&&parentArgs!=null&&
-                    aliasArgs.Equals(parentArgs,StringComparison.OrdinalIgnoreCase)&&
+                    (map.HistoricalSupplementalSource?
+                        OriginalTokens(aliasArgs,true) is { } alias&&
+                        OriginalTokens(parentArgs,true) is { } parent&&SameSupplementalTokens(alias,parent):
+                        aliasArgs.Equals(parentArgs,StringComparison.OrdinalIgnoreCase))&&
                     MatchesOriginalActiveCommand(childCommand,loader,map,observeLiveMods);
             }
             if(childArgs.IndexOfAny(new[]{'"','\r','\n','\0'})>=0)return false;
@@ -388,8 +447,8 @@ public static class LegacyStoreV1ProcessObserver
     {
         if(!MatchesOriginalActiveCommand(command,expectedExe,map,observeLiveMods:true))
             throw new InvalidDataException("UM-ORIGINAL-RESTART-LIVE-MODS-UNVERIFIED");
-        var tokens=ExtractArguments(command,expectedExe)!.Split((char[]?)null,
-            StringSplitOptions.RemoveEmptyEntries);
+        var tokens=OriginalTokens(ExtractArguments(command,expectedExe)!,
+            map.HistoricalSupplementalSource)!;
         string[] List(string prefix)=>tokens.SingleOrDefault(x=>x.StartsWith(prefix,
             StringComparison.OrdinalIgnoreCase)) is string value?
             value[prefix.Length..].Split(','):Array.Empty<string>();

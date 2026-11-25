@@ -45,7 +45,7 @@ internal static class LegacyStoreV1GracefulStop
     internal static Owned Require(ClusterService cluster,Guid mapId,
         Func<LocalMap,ProcessCheck> inspect,Func<LocalMap,string> source,
         Func<int,int,bool> portOwner,Guid? approvedRestartId=null,
-        bool recoveryReadOnly=false)
+        bool recoveryReadOnly=false,bool replacementReview=false)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(inspect);
@@ -96,7 +96,21 @@ internal static class LegacyStoreV1GracefulStop
             // RCON port ownership proof above; an unexpected restarted PID
             // must NOT be made eligible for the old-process recovery.
             var oldRestart=restart.Observe();
-            if(oldRestart!=null&&oldRestart.Phase is not
+            if(replacementReview)
+            {
+                // Newer independently started owner, not evidence that
+                // the abandoned restart succeeded. No lifecycle mutation.
+                if(oldRestart==null||oldRestart.MapId!=mapId||
+                   oldRestart.Phase is not (AsaRestartPhase.NeedsOperator or AsaRestartPhase.OperatorReviewed)||
+                   identity.Pid==oldRestart.OldPid||identity.Pid==oldRestart.NewPid||
+                   (oldRestart.Phase!=AsaRestartPhase.OperatorReviewed&&identity.StartedUtc<=oldRestart.ChangedUtc)||
+                   (state.LoaderIdentity!=null&&
+                    (state.LoaderIdentity.Pid==oldRestart.OldPid||
+                     state.LoaderIdentity.Pid==oldRestart.NewPid||
+                     (oldRestart.Phase!=AsaRestartPhase.OperatorReviewed&&state.LoaderIdentity.StartedUtc<=oldRestart.ChangedUtc))))
+                    throw new InvalidOperationException("UM-RECOVERY-REPLACEMENT-EPOCH-NOT-VERIFIED");
+            }
+            else if(oldRestart!=null&&oldRestart.Phase is not
                 (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed)&&
                (oldRestart.MapId!=mapId||oldRestart.OldPid!=identity.Pid||
                 oldRestart.NewPid!=0||oldRestart.Phase is not
@@ -387,6 +401,12 @@ internal static class LegacyStoreV1GracefulStop
             source??(map=>OriginalSource(cluster,map)),
             portOwner??RconPortOwnership.IsOwnedListener,
             recoveryReadOnly:true);
+
+    internal static Owned PreviewForReplacementRestartReview(ClusterService cluster,Guid mapId)=>
+        Require(cluster,mapId,
+            map=>LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps),
+            map=>OriginalSource(cluster,map),RconPortOwnership.IsOwnedListener,
+            recoveryReadOnly:true,replacementReview:true);
 
     internal static Owned Preview(ClusterService cluster,Guid mapId,
         Func<LocalMap,ProcessCheck>? inspect=null,

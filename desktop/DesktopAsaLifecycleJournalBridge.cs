@@ -24,12 +24,13 @@ public sealed class DesktopAsaLifecycleJournalBridge
         int Pid,DateTimeOffset StartedUtc,string SourceSha,string ProfileJson,
         Guid? RestartId,string? RestartSnapshot,bool RestartOnly,DateTimeOffset ExpiresUtc,
         int AttemptedNewPid=0,bool StoppedReview=false,bool SourceReapprovalRequired=false,
-        string CurrentSourceHash="",string PreviousSourceHash="");
+        string CurrentSourceHash="",string PreviousSourceHash="",int ReplacementPid=0);
     internal sealed record StoppedProof(LocalMap Map,int OldPid,string SourceSha,
         bool SourceReapprovalRequired=false,string CurrentSourceHash="",
         string PreviousSourceHash="");
     private readonly ClusterService cluster;
     private readonly Func<Guid,LegacyStoreV1GracefulStop.Owned> ownerProof;
+    private readonly Func<Guid,LegacyStoreV1GracefulStop.Owned> replacementProof;
     private readonly Func<Guid,int,StoppedProof> stoppedProof;
     private readonly bool stoppedReviewEnabled;
     private readonly SemaphoreSlim serial=new(1,1);
@@ -44,12 +45,16 @@ public sealed class DesktopAsaLifecycleJournalBridge
     // Synthetic owner proof is available only to isolated native tests.
     internal DesktopAsaLifecycleJournalBridge(ClusterService local,
         Func<Guid,LegacyStoreV1GracefulStop.Owned>? proof,
-        Func<Guid,int,StoppedProof>? stopped=null)
+        Func<Guid,int,StoppedProof>? stopped=null,
+        Func<Guid,LegacyStoreV1GracefulStop.Owned>? replacement=null)
     {
         cluster=local??throw new ArgumentNullException(nameof(local));
         ownerProof=proof??(mapId=>
             LegacyStoreV1GracefulStop.PreviewForUnfinishedRestartReview(cluster,mapId));
         stoppedProof=stopped??ProductionStoppedProof;
+        replacementProof=replacement??(proof!=null?
+            (_=>throw new InvalidOperationException("UM-RECOVERY-REPLACEMENT-TEST-PROOF-UNAVAILABLE")):
+            (mapId=>LegacyStoreV1GracefulStop.PreviewForReplacementRestartReview(cluster,mapId)));
         // Injected running-owner tests must not reach the production
         // Windows/legacy-profile inspection accidentally.
         stoppedReviewEnabled=proof==null||stopped!=null;
@@ -88,6 +93,18 @@ public sealed class DesktopAsaLifecycleJournalBridge
            proof.Map.RconPort is <1024 or >65535)
             throw new InvalidDataException("UM-RECOVERY-OWNER-UNVERIFIED");
         return proof;
+    }
+    private LegacyStoreV1GracefulStop.Owned ReplacementProof(Guid mapId,AsaRestartRecord record,
+        DateTimeOffset originalFailureUtc)
+    {
+        var witness=replacementProof(mapId);
+        if(!ReferenceEquals(witness.Map,Owned(mapId))||!witness.Map.HistoricalStoreProtected||
+           record.MapId!=mapId||record.Phase is not (AsaRestartPhase.NeedsOperator or AsaRestartPhase.OperatorReviewed)||
+           witness.Process.Pid<=0||witness.Process.Pid==record.OldPid||
+           witness.Process.Pid==record.NewPid||witness.Process.StartedUtc<=originalFailureUtc||
+           witness.SourceSha.Length!=64||!witness.SourceSha.All(Uri.IsHexDigit))
+            throw new InvalidDataException("UM-RECOVERY-REPLACEMENT-OWNER-UNVERIFIED");
+        return witness;
     }
     private StoppedProof ProductionStoppedProof(Guid mapId,int oldPid)
     {
@@ -277,6 +294,7 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         return Error(id,"UM-RECOVERY-RESTART-PHASE-NOT-REVIEWABLE");
                     LegacyStoreV1GracefulStop.Owned? running=null;
                     StoppedProof? stopped=null;
+                    bool replacement=false;
                     if(stoppedReviewEnabled&&
                        (isOriginalPending||restartOnlyReviewable)&&
                        restart?.OldPid>0&&
@@ -300,11 +318,22 @@ public sealed class DesktopAsaLifecycleJournalBridge
                             InvalidOperationException or UnauthorizedAccessException or IOException)
                         {
                             running=null;
-                            stopped=await Task.Run(()=>VerifyStopped(mapId,restart.OldPid));
+                            if(restart.Phase==AsaRestartPhase.NeedsOperator)
+                            {
+                                try
+                                {
+                                    running=await Task.Run(()=>ReplacementProof(mapId,restart,restart.ChangedUtc));
+                                    replacement=true;
+                                }
+                                catch(Exception replacementError) when(replacementError is InvalidDataException or
+                                    InvalidOperationException or UnauthorizedAccessException or IOException)
+                                {running=null;}
+                            }
+                            if(!replacement)stopped=await Task.Run(()=>VerifyStopped(mapId,restart.OldPid));
                         }
                     }
                     else running=await Task.Run(()=>Proof(mapId));
-                    int oldPid=stopped?.OldPid??running!.Process.Pid;
+                    int oldPid=replacement?restart!.OldPid:(stopped?.OldPid??running!.Process.Pid);
                     DateTimeOffset oldStart=running?.Process.StartedUtc??default;
                     string sourceSha=stopped?.SourceSha??running!.SourceSha;
                     bool sourcePinned=LegacyStoreV1PinnedSource.HasApprovedLocalSource(
@@ -324,7 +353,8 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         StoppedReview:stopped!=null,
                         SourceReapprovalRequired:stopped?.SourceReapprovalRequired==true,
                         CurrentSourceHash:stopped?.CurrentSourceHash??"",
-                        PreviousSourceHash:stopped?.PreviousSourceHash??"");
+                        PreviousSourceHash:stopped?.PreviousSourceHash??"",
+                        ReplacementPid:replacement?running!.Process.Pid:0);
                     return Ok(id,new{
                         token,mapId,mapName=map.Name,
                         operationId=old?.Operation??Guid.Empty,
@@ -340,7 +370,8 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         processStartedUtc=oldStart,
                         rconPort=map.RconPort,
                         expiresUtc=pending.ExpiresUtc,
-                        reviewMode=stopped!=null?"stopped":"running",
+                        reviewMode=replacement?"replacement":stopped!=null?"stopped":"running",
+                        currentRunningPid=replacement?running!.Process.Pid:(int?)null,
                         exactWindowsProcessVerified=running!=null,
                         stoppedWindowsProcessVerified=stopped!=null,
                         rconListenerAbsent=stopped!=null,
@@ -411,9 +442,11 @@ public sealed class DesktopAsaLifecycleJournalBridge
                             InvalidOperationException or UnauthorizedAccessException or IOException)
                         {return false;}
                     }
-                    var now=Proof(mapId);
+                    var now=pinned.ReplacementPid>0?
+                        ReplacementProof(mapId,new AsaManualRestartJournal(map.InstallationPath).Observe()!,
+                            currentRestart!.ChangedUtc):Proof(mapId);
                     return ReferenceEquals(now.Map,map)&&
-                        now.Process.Pid==pinned.Pid&&
+                        now.Process.Pid==(pinned.ReplacementPid>0?pinned.ReplacementPid:pinned.Pid)&&
                         now.Process.StartedUtc==pinned.StartedUtc&&
                         now.SourceSha==pinned.SourceSha&&
                         JsonSerializer.Serialize(now.Map)==pinned.ProfileJson;
@@ -430,6 +463,18 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         cluster.Operations.ReviewStoppedOriginalPaired(
                             map.InstallationPath,pinned.Operation,mapId,
                             stoppedRestart,pinned.Pid,CheckPinned,pinned.AttemptedNewPid);
+                }
+                else if(pinned.ReplacementPid>0)
+                {
+                    if(pinned.RestartId is not Guid replacedRestart)
+                        return Error(id,"UM-RECOVERY-RESTART-ID-MISSING");
+                    if(pinned.RestartOnly)
+                        cluster.Operations.ReviewReplacementOriginalRestartOnly(map.InstallationPath,
+                            mapId,replacedRestart,pinned.Pid,pinned.AttemptedNewPid,CheckPinned);
+                    else
+                        cluster.Operations.ReviewStoppedOriginalPaired(map.InstallationPath,
+                            pinned.Operation,mapId,replacedRestart,pinned.Pid,CheckPinned,
+                            pinned.AttemptedNewPid,replacement:true);
                 }
                 else if(pinned.RestartOnly)
                 {
@@ -449,9 +494,10 @@ public sealed class DesktopAsaLifecycleJournalBridge
                     pairedJournalsReviewed=pinned.RestartOnly?1:
                         pinned.RestartId!=null?2:1,
                     restartMarkedSuccessful=false,
-                    oldRunningPid=pinned.StoppedReview?(int?)null:pinned.Pid,
+                    oldRunningPid=pinned.StoppedReview||pinned.ReplacementPid>0?(int?)null:pinned.Pid,
+                    currentRunningPid=pinned.ReplacementPid>0?pinned.ReplacementPid:(int?)null,
                     oldStoppedPid=pinned.StoppedReview?pinned.Pid:(int?)null,
-                    reviewMode=pinned.StoppedReview?"stopped":"running",
+                    reviewMode=pinned.ReplacementPid>0?"replacement":pinned.StoppedReview?"stopped":"running",
                     storeBytesModified=false,
                     processStarted=false,processStopped=false,rconCommandSent=false,
                     noAutomaticRetry=true,newOperationRequiresFreshApproval=true,
