@@ -1117,7 +1117,7 @@ export type FreshStoreEnrollmentStatus = {
 export type FreshStoreEnrollmentPreview = {
   token:string;mapId:string;mapName:string;clusterId:string;
   gamePort:number;queryPort:number;steamBuild:string;
-  transferIdentityCheckedLocally:true;remoteIdentityCertified:false;
+  transferIdentityCheckedLocally:true;remoteIdentityCertified:boolean;
   conversionPerformed:false;serverStarted:false;originalStoreTouched:false;
   automaticRetry:false;evidence:string;
 };

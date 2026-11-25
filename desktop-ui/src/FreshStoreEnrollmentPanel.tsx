@@ -47,7 +47,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
         "UM-FRESH-STORE-MAP-MEMBERSHIP-REQUIRED":
           "A map nincs pontosan egyszer hozzárendelve a kiválasztott clusterhez. Nyisd meg a Cluster fület és mentsd a hozzárendelést.",
         "UM-FRESH-STORE-REMOTE-TRANSFER-NOT-CERTIFIED":
-          "Többgépes Store átviteli könyvtár azonossága még nem igazolt. Az UNC-útvonal önmagában nem bizonyít közös Store-t.",
+          "A többgépes transferhez minden érintett hoston ugyanazt a clustert, saját map-hozzárendelést és UNC könyvtárat állítsd be. A hitelesített LAN státusz frissítése után próbáld újra.",
         "UM-FRESH-STORE-NEW-STEAM-INSTALL-REQUIRED":
           "A map nem igazoltan új, üres SteamCMD-telepítés. Meglévő mapot a külön importvarázslóval vegyél át.",
         "UM-FRESH-STORE-EXISTING-SAVE-OR-REPARSE":
@@ -113,7 +113,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
             <span>Game / Query</span><b>{preview.gamePort} / {preview.queryPort}</b>
             <span>Konverzió</span><b>Nem</b>
             <span>ASA Start</span><b>Nem</b>
-            <span>Másik host átviteli azonossága</span><b>Nem igazolt</b>
+            <span>Másik host átviteli azonossága</span><b>{preview.remoteIdentityCertified?"Hitelesített UNC-azonosság":"Csak helyi"}</b>
           </div>
           <label className="initial-confirm">
             <input type="checkbox" checked={approved}
