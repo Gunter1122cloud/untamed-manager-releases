@@ -268,7 +268,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopPluginZipBridge _pluginZip;
     private readonly DesktopAsaApiCoreBridge _apiCore;
     private readonly DesktopIniBridge _iniEditor;
-    private readonly DesktopHostedResourcesBridge _hostedResources=new();
+    private readonly DesktopHostedResourcesBridge _hostedResources;
     private readonly DesktopLocalMapRegistryBridge _mapRegistry;
     private readonly DesktopRunningAsaRegistrationBridge _runningAsaRegistration;
     private readonly DesktopRunningAsaAdoptionBridge _runningAsaAdoption;
@@ -356,6 +356,7 @@ public sealed class ObsidianWindow : Form
         _pluginZip = new DesktopPluginZipBridge(_bridge.LocalCluster);
         _apiCore = new DesktopAsaApiCoreBridge(_bridge.LocalCluster);
         _iniEditor = new DesktopIniBridge(_bridge.LocalCluster);
+        _hostedResources = new DesktopHostedResourcesBridge(profileRoot:smokeTest||suppressScheduledMutations?null:_bridge.LocalCluster.Store.Root);
         _mapRegistry = new DesktopLocalMapRegistryBridge(_bridge.LocalCluster);
         _runningAsaRegistration = new DesktopRunningAsaRegistrationBridge(_bridge.LocalCluster);
         _runningAsaAdoption = new DesktopRunningAsaAdoptionBridge(_bridge.LocalCluster);
