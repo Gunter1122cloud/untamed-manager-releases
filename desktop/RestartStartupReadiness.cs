@@ -54,6 +54,7 @@ internal static class RestartStartupReadiness
             // Named plugin DLL in its own enabled plugin directory is a
             // concrete installed plugin entry; helper DLLs are not counted
             // as separate plugins. Check ALL such entries.
+            foreach(var file in expected)
             {
                 if((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0||
                    !loaded.Contains(Path.GetFullPath(file)))
