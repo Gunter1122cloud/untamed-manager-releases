@@ -87,58 +87,94 @@ internal static class SteamCmdDiscoveryTests
         Directory.CreateDirectory(Path.GetDirectoryName(exe)!);
         File.WriteAllBytes(exe,new byte[]{0x4d,0x5a,0x90,0x00});
         int processChecks=0;
-        await using var cluster=new ClusterService("steamcmd-discovery-test",
-            Path.Combine(root,"profile"),
-            _=>{processChecks++;return new ProcessCheck(false,
-                "synthetic stopped",null,true);});
-        var map=new LocalMap{Id=mapId,Name="Astraeos",
-            InstallationPath=install,ExecutablePath=exe};
-        cluster.AddMap(map);
-        using var bridge=new DesktopStoppedSteamUpdateBridge(cluster,
-            candidatePaths:_=>new[]{(first,"Kova korábbi map-eszköze")});
-        var discovery=await Call(bridge.HandleAsync,"steam.discoverExecutables",
-            new{mapId});
-        Check(discovery.GetProperty("ok").GetBoolean()&&
-              discovery.GetProperty("data").GetProperty("updateStarted").GetBoolean()==false&&
-              discovery.GetProperty("data").GetProperty("serverStopped").GetBoolean()==false,
-            "discovery does not start, stop or update an ASA server");
-        var candidates=discovery.GetProperty("data").GetProperty("candidates");
-        Check(candidates.GetArrayLength()==1&&
-              candidates[0].GetProperty("sha256").GetString()==before.Sha256,
-            "only the verified existing local SteamCMD candidate is offered");
-        string token=candidates[0].GetProperty("token").GetString()!;
-        var accepted=await Call(bridge.HandleAsync,"steam.acceptDiscoveredExecutable",
-            new{mapId,token,confirm=true});
-        Check(accepted.GetProperty("ok").GetBoolean()&&
-              accepted.GetProperty("data").GetProperty("configured").GetBoolean()&&
-              accepted.GetProperty("data").GetProperty("updateStarted").GetBoolean()==false&&
-              accepted.GetProperty("data").GetProperty("serverStopped").GetBoolean()==false&&
-              cluster.Config.SteamCmdExecutable==Path.GetFullPath(first),
-            "explicit one-shot approval persists the exact existing SteamCMD path without running it");
-        var replay=await Call(bridge.HandleAsync,"steam.acceptDiscoveredExecutable",
-            new{mapId,token,confirm=true});
-        Check(!replay.GetProperty("ok").GetBoolean(),
-            "accepted discovery token cannot be replayed");
+        string profile=Path.Combine(root,"profile");
+        string acceptedToken;
+        // Dispose both the native bridge and its Manager before loading the
+        // same on-disk profile; no reuse of the original Config object.
+        {
+            await using var cluster=new ClusterService("steamcmd-discovery-test",
+                profile,
+                _=>{processChecks++;return new ProcessCheck(false,
+                    "synthetic stopped",null,true);});
+            var map=new LocalMap{Id=mapId,Name="Astraeos",
+                InstallationPath=install,ExecutablePath=exe};
+            cluster.AddMap(map);
+            using var bridge=new DesktopStoppedSteamUpdateBridge(cluster,
+                candidatePaths:_=>new[]{(first,"Kova korábbi map-eszköze")});
+            var discovery=await Call(bridge.HandleAsync,"steam.discoverExecutables",
+                new{mapId});
+            Check(discovery.GetProperty("ok").GetBoolean()&&
+                  discovery.GetProperty("data").GetProperty("updateStarted").GetBoolean()==false&&
+                  discovery.GetProperty("data").GetProperty("serverStopped").GetBoolean()==false,
+                "discovery does not start, stop or update an ASA server");
+            var candidates=discovery.GetProperty("data").GetProperty("candidates");
+            Check(candidates.GetArrayLength()==1&&
+                  candidates[0].GetProperty("sha256").GetString()==before.Sha256,
+                "only the verified existing local SteamCMD candidate is offered");
+            string token=candidates[0].GetProperty("token").GetString()!;
+            acceptedToken=token;
+            var accepted=await Call(bridge.HandleAsync,"steam.acceptDiscoveredExecutable",
+                new{mapId,token,confirm=true});
+            Check(accepted.GetProperty("ok").GetBoolean()&&
+                  accepted.GetProperty("data").GetProperty("configured").GetBoolean()&&
+                  accepted.GetProperty("data").GetProperty("updateStarted").GetBoolean()==false&&
+                  accepted.GetProperty("data").GetProperty("serverStopped").GetBoolean()==false&&
+                  cluster.Config.SteamCmdExecutable==Path.GetFullPath(first),
+                "explicit one-shot approval persists the exact existing SteamCMD path without running it");
+            var replay=await Call(bridge.HandleAsync,"steam.acceptDiscoveredExecutable",
+                new{mapId,token,confirm=true});
+            Check(!replay.GetProperty("ok").GetBoolean(),
+                "accepted discovery token cannot be replayed");
 
-        string changed=Path.Combine(root,"changed","steamcmd.exe");
-        Directory.CreateDirectory(Path.GetDirectoryName(changed)!);
-        WriteMinimalPe(changed,2);
-        using var changedBridge=new DesktopStoppedSteamUpdateBridge(cluster,
-            candidatePaths:_=>new[]{(changed,"synthetic existing SteamCMD")});
-        var changedDiscovery=await Call(changedBridge.HandleAsync,
-            "steam.discoverExecutables",new{mapId});
-        string changedToken=changedDiscovery.GetProperty("data")
-            .GetProperty("candidates")[0].GetProperty("token").GetString()!;
-        WriteMinimalPe(changed,3);
-        var changedApply=await Call(changedBridge.HandleAsync,
-            "steam.acceptDiscoveredExecutable",new{mapId,token=changedToken,confirm=true});
-        Check(!changedApply.GetProperty("ok").GetBoolean()&&
-              changedApply.GetProperty("error").GetString()==
-                "UM-STEAMCMD-DISCOVERY-CANDIDATE-CHANGED"&&
-              cluster.Config.SteamCmdExecutable==Path.GetFullPath(first),
-            "changed candidate bytes invalidate approval and leave the saved SteamCMD path unchanged");
-        Check(processChecks==0,
-            "SteamCMD discovery and configuration never inspect or mutate live ASA processes");
+            string changed=Path.Combine(root,"changed","steamcmd.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(changed)!);
+            WriteMinimalPe(changed,2);
+            using var changedBridge=new DesktopStoppedSteamUpdateBridge(cluster,
+                candidatePaths:_=>new[]{(changed,"synthetic existing SteamCMD")});
+            var changedDiscovery=await Call(changedBridge.HandleAsync,
+                "steam.discoverExecutables",new{mapId});
+            string changedToken=changedDiscovery.GetProperty("data")
+                .GetProperty("candidates")[0].GetProperty("token").GetString()!;
+            WriteMinimalPe(changed,3);
+            var changedApply=await Call(changedBridge.HandleAsync,
+                "steam.acceptDiscoveredExecutable",new{mapId,token=changedToken,confirm=true});
+            Check(!changedApply.GetProperty("ok").GetBoolean()&&
+                  changedApply.GetProperty("error").GetString()==
+                    "UM-STEAMCMD-DISCOVERY-CANDIDATE-CHANGED"&&
+                  cluster.Config.SteamCmdExecutable==Path.GetFullPath(first),
+                "changed candidate bytes invalidate approval and leave the saved SteamCMD path unchanged");
+            Check(processChecks==0,
+                "SteamCMD discovery and configuration never inspect or mutate live ASA processes");
+
+        }
+
+        await using(var reopened=new ClusterService("steamcmd-discovery-test",profile,
+            _=>{processChecks++;return new ProcessCheck(false,"synthetic stopped",null,true);}))
+        {
+            Check(reopened.Config.SteamCmdExecutable==Path.GetFullPath(first)&&
+                reopened.Config.LocalMaps.Single().Id==mapId,
+                "a new Manager instance reloads the accepted SteamCMD path and original map from disk");
+            var reopenedFile=SteamCmdPreflight.Inspect(reopened.Config.SteamCmdExecutable);
+            Check(reopenedFile.Sha256==before.Sha256&&reopenedFile.LengthBytes==before.LengthBytes,
+                "reloaded path still points to the exact original inert SteamCMD fixture");
+            using var reopenedBridge=new DesktopStoppedSteamUpdateBridge(reopened,
+                candidatePaths:_=>Array.Empty<(string Path,string Source)>());
+            var oldApproval=await Call(reopenedBridge.HandleAsync,
+                "steam.acceptDiscoveredExecutable",new{mapId,token=acceptedToken,confirm=true});
+            Check(!oldApproval.GetProperty("ok").GetBoolean()&&
+                oldApproval.GetProperty("error").GetString()=="UM-STEAMCMD-DISCOVERY-TOKEN-EXPIRED"&&
+                reopened.Config.SteamCmdExecutable==Path.GetFullPath(first),
+                "Manager restart preserves configuration, not consumed approval tokens");
+            Check(processChecks==0,
+                "reload and rejected old token do not inspect or mutate ASA processes");
+        }
+        // A second independent reload confirms that a rejected stale token
+        // and disposal did not replace the committed path.
+        await using(var reopenedAgain=new ClusterService("steamcmd-discovery-test",profile))
+        {
+            Check(reopenedAgain.Config.SteamCmdExecutable==Path.GetFullPath(first),
+                "accepted SteamCMD path survives a second complete Manager reload");
+        }
 
         string diagnosticInstall=Path.Combine(root,"diagnostic-asa");
         string diagnosticExe=Path.Combine(diagnosticInstall,"ShooterGame",
