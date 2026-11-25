@@ -139,9 +139,10 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
         {" · "}{journal.changedUtc??"időpont nem olvasható"}
         {" · "}{journal.blockingCode??"ismeretlen blokkoló"}.
         A gomb frissen ellenőrzi a Store-forrást és a naplók azonosítóját.
-        Futó régi vagy külön újraindított ASA esetén a pontos PID-et és RCON-tulajdonost,
-        leállított régi ASA esetén a teljes folyamatcsalád és RCON-listener
-        hiányát ellenőrzi. Ezután kizárólag a Manager naplóit rendezi.</p>
+        Futó régi vagy külön indított ASA esetén a pontos ASA/Loader PID-et,
+        indulási időt, útvonalat, indítási paramétereket és RCON-porttulajdonost
+        ellenőrzi. Leállított példánynál a teljes folyamatcsalád és RCON-listener
+        hiányát igazolja. Ezután kizárólag a Manager naplóit rendezi.</p>
       {journal.restartJournalExists&&<div className="warning-inline">
         <ShieldCheck size={16}/>
         <span><b>Restart-v1 napló:</b> {journal.restartId??"ismeretlen"}

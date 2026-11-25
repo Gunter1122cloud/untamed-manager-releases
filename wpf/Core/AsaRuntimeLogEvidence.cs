@@ -112,7 +112,11 @@ internal static class AsaRuntimeLogEvidence
                         var at=new DateTimeOffset(when,TimeSpan.Zero);
                         if(at<loader.StartedUtc.AddMinutes(-2) ||
                            at>DateTimeOffset.UtcNow.AddMinutes(2))continue;
-                        if(sessionStart){loaded=false;hooks=false;pluginsComplete=false;}
+                        if(sessionStart)
+                        {
+                            loaded=false;hooks=false;pluginsComplete=false;
+                            apiInitialized=false;pluginsInitialized=false;
+                        }
                         else if(isLoad)
                         {
                             // Repeated load means a NEW attempt without a
@@ -128,14 +132,11 @@ internal static class AsaRuntimeLogEvidence
                             hooks=true;
                         }
                         if(isPluginsComplete)pluginsComplete=true;
-                    }
-                    if(loaded&&hooks)
-                    {
-                        apiInitialized=true;
-                        if(pluginsComplete)pluginsInitialized=true;
-                        break;
-                    }
-                }
+                        // Keep scanning the full current-run log tail. A later
+                        // Loading... must invalidate an earlier positive pair.
+                        apiInitialized=loaded&&hooks;
+                        pluginsInitialized=apiInitialized&&pluginsComplete;
+                    }                }
                 catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
                     InvalidDataException or ArgumentException or NotSupportedException)
                 {

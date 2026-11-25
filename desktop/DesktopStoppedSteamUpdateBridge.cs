@@ -609,7 +609,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         evidence="REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"
                     });
                 }
-                if(method=="steam.publishedBuild")                if(method=="steam.publishedBuild")
+                if(method=="steam.publishedBuild")
                 {
                     if(!GuidField(data,"mapId",out var candidateId))
                         return Fail(id,"UM-STEAM-MAP");
