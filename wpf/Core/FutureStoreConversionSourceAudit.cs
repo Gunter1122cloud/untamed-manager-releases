@@ -154,11 +154,15 @@ public static class FutureStoreConversionSourceAudit
         {
             string id=Uid(row,"id"),key=Text(row,"map");
             string root=CanonicalLocal(Text(row,"root"));
-            if(!SafeKey(key)||!ids.Add(id)||!keys.Add(key)||!roots.Add(root)||
-               !mapRecords.TryGetProperty(id,out var record)||
-               record.ValueKind!=JsonValueKind.Object||
-               !launchesById.TryGetValue(id,out var launch))
+            if(!SafeKey(key)||!ids.Add(id)||!keys.Add(key)||!roots.Add(root))
                 Deny("MEMBER-IDENTITY");
+            // Keep the definite assignment of both source rows explicit.
+            // No subsequent record inspection is reachable on a missing row.
+            if(!mapRecords.TryGetProperty(id,out var record)||
+               record.ValueKind!=JsonValueKind.Object)
+                throw new InvalidDataException("UM-FUTURE-SOURCE-MEMBER-IDENTITY");
+            if(!launchesById.TryGetValue(id,out var launch))
+                throw new InvalidDataException("UM-FUTURE-SOURCE-MEMBER-IDENTITY");
             if(Text(record,"phase")!="active"||
                Text(record,"map")!=key||
                !CanonicalLocal(Text(record,"root")).Equals(root,
