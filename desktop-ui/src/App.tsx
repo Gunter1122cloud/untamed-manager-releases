@@ -64,6 +64,7 @@ import { NativeMapScheduler } from "./NativeMapScheduler";
 import { RollingSteamSettings } from "./RollingSteamSettings";
 import { MapMaintenancePanel } from "./MapMaintenancePanel";
 import { LanSettingsPanel } from "./LanSettingsPanel";
+import {HostedResourcesPanel} from "./HostedResourcesPanel";
 import { ClusterRegistryPanel } from "./ClusterRegistryPanel";
 import { MultiHostBackupPanel } from "./MultiHostBackupPanel";
 
@@ -1745,6 +1746,7 @@ function SettingsCenter() {
       <div className="warning-inline"><Shield size={18}/> Kizárólag az API-kulcs kerül mentésre. Semmilyen ASA/Store/SteamCMD művelet nem indul.</div>
     </Panel>
     <LanSettingsPanel/>
+    <HostedResourcesPanel/>
     <Panel title="Manager integrációk">
       <div className="details-line"><span>Frontend</span><b>React / TypeScript · offline</b></div>
       <div className="details-line"><span>Natív Windows-felület</span><b>WebView2 / WinForms</b></div>
