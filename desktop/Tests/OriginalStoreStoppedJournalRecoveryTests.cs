@@ -433,6 +433,32 @@ internal static class OriginalStoreStoppedJournalRecoveryTests
                 !liveBridge.TryReconcileCurrentOwner(liveMap),
                 "automatic reconciliation preserves exact failed bytes and is idempotent");
             liveRestart.DemandNoPending();
+            using(var lease=liveCluster.Operations.Acquire(liveMap.InstallationPath,UntamedOperationKind.Launch))
+                lease.MarkMutationStarted();
+            var pairedGeneral=liveCluster.Operations.Observe(liveMap.InstallationPath)!;
+            File.WriteAllText(liveCommon,JsonSerializer.Serialize(pairedGeneral with{
+                UpdatedUtc=DateTimeOffset.UtcNow.AddMinutes(-10)}));
+            string pairedBytes=File.ReadAllText(liveCommon);
+            var pairedRestart=liveRestart.Begin(liveMap.Id,16477);
+            liveRestart.Change(pairedRestart.Id,AsaRestartPhase.Starting);
+            liveRestart.RecordNewAsaPid(pairedRestart.Id,loaderPid);
+            liveRestart.Change(pairedRestart.Id,AsaRestartPhase.NeedsOperator);
+            File.WriteAllText(liveFile,JsonSerializer.Serialize(liveRestart.Observe()! with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-10)}));
+            string pairedRestartBytes=File.ReadAllText(liveFile);
+            loaderPresent=false;
+            Check(!liveBridge.TryReconcileCurrentOwner(liveMap)&&File.ReadAllText(liveCommon)==pairedBytes&&
+                File.ReadAllText(liveFile)==pairedRestartBytes,"paired recovery requires complete current owner");
+            loaderPresent=true;
+            Check(liveBridge.TryReconcileCurrentOwner(liveMap)&&
+                liveCluster.Operations.Observe(liveMap.InstallationPath)?.Phase==UntamedOperationPhase.OperatorReviewed&&
+                liveRestart.Observe()?.Phase==AsaRestartPhase.OperatorReviewed,
+                "paired current-owner recovery closes both journals without replay");
+            Check(File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,
+                liveKey+"-"+pairedGeneral.Operation.ToString("N")+".operator-reviewed.json"))==pairedBytes&&
+                File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
+                liveKey+"-"+pairedRestart.Id.ToString("N")+".operator-reviewed.json"))==pairedRestartBytes&&
+                !liveBridge.TryReconcileCurrentOwner(liveMap),"paired current-owner audit and idempotence");
             Check(!(await Apply(livePreview)).GetProperty("ok").GetBoolean(),
                 "replacement review approval cannot be replayed");
         }

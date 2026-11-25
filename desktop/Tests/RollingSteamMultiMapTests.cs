@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using UntamedDesktop;
@@ -23,6 +24,7 @@ internal static class RollingSteamMultiMapTests
         await Scenario(root,"wrong-build");
         await Scenario(root,"start-failure");
         await Scenario(root,"blocked-map");
+        await Scenario(root,"interrupted-countdown");
     }
     private static async Task Scenario(string root,string mode)
     {
@@ -166,6 +168,16 @@ internal static class RollingSteamMultiMapTests
                 Check(accepted.GetProperty("data").GetProperty("journalBlocker").ValueKind==JsonValueKind.String,
                     "blocked map opt-in stores intent and reports blocker without clearing journal");
         }
+        if(mode=="interrupted-countdown")
+        {
+            // Emulate an abandoned Manager before any Stop/Steam mutation.
+            // The worker owns no lock now; the next poll must archive and proceed.
+            var persisted=JsonNode.Parse(File.ReadAllText(journal))!.AsObject();
+            persisted["current"]=JsonSerializer.SerializeToNode(new DesktopRollingSteamSupervisor.Run(
+                Guid.NewGuid(),a.Id,"running","countdown","123456","123457",true,DateTimeOffset.UtcNow.AddMinutes(-10)),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            File.WriteAllText(journal,persisted.ToJsonString());
+        }
         bool failed=false;
         using(var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(60)))
         {
@@ -199,8 +211,11 @@ internal static class RollingSteamMultiMapTests
                 AsaSteamBuildCatalog.InstalledBuild(c.InstallationPath)=="123457",
                 "eligible siblings complete despite old per-map journal");
         }
-        else if(mode=="success")
+        else if(mode=="success"||mode=="interrupted-countdown")
         {
+            if(mode=="interrupted-countdown")
+                Check(Directory.GetFiles(profile,"rolling-steam-abandoned-*.json").Length==1,
+                    "interrupted countdown is archived automatically before normal fresh cycle");
             Check(!failed&&current.GetProperty("state").GetString()=="completed"&&
                 trace.SequenceEqual(new[]{"Astraeos:stop","Astraeos:steam","Astraeos:start","Ragnarok:steam",
                     "The Island:stop","The Island:steam","The Island:start"}),"strict serial stop/update/start; stopped map never starts");
