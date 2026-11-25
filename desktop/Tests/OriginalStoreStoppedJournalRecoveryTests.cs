@@ -381,6 +381,30 @@ internal static class OriginalStoreStoppedJournalRecoveryTests
             Check(File.ReadAllText(liveAudit)==originalLiveRestart,
                 "original failed Astraeos Restart-v1 bytes remain unchanged in audit");
             liveRestart.DemandNoPending();
+            // Real-world false blocker: the currently verified Loader and ASA
+            // started BEFORE the failure receipt was closed. NewPid can be
+            // the loader, not the ASA child. No approval or replay is needed.
+            var auto=liveRestart.Begin(liveMap.Id,16477);
+            liveRestart.Change(auto.Id,AsaRestartPhase.Starting);
+            liveRestart.RecordNewAsaPid(auto.Id,loaderPid);
+            liveRestart.Change(auto.Id,AsaRestartPhase.NeedsOperator);
+            File.WriteAllText(liveFile,JsonSerializer.Serialize(liveRestart.Observe()! with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-4)
+            }));
+            string autoOriginal=File.ReadAllText(liveFile);
+            loaderPresent=false;
+            Check(!liveBridge.TryReconcileCurrentOwner(liveMap)&&File.ReadAllText(liveFile)==autoOriginal,
+                "automatic reconciliation cannot archive a missing Loader");
+            loaderPresent=true;
+            Check(liveBridge.TryReconcileCurrentOwner(liveMap)&&
+                liveRestart.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+                liveRestart.Observe()?.NewPid==loaderPid&&File.ReadAllText(liveCommon)==originalLiveCommon,
+                "current owner automatically reconciled despite failure closure being later than launch");
+            Check(File.ReadAllText(Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
+                liveKey+"-"+auto.Id.ToString("N")+".operator-reviewed.json"))==autoOriginal&&
+                !liveBridge.TryReconcileCurrentOwner(liveMap),
+                "automatic reconciliation preserves exact failed bytes and is idempotent");
+            liveRestart.DemandNoPending();
             Check(!(await Apply(livePreview)).GetProperty("ok").GetBoolean(),
                 "replacement review approval cannot be replayed");
         }
