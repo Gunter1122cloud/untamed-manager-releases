@@ -1,0 +1,58 @@
+name: Viking Age motion source attempt
+on:
+  push:
+    branches: ['media/chapter-iii-sourcepack']
+    paths: ['.github/workflows/viking-age-motion-sources.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  collect:
+    if: github.ref == 'refs/heads/media/chapter-iii-sourcepack'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Install video inspection tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          python3 -m pip install --upgrade yt-dlp
+      - name: Attempt ordinary public video access
+        shell: bash
+        run: |
+          mkdir -p motion
+          python3 - <<'PY'
+          import concurrent.futures, subprocess, pathlib, json, hashlib
+          root=pathlib.Path("motion")
+          sources=[
+              ("npc_astraeos","g1Uk9fmQ5PQ"),
+              ("npc_review","iip513nqk_0"),
+              ("ckf_official","gPXpKlY4W-s"),
+              ("ckf_village","1lAlaETf3yc"),
+              ("ckf_blacksmith","ffpVhAPBn48"),
+              ("dark_age_2_spotlight","CD3hfKQqSKc"),
+          ]
+          def check(entry):
+              name,vid=entry
+              url="https://www.youtube.com/watch?v="+vid
+              # Ordinary public metadata request. No cookies, proxy or access-control workaround.
+              try:
+                  p=subprocess.run(["yt-dlp","--no-playlist","--skip-download","--dump-single-json","--socket-timeout","12","--retries","0",url],capture_output=True,text=True,timeout=35)
+                  if p.returncode: return {"name":name,"source":url,"status":"unavailable","error":p.stderr[-1500:]}
+                  d=json.loads(p.stdout)
+                  # Do not publish third-party media without confirmed reuse rights.
+                  return {"name":name,"source":url,"status":"metadata available; original/permission required","title":d.get("title"),"license":d.get("license"),"duration":d.get("duration")}
+              except Exception as e:return {"name":name,"source":url,"status":"unavailable","error":str(e)}
+          with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+              rows=list(pool.map(check,sources))
+          (root/"REPORT.json").write_text(json.dumps({"sources":rows,"video_files":0},indent=2))
+          print(json.dumps(rows,indent=2))
+          PY
+      - name: Upload provenance and access report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Viking_Age_Motion_Source_Report
+          path: motion/
+          if-no-files-found: error
+          retention-days: 3
