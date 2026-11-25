@@ -127,14 +127,21 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
         return proof;
     }
 
-    public Task<string> HandleAsync(string raw)=>HandleCoreAsync(raw,null,null);
+    public Task<string> HandleAsync(string raw)=>HandleCoreAsync(raw,null,null,null);
     // Native scheduler only; the expected post-restart identity never comes from WebView.
     internal Task<string> HandleScheduledWipeAsync(string raw,int pid,DateTimeOffset startedUtc)
     {
         if(pid<=0||startedUtc==default)throw new InvalidDataException("UM-SCHEDULE-WIPE-IDENTITY");
-        return HandleCoreAsync(raw,pid,startedUtc);
+        return HandleCoreAsync(raw,pid,startedUtc,"wildWipe");
     }
-    private async Task<string> HandleCoreAsync(string raw,int? expectedPid,DateTimeOffset? expectedStartedUtc)
+    // Not a renderer route. Only a native caller may bind a countdown
+    // chat command to the exact pre-shutdown ASA process.
+    internal Task<string> HandleScheduledChatAsync(string raw,int pid,DateTimeOffset startedUtc)
+    {
+        if(pid<=0||startedUtc==default)throw new InvalidDataException("UM-SHUTDOWN-COUNTDOWN-IDENTITY");
+        return HandleCoreAsync(raw,pid,startedUtc,"serverChat");
+    }
+    private async Task<string> HandleCoreAsync(string raw,int? expectedPid,DateTimeOffset? expectedStartedUtc,string? expectedAction)
     {
         void DemandScheduledIdentity(LegacyStoreV1GracefulStop.Owned proof)
         {
@@ -173,7 +180,7 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                        m.ValueKind!=JsonValueKind.String)
                         return Fail(id,"UM-ORIGINAL-ADMIN-INVALID-SELECTION");
                     string action=a.GetString()??"";
-                    if(expectedPid.HasValue&&action!="wildWipe")return Fail(id,"UM-SCHEDULE-WIPE-ACTION");
+                    if(expectedPid.HasValue&&action!=expectedAction)return Fail(id,"UM-SCHEDULE-WIPE-ACTION");
                     string command=Command(action,m.GetString()??"");
                     var proof=await Task.Run(()=>Require(mapId));
                     DemandScheduledIdentity(proof);
@@ -203,7 +210,7 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                    !pendingByMap.Values.Any(p=>p.Token==token))
                     return Fail(id,"UM-ORIGINAL-ADMIN-APPROVAL");
                 var approved=pendingByMap.Values.Single(p=>p.Token==token);
-                if(expectedPid.HasValue&&(approved.Action!="wildWipe"||approved.Pid!=expectedPid.Value||approved.StartedUtc!=expectedStartedUtc))
+                if(expectedPid.HasValue&&(approved.Action!=expectedAction||approved.Pid!=expectedPid.Value||approved.StartedUtc!=expectedStartedUtc))
                     return Fail(id,"UM-SCHEDULE-WIPE-IDENTITY");
                 pendingByMap.Remove(approved.MapId); // No replay on wrong typed approval.
                 if(approved.Expires<DateTimeOffset.UtcNow||

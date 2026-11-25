@@ -95,17 +95,24 @@ public sealed class DesktopRconAdminBridge
             throw new InvalidOperationException("UM-RCON-LISTENER-UNVERIFIED");
         return(map,identity);
     }
-    public Task<string> HandleAsync(string raw)=>HandleCoreAsync(raw,null,null);
+    public Task<string> HandleAsync(string raw)=>HandleCoreAsync(raw,null,null,null);
     internal Task<string> HandleScheduledWipeAsync(string raw,int pid,DateTimeOffset startedUtc)
     {
         if(pid<=0||startedUtc==default)throw new InvalidDataException("UM-SCHEDULE-WIPE-IDENTITY");
-        return HandleCoreAsync(raw,pid,startedUtc);
+        return HandleCoreAsync(raw,pid,startedUtc,"wildWipe");
     }
-    private async Task<string> HandleCoreAsync(string raw,int? expectedPid,DateTimeOffset? expectedStart)
+    // Not a renderer route. Only a native caller may bind a countdown
+    // chat command to the exact pre-shutdown ASA process.
+    internal Task<string> HandleScheduledChatAsync(string raw,int pid,DateTimeOffset startedUtc)
+    {
+        if(pid<=0||startedUtc==default)throw new InvalidDataException("UM-SHUTDOWN-COUNTDOWN-IDENTITY");
+        return HandleCoreAsync(raw,pid,startedUtc,"serverChat");
+    }
+    private async Task<string> HandleCoreAsync(string raw,int? expectedPid,DateTimeOffset? expectedStart,string? expectedAction)
     {
         void DemandScheduledIdentity(ProcessIdentity identity,string action)
         {
-            if(expectedPid.HasValue&&(action!="wildWipe"||identity.Pid!=expectedPid.Value||
+            if(expectedPid.HasValue&&(action!=expectedAction||identity.Pid!=expectedPid.Value||
                 identity.StartedUtc!=expectedStart))
                 throw new InvalidOperationException("UM-SCHEDULE-WIPE-IDENTITY-CHANGED");
         }

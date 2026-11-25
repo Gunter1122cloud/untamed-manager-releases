@@ -114,6 +114,7 @@ function ScheduleEditor({mapId,kind,status,onChanged}:{
       <div><span>Utolsó végrehajtás</span><strong>{existing?.lastClaimedUtc?localDate(existing.lastClaimedUtc,existing.timeZoneId):"Még nem futott"}</strong></div>
       {existing?.lastClaimedUtc&&<p role="status">{existing.lastStatus} · {existing.lastEvidence||"Nincs független játékon belüli igazolás"}</p>}
     </div>
+    {kind==="Restart"&&<p className="muted small">Az esedékességkor 5 perces játékbeli chat-visszaszámlálás indul, percenként egy üzenettel. A szabályos leállítás csak ezután kezdődik.</p>}
     <div className="native-schedule-controls">
       <label>Gyakoriság
         <select aria-label={kindLabel(kind)+" gyakoriság"} value={draft.frequency}

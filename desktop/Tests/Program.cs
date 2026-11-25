@@ -210,6 +210,7 @@ var map=new LocalMap{
 cluster.AddMap(map);
 await LocalAsaApiModeTests.Run(root);
 await ManualOnlySteamScheduleTests.Run(root);
+await AsaShutdownCountdownTests.Run();
 await OriginalStoreStoppedJournalRecoveryTests.Run(root);
 await RestartStartupReadinessTests.Run(root);
 ScheduledRestartOutageLedgerTests.Run(root);

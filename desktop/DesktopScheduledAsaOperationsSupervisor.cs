@@ -74,6 +74,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     internal Func<Guid,bool>? AutomaticRecoveryPending {get;set;}
     private readonly DesktopRconReadOnlyBridge rcon;
     private readonly DesktopRconAdminBridge freshWipeAdmin;
+    private readonly DesktopRconAdminBridge countdownAdmin;
+    private readonly bool nativeCountdown;
     private readonly DesktopFreshAsaRestartBridge restart;
     private readonly DesktopHistoricalGracefulStopBridge? historicalStop;
     private readonly DesktopHistoricalRestartBridge? historicalRestart;
@@ -121,6 +123,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         eventStream=new DiscordOperationEvents(cluster);
         this.rcon=rcon??throw new ArgumentNullException(nameof(rcon));
         freshWipeAdmin=new DesktopRconAdminBridge(cluster);
+        countdownAdmin=new DesktopRconAdminBridge(cluster);
+        nativeCountdown=isolatedRunner==null&&isolatedPreflight==null;
         this.restart=restart??throw new ArgumentNullException(nameof(restart));
         this.historicalStop=historicalStop;
         this.historicalRestart=historicalRestart;
@@ -763,8 +767,64 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         return fallback;
     }
 
+    // Bind the whole countdown to the old process epoch and the durable
+    // scheduler claim. Use independent approval slots so chat previews
+    // cannot replace a pending manual RCON approval.
+    private async Task<ProcessIdentity> WarnBeforeRestartAsync(ScheduledAsaOperation job,
+        Func<bool> stillApproved,CancellationToken ct)
+    {
+        var map=Owned(job.MapId);
+        ProcessIdentity Observe()
+        {
+            var current=Owned(job.MapId);
+            if(current.HistoricalStoreProtected)
+                return LegacyStoreV1GracefulStop.Preview(cluster,job.MapId).Process;
+            var state=cluster.Check(current);
+            if(!state.Running||state.ConfirmedStopped||state.Identity is not {Pid:>0} identity||
+               !RconPortOwnership.IsOwnedListener(current.RconPort,identity.Pid))
+                throw new InvalidOperationException("UM-SHUTDOWN-COUNTDOWN-OWNER");
+            return identity;
+        }
+        var first=Observe();
+        using var historic=map.HistoricalStoreProtected?new DesktopHistoricalRconAdminBridge(cluster):null;
+        bool StillSame()
+        {
+            if(!stillApproved()||AutomaticRecoveryPending?.Invoke(job.MapId)==true)return false;
+            try
+            {
+                var now=Observe();
+                return now.Pid==first.Pid&&now.StartedUtc==first.StartedUtc&&
+                    string.Equals(now.ExecutablePath,first.ExecutablePath,StringComparison.OrdinalIgnoreCase)&&
+                    now.Arguments==first.Arguments;
+            }
+            catch{return false;}
+        }
+        async Task Send(string message,CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            string prefix=historic==null?"rcon":"historical";
+            Func<string,Task<string>> handle=historic==null?
+                raw=>countdownAdmin.HandleScheduledChatAsync(raw,first.Pid,first.StartedUtc):
+                raw=>historic.HandleScheduledChatAsync(raw,first.Pid,first.StartedUtc);
+            var preview=Decode(await handle(Message(prefix+".adminPreview",
+                new{mapId=job.MapId,action="serverChat",message})));
+            if(preview.GetProperty("mapId").GetGuid()!=job.MapId||
+               preview.GetProperty("command").GetString()!="ServerChat "+message||!StillSame())
+                throw new InvalidOperationException("UM-SHUTDOWN-COUNTDOWN-PREVIEW");
+            token.ThrowIfCancellationRequested();
+            var sent=Decode(await handle(Message(prefix+".adminSend",new{
+                token=preview.GetProperty("token").GetGuid(),confirm=true,typedApproval="STORE-V1 ADMIN"})));
+            if(sent.GetProperty("mapId").GetGuid()!=job.MapId||
+               sent.GetProperty("command").GetString()!="ServerChat "+message||
+               !sent.GetProperty("commandSent").GetBoolean()||!sent.GetProperty("oneShot").GetBoolean())
+                throw new InvalidOperationException("UM-SHUTDOWN-COUNTDOWN-SEND");
+        }
+        await AsaShutdownCountdown.RunAsync(false,StillSame,Send,ct);
+        return first;
+    }
+
     private async Task<string> RunHistoricalAsync(ScheduledAsaOperation job,Guid runId,
-        ScheduledAsaDispatchLane lane,CancellationToken ct)
+        ScheduledAsaDispatchLane lane,CancellationToken ct,ProcessIdentity? warned=null)
     {
         var map=Owned(job.MapId);
         if(!HistoricalEligible(map)||Fingerprint(map)!=job.Fingerprint)
@@ -789,6 +849,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
            pre.GetProperty("usesDoExit").GetBoolean()==save)
             throw new InvalidDataException("UM-SCHEDULE-HISTORICAL-PREVIEW");
         int oldPid=pre.GetProperty("pid").GetInt32();
+        if(warned!=null&&(oldPid!=warned.Pid||pre.GetProperty("currentStartedUtc").GetDateTimeOffset()!=warned.StartedUtc))
+            throw new InvalidOperationException("UM-SHUTDOWN-COUNTDOWN-PROCESS-CHANGED");
         ct.ThrowIfCancellationRequested();
         bool RetryStillApproved()=>Locked(()=>Read().Jobs.Any(x=>x.MapId==job.MapId&&
             x.Kind==job.Kind&&x.Enabled&&x.Revision==job.Revision&&
@@ -952,7 +1014,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             throw new InvalidDataException("UM-SCHEDULE-WIPE-RECEIPT");
         return "WILD_WIPE_SINGLE_SEND_GAME_EFFECT_UNVERIFIED";
     }
-    private async Task<string> RunNativeAsync(Guid mapId,string kind,CancellationToken ct)
+    private Task<string> RunNativeAsync(Guid mapId,string kind,CancellationToken ct)=>RunNativeAsync(mapId,kind,ct,null);
+    private async Task<string> RunNativeAsync(Guid mapId,string kind,CancellationToken ct,ProcessIdentity? warned)
     {
         if(kind=="WildWipe")
         {
@@ -1014,6 +1077,10 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             throw new UnauthorizedAccessException("UM-ASA-SCHEDULE-UNSUPPORTED");
         var preview=Decode(await restart.HandleAsync(
             Message("servers.restartPreview",new {mapId})));
+        if(warned!=null&&(preview.GetProperty("currentPid").GetInt32()!=warned.Pid||
+            preview.GetProperty("currentStartedUtc").GetDateTimeOffset()!=warned.StartedUtc))
+            throw new InvalidOperationException("UM-SHUTDOWN-COUNTDOWN-PROCESS-CHANGED");
+        ct.ThrowIfCancellationRequested();
         var token=preview.GetProperty("token").GetGuid();
         var started=Decode(await restart.HandleAsync(
             Message("servers.restartApply",new {token,confirm=true})));
@@ -1187,8 +1254,17 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                         using var freshRetry=map.HistoricalStoreProtected||observed.Kind!="Restart"?null:
                             ScheduledRestartRetryScope.Enter(new ScheduledRestartRetryPermit(
                                 map.Id,claimId,RetryStillApproved,token,lane.BackoffAsync));
+                        ProcessIdentity? warned=null;
+                        if(nativeCountdown&&observed.Kind=="Restart")
+                        {
+                            ScheduleEvent(claimId,observed,"countdown","in-progress","FIVE_MINUTE_CHAT_COUNTDOWN");
+                            warned=await WarnBeforeRestartAsync(observed,RetryStillApproved,token);
+                            if(!RetryStillApproved())throw new InvalidOperationException("UM-SHUTDOWN-COUNTDOWN-CANCELLED");
+                        }
                         evidence=map.HistoricalStoreProtected?
-                            await RunHistoricalAsync(observed,claimId,lane,token):await runner(map.Id,observed.Kind,token);
+                            await RunHistoricalAsync(observed,claimId,lane,token,warned):
+                            warned==null?await runner(map.Id,observed.Kind,token):
+                            await RunNativeAsync(map.Id,observed.Kind,token,warned);
                         status="executed-no-fsync-or-client-certification";
                     }
                     else status="config-or-store-blocked";
