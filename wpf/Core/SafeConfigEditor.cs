@@ -33,7 +33,25 @@ public static class SafeConfigEditor
         ProcessCheck state,bool maintenance=false)
     {
         ValidatePath(path,mapInstallation,kind,state,maintenance);
-        var bytes=File.ReadAllBytes(path);
+        return ReadBytes(path,kind);
+    }
+
+    // Read-only snapshot for a future stopped launch. No stopped-state
+    // witness is fabricated; this path never authorizes a disk replacement.
+    public static ConfigSnapshot ReadGameDraft(string path,string mapInstallation)
+    {
+        if(Path.GetFileName(path)!="Game.ini")
+            throw new InvalidDataException("UM-INI-DRAFT-GAME-ONLY");
+        ValidatePath(path,mapInstallation,ConfigKind.GameIni,null,false,requireStopped:false);
+        return ReadBytes(path,ConfigKind.GameIni);
+    }
+    private static ConfigSnapshot ReadBytes(string path,ConfigKind kind)
+    {
+        using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
+        if(stream.Length>2_000_000)throw new InvalidDataException("Config file exceeds 2 MB");
+        byte[] bytes=new byte[checked((int)stream.Length)];
+        stream.ReadExactly(bytes);
+        if(stream.ReadByte()!=-1)throw new IOException("Config changed while reading");
         if(bytes.Length>2_000_000)throw new InvalidDataException("Config file exceeds 2 MB");
         var (enc,name,bom)=EncodingOf(bytes);
         int offset=bom?enc.GetPreamble().Length:0;
@@ -91,6 +109,36 @@ public static class SafeConfigEditor
             return backup;
         }
         finally{if(File.Exists(tmp))File.Delete(tmp);}
+    }
+
+    // Called only while the caller holds the installation Launch lease.
+    // All path, byte and stopped-state checks remain native. The callback
+    // marks the existing durable launch journal exactly once before replace.
+    internal static void ApplyGameDraftUnderLaunchLease(ConfigSnapshot baseline,string edited,
+        string root,Func<ProcessCheck> inspect,Action markMutation)
+    {
+        ValidatePath(baseline.Path,root,ConfigKind.GameIni,inspect(),false);
+        var preview=Preview(baseline,edited);
+        if(!preview.Changed)return;
+        string suffix=Guid.NewGuid().ToString("N");
+        string temp=baseline.Path+".untamed-stage-"+suffix;
+        string backup=baseline.Path+".untamed-"+suffix+".bak";
+        try
+        {
+            var bytes=Encode(baseline,Normalize(edited,baseline.LineEnding));
+            using(var output=new FileStream(temp,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+            {output.Write(bytes);output.Flush(true);}
+            if(Hex(File.ReadAllBytes(temp))!=preview.NewSha256)
+                throw new IOException("UM-INI-DRAFT-STAGE-HASH");
+            ValidatePath(baseline.Path,root,ConfigKind.GameIni,inspect(),false);
+            if(ReadGameDraft(baseline.Path,root).Sha256!=baseline.Sha256)
+                throw new ConfigEtagConflictException("UM-INI-DRAFT-BASE-CHANGED");
+            markMutation();
+            File.Replace(temp,baseline.Path,backup,true);
+            if(ReadGameDraft(baseline.Path,root).Sha256!=preview.NewSha256)
+                throw new IOException("UM-INI-DRAFT-APPLIED-HASH");
+        }
+        finally{if(File.Exists(temp))File.Delete(temp);}
     }
 
     /// <summary>
@@ -225,10 +273,11 @@ public static class SafeConfigEditor
     }
 
     private static void ValidatePath(string path,string root,ConfigKind kind,
-        ProcessCheck state,bool maintenance)
+        ProcessCheck? state,bool maintenance,bool requireStopped=true)
     {
         if(!Enum.IsDefined(kind))throw new InvalidDataException("Unsupported configuration kind");
-        if(state==null || !state.ConfirmedStopped || state.Running || maintenance)
+        if(requireStopped&&(state==null || !state.ConfirmedStopped || state.Running ||
+            state.Identity!=null||state.LoaderIdentity!=null||maintenance))
             throw new InvalidOperationException("Config editing requires confirmed stopped local map");
         if(string.IsNullOrWhiteSpace(path)||string.IsNullOrWhiteSpace(root) ||
            !Path.IsPathFullyQualified(path) || !Path.IsPathFullyQualified(root) ||

@@ -1441,13 +1441,13 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
     setNotice("");setError("");setBusy(false);
     return ()=>{++operationEpoch.current;};
   }, [selected, file]);
-  const load = async () => {
+  const load = async (draftOnly=false) => {
     if(!selected||busy)return;
     const requested=selected,name=file,epoch=operationEpoch.current;
     setBusy(true);setError("");setNotice("");setPreview(null);setMergeAvailable(false);
     setCreatePreview(null);setCreateApproved(false);setMissingGame(false);
     try {
-      const fresh=await managerBridge.iniOpen(requested,name);
+      const fresh=draftOnly?await managerBridge.iniOpenDraft(requested):await managerBridge.iniOpen(requested,name);
       if(!belongs(requested,name,epoch))return;
       if(fresh.mapId.toLowerCase()!==requested.toLowerCase()||fresh.file!==name)
         throw new Error("UM-INI-OPEN-OTHER-MAP");
@@ -1591,6 +1591,34 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
       setPreview(null);
     }finally{if(belongs(requested,name,epoch))setBusy(false);}
   };
+  const stageGame=async()=>{
+    if(!opened||!preview?.changed||busy||file!=="Game.ini"||opened.mapId!==selected)return;
+    const requested=selected,epoch=operationEpoch.current;
+    setBusy(true);setError("");setNotice("");
+    try{
+      const result=await managerBridge.iniStageDraft(opened.token);
+      if(!belongs(requested,"Game.ini",epoch))return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase()||
+         (result.state!=="queued"&&result.state!=="applied")||result.nextSha256!==preview.nextSha256)
+        throw Error("UM-INI-DRAFT-RECEIPT");
+      setOpened(null);setPreview(null);setContent("");
+      setNotice("Titkosított Game.ini piszkozat mentve. A következő igazolt natív indítás előtt alkalmazható; külső fájlváltozás esetén megmarad, de nem ír felül semmit.");
+    }catch{if(belongs(requested,"Game.ini",epoch))setError("A következő indításra előkészített piszkozat nem igazolható.");}
+    finally{if(belongs(requested,"Game.ini",epoch))setBusy(false);}
+  };
+  const pendingGame=async(discard=false)=>{
+    if(!selected||busy)return;
+    const requested=selected,name=file,epoch=operationEpoch.current;
+    setBusy(true);setNotice("");setError("");
+    try{
+      const result=discard?await managerBridge.iniPendingDiscard(requested):await managerBridge.iniPendingStatus(requested);
+      if(!belongs(requested,name,epoch))return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase())throw Error("UM-INI-DRAFT-MAP");
+      const labels={none:"Nincs függő Game.ini piszkozat.",queued:"Előkészítve a következő natív indításra.",conflict:"A lemezen lévő Game.ini megváltozott; a piszkozat nem lesz automatikusan alkalmazva.",applied:"Az előkészített SHA-256 egyezik a lemezen lévő Game.ini fájllal.",unavailable:"A helyi piszkozat állapota nem ellenőrizhető."};
+      setNotice(labels[result.state]);
+    }catch{if(belongs(requested,name,epoch))setError("A Game.ini piszkozat állapota nem ellenőrizhető.");}
+    finally{if(belongs(requested,name,epoch))setBusy(false);}
+  };
   const close = async () => {
     if(!opened||busy||opened.mapId.toLowerCase()!==selected.toLowerCase()||
        opened.file!==file)return;
@@ -1622,6 +1650,11 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
         </select>
       </label>
       <button className="primary" onClick={() => { void load(); }} disabled={busy || !selected}>Fájl biztonságos megnyitása</button>
+      {file==="Game.ini"&&<>
+        <button className="secondary" disabled={busy||!selected} onClick={()=>void load(true)}>Piszkozat megnyitása futó mapnál is</button>
+        <button className="secondary" disabled={busy||!selected} onClick={()=>void pendingGame()}>Függő Game.ini állapota</button>
+        <button className="secondary" disabled={busy||!selected} onClick={()=>void pendingGame(true)}>Függő piszkozat elvetése</button>
+      </>}
     </div>
     <Panel title={opened ? `Szerkesztés · ${opened.file}` : "Helyi konfiguráció"}
       action={opened && <span className="muted tiny">Kódolás: {opened.encoding} · {opened.bytes.toLocaleString("hu-HU")} byte</span>}>
@@ -1659,7 +1692,8 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
         <div className="ini-actions">
           <button className="secondary" disabled={busy} onClick={() => { void close(); }}>Mégse · piszkozat elvetése</button>
           <button className="primary" disabled={busy || content===opened.content} onClick={() => { void showPreview(); }}>Hash és változások előnézete</button>
-          <button className="primary" disabled={busy || !preview?.changed} onClick={() => { void save(); }}>Jóváhagyás és atomikus mentés</button>
+          {opened.evidence!=="LOCAL_GAME_INI_DRAFT_SNAPSHOT"&&<button className="primary" disabled={busy || !preview?.changed} onClick={() => { void save(); }}>Jóváhagyás és atomikus mentés</button>}
+          {file==="Game.ini"&&<button className="primary" disabled={busy||!preview?.changed} onClick={()=>void stageGame()}>Mentés a következő natív indításra</button>}
           {mergeAvailable&&<button className="secondary" disabled={busy}
             onClick={()=>{void rebaseIni();}}>
             Háromutas INI-egyeztetés előnézete (nem ment)
