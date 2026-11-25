@@ -776,7 +776,9 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                 // One-shot approval is consumed for its own map only.
                 pendingByMap.Remove(saved.MapId);
                 var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==saved.MapId);
-                if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
+                // This map was local at preview, but is no longer registered.
+                // Consume the old approval as changed preflight, never dispatch.
+                if(map==null)return Fail(id,"UM-STEAM-PREFLIGHT-CHANGED");
                 string? applyJournalCode=LocalJournalBlocker(map);
                 if(applyJournalCode!=null)return Fail(id,applyJournalCode);
                 if(QueueJournalBlockerCode() is { } finalQueueBlocker)
