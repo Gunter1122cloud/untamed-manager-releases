@@ -1,0 +1,327 @@
+name: Chapter III Dropbox media transfer
+on:
+  push:
+    branches: ['media/chapter-iii-sourcepack']
+    paths: ['.github/workflows/chapter-iii-dropbox-transfer.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  transfer:
+    if: github.ref == 'refs/heads/media/chapter-iii-sourcepack'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Install archive and media tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y p7zip-full ffmpeg
+      - name: Retrieve owner-provided Dropbox archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p incoming originals transfer review
+          curl --fail --location --retry 2 --connect-timeout 20 --max-time 480 --silent --show-error 'https://www.dropbox.com/scl/fi/lugl6xoy955w2878aj52o/Nyersanyag.rar?rlkey=77pxuverijf1f6mrqd9536a95&dl=1' -o incoming/Nyersanyag.rar
+          python3 - <<'PY'
+          import pathlib
+          p=pathlib.Path("incoming/Nyersanyag.rar")
+          assert p.stat().st_size==1726759801, f"Unexpected byte count: {p.stat().st_size}"
+          with p.open("rb") as f: assert f.read(7)==b"Rar!\x1a\x07\x01" or p.open("rb").read(7)==b"Rar!\x1a\x07\x00", "Not RAR"
+          print("Verified archive size:",p.stat().st_size)
+          PY
+      - name: Extract only video files
+        shell: bash
+        run: |
+          set -euo pipefail
+          7z l incoming/Nyersanyag.rar
+          7z e -y -aou -ssc- -ooriginals incoming/Nyersanyag.rar '-ir!*.mp4' '-ir!*.mkv' '-ir!*.webm' '-ir!*.mov' '-ir!*.m4v' '-ir!*.avi'
+          python3 - <<'PY'
+          import pathlib, hashlib, json, subprocess, shutil
+          root=pathlib.Path("originals")
+          transfer=pathlib.Path("transfer")
+          review=pathlib.Path("review")
+          files=[p for p in sorted(root.iterdir()) if p.is_file() and not p.is_symlink() and p.suffix.lower() in {".mp4",".mkv",".webm",".mov",".m4v",".avi"}]
+          assert files,"No video files in archive"
+          cap=150_000_000
+          rows=[]
+          n=0
+          for p in files:
+              try:
+                  info=json.loads(subprocess.check_output(["ffprobe","-v","error","-show_format","-show_streams","-of","json",str(p)],timeout=60))
+                  v=next(s for s in info["streams"] if s["codec_type"]=="video")
+              except Exception as e:
+                  print("INVALID MEDIA",p.name,str(e)); continue
+              n+=1
+              row={"original_name":p.name,"size_bytes":p.stat().st_size,"width":v.get("width"),"height":v.get("height"),"fps":v.get("avg_frame_rate"),"duration":info["format"].get("duration"),"parts":[]}
+              h=hashlib.sha256()
+              with p.open("rb") as src:
+                  i=0
+                  while True:
+                      chunk=src.read(cap)
+                      if not chunk:break
+                      i+=1
+                      h.update(chunk)
+                      group=f"{n:02d}-{i:02d}"
+                      folder=transfer/group
+                      folder.mkdir()
+                      filename=p.name if p.stat().st_size<=cap else f"video_{n:02d}.part{i:03d}"
+                      (folder/filename).write_bytes(chunk)
+                      row["parts"].append({"artifact":"ChapterIII_video_"+group,"file":filename,"bytes":len(chunk),"sha256":hashlib.sha256(chunk).hexdigest()})
+              row["sha256"]=h.hexdigest()
+              rows.append(row)
+          assert rows,"No valid video files"
+          (review/"MANIFEST.json").write_text(json.dumps({"files":rows,"note":"Original video bytes; concatenate each file's parts in listed order and verify SHA256. User-provided material; verify third-party reuse rights before publication."},indent=2,ensure_ascii=False))
+          print(json.dumps(rows,indent=2,ensure_ascii=False))
+          # Build one directory per artifact; upload via GitHub artifact action below.
+          # Merge small parts into numbered fixed batches without modifying bytes.
+          batches=pathlib.Path("batches")
+          b=0
+          used=0
+          for row in rows:
+              for part in row["parts"]:
+                  group=part["artifact"].removeprefix("ChapterIII_video_")
+                  src=transfer/group/part["file"]
+                  if b==0 or used+src.stat().st_size>180_000_000:
+                      b+=1; used=0
+                  dest=batches/f"{b:02d}"/group
+                  dest.mkdir(parents=True,exist_ok=True)
+                  shutil.move(src,dest/src.name)
+                  used+=part["bytes"]
+                  part["artifact"]=f"ChapterIII_originals_{b:02d}"
+                  part["file"]=group+"/"+src.name
+          assert b<=25,f"Too many batches: {b}"
+          (review/"MANIFEST.json").write_text(json.dumps({"files":rows,"batch_count":b,"note":"Original bytes; concatenate parts in listed order and verify SHA256. User-provided material; verify third-party reuse rights before publication."},indent=2,ensure_ascii=False))
+          print("VALID VIDEOS",len(rows),"BATCHES",b)
+          PY
+      - name: Upload manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_Dropbox_Manifest
+          path: review/
+          if-no-files-found: error
+          retention-days: 3
+      - name: Upload original batch 01
+        if: ${{ hashFiles('batches/01/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_01
+          path: batches/01/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 02
+        if: ${{ hashFiles('batches/02/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_02
+          path: batches/02/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 03
+        if: ${{ hashFiles('batches/03/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_03
+          path: batches/03/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 04
+        if: ${{ hashFiles('batches/04/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_04
+          path: batches/04/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 05
+        if: ${{ hashFiles('batches/05/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_05
+          path: batches/05/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 06
+        if: ${{ hashFiles('batches/06/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_06
+          path: batches/06/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 07
+        if: ${{ hashFiles('batches/07/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_07
+          path: batches/07/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 08
+        if: ${{ hashFiles('batches/08/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_08
+          path: batches/08/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 09
+        if: ${{ hashFiles('batches/09/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_09
+          path: batches/09/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 10
+        if: ${{ hashFiles('batches/10/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_10
+          path: batches/10/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 11
+        if: ${{ hashFiles('batches/11/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_11
+          path: batches/11/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 12
+        if: ${{ hashFiles('batches/12/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_12
+          path: batches/12/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 13
+        if: ${{ hashFiles('batches/13/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_13
+          path: batches/13/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 14
+        if: ${{ hashFiles('batches/14/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_14
+          path: batches/14/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 15
+        if: ${{ hashFiles('batches/15/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_15
+          path: batches/15/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 16
+        if: ${{ hashFiles('batches/16/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_16
+          path: batches/16/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 17
+        if: ${{ hashFiles('batches/17/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_17
+          path: batches/17/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 18
+        if: ${{ hashFiles('batches/18/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_18
+          path: batches/18/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 19
+        if: ${{ hashFiles('batches/19/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_19
+          path: batches/19/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 20
+        if: ${{ hashFiles('batches/20/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_20
+          path: batches/20/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 21
+        if: ${{ hashFiles('batches/21/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_21
+          path: batches/21/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 22
+        if: ${{ hashFiles('batches/22/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_22
+          path: batches/22/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 23
+        if: ${{ hashFiles('batches/23/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_23
+          path: batches/23/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 24
+        if: ${{ hashFiles('batches/24/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_24
+          path: batches/24/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Upload original batch 25
+        if: ${{ hashFiles('batches/25/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChapterIII_originals_25
+          path: batches/25/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
