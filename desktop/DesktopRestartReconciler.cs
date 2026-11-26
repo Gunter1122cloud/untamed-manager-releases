@@ -274,50 +274,68 @@ internal sealed class DesktopRestartReconciliationSupervisor : IDisposable
     private readonly SemaphoreSlim hostGate;
     private readonly Func<bool> enter,paused;
     private readonly Action leave;
+    private readonly Func<Guid,bool>? enterMap;
+    private readonly Action? leaveMap;
     private readonly Func<LocalMap,bool> reconcile;
     private readonly CancellationTokenSource cancellation=new();
     private int started;
     public DesktopRestartReconciliationSupervisor(ClusterService cluster,SemaphoreSlim hostGate,
-        Func<bool> enter,Action leave,Func<bool> paused,Func<LocalMap,bool> reconcile)
+        Func<bool> enter,Action leave,Func<bool> paused,Func<LocalMap,bool> reconcile,
+        Func<Guid,bool>? enterMap=null,Action? leaveMap=null)
     {
+        if((enterMap==null)!=(leaveMap==null))throw new ArgumentException("Map reservation requires acquire and release");
         this.cluster=cluster;this.hostGate=hostGate;this.enter=enter;this.leave=leave;
-        this.paused=paused;this.reconcile=reconcile;
+        this.paused=paused;this.reconcile=reconcile;this.enterMap=enterMap;this.leaveMap=leaveMap;
     }
     internal async Task TickOnceAsync(CancellationToken ct)
     {
         if(paused()||!await hostGate.WaitAsync(0,ct))return;
         try
         {
-            if(paused()||!enter())return;
+            if(paused())return;
+            // Steam queue housekeeping retains its original host reservation.
+            // Do not make independent journal reconciliation wait for it.
+            bool hostEntered=enter();
             try
             {
-                // Local Steam queue housekeeping uses its own machine-wide
-                // Steam lease and does not change any map installation.
-                try{new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId)
-                    .TryIsolateAbandonedActive(cluster.Config.LocalMaps);}
-                catch(Exception ex){System.Diagnostics.Trace.TraceWarning("Steam queue reconciliation: "+ex.GetType().Name);}
-                foreach(var map in cluster.Config.LocalMaps.ToArray())
+                if(hostEntered)
                 {
-                    if(paused()||ct.IsCancellationRequested)break;
-                    try
-                    {
-                        if(!map.Maintenance&&!map.ObservedReadOnlyImported)
-                        {
-                            // Only an unowned Prepared journal is known to
-                            // have no mutation. Secondary receipts are checked
-                            // independently by their native reconciliation.
-                            cluster.Operations.TryCancelAbandonedPrepared(map.InstallationPath);
-                            reconcile(map);
-                        }
-                    }catch(Exception ex)
-                    {
-                        System.Diagnostics.Trace.TraceWarning("Restart reconciliation {0}: {1}",map.Id,ex.GetType().Name);
-                    }
+                    try{new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId)
+                        .TryIsolateAbandonedActive(cluster.Config.LocalMaps);}
+                    catch(Exception ex){System.Diagnostics.Trace.TraceWarning("Steam queue reconciliation: "+ex.GetType().Name);}
                 }
+                if(enterMap==null&&hostEntered)ReconcileMaps(ct);
             }
-            finally{leave();}
+            finally{if(hostEntered)leave();}
+            if(enterMap!=null)ReconcileMaps(ct);
         }
         finally{hostGate.Release();}
+    }
+    private void ReconcileMaps(CancellationToken ct)
+    {
+        foreach(var map in cluster.Config.LocalMaps.ToArray())
+        {
+            if(paused()||ct.IsCancellationRequested)break;
+            if(map.Maintenance||map.ObservedReadOnlyImported)continue;
+            bool acquired=false;
+            try
+            {
+                // As in YARK's per-server work queue, unrelated workers do
+                // not own this map's lane. Never replay an old operation.
+                if(enterMap!=null)
+                {
+                    if(!enterMap(map.Id))continue;
+                    acquired=true;
+                }
+                cluster.Operations.TryCancelAbandonedPrepared(map.InstallationPath);
+                reconcile(map);
+            }
+            catch(Exception ex)
+            {
+                System.Diagnostics.Trace.TraceWarning("Restart reconciliation {0}: {1}",map.Id,ex.GetType().Name);
+            }
+            finally{if(acquired)leaveMap!();}
+        }
     }
     public void Start()
     {

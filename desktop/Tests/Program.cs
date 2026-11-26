@@ -432,6 +432,35 @@ var incompleteFiveCapture=await Call(
 Check(IsError(incompleteFiveCapture,"UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS"),
     "travel capture reports the exact five-local-map prerequisite without reading ASA files");
 await SteamPublicBuildParsingTests.RunAsync(root);
+// Periodic journal reconciliation must not inherit an unrelated map's
+// active job or the unavailable global Steam housekeeping reservation.
+{
+    string scanRoot=Path.Combine(root,"reconcile-map-lanes");
+    await using var scanCluster=new ClusterService("reconcile-map-lanes",scanRoot);
+    var blockedMap=new LocalMap{Id=Guid.NewGuid(),Name="Busy",InstallationPath=Path.Combine(scanRoot,"busy")};
+    var freeMap=new LocalMap{Id=Guid.NewGuid(),Name="Free",InstallationPath=Path.Combine(scanRoot,"free")};
+    var maintenanceMap=new LocalMap{Id=Guid.NewGuid(),Name="Maintenance",InstallationPath=Path.Combine(scanRoot,"maintenance"),Maintenance=true};
+    foreach(var item in new[]{blockedMap,freeMap,maintenanceMap})Directory.CreateDirectory(item.InstallationPath);
+    scanCluster.Config.LocalMaps.AddRange(new[]{blockedMap,freeMap,maintenanceMap});
+    using var scanGate=new SemaphoreSlim(1,1);
+    var scanLane=new DiscordMapReservation();
+    Check(scanLane.TryBeginWorker(blockedMap.Id),"unrelated map already has a native worker");
+    var scanned=new List<Guid>();int releases=0,globalReleases=0;
+    using var scanner=new DesktopRestartReconciliationSupervisor(scanCluster,scanGate,
+        ()=>false,()=>globalReleases++,()=>false,item=>{scanned.Add(item.Id);return true;},
+        id=>scanLane.TryReserve(new[]{id}),()=>{releases++;scanLane.Release();});
+    await scanner.TickOnceAsync(CancellationToken.None);
+    Check(scanned.SequenceEqual(new[]{freeMap.Id})&&releases==1&&globalReleases==0&&
+        !scanLane.HasReservation&&!scanLane.TryBeginWorker(blockedMap.Id),
+        "periodic recovery reconciles only independent map despite global contention");
+    scanLane.EndWorker(blockedMap.Id);
+    scanned.Clear();
+    await scanner.TickOnceAsync(CancellationToken.None);
+    Check(scanned.SequenceEqual(new[]{blockedMap.Id,freeMap.Id})&&releases==3&&
+        !scanLane.HasReservation&&scanGate.CurrentCount==1,
+        "next tick reconciles formerly busy map and releases each reservation");
+}
+
 // Native rolling lifecycle journal, using a disposable profile and injected
 // process observations and execution. Neither fixture nor tests launch ASA.
 {
