@@ -516,54 +516,17 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         {
                             Update(job,"running",
                                 "ASA API Loader elindult; ASA gyermek PID és RCON ellenőrzése");
-                            bool verified=false;
-                            bool childEverSeen=false;
-                            int missingLoader=0;
-                            // Original Store-v1 Loader/ASA readiness must
-                            // use the same ten-minute observer window as fresh
-                            // ASA; timeout still requires manual review.
-                            var limit=DateTimeOffset.UtcNow+
-                                FreshStoreApiPairObserver.StartupObservationWindow;
-                            while(DateTimeOffset.UtcNow<limit)
-                            {
-                                var observed=inspectFamily(original);
-                                bool sameLoader=observed.LoaderIdentity is {Pid:>0} seenLoader&&
-                                    seenLoader.Pid==started.Pid&&
-                                    seenLoader.StartedUtc==started.StartedUtc;
-                                if(sameLoader)missingLoader=0;
-                                else if(++missingLoader>=3)
-                                    throw new InvalidOperationException(
-                                        "UM-ORIGINAL-RESTART-LOADER-EXITED-BEFORE-READY");
-                                if(observed.Identity is {Pid:>0} seenChild&&
-                                   seenChild.Pid!=approved.Pid)childEverSeen=true;
-                                else if(childEverSeen)
-                                    throw new InvalidOperationException(
-                                        "UM-ORIGINAL-RESTART-ASA-EXITED-BEFORE-READY");
-                                if(observed.Running&&
-                                   observed.Identity is {Pid:>0} apiChild&&
-                                   observed.LoaderIdentity is {Pid:>0} parent&&
-                                   parent.Pid==started.Pid&&
-                                   parent.StartedUtc==started.StartedUtc&&
-                                   apiChild.Pid!=approved.Pid&&
-                                   owner(original.RconPort,apiChild.Pid))
-                                {
-                                    if(nativeLauncher)
-                                        cluster.RecordOriginalStoreApiPair(
-                                            original.Id,observed);
-                                    verifiedNewServerPid=apiChild.Pid;
-                                    verifiedNewStartedUtc=apiChild.StartedUtc;
-                                    verifiedChildIdentity=apiChild;
-                                    attemptedStartUtc=apiChild.StartedUtc;
-                                    Update(job,"running","ASA gyermek PID és RCON port ellenőrizve",
-                                        newPid:apiChild.Pid,newStartedUtc:apiChild.StartedUtc);
-                                    verified=true;
-                                    break;
-                                }
-                                await Task.Delay(500);
-                            }
-                            if(!verified)
-                                throw new InvalidOperationException(
-                                    "UM-ORIGINAL-RESTART-API-CHILD-NOT-VERIFIED");
+                            var family=await RestartStartupReadiness.WaitForApiChildAsync(
+                                original,started,approved.Pid,inspectFamily,owner,
+                                retryPermit?.Cancellation??CancellationToken.None);
+                            if(nativeLauncher)
+                                cluster.RecordOriginalStoreApiPair(original.Id,family);
+                            verifiedChildIdentity=family.Identity!;
+                            verifiedNewServerPid=verifiedChildIdentity.Pid;
+                            verifiedNewStartedUtc=verifiedChildIdentity.StartedUtc;
+                            attemptedStartUtc=verifiedNewStartedUtc;
+                            Update(job,"running","ASA gyermek PID és RCON port ellenőrizve",
+                                newPid:verifiedNewServerPid,newStartedUtc:verifiedNewStartedUtc);
                         }
                         // A launched PID or an owned listener is NOT a ready
                         // ASA. Require current-run log, API DLL/plugins and
