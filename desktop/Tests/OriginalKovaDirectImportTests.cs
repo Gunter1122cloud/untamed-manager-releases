@@ -1538,29 +1538,22 @@ internal static class OriginalKovaDirectImportTests
             File.ReadAllBytes(launchJournal).SequenceEqual(originalLaunchJournal)&&
             File.ReadAllBytes(dualSchedulePath).SequenceEqual(blockedScheduleBytes),
             "Store review preserves completed Launch, original run identity and independent scheduler journal");
-        await dualSchedule.TickOnceAsync(schedule.NextDueUtc);
-        Check(nativePreviewCalls==0&&unexpectedDispatches==0&&
-            dualSchedule.History(astra.Id).Any(x=>x.Evidence=="PRIOR_SLOT_NEEDS_OPERATOR"),
-            "reviewing only Store journal does not replay or unlock the still-unknown scheduled slot");
-        var nextCursor=dualSchedule.Snapshot().Single(x=>x.MapId==astra.Id&&x.Kind=="Restart").NextDueUtc;
         var allowedPreview=await SlotPreview();
         Check(allowedPreview.GetProperty("ok").GetBoolean()&&
             allowedPreview.GetProperty("data").GetProperty("canKeepFutureRestart").GetBoolean(),
-            "both journals now permit explicit future-only scheduling approval");
+            "legacy review remains readable after native Store recovery");
         byte[] originalScheduleJournal=File.ReadAllBytes(dualSchedulePath);
-        var allowedReceipt=await SlotApply(allowedPreview);
+        await dualSchedule.TickOnceAsync(schedule.NextDueUtc);
         var nextSchedule=dualSchedule.Snapshot().Single(x=>x.MapId==astra.Id&&x.Kind=="Restart");
-        Check(allowedReceipt.GetProperty("ok").GetBoolean()&&
-            allowedReceipt.GetProperty("data").GetProperty("futureRestartRetained").GetBoolean()&&
-            allowedReceipt.GetProperty("data").GetProperty("outcomeStillUnknown").GetBoolean()&&
-            nextSchedule.Enabled&&nextSchedule.NextDueUtc>=nextCursor&&
-            nextSchedule.NextDueUtc>schedule.NextDueUtc&&
-            dualSchedule.History(astra.Id).Single(x=>x.RunId==failedRunId).Status=="operator-reviewed-unknown-no-replay"&&
+        var retired=dualSchedule.History(astra.Id).Single(x=>x.RunId==failedRunId);
+        Check(nextSchedule.Enabled&&nextSchedule.NextDueUtc>schedule.NextDueUtc&&
+            retired.Status=="auto-retired-unknown-no-replay"&&
+            retired.Evidence=="RECURRING_POLICY_OLD_SLOT_OUTCOME_UNKNOWN"&&
             nativePreviewCalls==0&&unexpectedDispatches==0,
-            "joint recovery clears both blockers without any lifecycle dispatch or false success");
+            "clear native Store journals permit automatic recurring slot recovery without dispatch or false success");
         string restartAudit=Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
             dualKey+"-"+dualClaim.Id.ToString("N")+".operator-reviewed.json");
-        string scheduleAudit=dualSchedulePath+"."+failedRunId.ToString("N")+".operator-reviewed.json";
+        string scheduleAudit=dualSchedulePath+"."+failedRunId.ToString("N")+".auto-retired-"+Convert.ToHexString(SHA256.HashData(originalScheduleJournal))+".json";
         Check(File.ReadAllBytes(restartAudit).SequenceEqual(originalRestartJournal)&&
             File.ReadAllBytes(scheduleAudit).SequenceEqual(originalScheduleJournal)&&
             File.ReadAllBytes(launchJournal).SequenceEqual(originalLaunchJournal)&&
@@ -1570,7 +1563,7 @@ internal static class OriginalKovaDirectImportTests
             "both original audit streams and all five Store source files remain byte-exact");
         dualJournal.DemandNoPending();
         Check(!(await SlotApply(allowedPreview)).GetProperty("ok").GetBoolean(),
-            "joint recovery token cannot be replayed");
+            "stale compatibility recovery token cannot overwrite automatic reconciliation");
         await dualSchedule.TickOnceAsync(schedule.NextDueUtc);
         Check(nativePreviewCalls==0&&unexpectedDispatches==0,
             "skipped old slot is never replayed even after both reviews");
