@@ -24,12 +24,15 @@ public static class FreshStoreMultiHostTransfer
                 if(!cluster.TransferDirectory.StartsWith(@"\\",StringComparison.Ordinal))continue;
                 var ids=config.ClusterRegistry.MapAssignments.Where(a=>Same(a.ClusterId,cluster.ClusterId)).Select(a=>a.MapId).ToHashSet();
                 var local=config.LocalMaps.Where(m=>ids.Contains(m.Id)).ToArray();
-                if(local.Length is <1 or >128||local.Any(m=>m.HistoricalStoreProtected||m.ObservedReadOnlyImported||
-                    !string.IsNullOrWhiteSpace(m.HistoricalArchiveSha256)||!string.IsNullOrWhiteSpace(m.HistoricalMapKey)||
+                if(local.Length is <1 or >128||local.Any(m=>m.ObservedReadOnlyImported||
                     !string.IsNullOrWhiteSpace(m.StoreTestRoot)||
-                    (FreshStoreEnrollmentPolicy.IsEnrolled(m)&&(!Same(m.FreshStoreClusterId,cluster.ClusterId)||
-                    !Same(m.FreshStoreTransferDirectory,cluster.TransferDirectory)))||
-                    (!FreshStoreEnrollmentPolicy.IsEnrolled(m)&&KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(m))))continue;
+                    (m.HistoricalStoreProtected?
+                        !LegacyStoreV1PinnedSource.MatchesNativeCluster(m,cluster):
+                        !string.IsNullOrWhiteSpace(m.HistoricalArchiveSha256)||
+                        !string.IsNullOrWhiteSpace(m.HistoricalMapKey)||
+                        (FreshStoreEnrollmentPolicy.IsEnrolled(m)&&(!Same(m.FreshStoreClusterId,cluster.ClusterId)||
+                         !Same(m.FreshStoreTransferDirectory,cluster.TransferDirectory)))||
+                        (!FreshStoreEnrollmentPolicy.IsEnrolled(m)&&KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(m)))))continue;
                 string tag=StorePathIdentity.LocalDirectoryFingerprint(cluster.TransferDirectory);
                 if(local.Any(m=>FreshStoreEnrollmentPolicy.IsEnrolled(m)&&!Same(m.FreshStoreTransferFileId,tag)))continue;
                 result.Add(new(cluster.ClusterId,tag,local.Select(m=>m.Id).Order().ToArray()));

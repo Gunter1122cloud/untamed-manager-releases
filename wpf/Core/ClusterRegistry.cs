@@ -509,6 +509,14 @@ public sealed class ClusterRegistryService
             .Where(a => protectedLocal.Contains(a.MapId))
             .Select(a => a.ClusterId)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // Registry membership is only metadata; adding a map never starts
+        // it or grants Store writer authority. Existing source members stay
+        // fixed, but a migrated cluster can accept arbitrary new members.
+        bool nativeExpansion=protectedClusterIds.Contains(id)&&
+            owner.Config.LocalMaps.Where(m=>protectedLocal.Contains(m.Id)&&
+                snapshot.ClusterRegistry.MapAssignments.Any(a=>a.MapId==m.Id&&
+                    StringComparer.OrdinalIgnoreCase.Equals(a.ClusterId,id)))
+            .All(m=>LegacyStoreV1PinnedSource.MatchesNativeCluster(m,cluster));
         foreach (Guid mapId in requested.Distinct())
         {
             if (mapId == Guid.Empty || !maps.TryGetValue(mapId, out var map))
@@ -524,7 +532,8 @@ public sealed class ClusterRegistryService
             }
             var owner = snapshot.ClusterRegistry.MapAssignments.SingleOrDefault(x => x.MapId == mapId);
             if (owner != null && StringComparer.OrdinalIgnoreCase.Equals(owner.ClusterId, id)) continue;
-            if (protectedLocal.Contains(mapId) || protectedClusterIds.Contains(id) ||
+            if (protectedLocal.Contains(mapId) ||
+                (protectedClusterIds.Contains(id)&&!nativeExpansion) ||
                 (owner != null && protectedClusterIds.Contains(owner.ClusterId)))
             {
                 preview.Errors.Add("UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE");

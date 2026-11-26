@@ -186,6 +186,22 @@ internal static class FreshStoreEnrollmentTests
             Reject(()=>FreshStoreEnrollmentPolicy.Prepare(
                     manager,map,"new-local-cluster"),
                 "generic new Store preflight rejects source-named historical cluster membership");
+            imported.HistoricalMapKey="Historical_WP";
+            imported.InstallationPath=Path.Combine(root,"synthetic-historical-install");
+            imported.NativeStoreIdentity=new NativeStoreIdentity(imported.Id,imported.HistoricalMapKey,
+                imported.InstallationPath,imported.HistoricalArchiveSha256,new string('A',64),
+                new string('B',64),"new-local-cluster",transfer);
+            var joined=FreshStoreEnrollmentPolicy.Prepare(manager,map,"new-local-cluster");
+            Check(joined.Arguments.Contains("-clusterid=new-local-cluster",StringComparison.Ordinal)&&
+                  joined.TransferDirectory==transfer&&
+                  !AsaStoreArgumentSwitches.ContainsConversion(joined.Arguments),
+                "an unused local map joins a migrated historical native cluster with exact ID and transfer");
+            imported.NativeStoreIdentity=imported.NativeStoreIdentity with{TransferRoot=Path.Combine(root,"wrong-transfer")};
+            Reject(()=>FreshStoreEnrollmentPolicy.Prepare(manager,map,"new-local-cluster"),
+                "a mismatched native transfer identity cannot authorize fresh Store enrollment");
+            imported.NativeStoreIdentity=null;
+            imported.HistoricalMapKey="";
+            imported.InstallationPath="";
             imported.HistoricalStoreProtected=false;
             imported.HistoricalArchiveSha256="";
             var removeOld=manager.Registry.PreviewMapAssignments(

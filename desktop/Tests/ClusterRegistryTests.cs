@@ -125,21 +125,43 @@ internal static class ClusterRegistryTests
         Check(!unauthorized.IsValid&&unauthorized.Errors.Contains(
               "UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE"),
             "generic registration never grants an unverified eleventh map Kova Store membership");
+        // Once every local historical member has a verified native
+        // identity, expanding the roster is ordinary registry metadata.
+        foreach(var member in service.Config.LocalMaps.Where(m=>originals.Contains(m.Id)))
+        {
+            member.HistoricalMapKey=member.Name.Replace(" ","")+"_WP";
+            member.InstallationPath=Path.Combine(root,member.Id.ToString("N"));
+            member.NativeStoreIdentity=new NativeStoreIdentity(member.Id,member.HistoricalMapKey,
+                member.InstallationPath,member.HistoricalArchiveSha256,new string('A',64),
+                new string('C',64),kova.ClusterId,kova.TransferDirectory);
+        }
+        var expanded=service.Registry.PreviewMapAssignments(kova.ClusterId,originals.Append(extra));
+        Check(expanded.IsValid&&expanded.Additions.Count==1,
+            "native cluster permits eleventh map on third host without converting an existing world");
+        service.Registry.ApplyMapAssignments(kova.ClusterId,originals.Append(extra),expanded.BaseRevision);
+        Check(service.Registry.Snapshot().ClusterRegistry.MapAssignments.Count(x=>x.ClusterId==kova.ClusterId)==11,
+            "native cluster registration persists additional remote map");
+        // Keep the remaining test fixture's independent extra member.
+        // Use a separate fresh map; no existing original member is moved.
+        Guid independent=SyntheticMapId(822);
+        service.Registry.RegisterRemoteMap(third,independent,"Independent future map");
         var ordinary=service.Registry.PreviewMapAssignments(
-            lab.ClusterId,new[]{extra});
+            lab.ClusterId,new[]{independent});
         Check(ordinary.IsValid&&ordinary.Additions.Count==1,
             "independent non-Kova cluster remains extensible on a third host");
-        service.Registry.ApplyMapAssignments(lab.ClusterId,new[]{extra},
+        service.Registry.ApplyMapAssignments(lab.ClusterId,new[]{independent},
             ordinary.BaseRevision);
         var after=service.Registry.Snapshot();
         Check(after.ClusterRegistry.MapAssignments.Count(x=>
-                  x.ClusterId==kova.ClusterId)==10 &&
+                  x.ClusterId==kova.ClusterId)==11 &&
               originals.All(id=>after.ClusterRegistry.MapAssignments
                   .Count(x=>x.MapId==id&&x.ClusterId==kova.ClusterId)==1) &&
               after.HostRegistry.Hosts.Count==3 &&
-              after.HostRegistry.Maps.Count==11 &&
+              after.HostRegistry.Maps.Count==12 &&
               after.ClusterRegistry.MapAssignments.Any(x=>
-                  x.MapId==extra&&x.ClusterId==lab.ClusterId),
+                  x.MapId==extra&&x.ClusterId==kova.ClusterId)&&
+              after.ClusterRegistry.MapAssignments.Any(x=>
+                  x.MapId==independent&&x.ClusterId==lab.ClusterId),
             "third host and eleventh map do not change any original Store assignment");
         Check(File.ReadAllBytes(sentinel).SequenceEqual(bytes)&&
               Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(sentinel)))==
