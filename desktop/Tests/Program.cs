@@ -1640,6 +1640,28 @@ try
         Check(restoredCustom.Restored&&restoredCustom.OldWorldRetained&&
               File.ReadAllText(layout.WorldFile)=="ORIGINAL SYNTHETIC CUSTOM ASA WORLD",
             "custom map restores exactly the verified alternate-folder world bytes");
+        // Simulate a crash after moving the live world aside but before the
+        // selected staged directory is installed. Recovery uses real manifests.
+        File.WriteAllText(layout.WorldFile,"SYNTHETIC PRE-RESTORE WORLD");
+        var rollbackPoint=UntamedWorldBackup.Create(customMap,customProfile,stopped,"protective");
+        var restoreTx=Guid.NewGuid();
+        string restoreParent=Path.GetDirectoryName(layout.WorldDirectory)!;
+        string restoreOld=Path.Combine(restoreParent,".untamed-previous-"+layout.MapToken+"-"+restoreTx.ToString("N"));
+        string restoreStage=Path.Combine(restoreParent,".untamed-stage-"+restoreTx.ToString("N"));
+        var restoreOps=new UntamedOperationCoordinator();
+        Directory.CreateDirectory(restoreStage);
+        File.WriteAllText(Path.Combine(restoreStage,layout.MapToken+".ark"),"ORIGINAL SYNTHETIC CUSTOM ASA WORLD");
+        using(var interrupted=restoreOps.Acquire(customMap.InstallationPath,UntamedOperationKind.Restore))
+        {
+            interrupted.MarkLocalRestoreStarted(new LocalRestoreWitness(customMap.Id,restoreTx,
+                layout.MapToken,layout.SaveDirectoryName,customBackup.Id,rollbackPoint.Id));
+            Directory.Move(layout.WorldDirectory,restoreOld);
+        }
+        Check(UntamedWorldBackup.TryRecoverLocalRestore(customMap,customProfile,stopped,restoreOps)&&
+            File.ReadAllText(layout.WorldFile)=="SYNTHETIC PRE-RESTORE WORLD"&&
+            Directory.Exists(restoreStage)&&!Directory.Exists(restoreOld),
+            "interrupted single-map first rename automatically rolls back verified world without deleting stage");
+        using(var next=restoreOps.Acquire(customMap.InstallationPath,UntamedOperationKind.Launch))next.Complete();
         var duplicate=new LocalMap{
             Id=Guid.NewGuid(),Name="Another synthetic map",
             InstallationPath=alternateRoot,
