@@ -5232,7 +5232,7 @@ try
         File.WriteAllBytes(exe,new byte[]{0x4d,0x5a,0x90,0x00});
         var stopLabMap=new LocalMap {
             Name="New lab stopLabMap",InstallationPath=stopRoot,ExecutablePath=exe,
-            Arguments="TheIsland_WP?listen -port=7798 -QueryPort=27048",
+            Arguments="TheIsland_WP?listen?SessionName=\"Untamed Store -usestore Celebration\" -port=7798 -QueryPort=27048",
             GamePort=7798,QueryPort=27048,RconPort=37556,
             RconHost="127.0.0.1",
             RconPasswordProtected=SecureStore.Protect("SYNTHETIC-LOCAL-STOP-CREDENTIAL")
