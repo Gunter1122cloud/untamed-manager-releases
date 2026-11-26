@@ -42,20 +42,23 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
         originalGuard=sourceGuard??(map=>{
             string legacy=Path.Combine(Environment.GetFolderPath(
                 Environment.SpecialFolder.ApplicationData),"Kova");
-            string profile=LegacyStoreV1PinnedSource.Resolve(
-                cluster.Store.Root,legacy,map);
-            if(!string.Equals(profile,legacy,StringComparison.OrdinalIgnoreCase))
-                return LegacyStoreV1PinnedSource.RuntimeFingerprint(
-                    cluster.Store.Root,legacy,map).Length==64;
-            // Unmigrated old profiles retain the old read-only Kova gate.
-            // An approved Obsidian import never depends on those old markers.
-            return LegacyStoreV1LiveReadGate.InspectOriginalActive(
-                map,legacy).CompletedOriginalSourceGuard;
+            return VerifyLocalSource(cluster.Store.Root,legacy,map);
         });
         rconProof=iniEvidence??AsaRconConfigurationEvidence.Matches;
         apiProcessObserver=apiObserver??(map=>
             LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps));
         ownsRconListener=listenerOwner??RconPortOwnership.IsOwnedListener;
+    }
+
+    // Native identity is the authority for already migrated maps. Only
+    // unmigrated legacy profiles may consult the old source/peer gate.
+    internal static bool VerifyLocalSource(string managerRoot,string originalProfile,LocalMap map)
+    {
+        if(LegacyStoreV1PinnedSource.HasRuntimeIdentity(managerRoot,map))
+            return LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                managerRoot,originalProfile,map).Length==64;
+        return LegacyStoreV1LiveReadGate.InspectOriginalActive(
+            map,originalProfile).CompletedOriginalSourceGuard;
     }
 
     private static bool GuidValue(JsonElement item,string key,out Guid id)
@@ -408,7 +411,7 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
                     // ACTIVE/DONE handoff for an already approved import.
                     // Do not claim that legacy peer markers were checked on
                     // this independent local RCON attachment.
-                    bool pinned=LegacyStoreV1PinnedSource.HasApprovedLocalSource(
+                    bool pinned=LegacyStoreV1PinnedSource.HasRuntimeIdentity(
                         cluster.Store.Root,map!);
                     var permit=new Approval(Guid.NewGuid(),map!.Id,
                         JsonSerializer.Serialize(map),map.HistoricalMapKey,
