@@ -82,9 +82,9 @@ internal static class LegacyStoreV1NativeStartPlanner
             throw new InvalidOperationException("UM-STORE-NATIVE-PROCESS-NOT-PROVEN-STOPPED");
         // The existing registered local source is sufficient for native ASA
         // launch. Peer migration status is not part of -usestore semantics.
-        var sourceProfile=LegacyStoreV1PinnedSource.ResolveLocalRuntime(
+        var source=LegacyStoreV1PinnedSource.ResolveRuntimeIdentity(
             cluster.Store.Root,LocalOriginal,map);
-        return PreparePinnedRuntime(cluster,map,sourceProfile);
+        return PreparePinnedRuntime(cluster,map,source);
     }
 
     // Registered local-source native ASA startup. This does NOT
@@ -92,13 +92,9 @@ internal static class LegacyStoreV1NativeStartPlanner
     // Transfer readiness is separately verified by travel/cluster operations,
     // not a blanket prerequisite for a local, explicitly approved Start.
     private static LegacyStoreV1NativeStartPlan PreparePinnedRuntime(
-        ClusterService cluster,LocalMap map,string pinnedProfile)
+        ClusterService cluster,LocalMap map,NativeStoreIdentity source)
     {
-        var source=LegacyStoreV1OriginalImport.Inspect(pinnedProfile);
-        if(string.Equals(pinnedProfile,LocalOriginal,StringComparison.OrdinalIgnoreCase))
-            LegacyStoreV1PinnedSource.DemandRegisteredLocalRuntimeSource(map,source);
-        else LegacyStoreV1PinnedSource.RequireImmutableIdentity(map,source);
-        var original=LegacyStoreV1PinnedSource.ReadOriginalCluster(pinnedProfile);
+        var original=source;
         string clusterId=string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)?
             original.RuntimeClusterId:map.HistoricalRuntimeClusterId;
         string transfer=string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory)?

@@ -166,7 +166,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             throw new InvalidOperationException("UM-ROLLING-MAP-INELIGIBLE");
         if(m.HistoricalStoreProtected)
         {
-            if(!LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,m))
+            if(!LegacyStoreV1PinnedSource.HasRuntimeIdentity(cluster.Store.Root,m))
                 throw new InvalidOperationException("UM-ROLLING-STORE-SOURCE-UNVERIFIED");
         }
         else if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,m)||

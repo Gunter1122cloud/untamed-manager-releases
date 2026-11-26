@@ -337,7 +337,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         if((map.ModChangesPending||
                             !saved.EnabledOrder.SequenceEqual(selectedMods.Enabled)||
                             !saved.Passive.SequenceEqual(selectedMods.Passive))&&
-                           !LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,map))
+                           !LegacyStoreV1PinnedSource.HasRuntimeIdentity(cluster.Store.Root,map))
                             return Fail(id,"UM-ORIGINAL-RESTART-MOD-SYNC-REQUIRES-PIN");
                     }
                     var permit=new Approval(Guid.NewGuid(),mapId,owned.Process.Pid,
@@ -458,7 +458,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             if(!saved.EnabledOrder.SequenceEqual(target.Enabled)||
                                !saved.Passive.SequenceEqual(target.Passive))
                             {
-                                if(!LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,original))
+                                if(!LegacyStoreV1PinnedSource.HasRuntimeIdentity(cluster.Store.Root,original))
                                     throw new InvalidDataException("UM-ORIGINAL-RESTART-MOD-SYNC-REQUIRES-PIN");
                                 if(!HistoricalLiveModSync.WriteVerifiedBaseline(original,target,
                                     cluster.Save,modLease.MarkMutationStarted))
