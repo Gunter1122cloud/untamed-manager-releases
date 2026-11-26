@@ -112,10 +112,10 @@ internal static class LegacyStoreSaveReviewBridgeTests
         var after=await Call(stop,"historical.gracefulStopRecovery",
             new{mapId=map.Id});
         Check(after.GetProperty("ok").GetBoolean()&&
-              after.GetProperty("data").GetProperty("blocked").GetBoolean()&&
-              after.GetProperty("data").GetProperty("requiresOperator").GetBoolean()&&
+              !after.GetProperty("data").GetProperty("blocked").GetBoolean()&&
+              !after.GetProperty("data").GetProperty("requiresOperator").GetBoolean()&&
               !after.GetProperty("data").GetProperty("inMemoryRunning").GetBoolean(),
-            "original Store Stop recovery preserves failed in-memory state");
+            "terminal in-memory failure remains in job history but does not block a new native preflight without a pending durable receipt");
     }
 
     private static async Task VerifyRunningOwnedSaveReview(string root)
