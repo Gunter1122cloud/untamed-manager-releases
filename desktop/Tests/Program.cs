@@ -2520,7 +2520,12 @@ try
             int countBefore=journalDispatches;
             var future=first.Snapshot().Single(x=>x.MapId==m1.Id&&x.Kind=="SaveWorld")
                 .NextDueUtc;
-            await first.TickOnceAsync(future.AddMinutes(1));
+            Directory.CreateDirectory(m1.InstallationPath);
+            using(var busyInstallation=scheduleCluster.Operations.Acquire(m1.InstallationPath,UntamedOperationKind.Configuration))
+            {
+                await first.TickOnceAsync(future.AddMinutes(1));
+                busyInstallation.Complete();
+            }
             Check(journalDispatches==countBefore&&
                   first.History(m1.Id).Any(x=>x.Status==
                       "skipped-blocked-prior-unknown-slot"),
@@ -2562,8 +2567,8 @@ try
             Check(journalDispatches==countBefore,
                 "reviewed old claim never runs automatically after Manager reload");
         }
-        // An abandoned recurring restart can be explicitly audited while
-        // retaining its future calendar, but never replaying the old claim.
+        // An already enabled recurring restart recovers its future calendar
+        // automatically when the old native receipts are clear, without replay.
         Directory.CreateDirectory(m1.InstallationPath);
         int failedRestartDispatches=0;
         DateTimeOffset failedDue;
@@ -2585,24 +2590,23 @@ try
                 x.Status=="failed-needs-operator-no-retry");
             int beforeReview=sent;
             var skippedDue=futureOnly.Snapshot().Single(x=>x.MapId==m1.Id&&x.Kind=="Restart").NextDueUtc;
-            await futureOnly.TickOnceAsync(skippedDue);
-            Check(sent==beforeReview,"unknown restart blocks next slot before explicit review");
-            var cursor=futureOnly.Snapshot().Single(x=>x.MapId==m1.Id&&x.Kind=="Restart").NextDueUtc;
+            string journal=Path.Combine(scheduleCluster.Store.Root,"native-asa-schedules-v1.json");
+            byte[] original=File.ReadAllBytes(journal);
+            // Legacy review clients may have a stale token when the scheduler
+            // repairs itself. Their request must not overwrite the new state.
             var preview=await Call(futureOnly.HandleAsync,"schedule.nativeReviewPreview",
                 new{mapId=m1.Id,kind="Restart",runId=failedSlot.RunId});
-            IsOk(preview,"old restart review is available after installation journals are clear");
-            Check(preview.GetProperty("data").GetProperty("canKeepFutureRestart").GetBoolean(),
-                "unchanged enabled recurring restart may be retained explicitly");
+            IsOk(preview,"old compatibility review remains readable");
             string token=preview.GetProperty("data").GetProperty("token").GetString()!;
-            var result=await Call(futureOnly.HandleAsync,"schedule.nativeReviewApply",
-                new{mapId=m1.Id,token,confirm=true,keepFutureRestart=true});
-            IsOk(result,"explicit future-only restart review audits the old slot");
+            await futureOnly.TickOnceAsync(skippedDue);
             var next=futureOnly.Snapshot().Single(x=>x.MapId==m1.Id&&x.Kind=="Restart");
-            Check(next.Enabled&&next.NextDueUtc>=cursor&&next.NextDueUtc>skippedDue&&
-                result.GetProperty("data").GetProperty("futureRestartRetained").GetBoolean()&&
-                !result.GetProperty("data").GetProperty("jobDisabled").GetBoolean()&&
-                result.GetProperty("data").GetProperty("outcomeStillUnknown").GetBoolean()&&sent==beforeReview,
-                "future-only review preserves calendar and never dispatches or certifies old restart");
+            string audit=journal+"."+failedSlot.RunId.ToString("N")+".auto-retired-"+Convert.ToHexString(SHA256.HashData(original))+".json";
+            var retired=futureOnly.History(m1.Id).Single(x=>x.RunId==failedSlot.RunId);
+            Check(next.Enabled&&next.NextDueUtc>skippedDue&&sent==beforeReview&&
+                retired.Status=="auto-retired-unknown-no-replay"&&
+                retired.Evidence=="RECURRING_POLICY_OLD_SLOT_OUTCOME_UNKNOWN"&&
+                File.ReadAllBytes(audit).SequenceEqual(original),
+                "enabled recurring policy automatically archives exact old slot without replay or fabricated success");
             await futureOnly.TickOnceAsync(skippedDue);
             Check(sent==beforeReview,"skipped restart cannot be replayed after audit");
             await futureOnly.TickOnceAsync(next.NextDueUtc);
