@@ -248,6 +248,41 @@ public sealed class UntamedOperationCoordinator
         finally{semaphore.Release();}
     }
 
+    // Retire a standalone historical runtime receipt under the actual
+    // installation lease. It is not a successful old operation, nor an
+    // authorization to replay it. Destructive storage jobs are excluded.
+    internal bool TryReconcileIdleLaunch(string installation,Guid mapId,
+        UntamedOperationRecord expected,Func<bool> verify)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return false;
+        try
+        {
+            string journal=Path.Combine(stateRoot,key+".json");
+            if(mapId==Guid.Empty||expected.Resource!=key||
+               expected.Kind!=UntamedOperationKind.Launch||
+               expected.Phase is not (UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)||
+               expected.UpdatedUtc==default||DateTimeOffset.UtcNow-expected.UpdatedUtc<TimeSpan.FromMinutes(3)||
+               Read(journal,key)!=expected)return false;
+            bool Clear()
+            {
+                new AsaManualRestartJournal(installation).DemandNoPending();
+                new AsaManualStopJournal(installation).DemandNoPending(mapId);
+                return Read(journal,key)==expected&&verify();
+            }
+            if(!Clear())return false;
+            ArchiveInterruptedStart(journal,key,expected);
+            if(!Clear())return false;
+            // Preserve the existing on-disk terminal enum for old readers.
+            // No operator interaction and no additional mutation journal.
+            Write(journal,expected with{Phase=UntamedOperationPhase.OperatorReviewed,
+                UpdatedUtc=DateTimeOffset.UtcNow});
+            return true;
+        }
+        finally{semaphore.Release();}
+    }
+
     // Observation only: do not treat a free lease as authorization to
     // mutate. The native operation still acquires it and validates state.
     // Unlike a persisted receipt, a held OS lease is transient contention.
