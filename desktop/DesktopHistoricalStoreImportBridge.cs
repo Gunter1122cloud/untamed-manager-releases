@@ -551,6 +551,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     // two-host transfer bytes remain untouched.
                     LegacyStoreV1PinnedSource.Capture(PreferredSource(),
                         cluster.Store.Root,approved.FourFilesHash,approved.LaunchHash);
+                    foreach(var candidate in observed.Maps)
+                        candidate.NativeStoreIdentity=LegacyStoreV1PinnedSource.ResolveRuntimeIdentity(
+                            cluster.Store.Root,"",candidate);
                     var outcome=cluster.ReconcileOriginalStoreLiveFive(
                         observed.Maps,()=>{
                             var (again,now,peer)=VerifyLiveOriginalFive();
@@ -694,6 +697,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     LegacyStoreV1PinnedSource.Capture(PreferredSource(),
                         cluster.Store.Root,batchStage.FourFilesHash,
                         batchStage.LaunchProfileHash);
+                    foreach(var candidate in additions)
+                        candidate.NativeStoreIdentity=LegacyStoreV1PinnedSource.ResolveRuntimeIdentity(
+                            cluster.Store.Root,"",candidate);
                     cluster.AddMapsAtomically(additions);
                     return Ok(id,new{
                         importedMaps=additions.Count,
@@ -810,6 +816,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         if(final.Fingerprint!=approval.Fingerprint)
                             throw new InvalidDataException("UM-STORE-EXTRA-SOURCE-OR-PROCESS-CHANGED");
                         final.Map.HistoricalSupplementalImportedUtc=DateTimeOffset.UtcNow;
+                        final.Map.NativeStoreIdentity=LegacyStoreV1PinnedSource.ResolveRuntimeIdentity(
+                            cluster.Store.Root,"",final.Map);
                         // Single atomic config publication: no half-member
                         // or half-profile after an interrupted write.
                         cluster.RegisterSupplementalHistoricalMap(final.Map,final.ClusterId,
@@ -977,7 +985,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     LegacyStoreV1PinnedSource.Capture(PreferredSource(),
                         cluster.Store.Root,directApproval.FourFilesHash,
                         directApproval.LaunchProfileHash);
-                    cluster.AddMap(new LocalMap{
+                    var registeredMap=new LocalMap{
                         Id=directApproval.MapId,Name=directApproval.LocalName,
                         InstallationPath=root,ExecutablePath=directApproval.ServerExe,
                         GamePort=directApproval.GamePort,QueryPort=directApproval.QueryPort,
@@ -990,7 +998,10 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         HistoricalLaunchModeNeedsApproval=true,
                         AutoStart=false,MonitorRcon=false,
                         RconPort=0,ApiLoaderArguments=""
-                    });
+                    };
+                    registeredMap.NativeStoreIdentity=LegacyStoreV1PinnedSource.ResolveRuntimeIdentity(
+                        cluster.Store.Root,"",registeredMap);
+                    cluster.AddMap(registeredMap);
                     return Ok(id,new{
                         mapId=directApproval.MapId,mapName=directApproval.LocalName,
                         registered=true,originalIdsPreserved=true,
