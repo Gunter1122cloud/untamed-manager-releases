@@ -209,11 +209,16 @@ public sealed class DesktopWatchdogRecovery : IDisposable
         now.LoaderIdentity?.StartedUtc==state.LoaderStartedUtc&&
         (state.AsaPath==null||string.Equals(state.AsaPath,now.Identity.ExecutablePath,StringComparison.OrdinalIgnoreCase))&&
         (state.LoaderPath==null||string.Equals(state.LoaderPath,now.LoaderIdentity?.ExecutablePath,StringComparison.OrdinalIgnoreCase));
-    // Only Windows fatal exception/abort results are crash evidence. A clean
-    // exit, arbitrary nonzero code, lost handle or RCON-only failure is not.
-    internal static bool FatalExitCode(int code)=>unchecked((uint)code) is
-        0xC0000005 or 0xC000001D or 0xC0000094 or 0xC0000096 or 0xC00000FD or
-        0xC0000374 or 0xC0000409 or 0x80000003 or 0xE06D7363;
+    // A retained handle to an armed, previously running ASA gives the real
+    // exit result. A nonzero exit is unexpected unless Windows reports a
+    // console/operator close. Explicit Stop intent is checked independently
+    // before classifying the exit and again at the native Start boundary.
+    internal static bool FatalExitCode(int code)
+    {
+        uint status=unchecked((uint)code);
+        return status!=0 && status!=0xC000013A &&
+            status!=0x40010004 && status!=0x40010005;
+    }
     private void CheckPath(string path)
     {
         _=UntamedOperationCoordinator.ResourceKey(directory);
