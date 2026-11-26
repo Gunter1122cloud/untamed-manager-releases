@@ -101,6 +101,8 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
         bool Verify()
         {
             if(!ReferenceEquals(Owned(map.Id),map)||JsonSerializer.Serialize(map)!=profile||
+                cluster.Config.LocalMaps.Count(m=>!string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                    UntamedOperationCoordinator.ResourceKey(m.InstallationPath)==record.Resource)!=1||
                 !AsaReadyProbe.IsRegisteredServerBinary(map)||
                 KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))return false;
             if(FreshStoreEnrollmentPolicy.IsEnrolled(map))FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
