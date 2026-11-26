@@ -136,17 +136,13 @@ internal static class LegacyStoreV1NativeStartPlanner
                    Path.GetFullPath(map.ApiLoaderPath),
                    StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("UM-STORE-LOADER-EXE-IDENTITY");
-            var inspection=AsaApiInspector.Inspect(map.InstallationPath);
-            if(!inspection.Complete||inspection.Binaries.Any(x=>x.Sha256==null))
-                throw new InvalidDataException("UM-STORE-LOADER-BINARIES-UNVERIFIED");
-            using var configRead=File.OpenRead(Path.Combine(map.InstallationPath,
-                "ShooterGame","Binaries","Win64","config.json"));
-            string cfgHash=Convert.ToHexString(SHA256.HashData(configRead));
+            // Use the same resolved binary identity as ordinary ASA start.
+            // Missing/invalid optional plugin configuration is diagnostic,
+            // not another Manager-side admission gate.
             var localCache=AsaApiCacheProbe.Inspect(map.InstallationPath,map.ExecutablePath);
             cacheState=localCache.State;
             launchMode="ASA_API:"+localCache.ExecutableSha256+":"+
-                string.Join(":",inspection.Binaries.Select(x=>x.Sha256))+
-                ":"+cfgHash+":"+cacheState;
+                launch.BinaryFingerprint+":"+cacheState;
         }
         string gameIniPath=Path.Combine(map.InstallationPath,
             "ShooterGame","Saved","Config","WindowsServer","Game.ini");
