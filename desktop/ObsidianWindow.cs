@@ -153,6 +153,22 @@ public sealed class ObsidianWindow : Form
         if(map.Maintenance||map.ObservedReadOnlyImported)return false;
         bool changed=_bridge.LocalCluster.Operations.TryReconcileAtomicConfig(map.InstallationPath);
         changed|=_bridge.LocalCluster.Operations.TryReconcileBackupPublication(map.InstallationPath);
+        try
+        {
+            var local=_bridge.LocalCluster;
+            bool VerifyPluginOwner()
+            {
+                string root=UntamedManager.Core.UntamedOperationCoordinator.ResourceKey(map.InstallationPath);
+                if(System.Linq.Enumerable.Count(local.Config.LocalMaps,m=>
+                    !string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                    UntamedManager.Core.UntamedOperationCoordinator.ResourceKey(m.InstallationPath)==root)!=1)return false;
+                var p=map.HistoricalStoreProtected?HistoricalLocalConfigGuard.DemandStopped(local,map,true):local.Check(map);
+                return !p.Running&&p.ConfirmedStopped&&p.Identity==null&&p.LoaderIdentity==null;
+            }
+            changed|=UntamedManager.Core.PluginStateManager.TryReconcileToggle(map,local.Store.Root,
+                local.Operations,VerifyPluginOwner);
+        }
+        catch(Exception ex){System.Diagnostics.Trace.TraceWarning("Plugin toggle recovery {0}: {1}",map.Id,ex.GetType().Name);}
         if(!UntamedManager.Core.UntamedWorldBackup.HasLiveOrHistoricalStore(map))
         {
             var local=_bridge.LocalCluster;
