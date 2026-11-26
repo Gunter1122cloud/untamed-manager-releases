@@ -238,7 +238,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
     }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const checkPublished=async()=>{
-    if(!mapId||blocked)return;
+    if(!mapId||busy)return;
     const requested=mapId,epoch=mapEpoch.current;
     setBusy(true);setPublished(null);setError("");
     try{
@@ -348,7 +348,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
             {maps.map(map=><option key={map.id} value={map.id}>{map.name}</option>)}
           </select>
         </label>}
-      <button type="button" className="secondary" disabled={!mapId||blocked}
+      <button type="button" className="secondary" disabled={!mapId||busy}
         onClick={()=>{void checkPublished();}}><RefreshCw size={16}/> Elérhető ASA verzió ellenőrzése</button>
       <button type="button" className="secondary" disabled={!mapId||settingsBlocked}
         onClick={()=>{void check();}}><RefreshCw size={16}/> Helyi állapot és telepített build újraellenőrzése</button>

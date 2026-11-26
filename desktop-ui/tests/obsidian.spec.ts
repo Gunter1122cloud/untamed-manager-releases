@@ -8621,7 +8621,7 @@ test("interrupted SteamCMD queue survives UI restart and blocks accidental retry
   await refresh.click();
   await expect(page.getByRole("region",{name:"SteamCMD natív előfeltétel diagnosztika"})).toContainText("Blokkolt frissítés");
   await expect(page.getByRole("button",{name:"Astraeos frissítése",exact:true})).toBeDisabled();
-  await expect(page.getByRole("button",{name:"Elérhető ASA verzió ellenőrzése"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Elérhető ASA verzió ellenőrzése"})).toBeEnabled();
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_SINGLE_STEAM_APPLIES__?:()=>number
   }).__UNTAMED_SINGLE_STEAM_APPLIES__?.())).toBe(0);

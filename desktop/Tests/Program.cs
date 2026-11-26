@@ -82,6 +82,17 @@ using(var cancelledSave=new CancellationTokenSource())
     Check(cancellationPreserved&&fallbackChecks==1,"cancelled operation does not permit DoExit fallback");
 }
 
+// A reconciled Stop receipt must override terminal error history, but not
+// an active worker or an unresolved durable Stop.
+Check(!DesktopFreshAsaStopBridge.PreferTrackedStop("needsOperator",AsaStopPhase.Completed)&&
+      !DesktopFreshAsaStopBridge.PreferTrackedStop("needsOperator",AsaStopPhase.OperatorReviewed)&&
+      !DesktopFreshAsaStopBridge.PreferTrackedStop("needsOperator",null),
+    "resolved or absent durable Stop receipt releases stale in-memory error");
+Check(DesktopFreshAsaStopBridge.PreferTrackedStop("needsOperator",AsaStopPhase.Pending)&&
+      DesktopFreshAsaStopBridge.PreferTrackedStop("needsOperator",AsaStopPhase.NeedsOperator)&&
+      DesktopFreshAsaStopBridge.PreferTrackedStop("running",null)&&
+      DesktopFreshAsaStopBridge.PreferTrackedStop("completed",AsaStopPhase.Completed),
+    "unresolved receipt and live Stop remain observable; completed history preserved");
 // Native -usestore local runtime must not need a live peer DONE marker
 // or a fixed ten-map roster when the registered local source is unchanged.
 {
@@ -4898,8 +4909,8 @@ try
             Check(IsError(blocked,"UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW")&&executions==2,
                 "native update preflight cannot bypass interrupted persistent queue");
             var blockedPublished=await Call(updater.HandleAsync,"steam.publishedBuild",new{mapId=target.Id});
-            Check(IsError(blockedPublished,"UM-STEAM-QUEUE-JOURNAL-NEEDS-REVIEW")&&executions==2,
-                "published build lookup respects the distinct persistent queue blocker");
+            Check(blockedPublished.GetProperty("ok").GetBoolean()&&executions==2,
+                "read-only public build lookup stays available despite interrupted update queue");
             var blockedDiagnostics=await Call(updater.HandleAsync,"steam.stoppedDiagnostics",new{mapId=target.Id});
             IsOk(blockedDiagnostics,"interrupted queue diagnostics remain readable");
             var queueDiagnostic=blockedDiagnostics.GetProperty("data");
