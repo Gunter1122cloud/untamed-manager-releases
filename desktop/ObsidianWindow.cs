@@ -152,6 +152,7 @@ public sealed class ObsidianWindow : Form
     {
         if(map.Maintenance||map.ObservedReadOnlyImported)return false;
         bool changed=_bridge.LocalCluster.Operations.TryReconcileAtomicConfig(map.InstallationPath);
+        changed|=_bridge.LocalCluster.Operations.TryReconcileBackupPublication(map.InstallationPath);
         if(!UntamedManager.Core.UntamedWorldBackup.HasLiveOrHistoricalStore(map))
         {
             var local=_bridge.LocalCluster;

@@ -160,7 +160,7 @@ public static class LocalBackupWorkflow
         // Only the atomic publication can create a successful package.
         // A process-state race before this point must not strand the map
         // in a misleading Backup/NeedsOperator journal.
-        operation.MarkMutationStarted();
+        operation.MarkBackupPublicationStarted();
         Directory.Move(staging,target);
         TestBackupPackage.Verify(target,map.Id);
         operation.Complete();

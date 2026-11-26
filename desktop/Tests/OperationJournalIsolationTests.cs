@@ -188,8 +188,33 @@ internal static class OperationJournalIsolationTests
             "unrecognized external configuration hash is not overwritten or falsely recovered");
     }
 
+    private static void BackupPublicationReconciliation(string testsRoot)
+    {
+        string folder=Path.Combine(testsRoot,"backup-publication-reconciliation");
+        string installation=Path.Combine(folder,"map");
+        Directory.CreateDirectory(installation);
+        var ops=new UntamedOperationCoordinator(Path.Combine(folder,"journals"));
+        using(var lease=ops.Acquire(installation,UntamedOperationKind.Backup))
+        {
+            lease.MarkBackupPublicationStarted();
+            Check(!ops.TryReconcileBackupPublication(installation),
+                "live backup publication lease cannot be retired");
+        }
+        var abandoned=ops.Observe(installation)!;
+        Check(ops.TryReconcileBackupPublication(installation)&&
+            ops.Observe(installation)?.Phase==UntamedOperationPhase.OperatorReviewed,
+            "abandoned archive-only publication releases local map without claiming backup success");
+        using(var lease=ops.Acquire(installation,UntamedOperationKind.Backup))
+            lease.MarkMutationStarted();
+        var unknown=ops.Observe(installation)!;
+        Check(unknown.Operation!=abandoned.Operation&&
+            !ops.TryReconcileBackupPublication(installation)&&ops.Observe(installation)==unknown,
+            "generic Backup/SaveWorld mutation without publication witness is not released");
+    }
+
     public static async Task Run(string testsRoot)
     {
+        BackupPublicationReconciliation(testsRoot);
         AtomicConfigReconciliation(testsRoot);
         StoppedStartReconciliation(testsRoot);
         PairedStopReconciliation(testsRoot);

@@ -21,6 +21,8 @@ public sealed record UntamedOperationRecord(int Schema,string Resource,Guid Oper
     public AtomicConfigWitness? AtomicConfig {get;init;}
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public LocalRestoreWitness? LocalRestore {get;init;}
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool BackupPublicationOnly {get;init;}
 }
 
 // One machine-wide named semaphore per installation, independent of map/profile ID.
@@ -118,7 +120,8 @@ public sealed class UntamedOperationCoordinator
                 CancelPreparedUnderLease(journal,key,old);
                 old=Read(journal,key);
             }
-            if(old!=null&&ReconcileAtomicConfigUnderLease(installation,journal,key,old))
+            if(old!=null&&(ReconcileAtomicConfigUnderLease(installation,journal,key,old)||
+               ReconcileBackupPublicationUnderLease(journal,key,old)))
                 old=Read(journal,key);
             if(old!=null&&old.Phase is not (UntamedOperationPhase.Completed or UntamedOperationPhase.CancelledBeforeMutation or UntamedOperationPhase.OperatorReviewed))
             {
@@ -224,6 +227,35 @@ public sealed class UntamedOperationCoordinator
             return true;
         }
         finally{semaphore.Release();}
+    }
+
+    // Publication-only backup jobs never mutate the ASA installation or
+    // issue SaveWorld. A partial archive stays incomplete; later readers
+    // still verify its manifest. No archived intent is reported successful.
+    internal bool TryReconcileBackupPublication(string installation)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return false;
+        try
+        {
+            string journal=Path.Combine(stateRoot,key+".json");
+            var record=Read(journal,key);
+            return record!=null&&ReconcileBackupPublicationUnderLease(journal,key,record);
+        }
+        finally{semaphore.Release();}
+    }
+
+    private bool ReconcileBackupPublicationUnderLease(string journal,string key,UntamedOperationRecord record)
+    {
+        if(record.Kind!=UntamedOperationKind.Backup||!record.BackupPublicationOnly||
+           record.AtomicConfig!=null||record.LocalRestore!=null||
+           record.Phase is not (UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)||
+           record.UpdatedUtc==default||record.UpdatedUtc>DateTimeOffset.UtcNow)return false;
+        ArchiveInterruptedStart(journal,key,record);
+        if(Read(journal,key)!=record)return false;
+        Write(journal,record with{Phase=UntamedOperationPhase.OperatorReviewed,UpdatedUtc=DateTimeOffset.UtcNow});
+        return true;
     }
 
     // Prepared is the durable pre-mutation boundary. An unowned stale
@@ -961,6 +993,15 @@ public sealed class UntamedOperationCoordinator
                witness.TransactionId==Guid.Empty)
                 throw new InvalidOperationException("UM-LOCAL-RESTORE-WITNESS-INVALID");
             var next=record with{Phase=UntamedOperationPhase.Mutating,LocalRestore=witness,
+                UpdatedUtc=DateTimeOffset.UtcNow};
+            Write(journal,next);record=next;
+        }
+        internal void MarkBackupPublicationStarted()
+        {
+            if(disposed||completed||record.Phase!=UntamedOperationPhase.Prepared||
+               record.Kind!=UntamedOperationKind.Backup)
+                throw new InvalidOperationException("UM-BACKUP-PUBLICATION-WITNESS-INVALID");
+            var next=record with{Phase=UntamedOperationPhase.Mutating,BackupPublicationOnly=true,
                 UpdatedUtc=DateTimeOffset.UtcNow};
             Write(journal,next);record=next;
         }
