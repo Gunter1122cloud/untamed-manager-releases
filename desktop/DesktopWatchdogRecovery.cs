@@ -661,7 +661,16 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                             Write(row with{Evidence="RECOVERY_STEAM_EXTERNAL_BUSY"});
                             continue;
                         }
-                        DemandProfile(map,row,true);DemandNoPending(map);
+                        DemandProfile(map,row,true);
+                        if(cluster.Operations.IsInstallationBusy(map.InstallationPath))
+                        {
+                            // Another real worker owns this installation.
+                            // Retry observation next tick, not native dispatch.
+                            // All proofs, intent and lease checks run again.
+                            Write(row with{Evidence="RECOVERY_INSTALLATION_BUSY"});
+                            continue;
+                        }
+                        DemandNoPending(map);
                         if(RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc)||
                             !Stopped(observe(map))||!exit.HasExited||!FatalExitCode(exit.ExitCode))
                         {End(row,"needsReview","FINAL_STOP_OR_OWNER_CHANGED",true);continue;}
