@@ -1358,6 +1358,8 @@ public sealed partial class ClusterService : IAsyncDisposable
                     JsonSerializer.Serialize(observed))??
                     throw new InvalidDataException(
                         "UM-ORIGINAL-LIVE-NEW-PROFILE-CLONE-FAILED");
+                if(isolated.NativeStoreIdentity!=null)
+                    _=LegacyStoreV1PinnedSource.ResolveRuntimeIdentity(Store.Root,"",isolated);
                 staged.Add(isolated);added++;continue;
             }
             // Previous direct/STOPPED imports did not yet know whether an
@@ -1412,6 +1414,15 @@ public sealed partial class ClusterService : IAsyncDisposable
             clone.ApiLoaderPath=observed.ApiLoaderPath;
             clone.LastProcess=observed.LastProcess;
             clone.LastLoader=observed.LastLoader;
+            if(observed.NativeStoreIdentity is { } importedIdentity)
+            {
+                // Verified during the native import, not during later startup.
+                // Never replace a different previously persisted identity.
+                if(clone.NativeStoreIdentity!=null&&clone.NativeStoreIdentity!=importedIdentity)
+                    throw new InvalidDataException("UM-ORIGINAL-LIVE-NATIVE-IDENTITY-CHANGED");
+                clone.NativeStoreIdentity=importedIdentity;
+                _=LegacyStoreV1PinnedSource.ResolveRuntimeIdentity(Store.Root,"",clone);
+            }
             staged[staged.IndexOf(original)]=clone;
             already++;
         }
