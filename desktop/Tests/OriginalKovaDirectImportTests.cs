@@ -876,11 +876,17 @@ internal static class OriginalKovaDirectImportTests
                 Check(DesktopAsaLifecycleJournalBridge.PinnedStoppedSourceEvidence(
                     pinnedManager,local,nativeCopy,43210).SourceSha.Length==64,
                     "stopped native runtime recovery does not need the old source files");
+                Check(DesktopHistoricalRconAttachBridge.VerifyLocalSource(pinnedManager,local,nativeCopy),
+                    "native RCON attachment source guard works without original or copied legacy profile");
                 nativeCopy.HistoricalMapKey="Wrong_WP";
                 bool mismatch=false;
                 try{_=LegacyStoreV1PinnedSource.RuntimeFingerprint(pinnedManager,local,nativeCopy);}
                 catch(InvalidDataException){mismatch=true;}
                 Check(mismatch,"native Store identity cannot be reused for a different map");
+                bool rconMismatch=false;
+                try{_=DesktopHistoricalRconAttachBridge.VerifyLocalSource(pinnedManager,local,nativeCopy);}
+                catch(InvalidDataException){rconMismatch=true;}
+                Check(rconMismatch,"native RCON attachment rejects identity mismatch instead of falling back to old peer markers");
             }
             finally{Directory.Move(pinFolder+"-offline",pinFolder);}
             string existingGus=AsaInitialRconSettings.NewIniPath(
