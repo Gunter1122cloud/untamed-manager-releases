@@ -2344,6 +2344,17 @@ try
             await supervisor.TickOnceAsync(due.AddMinutes(1));
             Check(sent==0&&supervisor.Snapshot().Single().NextDueUtc==due,"scheduler defers rather than claims a map during pending recovery");
             supervisor.AutomaticRecoveryPending=null;
+            string slotKey=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+                Path.GetFullPath(scheduleCluster.Store.Root).ToUpperInvariant()+"|"+m1.Id.ToString("N")+"|SaveWorld")));
+            using(var competingSlot=new Semaphore(1,1,"Global\\Untamed-AsaScheduleSlot-"+slotKey))
+            {
+                Check(competingSlot.WaitOne(0),"fixture owns cross-Manager schedule slot");
+                try{
+                    await supervisor.TickOnceAsync(due.AddMinutes(1));
+                    Check(sent==0&&supervisor.History(m1.Id).Length==0&&supervisor.Snapshot().Single().NextDueUtc==due,
+                        "busy cross-Manager slot defers before claiming or advancing cursor");
+                }finally{competingSlot.Release();}
+            }
             await supervisor.TickOnceAsync(due.AddMinutes(1));
             Check(sent==1&&supervisor.Snapshot().Single().LastStatus==
                     "executed-no-fsync-or-client-certification",
@@ -2599,6 +2610,34 @@ try
             var replay=await Call(futureOnly.HandleAsync,"schedule.nativeReviewApply",
                 new{mapId=m1.Id,token,confirm=true,keepFutureRestart=true});
             Check(!replay.GetProperty("ok").GetBoolean(),"future-only approval remains one shot");
+        }
+        // A NEW explicit configuration is sufficient intent to archive an
+        // old unowned schedule slot, without an extra review button.
+        int failedSaves=0;
+        using(var failing=new DesktopScheduledAsaOperationsSupervisor(scheduleCluster,rcon,restarter,
+            (id,kind,ct)=>{failedSaves++;throw new IOException("UM-SYNTHETIC-SAVE-FAILED");},_=>true))
+        {
+            failing.Disable(m1.Id,"Restart");
+            var planned=failing.Configure(m1.Id,"SaveWorld","Interval",15,180,127);
+            await failing.TickOnceAsync(planned.NextDueUtc);
+            var unknown=failing.History(m1.Id).Single(x=>x.Kind=="SaveWorld"&&x.Status=="failed-needs-operator-no-retry");
+            string journal=Path.Combine(scheduleCluster.Store.Root,"native-asa-schedules-v1.json");
+            byte[] original=File.ReadAllBytes(journal);
+            using(var operation=scheduleCluster.Operations.Acquire(m1.InstallationPath,UntamedOperationKind.Configuration))
+            {
+                bool rejected=false;
+                try{failing.Configure(m1.Id,"SaveWorld","Interval",30,180,127);}
+                catch(InvalidOperationException ex) when(ex.Message=="UM-ASA-SCHEDULE-NATIVE-OPERATION-BUSY"){rejected=true;}
+                Check(rejected&&File.ReadAllBytes(journal).SequenceEqual(original),
+                    "new schedule cannot retire history while actual native mutation owns installation");
+                operation.Complete();
+            }
+            var replacement=failing.Configure(m1.Id,"SaveWorld","Interval",30,180,127);
+            string audit=journal+"."+unknown.RunId.ToString("N")+".auto-retired-"+Convert.ToHexString(SHA256.HashData(original))+".json";
+            Check(failedSaves==1&&replacement.Enabled&&replacement.NextDueUtc>unknown.ScheduledUtc&&
+                failing.History(m1.Id).Single(x=>x.RunId==unknown.RunId).Status=="auto-retired-unknown-no-replay"&&
+                File.ReadAllBytes(audit).SequenceEqual(original),
+                "new schedule archives exact old unknown slot and schedules only a future occurrence");
         }
     }
 
