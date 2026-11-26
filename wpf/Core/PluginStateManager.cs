@@ -153,19 +153,22 @@ public static class PluginStateManager
         if(profile.StartsWith(Path.GetFullPath(map.InstallationPath)+Path.DirectorySeparatorChar,
             StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Plugin backup profile must be outside ASA installation");
+        Guid backupId=Guid.NewGuid();
         string backup=Path.Combine(profile,"plugin-toggle-backups",
-            map.Id.ToString("N"),plugin,Guid.NewGuid().ToString("N"));
+            map.Id.ToString("N"),plugin,backupId.ToString("N"));
         // Validate shared-map process state under the directory mutation lease.
         // This is intentionally optional for legacy callers and synthetic
         // fixture tests; all new UI actions use ToggleLocalChecked.
         verifyWhileLocked?.Invoke();
         // A complete SHA-verified source protection survives every toggle.
-        operation.MarkMutationStarted();
         TestBackupPackage.Create(source,backup,map.Id,
             "Pre-plugin-toggle full directory; configs and licenses included");
         var package=TestBackupPackage.Verify(backup,map.Id);
         if(package.Files.Count==0)throw new InvalidDataException("Cannot move empty plugin directory");
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        verifyWhileLocked?.Invoke();
+        BackupIntegrity.Verify(source,package,map.Id);
+        operation.MarkPluginToggleStarted(new PluginToggleWitness(map.Id,plugin,enabled,backupId));
         Directory.Move(source,target);
         try{BackupIntegrity.Verify(target,new BackupManifest(1,map.Id,
             package.Scope,package.CreatedUtc,package.Files),map.Id);}
@@ -177,6 +180,35 @@ public static class PluginStateManager
         }
         operation.Complete();
         return new(map.Id,plugin,enabled,target,backup,true);
+    }
+
+    // A same-volume directory rename has only two valid outcomes. Verify
+    // the complete protective copy; never move or delete files in recovery.
+    internal static bool TryReconcileToggle(LocalMap map,string profile,
+        UntamedOperationCoordinator coordinator,Func<bool> verifyStopped)
+    {
+        return coordinator.TryReconcilePluginToggle(map.InstallationPath,witness=>{
+            if(witness.MapId!=map.Id||witness.BackupId==Guid.Empty||
+               string.IsNullOrWhiteSpace(witness.Plugin)||witness.Plugin.Length>80||
+               !char.IsAsciiLetterOrDigit(witness.Plugin[0])||
+               witness.Plugin.Any(c=>!char.IsAsciiLetterOrDigit(c)&&c is not '_' and not '-' and not '.')||
+               witness.Plugin.Contains(VaultProtocol.ProtectedNameToken,StringComparison.OrdinalIgnoreCase)||
+               !verifyStopped())return false;
+            var (active,disabled)=Roots(map);
+            string source=Path.Combine(witness.Enabled?disabled:active,witness.Plugin);
+            string target=Path.Combine(witness.Enabled?active:disabled,witness.Plugin);
+            if(File.Exists(source)||File.Exists(target)||
+               Directory.Exists(source)==Directory.Exists(target))return false;
+            string found=Directory.Exists(source)?source:target;
+            AssertNoReparse(found);
+            string backup=Path.Combine(profile,"plugin-toggle-backups",map.Id.ToString("N"),
+                witness.Plugin,witness.BackupId.ToString("N"));
+            var package=TestBackupPackage.Verify(backup,map.Id);
+            if(package.Files.Count==0||package.Scope!="Pre-plugin-toggle full directory; configs and licenses included")
+                return false;
+            BackupIntegrity.Verify(found,package,map.Id);
+            return verifyStopped();
+        });
     }
 
     private static (string active,string disabled) Roots(LocalMap map)
