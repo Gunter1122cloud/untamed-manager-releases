@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Threading;
@@ -57,8 +58,62 @@ internal static class OperationJournalIsolationTests
         }
     }
 
+    private static void StoppedStartReconciliation(string testsRoot)
+    {
+        string folder=Path.Combine(testsRoot,"stopped-start-reconciliation");
+        string installation=Path.Combine(folder,"map-a");
+        string other=Path.Combine(folder,"map-b");
+        Directory.CreateDirectory(installation);Directory.CreateDirectory(other);
+        var operations=new UntamedOperationCoordinator(Path.Combine(folder,"journals"));
+        using(var interrupted=operations.Acquire(installation,UntamedOperationKind.Launch))
+            interrupted.MarkMutationStarted();
+        var previous=operations.Observe(installation)!;
+        string key=UntamedOperationCoordinator.ResourceKey(installation);
+        string journal=Path.Combine(folder,"journals",key+".json");
+        byte[] original=File.ReadAllBytes(journal);
+        bool denied=false;
+        try{using var refused=operations.AcquireStoppedStart(installation,()=>false);}
+        catch(IOException){denied=true;}
+        Check(denied&&File.ReadAllBytes(journal).SequenceEqual(original),
+            "unknown physical state preserves abandoned launch receipt");
+        int observations=0;
+        using(var next=operations.AcquireStoppedStart(installation,()=>++observations>0))
+        {
+            Check(operations.Observe(installation)?.Operation!=previous.Operation&&observations==2,
+                "proven stopped map gets a fresh operation ID without operator review");
+            bool busy=false;
+            try{using var conflict=operations.AcquireStoppedStart(installation,()=>true);}
+            catch(IOException){busy=true;}
+            Check(busy,"a live installation lease cannot be bypassed");
+            next.Complete();
+        }
+        string audit=Path.Combine(folder,"journals",key+"-"+previous.Operation.ToString("N")+".interrupted-runtime.json");
+        Check(File.ReadAllBytes(audit).SequenceEqual(original),
+            "old uncertain outcome is archived byte-identically, never reported successful");
+        using(var restore=operations.Acquire(other,UntamedOperationKind.Restore))
+            restore.MarkMutationStarted();
+        bool protectedRestore=false;
+        try{using var refused=operations.AcquireStoppedStart(other,()=>true);}
+        catch(IOException){protectedRestore=true;}
+        Check(protectedRestore&&operations.Observe(other)?.Kind==UntamedOperationKind.Restore,
+            "runtime Start does not override an interrupted destructive restore");
+        using(var repeat=operations.Acquire(installation,UntamedOperationKind.Launch))
+            repeat.MarkMutationStarted();
+        var interruptedAgain=operations.Observe(installation)!;
+        int calls=0;bool changed=false;
+        try{using var refused=operations.AcquireStoppedStart(installation,()=>++calls==1);}
+        catch(IOException){changed=true;}
+        Check(changed&&operations.Observe(installation)==interruptedAgain,
+            "changed second observation prevents fresh Start");
+        using(var independent=operations.Acquire(Path.Combine(folder,"map-c"),UntamedOperationKind.Launch))
+            independent.Complete();
+        Check(operations.Observe(installation)==interruptedAgain,
+            "failed launch does not reserve an unrelated installation");
+    }
+
     public static async Task Run(string testsRoot)
     {
+        StoppedStartReconciliation(testsRoot);
         string root=Path.Combine(testsRoot,"child-operation-journal-isolation");
         string journals=Path.Combine(root,"journals");
         string install=Path.Combine(root,"fake-asa-install");
