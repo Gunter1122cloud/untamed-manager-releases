@@ -10346,18 +10346,22 @@ try
                 new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD DOEXIT"});
             IsOk(interrupted,"synthetic interrupted Store stop starts distinct native job");
             jobId=interrupted.GetProperty("data").GetProperty("jobId").GetString()!;
-            for(int i=0;i<40;i++)
+            // The synthetic native operation has its own six-second deadline.
+            // Do not sample a queued worker as a terminal failure after 1.2s.
+            var testDeadline=System.Diagnostics.Stopwatch.StartNew();
+            do
             {
                 status=await Call(stopBridge.HandleAsync,"historical.gracefulStopStatus",
                     new{jobId});
                 if(status.GetProperty("data").GetProperty("state").GetString()
                     is "completed" or "needsOperator")break;
-                await Task.Delay(30);
-            }
+                await Task.Delay(50);
+            }while(testDeadline.Elapsed<TimeSpan.FromSeconds(12));
+            var terminalStopReceipt=clusterForStop.Operations.Observe(stopRoot);
             Check(status.GetProperty("data").GetProperty("state").GetString()=="needsOperator"&&
-                  clusterForStop.Operations.Observe(stopRoot)?.Phase==
-                    UntamedOperationPhase.NeedsOperator&&dispatched==2,
-                "interrupted Store-v1 SaveWorld/DoExit remains durably blocked without automatic retries");
+                  terminalStopReceipt?.Phase==UntamedOperationPhase.NeedsOperator&&dispatched==2,
+                "interrupted Store-v1 SaveWorld/DoExit remains durably blocked without automatic retries: "+
+                status.GetRawText()+" phase="+terminalStopReceipt?.Phase+" dispatches="+dispatched);
             var blockedRecovery=await Call(stopBridge.HandleAsync,
                 "historical.gracefulStopRecovery",new{mapId=originalStopMap.Id});
             Check(blockedRecovery.GetProperty("data").GetProperty("phase")
