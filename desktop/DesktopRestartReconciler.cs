@@ -21,7 +21,8 @@ internal static class DesktopRestartReconciler
     {
         if(method is not ("servers.freshStartPreview" or "servers.gracefulStopPreview" or
             "servers.restartPreview" or "historical.activeStartPreview" or
-            "historical.gracefulStopPreview" or "historical.restartPreview"))return null;
+            "historical.gracefulStopPreview" or "historical.restartPreview" or
+            "historical.saveWorldPreview"))return null;
         if(raw.Length is <2 or >3072)return null;
         try
         {
