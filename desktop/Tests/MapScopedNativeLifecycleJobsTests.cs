@@ -244,6 +244,12 @@ internal static class MapScopedNativeLifecycleJobsTests
             "first job status remains accessible by exact ID");
         Check(originalStatus.GetProperty("jobId").GetString()==jobIds[0],
             "job status is never redirected to another map's operation");
+        var independentDeadline=DateTimeOffset.UtcNow.AddSeconds(5);
+        while(bridge.RecoveryLaneBusy(maps[1].Id)&&DateTimeOffset.UtcNow<independentDeadline)
+            await Task.Delay(25);
+        Check(bridge.RecoveryLaneBusy()&&bridge.RecoveryLaneBusy(maps[0].Id)&&
+              !bridge.RecoveryLaneBusy(maps[1].Id),
+            "active first-map Stop reserves that map but not the completed sibling recovery lane");
         firstReleased.TrySetResult(true);
         for(int n=0;n<90;n++)
         {
@@ -296,6 +302,9 @@ internal static class MapScopedNativeLifecycleJobsTests
         Check(siblingJournal.Observe() is {Phase:AsaStopPhase.Completed} record&&
               record.MapId==maps[1].Id,
             "sibling Stop journal is durably completed before fixture reuse");
+        Check(!bridge.RecoveryLaneBusy()&&!bridge.RecoveryLaneBusy(maps[0].Id)&&
+              !bridge.RecoveryLaneBusy(maps[1].Id),
+            "terminal Stop history is not an active map or host recovery reservation");
         // This worker writes a durable receipt before it fails; unlike stale
         // memory alone, that receipt remains unresolved. No TCP is used.
         int uncertainStopDispatches=0;

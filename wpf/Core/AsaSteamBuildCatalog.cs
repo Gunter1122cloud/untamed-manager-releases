@@ -103,12 +103,77 @@ public static class AsaSteamMapCatalog
 }
 public static class AsaSteamBuildCatalog
 {
-    private static readonly Regex ManifestId=new(
-        "(?m)^\\s*\"buildid\"\\s*\"(?<n>[0-9]{1,20})\"\\s*$",
-        RegexOptions.Compiled|RegexOptions.CultureInvariant);
-    private static readonly Regex AppId=new(
-        "(?m)^\\s*\"appid\"\\s*\"2430930\"\\s*$",
-        RegexOptions.Compiled|RegexOptions.CultureInvariant);
+    // Hierarchical ACF token/object parsing adapted from Jens'
+    // SteamACF.kt:7–49 (0937486eea8ebc9ade8b95eeb91df0d3808375b7).
+    // Unlike a generic dictionary parser, reject duplicate target keys,
+    // incomplete objects and non-ASA root identities.
+    private static readonly Regex ManifestToken=new(
+        @"\G\s*(?:""(?<value>(?:\\.|[^""\\])*)""|(?<brace>[{}]))",
+        RegexOptions.Compiled|RegexOptions.CultureInvariant,TimeSpan.FromMilliseconds(500));
+
+    internal static string? ParseInstalledBuildManifest(string raw)
+    {
+        if(string.IsNullOrWhiteSpace(raw)||raw.Length>1_048_576)return null;
+        int offset=0,depth=0;
+        string? key=null,app=null,build=null;
+        bool opened=false,closed=false;
+        try
+        {
+            while(offset<raw.Length)
+            {
+                var token=ManifestToken.Match(raw,offset);
+                if(!token.Success)
+                {
+                    if(string.IsNullOrWhiteSpace(raw[offset..]))break;
+                    return null;
+                }
+                offset=token.Index+token.Length;
+                if(closed)return null;
+                if(token.Groups["brace"].Success)
+                {
+                    if(token.Groups["brace"].Value=="{")
+                    {
+                        if(key==null||depth>=64)return null;
+                        if(depth==0)
+                        {
+                            if(opened||!key.Equals("AppState",StringComparison.OrdinalIgnoreCase))return null;
+                            opened=true;
+                        }
+                        else if(depth==1&&(key.Equals("appid",StringComparison.OrdinalIgnoreCase)||
+                            key.Equals("buildid",StringComparison.OrdinalIgnoreCase)))return null;
+                        depth++;key=null;
+                    }
+                    else
+                    {
+                        if(depth==0||key!=null)return null;
+                        depth--;
+                        if(depth==0)closed=true;
+                    }
+                    continue;
+                }
+                string value=token.Groups["value"].Value;
+                if(key==null){key=value;continue;}
+                if(depth==0)return null;
+                if(depth==1)
+                {
+                    if(key.Equals("appid",StringComparison.OrdinalIgnoreCase))
+                    {
+                        if(app!=null)return null;
+                        app=value;
+                    }
+                    else if(key.Equals("buildid",StringComparison.OrdinalIgnoreCase))
+                    {
+                        if(build!=null)return null;
+                        build=value;
+                    }
+                }
+                key=null;
+            }
+        }
+        catch(RegexMatchTimeoutException){return null;}
+        return opened&&closed&&depth==0&&key==null&&app=="2430930"&&
+            build is {Length:>0 and <=20}&&build.All(char.IsAsciiDigit)?build:null;
+    }
 
     public static string? InstalledBuild(string root)
     {
@@ -120,10 +185,7 @@ public static class AsaSteamBuildCatalog
         if(new FileInfo(manifest).Length>1024*1024 ||
            (File.GetAttributes(manifest)&FileAttributes.ReparsePoint)!=0)
             throw new InvalidDataException("Invalid local Steam appmanifest");
-        string content=File.ReadAllText(manifest);
-        if(!AppId.IsMatch(content))return null;
-        return ManifestId.Match(content) is var match && match.Success
-            ? match.Groups["n"].Value:null;
+        return ParseInstalledBuildManifest(File.ReadAllText(manifest));
     }
 
     public const string PublicBuildEndpoint="https://api.steamcmd.net/v1/info/2430930";

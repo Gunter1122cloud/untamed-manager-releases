@@ -421,6 +421,56 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         catch(Exception){return false;}
     }
 
+    // The old slot is orchestration history. Only an unowned slot with
+    // clear native installation journals may be retired by a NEW explicit
+    // schedule configuration. Preserve the exact old bytes; never replay.
+    private DateTimeOffset RetireUnknownSlotsForNewSchedule(State state,LocalMap map,string kind)
+    {
+        var old=state.History.Where(x=>x.MapId==map.Id&&x.Kind==kind&&UnknownSlot(x.Status)).ToArray();
+        var now=DateTimeOffset.UtcNow;
+        if(old.Length==0)return now;
+        if(AutomaticRecoveryPending?.Invoke(map.Id)==true||
+           cluster.Operations.IsInstallationBusy(map.InstallationPath))
+            throw new InvalidOperationException("UM-ASA-SCHEDULE-NATIVE-OPERATION-BUSY");
+        new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+        new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
+        if(cluster.Operations.Observe(map.InstallationPath)?.Phase is
+            (UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)||
+           (map.HistoricalStoreProtected&&LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id)?.Phase is ("prepared" or "needsOperator")))
+            throw new InvalidOperationException("UM-ASA-SCHEDULE-NATIVE-OPERATION-PENDING");
+        byte[] original=File.ReadAllBytes(path);
+        string digest=Convert.ToHexString(SHA256.HashData(original));
+        if(original.Length is <2 or >MaxJournalBytes)throw new InvalidDataException("UM-ASA-SCHEDULE-REVIEW-AUDIT-SIZE");
+        foreach(var entry in old)
+        {
+            string audit=path+"."+entry.RunId.ToString("N")+".auto-retired-"+digest+".json";
+            if(File.Exists(audit))
+            {
+                if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+                    !File.ReadAllBytes(audit).SequenceEqual(original))
+                    throw new InvalidDataException("UM-ASA-SCHEDULE-REVIEW-AUDIT-MISMATCH");
+            }
+            else
+            {
+                string temp=audit+"."+Guid.NewGuid().ToString("N")+".tmp";
+                try
+                {
+                    using(var stream=new FileStream(temp,FileMode.CreateNew,FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough))
+                    {stream.Write(original);stream.Flush(true);}
+                    File.Move(temp,audit);
+                }
+                finally{if(File.Exists(temp))File.Delete(temp);}
+            }
+            int index=state.History.FindIndex(x=>x.RunId==entry.RunId);
+            state.History[index]=entry with{
+                Status="auto-retired-unknown-no-replay",
+                FinishedUtc=entry.FinishedUtc??now,
+                Evidence="NEW_SCHEDULE_INTENT_OLD_SLOT_OUTCOME_UNKNOWN"
+            };
+        }
+        return old.SelectMany(x=>new[]{x.ScheduledUtc,x.ClaimedUtc}).Append(now).Max();
+    }
+
     public ScheduledAsaOperation Configure(Guid mapId,string kind,string frequency,
         int intervalMinutes,int minuteOfDay,int daysMask,bool postRestartWipe=false,int wipeDelaySeconds=0,
         string timeZoneId="Europe/Budapest",int[]? dayMinutes=null,string? onceAtLocal=null)
@@ -449,16 +499,23 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         var map=Owned(mapId);
         if(!Eligible(map))
             throw new UnauthorizedAccessException("UM-ASA-SCHEDULE-PREFLIGHT-DENIED");
+        bool retire=Locked(()=>Read().History.Any(x=>x.MapId==map.Id&&x.Kind==kind&&UnknownSlot(x.Status)));
+        // Lock order matches actual execution: slot first, journal second.
+        using var oldSlot=retire?AcquireOwnedSlot(map.Id,kind):null;
         return Locked(()=>{
             var state=Read();
             var fingerprint=Fingerprint(map);
             var sample=new ScheduledAsaOperation(map.Id,kind,frequency,intervalMinutes,
                 minuteOfDay,daysMask,fingerprint,true,default,null,"scheduled","",postRestartWipe,wipeDelaySeconds,
                 timeZoneId,dayMinutes?.ToArray(),onceAtUtc,Guid.NewGuid());
-            var task=sample with {NextDueUtc=Next(sample,DateTimeOffset.UtcNow)};
-            int ix=state.Jobs.FindIndex(j=>j.MapId==map.Id&&j.Kind==kind);
+            DateTimeOffset cutoff=DateTimeOffset.UtcNow;
             if(state.History.Any(x=>x.MapId==map.Id&&x.Kind==kind&&UnknownSlot(x.Status)))
-                throw new InvalidOperationException("UM-ASA-SCHEDULE-REVIEW-OLD-SLOT");
+            {
+                if(oldSlot==null)throw new InvalidOperationException("UM-ASA-SCHEDULE-SLOT-OTHER-WORKER");
+                cutoff=RetireUnknownSlotsForNewSchedule(state,map,kind);
+            }
+            var task=sample with {NextDueUtc=Next(sample,cutoff)};
+            int ix=state.Jobs.FindIndex(j=>j.MapId==map.Id&&j.Kind==kind);
             if(ix<0)state.Jobs.Add(task);else state.Jobs[ix]=task;
             Write(state);
             return task;
@@ -1281,6 +1338,12 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 // terminal failure. Do not consume/execute a scheduler slot
                 // during that window; ordinary missed-slot rules apply later.
                 if(AutomaticRecoveryPending?.Invoke(observed.MapId)==true)continue;
+                // Acquire before publishing a claim. A second Manager's
+                // live slot is contention, not an interrupted dispatch.
+                OwnedSlot activeSlot;
+                try{activeSlot=AcquireOwnedSlot(observed.MapId,observed.Kind);}
+                catch(IOException ex) when(ex.Message=="UM-ASA-SCHEDULE-SLOT-OTHER-WORKER"){continue;}
+                using var slotLifetime=activeSlot;
                 bool missed=now-observed.NextDueUtc>TimeSpan.FromMinutes(5);
                 var claimId=Guid.NewGuid();
                 bool dispatched=Locked(()=>{
@@ -1342,7 +1405,6 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     continue;
                 }
                 ScheduleEvent(claimId,observed,"claimed","in-progress","DURABLE_SLOT_CLAIMED_NO_REPLAY");
-                using var activeSlot=AcquireOwnedSlot(observed.MapId,observed.Kind);
                 string status="failed-no-auto-retry",evidence="";
                 try
                 {

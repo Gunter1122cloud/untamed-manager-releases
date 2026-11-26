@@ -302,8 +302,68 @@ internal static class LegacyStoreSaveReviewBridgeTests
             "three-journal review is resumed idempotently without Send/SaveComplete/Stop");
     }
 
+    private static async Task VerifyNativeAdmission(string root)
+    {
+        string installation=Path.Combine(root,"ordinary-save-admission-install");
+        Directory.CreateDirectory(installation);
+        await using var cluster=new ClusterService("ordinary-save-admission",
+            Path.Combine(root,"ordinary-save-admission-profile"));
+        var map=new LocalMap{Id=Guid.NewGuid(),Name="Synthetic native save admission",
+            HistoricalStoreProtected=true,HistoricalMapKey="TheIsland_WP",
+            InstallationPath=installation,RconPort=37189};
+        cluster.AddMap(map);
+        var owner=new ProcessIdentity{Pid=55189,StartedUtc=DateTimeOffset.UtcNow.AddMinutes(-15),
+            ExecutablePath=Path.Combine(installation,"synthetic.exe"),Arguments="TheIsland_WP?listen"};
+        bool ownerVerified=true;
+        int previews=0,commands=0;
+        using var bridge=new DesktopHistoricalGracefulStopBridge(cluster,
+            id=>{previews++;return new LegacyStoreV1GracefulStop.Owned(map,owner,SourceSha);},
+            (_,_,_,_,_)=>{commands++;throw new InvalidOperationException("synthetic Stop not dispatched");},
+            (_,_,_,_,_)=>{commands++;throw new InvalidOperationException("synthetic SaveWorld not dispatched");},
+            reviewVerifier:(_,_)=>false,
+            runningReviewVerifier:(id,pid,epoch,sha)=>ownerVerified&&id==map.Id&&
+                pid==owner.Pid&&epoch==owner.StartedUtc&&sha==SourceSha,
+            isolatedRunningReviewMinimumAge:TimeSpan.Zero);
+        var receipt=Guid.NewGuid();
+        LegacyStoreV1SaveEvidenceJournal.Begin(cluster.Store.Root,receipt,map.Id,
+            owner.Pid,owner.StartedUtc,SourceSha);
+        var refused=await Call(bridge,"historical.saveWorldPreview",new{mapId=map.Id});
+        Check(!refused.GetProperty("ok").GetBoolean()&&previews==0,
+            "ordinary preview cannot overtake a prepared SaveWorld");
+        LegacyStoreV1SaveEvidenceJournal.MarkUncertain(cluster.Store.Root,receipt,map.Id,
+            owner.Pid,owner.StartedUtc,SourceSha);
+        string folder=Path.Combine(cluster.Store.Root,"historical-save-evidence-v1");
+        string receiptPath=Path.Combine(folder,map.Id.ToString("N")+".json");
+        byte[] previous=File.ReadAllBytes(receiptPath);
+        ownerVerified=false;
+        refused=await Call(bridge,"historical.gracefulStopPreview",new{mapId=map.Id});
+        Check(!refused.GetProperty("ok").GetBoolean()&&previews==0&&
+            File.ReadAllBytes(receiptPath).SequenceEqual(previous),
+            "unknown owner prevents automatic SaveWorld recovery");
+        ownerVerified=true;
+        using(var active=cluster.Operations.Acquire(installation,UntamedOperationKind.Backup))
+        {
+            refused=await Call(bridge,"historical.gracefulStopPreview",new{mapId=map.Id});
+            Check(!refused.GetProperty("ok").GetBoolean()&&previews==0&&
+                File.ReadAllBytes(receiptPath).SequenceEqual(previous),
+                "active installation operation cannot be bypassed");
+            active.Complete();
+        }
+        var admitted=await Call(bridge,"historical.gracefulStopPreview",new{mapId=map.Id});
+        var saved=LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id);
+        string archived=Path.Combine(folder,"reviewed",map.Id.ToString("N")+"-"+receipt.ToString("N")+".json");
+        Check(admitted.GetProperty("ok").GetBoolean()&&previews==1&&commands==0&&
+            saved?.Phase=="reviewed"&&!saved.LocalSaveCompleteObserved&&
+            File.ReadAllBytes(archived).SequenceEqual(previous),
+            "ordinary Stop reconciles terminal SaveWorld without claiming success or replaying RCON");
+        var nextSave=await Call(bridge,"historical.saveWorldPreview",new{mapId=map.Id});
+        Check(nextSave.GetProperty("ok").GetBoolean()&&previews==2&&commands==0,
+            "ordinary SaveWorld obtains a new preflight after reconciliation");
+    }
+
     public static async Task Run(string testRoot)
     {
+        await VerifyNativeAdmission(testRoot);
         await VerifyRunningOwnedSaveReview(testRoot);
         string root=Path.Combine(testRoot,"synthetic-reviewed-store-save");
         string profile=Path.Combine(root,"manager");

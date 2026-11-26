@@ -116,6 +116,66 @@ using(var cancelledSave=new CancellationTokenSource())
     Check(cancellationPreserved&&fallbackChecks==1,"cancelled operation does not permit DoExit fallback");
 }
 
+// A legacy five-map world backup needs those exact five stopped members,
+// not an unrelated sixth map's lifecycle lane. Manager handoff still
+// observes the complete active batch, and missing scope fails closed.
+{
+    var backupMaps=Enumerable.Range(0,5).Select(_=>Guid.NewGuid()).ToArray();
+    var independentMap=Guid.NewGuid();
+    foreach(string active in new[]{"queued","running"})
+    {
+        Check(DesktopWorldBackupBridge.OriginalBatchBlocksMap(active,backupMaps,null),
+            "active world backup batch still reserves host handoff");
+        Check(backupMaps.All(id=>DesktopWorldBackupBridge.OriginalBatchBlocksMap(active,backupMaps,id)),
+            "all accepted original world backup members remain reserved");
+        Check(!DesktopWorldBackupBridge.OriginalBatchBlocksMap(active,backupMaps,independentMap),
+            "unrelated sixth map is not reserved by original world backup batch");
+        Check(DesktopWorldBackupBridge.OriginalBatchBlocksMap(active,null,independentMap)&&
+            DesktopWorldBackupBridge.OriginalBatchBlocksMap(active,new[]{backupMaps[0]},independentMap)&&
+            DesktopWorldBackupBridge.OriginalBatchBlocksMap(active,Enumerable.Repeat(backupMaps[0],5).ToArray(),independentMap),
+            "missing or ambiguous active backup scope is not treated as independent");
+    }
+    foreach(string terminal in new[]{"completed","needsOperator"})
+        Check(!DesktopWorldBackupBridge.OriginalBatchBlocksMap(terminal,backupMaps,null)&&
+              !DesktopWorldBackupBridge.OriginalBatchBlocksMap(terminal,backupMaps,backupMaps[0]),
+            "terminal batch history does not reserve active runtime lanes");
+}
+
+// DoExit can close its socket during the command write. Only transport
+// uncertainty AFTER successful authenticated ownership authorization may
+// enter the existing bounded process-exit observation; never replay it.
+{
+    int dispatchAttempts=0,authorizationChecks=0;
+    bool sent=await AsaGracefulStop.TryDispatchDoExitAsync(authorize=>{
+        dispatchAttempts++;authorize();
+        return Task.FromException(new IOException("synthetic socket closed during DoExit"));
+    },()=>authorizationChecks++,null,CancellationToken.None);
+    Check(!sent&&dispatchAttempts==1&&authorizationChecks==1,
+        "uncertain authenticated DoExit proceeds to exit observation without replay or dispatch certification");
+    bool preAuthRejected=false;
+    try{await AsaGracefulStop.TryDispatchDoExitAsync(
+        _=>Task.FromException(new IOException("synthetic connection failed before auth")),
+        ()=>authorizationChecks++,null,CancellationToken.None);}
+    catch(IOException){preAuthRejected=true;}
+    Check(preAuthRejected&&authorizationChecks==1,"pre-authentication transport failure does not authorize shutdown");
+    bool ownerRejected=false;
+    try{await AsaGracefulStop.TryDispatchDoExitAsync(authorize=>{
+        authorize();return Task.CompletedTask;
+    },()=>throw new IOException("synthetic ownership verification failed"),null,CancellationToken.None);}
+    catch(IOException){ownerRejected=true;}
+    Check(ownerRejected,"failed ownership verification never permits uncertain dispatch handling");
+    using var cancelledExit=new CancellationTokenSource();
+    bool cancelRejected=false;
+    try{await AsaGracefulStop.TryDispatchDoExitAsync(authorize=>{
+        authorize();cancelledExit.Cancel();return Task.FromCanceled(cancelledExit.Token);
+    },()=>{},null,cancelledExit.Token);}
+    catch(OperationCanceledException){cancelRejected=true;}
+    Check(cancelRejected,"outer Stop deadline and cancellation remain authoritative");
+    Check(await AsaGracefulStop.TryDispatchDoExitAsync(authorize=>{
+        authorize();return Task.CompletedTask;
+    },()=>{},null,CancellationToken.None),"normal successful DoExit retains dispatch receipt");
+}
+
 // Shared production shutdown observer: an exiting Loader is not a
 // replacement; an unknown or partially observed family is not stopped.
 {
@@ -372,6 +432,35 @@ var incompleteFiveCapture=await Call(
 Check(IsError(incompleteFiveCapture,"UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS"),
     "travel capture reports the exact five-local-map prerequisite without reading ASA files");
 await SteamPublicBuildParsingTests.RunAsync(root);
+// Periodic journal reconciliation must not inherit an unrelated map's
+// active job or the unavailable global Steam housekeeping reservation.
+{
+    string scanRoot=Path.Combine(root,"reconcile-map-lanes");
+    await using var scanCluster=new ClusterService("reconcile-map-lanes",scanRoot);
+    var blockedMap=new LocalMap{Id=Guid.NewGuid(),Name="Busy",InstallationPath=Path.Combine(scanRoot,"busy")};
+    var freeMap=new LocalMap{Id=Guid.NewGuid(),Name="Free",InstallationPath=Path.Combine(scanRoot,"free")};
+    var maintenanceMap=new LocalMap{Id=Guid.NewGuid(),Name="Maintenance",InstallationPath=Path.Combine(scanRoot,"maintenance"),Maintenance=true};
+    foreach(var item in new[]{blockedMap,freeMap,maintenanceMap})Directory.CreateDirectory(item.InstallationPath);
+    scanCluster.Config.LocalMaps.AddRange(new[]{blockedMap,freeMap,maintenanceMap});
+    using var scanGate=new SemaphoreSlim(1,1);
+    var scanLane=new DiscordMapReservation();
+    Check(scanLane.TryBeginWorker(blockedMap.Id),"unrelated map already has a native worker");
+    var scanned=new List<Guid>();int releases=0,globalReleases=0;
+    using var scanner=new DesktopRestartReconciliationSupervisor(scanCluster,scanGate,
+        ()=>false,()=>globalReleases++,()=>false,item=>{scanned.Add(item.Id);return true;},
+        id=>scanLane.TryReserve(new[]{id}),()=>{releases++;scanLane.Release();});
+    await scanner.TickOnceAsync(CancellationToken.None);
+    Check(scanned.SequenceEqual(new[]{freeMap.Id})&&releases==1&&globalReleases==0&&
+        !scanLane.HasReservation&&!scanLane.TryBeginWorker(blockedMap.Id),
+        "periodic recovery reconciles only independent map despite global contention");
+    scanLane.EndWorker(blockedMap.Id);
+    scanned.Clear();
+    await scanner.TickOnceAsync(CancellationToken.None);
+    Check(scanned.SequenceEqual(new[]{blockedMap.Id,freeMap.Id})&&releases==3&&
+        !scanLane.HasReservation&&scanGate.CurrentCount==1,
+        "next tick reconciles formerly busy map and releases each reservation");
+}
+
 // Native rolling lifecycle journal, using a disposable profile and injected
 // process observations and execution. Neither fixture nor tests launch ASA.
 {
@@ -433,6 +522,53 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     }
     IsOk(review,"batch journal can be explicitly reviewed without redispatch");
     Check(calls==1&&batch.CanManagerUpdate(),"explicit review preserves Manager handoff eligibility without replay");
+}
+// Native batch history is not an installation lock. Independent targets
+// continue after an uncertain outcome once its worker is inactive.
+{
+    string independentRoot=Path.Combine(root,"lifecycle-batch-independent-fixture");
+    await using var independentCluster=new ClusterService("batch-independent",independentRoot);
+    var first=new LocalMap{Id=Guid.NewGuid(),Name="Uncertain",InstallationPath=Path.Combine(independentRoot,"first")};
+    var second=new LocalMap{Id=Guid.NewGuid(),Name="Independent",InstallationPath=Path.Combine(independentRoot,"second")};
+    independentCluster.Config.LocalMaps.AddRange(new[]{first,second});
+    int firstCalls=0,secondCalls=0;bool inactive=true;
+    Task<string> Never(string raw)=>throw new InvalidOperationException("Unexpected real bridge");
+    using var batch=new DesktopLifecycleBatchBridge(independentCluster,Never,Never,Never,Never,Never,Never,Never,
+        _=>new ProcessCheck(false,"synthetic stopped",null,true),
+        (id,action,historical,ct)=>{
+            if(id==first.Id){Interlocked.Increment(ref firstCalls);throw new IOException("UM-BATCH-FIXTURE-UNKNOWN");}
+            Interlocked.Increment(ref secondCalls);return Task.FromResult<(int,Guid?)>((0,null));
+        },noActiveNativeWorker:id=>id!=first.Id||inactive);
+    var plan=await Call(batch.HandleAsync,"operations.lifecycleBatchPreview",
+        new{mapIds=new[]{first.Id,second.Id},action="start",delaySeconds=0});
+    IsOk(plan,"independent native batch plan");
+    var applied=await Call(batch.HandleAsync,"operations.lifecycleBatchApply",
+        new{token=plan.GetProperty("data").GetProperty("token").GetGuid(),confirm=true});
+    IsOk(applied,"independent native batch claimed");
+    Guid jobId=applied.GetProperty("data").GetProperty("jobId").GetGuid();
+    JsonElement receipt=default;
+    for(int n=0;n<150;n++){
+        receipt=(await Call(batch.HandleAsync,"operations.lifecycleBatchCurrent")).GetProperty("data").GetProperty("receipt");
+        if(receipt.GetProperty("state").GetString()=="needsReview")break;
+        await Task.Delay(20);
+    }
+    Check(firstCalls==1&&secondCalls==1&&receipt.GetProperty("targets")[0].GetProperty("state").GetString()=="unknown"&&
+        receipt.GetProperty("targets")[1].GetProperty("state").GetString()=="completed",
+        "uncertain target is never replayed and independent target still completes");
+    string journal=Path.Combine(independentRoot,"native-lifecycle-batch-v1.json");
+    byte[] before=File.ReadAllBytes(journal);
+    inactive=false;
+    var blocked=await Call(batch.HandleAsync,"operations.lifecycleBatchPreview",
+        new{mapIds=new[]{first.Id},action="start",delaySeconds=0});
+    Check(IsError(blocked,"UM-BATCH-PRIOR-REVIEW")&&File.ReadAllBytes(journal).SequenceEqual(before),
+        "active native target prevents retirement of uncertain batch");
+    inactive=true;
+    var next=await Call(batch.HandleAsync,"operations.lifecycleBatchPreview",
+        new{mapIds=new[]{second.Id},action="start",delaySeconds=0});
+    IsOk(next,"new explicit batch admitted without operator review");
+    string archive=Path.Combine(independentRoot,"native-lifecycle-batch-"+jobId.ToString("N")+".abandoned.json");
+    Check(File.ReadAllBytes(archive).SequenceEqual(before)&&firstCalls==1&&secondCalls==1,
+        "old uncertain receipt archived byte-exactly, without dispatch from reconciliation");
 }
 // Deterministic calendar tests: no Windows clock changes and no RCON.
 {
@@ -537,13 +673,29 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     DateTimeOffset launchedUtc=default;
     using var hostGate=new SemaphoreSlim(1,1);int launches=0;
     Task<string> NoNative(string raw)=>throw new InvalidOperationException("unexpected real request");
-    using var recovery=new DesktopWatchdogRecovery(recoveryCluster,hostGate,()=>true,()=>{},()=>false,
+    var mapLane=new DiscordMapReservation();
+    Guid siblingMap=Guid.NewGuid();
+    Check(mapLane.TryBeginWorker(siblingMap),"unrelated scheduled map worker owns its own lane");
+    int scopedAdmissions=0,watchdogReconciliations=0;
+    using var recovery=new DesktopWatchdogRecovery(recoveryCluster,hostGate,
+        ()=>throw new InvalidOperationException("legacy host lane must not be used"),
+        mapLane.Release,()=>false,
         NoNative,NoNative,NoNative,
         _=>overrideObservation??(stopped?new ProcessCheck(false,"stopped",null,true):
             new ProcessCheck(true,"running",child,false,loader)),
         _=>fake,_=>new string('A',64),(_,_)=>Task.FromResult(readyForRecovery),
         _=>{launches++;launchedUtc=DateTimeOffset.UtcNow;return Task.FromResult((52320,launchedUtc));},
-        ()=>{if(externalSteamBusy)throw new IOException("UM-STEAM-EXTERNAL-PROCESS-BUSY");});
+        ()=>{if(externalSteamBusy)throw new IOException("UM-STEAM-EXTERNAL-PROCESS-BUSY");},
+        mapMaintenanceLane:id=>{
+            Check(id==m.Id,"watchdog reservation targets the recovering map");
+            scopedAdmissions++;
+            return mapLane.TryReserve(new[]{id});
+        },reconcileLifecycle:target=>{
+            Check(target.Id==m.Id&&mapLane.HasReservation&&
+                !recoveryCluster.Operations.IsInstallationBusy(target.InstallationPath),
+                "watchdog journal reconciliation holds exact map reservation and no competing installation worker");
+            watchdogReconciliations++;
+        });
     IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=m.Id,confirm=true}),"watchdog arms exact Store-v1 API family");
     var now=DateTimeOffset.UtcNow;
     await recovery.TickOnceAsync(now);Check(launches==0,"running map never auto-starts");
@@ -583,6 +735,11 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     externalSteamBusy=false;
     await recovery.TickOnceAsync(now.AddSeconds(60));
     Check(launches==1&&!recovery.CanManagerUpdate(),"confirmed crash claims one start and blocks Manager handoff during readiness");
+    Check(watchdogReconciliations==1,
+        "watchdog uses common journal recovery before dispatch, not during active Steam or installation contention");
+    Check(scopedAdmissions>=4&&!mapLane.HasReservation&&!mapLane.TryBeginWorker(siblingMap),
+        "watchdog starts despite unrelated active worker and releases only its own reservation");
+    mapLane.EndWorker(siblingMap);
     // The historical Core launcher may clear only the submitted-mod draft
     // marker after proving ordered mod arguments. This must not disarm
     // watchdog readiness for the already-approved native Start.
@@ -810,7 +967,7 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         fetches++;
         foreach(string dir in new[]{@"steamapps",@"ShooterGame\Content\Paks",@"ShooterGame\Saved",@"ShooterGame\Binaries\Win64"})
             Directory.CreateDirectory(Path.Combine(stage,dir));
-        File.WriteAllText(Path.Combine(stage,@"steamapps\appmanifest_2430930.acf"),"\"appid\" \"2430930\"\n\"buildid\" \"987654\"");
+        File.WriteAllText(Path.Combine(stage,@"steamapps\appmanifest_2430930.acf"),"\"AppState\"\n{\n\"appid\" \"2430930\"\n\"buildid\" \"987654\"\n}\n");
         File.WriteAllText(Path.Combine(stage,@"ShooterGame\Binaries\Win64\ArkAscendedServer.exe"),"tiny-fixture-exe");
         File.WriteAllText(Path.Combine(stage,@"ShooterGame\Content\Paks\pakchunk0-WindowsServer.pak"),"tiny-fixture-pak");
         File.WriteAllText(Path.Combine(stage,@"ShooterGame\Content\Paks\custom-mod.pak"),"never cache");
@@ -968,11 +1125,16 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key))),
         guild,new[]{channel,"723456789012345678"},new[]{admin,owner},"823456789012345678",channel,"723456789012345678");
     int sends=0;Guid nativeToken=Guid.NewGuid();
+    int reconciliations=0,preflights=0;
     Task<string> Fake(string route,string raw)
     {
         using var doc=JsonDocument.Parse(raw);var a=doc.RootElement;
         if(route=="servers.freshStartPreview")
+        {
+            preflights++;
+            Check(reconciliations==preflights,"Discord native lifecycle preflight follows the same reconciliation as UI");
             return Task.FromResult(JsonSerializer.Serialize(new{ok=true,data=new{mapId=m.Id,token=nativeToken,launchMode="directAsa"}}));
+        }
         if(route=="servers.freshStartApply"&&a.GetProperty("token").GetGuid()==nativeToken)
         {
             sends++;
@@ -981,7 +1143,11 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         throw new InvalidOperationException("Unexpected native call");
     }
     using var gate=new SemaphoreSlim(1,1);
-    using var api=new DesktopDiscordControlApi(apiCluster,gate,()=>false,()=>true,()=>{},Fake);
+    using var api=new DesktopDiscordControlApi(apiCluster,gate,()=>false,()=>true,()=>{},Fake,
+        reconcileLifecycle:target=>{
+            Check(target==m.Id,"Discord reconciliation is scoped to authenticated local target");
+            reconciliations++;return Task.CompletedTask;
+        });
     async Task<JsonElement> Request(string kind,Guid request,string actor,string role,object fields)
     {
         var data=new Dictionary<string,object?>{["kind"]=kind,["requestId"]=request,["credential"]=key,
@@ -1039,6 +1205,8 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     Check(!directDenied.GetProperty("ok").GetBoolean()&&sends==2,"Discord direct control retains role authorization");
     var directForeign=await Request("execute",Guid.NewGuid(),alice,owner,new{action="start",mapIds=new[]{Guid.NewGuid()}});
     Check(!directForeign.GetProperty("ok").GetBoolean()&&sends==2,"Discord direct control retains local map ownership");
+    Check(reconciliations==3&&preflights==3,
+        "unauthorized, foreign, replayed and read-only Discord requests never enter reconciliation");
 }
 // The actual bot service identity is read-only, even if it claims admin roles.
 {
@@ -2176,6 +2344,17 @@ try
             await supervisor.TickOnceAsync(due.AddMinutes(1));
             Check(sent==0&&supervisor.Snapshot().Single().NextDueUtc==due,"scheduler defers rather than claims a map during pending recovery");
             supervisor.AutomaticRecoveryPending=null;
+            string slotKey=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+                Path.GetFullPath(scheduleCluster.Store.Root).ToUpperInvariant()+"|"+m1.Id.ToString("N")+"|SaveWorld")));
+            using(var competingSlot=new Semaphore(1,1,"Global\\Untamed-AsaScheduleSlot-"+slotKey))
+            {
+                Check(competingSlot.WaitOne(0),"fixture owns cross-Manager schedule slot");
+                try{
+                    await supervisor.TickOnceAsync(due.AddMinutes(1));
+                    Check(sent==0&&supervisor.History(m1.Id).Length==0&&supervisor.Snapshot().Single().NextDueUtc==due,
+                        "busy cross-Manager slot defers before claiming or advancing cursor");
+                }finally{competingSlot.Release();}
+            }
             await supervisor.TickOnceAsync(due.AddMinutes(1));
             Check(sent==1&&supervisor.Snapshot().Single().LastStatus==
                     "executed-no-fsync-or-client-certification",
@@ -2431,6 +2610,34 @@ try
             var replay=await Call(futureOnly.HandleAsync,"schedule.nativeReviewApply",
                 new{mapId=m1.Id,token,confirm=true,keepFutureRestart=true});
             Check(!replay.GetProperty("ok").GetBoolean(),"future-only approval remains one shot");
+        }
+        // A NEW explicit configuration is sufficient intent to archive an
+        // old unowned schedule slot, without an extra review button.
+        int failedSaves=0;
+        using(var failing=new DesktopScheduledAsaOperationsSupervisor(scheduleCluster,rcon,restarter,
+            (id,kind,ct)=>{failedSaves++;throw new IOException("UM-SYNTHETIC-SAVE-FAILED");},_=>true))
+        {
+            failing.Disable(m1.Id,"Restart");
+            var planned=failing.Configure(m1.Id,"SaveWorld","Interval",15,180,127);
+            await failing.TickOnceAsync(planned.NextDueUtc);
+            var unknown=failing.History(m1.Id).Single(x=>x.Kind=="SaveWorld"&&x.Status=="failed-needs-operator-no-retry");
+            string journal=Path.Combine(scheduleCluster.Store.Root,"native-asa-schedules-v1.json");
+            byte[] original=File.ReadAllBytes(journal);
+            using(var operation=scheduleCluster.Operations.Acquire(m1.InstallationPath,UntamedOperationKind.Configuration))
+            {
+                bool rejected=false;
+                try{failing.Configure(m1.Id,"SaveWorld","Interval",30,180,127);}
+                catch(InvalidOperationException ex) when(ex.Message=="UM-ASA-SCHEDULE-NATIVE-OPERATION-BUSY"){rejected=true;}
+                Check(rejected&&File.ReadAllBytes(journal).SequenceEqual(original),
+                    "new schedule cannot retire history while actual native mutation owns installation");
+                operation.Complete();
+            }
+            var replacement=failing.Configure(m1.Id,"SaveWorld","Interval",30,180,127);
+            string audit=journal+"."+unknown.RunId.ToString("N")+".auto-retired-"+Convert.ToHexString(SHA256.HashData(original))+".json";
+            Check(failedSaves==1&&replacement.Enabled&&replacement.NextDueUtc>unknown.ScheduledUtc&&
+                failing.History(m1.Id).Single(x=>x.RunId==unknown.RunId).Status=="auto-retired-unknown-no-replay"&&
+                File.ReadAllBytes(audit).SequenceEqual(original),
+                "new schedule archives exact old unknown slot and schedules only a future occurrence");
         }
     }
 
@@ -10399,18 +10606,22 @@ try
                 new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD DOEXIT"});
             IsOk(interrupted,"synthetic interrupted Store stop starts distinct native job");
             jobId=interrupted.GetProperty("data").GetProperty("jobId").GetString()!;
-            for(int i=0;i<40;i++)
+            // The synthetic native operation has its own six-second deadline.
+            // Do not sample a queued worker as a terminal failure after 1.2s.
+            var testDeadline=System.Diagnostics.Stopwatch.StartNew();
+            do
             {
                 status=await Call(stopBridge.HandleAsync,"historical.gracefulStopStatus",
                     new{jobId});
                 if(status.GetProperty("data").GetProperty("state").GetString()
                     is "completed" or "needsOperator")break;
-                await Task.Delay(30);
-            }
+                await Task.Delay(50);
+            }while(testDeadline.Elapsed<TimeSpan.FromSeconds(12));
+            var terminalStopReceipt=clusterForStop.Operations.Observe(stopRoot);
             Check(status.GetProperty("data").GetProperty("state").GetString()=="needsOperator"&&
-                  clusterForStop.Operations.Observe(stopRoot)?.Phase==
-                    UntamedOperationPhase.NeedsOperator&&dispatched==2,
-                "interrupted Store-v1 SaveWorld/DoExit remains durably blocked without automatic retries");
+                  terminalStopReceipt?.Phase==UntamedOperationPhase.NeedsOperator&&dispatched==2,
+                "interrupted Store-v1 SaveWorld/DoExit remains durably blocked without automatic retries: "+
+                status.GetRawText()+" phase="+terminalStopReceipt?.Phase+" dispatches="+dispatched);
             var blockedRecovery=await Call(stopBridge.HandleAsync,
                 "historical.gracefulStopRecovery",new{mapId=originalStopMap.Id});
             Check(blockedRecovery.GetProperty("data").GetProperty("phase")

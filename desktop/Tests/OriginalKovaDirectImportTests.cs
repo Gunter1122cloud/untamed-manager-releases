@@ -851,6 +851,17 @@ internal static class OriginalKovaDirectImportTests
                 pinnedManager,local,parityMap);
             Check(oldEpoch.Length==64&&oldEpoch.All(Uri.IsHexDigit),
                 "original local Store source has a valid Obsidian epoch with Kova absent");
+            var stoppedSource=DesktopAsaLifecycleJournalBridge.PinnedStoppedSourceEvidence(
+                pinnedManager,local,parityMap,43210);
+            Check(stoppedSource.Map==parityMap&&stoppedSource.OldPid==43210&&
+                  stoppedSource.SourceSha.Length==64&&!stoppedSource.SourceReapprovalRequired&&
+                  !Directory.Exists(local),
+                "stopped runtime recovery binds the approved local pin without Kova or peer session");
+            Check(DesktopAsaLifecycleJournalBridge.PinnedStoppedSourceEvidence(
+                    pinnedManager,local,parityMap,43210).SourceSha==stoppedSource.SourceSha&&
+                  DesktopAsaLifecycleJournalBridge.PinnedStoppedSourceEvidence(
+                    pinnedManager,local,parityMap,43211).SourceSha!=stoppedSource.SourceSha,
+                "stopped pinned source proof binds the exact old PID and stable runtime profile");
             string existingGus=AsaInitialRconSettings.NewIniPath(
                 parityMap.InstallationPath);
             Directory.CreateDirectory(Path.GetDirectoryName(existingGus)!);
@@ -859,6 +870,9 @@ internal static class OriginalKovaDirectImportTests
                 pinnedManager,local,parityMap);
             Check(iniEpoch.Length==64&&iniEpoch!=oldEpoch,
                 "new ASA INI bytes invalidate an earlier local RCON/SaveWorld epoch");
+            Check(DesktopAsaLifecycleJournalBridge.PinnedStoppedSourceEvidence(
+                    pinnedManager,local,parityMap,43210).SourceSha!=stoppedSource.SourceSha,
+                "changed INI invalidates stopped recovery proof as well");
             File.AppendAllText(existingGus,"SessionName=Changed\\n");
             string changedIniEpoch=LegacyStoreV1PinnedSource.RuntimeFingerprint(
                 pinnedManager,local,parityMap);
@@ -927,6 +941,11 @@ internal static class OriginalKovaDirectImportTests
         catch(InvalidDataException){pinTamperDenied=true;}
         Check(pinTamperDenied,
             "tampered Manager-owned source pin fails closed rather than falling back to Kova");
+        bool tamperedRecoveryDenied=false;
+        try{DesktopAsaLifecycleJournalBridge.PinnedStoppedSourceEvidence(
+            pinnedManager,local,parityMap,43210);}
+        catch(InvalidDataException){tamperedRecoveryDenied=true;}
+        Check(tamperedRecoveryDenied,"stopped recovery cannot fall back to live Kova after pin tampering");
         Check(launch.Arguments.Contains("-clusterid="+VaultProtocol.ClusterId)&&
               launch.Arguments.Contains("-ClusterDirOverride="+originalCluster.path)&&
               launch.Arguments.Count(x=>x=="-usestore")==1&&

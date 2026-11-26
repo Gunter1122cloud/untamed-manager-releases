@@ -61,6 +61,21 @@ internal static class SteamPublicBuildParsingTests
 
     public static void Run()
     {
+        const string installed=""" "AppState" { "appid" "2430930" "InstalledDepots" { "123" { "buildid" "999" } } "buildid" "123456" "name" "ARK: Survival Ascended" } """;
+        Check(AsaSteamBuildCatalog.ParseInstalledBuildManifest(installed)=="123456",
+            "installed manifest reads the direct AppState build, not a nested depot");
+        Check(AsaSteamBuildCatalog.ParseInstalledBuildManifest(installed.Replace("\"appid\" \"2430930\"","\"appid\" \"376030\""))==null,
+            "non-ASA AppState cannot certify installed build");
+        Check(AsaSteamBuildCatalog.ParseInstalledBuildManifest(installed.Replace("\"buildid\" \"123456\"",""))==null,
+            "nested build cannot substitute for missing AppState build");
+        Check(AsaSteamBuildCatalog.ParseInstalledBuildManifest(installed.Replace("\"buildid\" \"123456\"","\"buildid\" \"123456\" \"buildid\" \"222\""))==null,
+            "duplicate AppState build IDs remain unknown");
+        Check(AsaSteamBuildCatalog.ParseInstalledBuildManifest(installed.TrimEnd()[..^1])==null&&
+              AsaSteamBuildCatalog.ParseInstalledBuildManifest(installed+installed)==null&&
+              AsaSteamBuildCatalog.ParseInstalledBuildManifest(installed+" extra")==null,
+            "truncated, duplicated or malformed manifest roots remain unknown");
+        Check(AsaSteamBuildCatalog.ParseInstalledBuildManifest(""" "AppState" { "appid" "2430930" "buildid" "123456" "name" "literal } and \"quote\" inside" } """)=="123456",
+            "quoted brace and escaped quote are content, not structural delimiters");
         const string json="""{"data":{"2430930":{"depots":{"branches":{"public":{"buildid":"123457"},"beta":{"buildid":"999999"}}}}}}""";
         Check(AsaSteamBuildCatalog.ParsePublicBuildJson(json)=="123457",
             "HTTP metadata reads only dedicated ASA public branch");

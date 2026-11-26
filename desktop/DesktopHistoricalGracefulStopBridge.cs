@@ -34,6 +34,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     private readonly ClusterService cluster;
     private readonly Func<Guid,LegacyStoreV1GracefulStop.Owned> preview;
     private readonly bool nativePreview;
+    private readonly bool reconcileOnAdmission;
     private readonly Func<Guid,int,DateTimeOffset,string,Action<string>,Task<AsaGracefulStopReceipt>> stop;
     private readonly Func<Guid,int,DateTimeOffset,string,Action<string>,Task<LegacyStoreV1GracefulStop.SaveOnlyReceipt>> saveOnly;
     private readonly SemaphoreSlim serial=new(1,1);
@@ -52,7 +53,11 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     // Per-map Store SaveWorld/DoExit receipts must remain observable when
     // a second independent map starts another approved native operation.
     private readonly Dictionary<Guid,Job> jobsByMap=new();
-    internal bool RecoveryLaneBusy(){lock(sync)return jobsByMap.Values.Any(x=>x.State is "queued" or "running");}
+    internal bool RecoveryLaneBusy(Guid? mapId=null)
+    {
+        lock(sync)return jobsByMap.Values.Any(x=>
+            (!mapId.HasValue||x.MapId==mapId.Value)&&x.State is ("queued" or "running"));
+    }
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private bool HasActive(Guid mapId)
     {
@@ -78,6 +83,8 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         minimumRunningReviewAge=isolatedRunningReviewMinimumAge??
             TimeSpan.FromMinutes(3);
         nativePreview=probe==null;
+        reconcileOnAdmission=probe==null&&executor==null&&saver==null||
+            reviewVerifier!=null&&runningReviewVerifier!=null;
         preview=probe??(map=>LegacyStoreV1GracefulStop.Preview(cluster,map));
         stop=executor??((map,pid,started,source,stage)=>
             LegacyStoreV1GracefulStop.StopAsync(cluster,map,pid,started,
@@ -652,15 +659,6 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                 }
                 if(method is "historical.gracefulStopPreview" or "historical.saveWorldPreview")
                 {
-                    // A half-written or unfinished local receipt must block
-                    // all subsequent mutating Store operations. Inspect() 
-                    // itself fails closed on tamper or interrupted .next.
-                    var saved=LegacyStoreV1SaveEvidenceJournal.Inspect(
-                        cluster.Store.Root,
-                        GuidValue(request,"mapId",out var checkedMapId)?
-                            checkedMapId:Guid.Empty);
-                    if(saved?.Phase is "prepared" or "needsOperator")
-                        return Fail(id,"UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW");
                     bool saveWorldOnly=method=="historical.saveWorldPreview";
                     if(!GuidValue(request,"mapId",out var mapId))
                         return Fail(id,"UM-ORIGINAL-STOP-MAP");
@@ -671,9 +669,24 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                        original.Maintenance)
                         return Fail(id,"UM-ORIGINAL-STOP-LOCAL-ONLY");
                     if(HasActive(mapId))return Fail(id,"UM-ORIGINAL-STOP-JOB-BUSY");
-                    // A durable installation journal blocks even a new
-                    // approval PREVIEW after a previous crash. Its read-only
-                    // recovery screen must appear before any new RCON action.
+                    // Admit a fresh explicit command after automatic, exact
+                    // owner reconciliation of an abandoned terminal SaveWorld.
+                    // Never replay the previous save or clear a live prepared
+                    // receipt. Inspect still fails closed on damaged evidence.
+                    var saved=LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,mapId);
+                    if(reconcileOnAdmission&&saved?.Phase is ("needsOperator" or "reviewed")&&
+                       !original.ObservedReadOnlyImported&&
+                       cluster.Config.LocalMaps.Count(m=>!string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                           UntamedOperationCoordinator.ResourceKey(m.InstallationPath)==
+                           UntamedOperationCoordinator.ResourceKey(original.InstallationPath))==1)
+                    {
+                        await Task.Run(()=>TryReconcileSaveReceipt(original));
+                        saved=LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,mapId);
+                    }
+                    if(saved?.Phase is "prepared" or "needsOperator")
+                        return Fail(id,"UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW");
+                    // Unresolved installation mutations still fail native
+                    // preflight; the previous command is never reissued here.
                     if(cluster.Operations.Observe(original.InstallationPath)?.Phase is
                         UntamedOperationPhase.Prepared or
                         UntamedOperationPhase.Mutating or
