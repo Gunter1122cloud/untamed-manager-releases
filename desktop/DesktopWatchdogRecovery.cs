@@ -63,6 +63,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     private readonly Func<LocalMap,ProcessCheck,Task<bool>> ready;
     private readonly bool productionReadiness;
     private readonly Func<LocalMap,Task<(int Pid,DateTimeOffset Started)>> launch;
+    private readonly Action demandNoConcurrentSteamCmd;
     private readonly string directory;
     private readonly DiscordOperationEvents events;
     private readonly Dictionary<Guid,DateTimeOffset> lastChecked=new();
@@ -83,11 +84,13 @@ public sealed class DesktopWatchdogRecovery : IDisposable
         Func<ProcessIdentity,IExitWitness>? isolatedWitness=null,
         Func<LocalMap,string>? isolatedLaunchHash=null,
         Func<LocalMap,ProcessCheck,Task<bool>>? isolatedReady=null,
-        Func<LocalMap,Task<(int Pid,DateTimeOffset Started)>>? isolatedLaunch=null)
+        Func<LocalMap,Task<(int Pid,DateTimeOffset Started)>>? isolatedLaunch=null,
+        Action? isolatedSteamPreflight=null)
     {
         this.cluster=cluster;this.hostGate=hostGate;
         this.tryEnterMaintenanceLane=tryEnterMaintenanceLane;this.releaseMaintenanceLane=releaseMaintenanceLane;
         this.handoff=handoff;
+        demandNoConcurrentSteamCmd=isolatedSteamPreflight??(()=>SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd());
         events=new DiscordOperationEvents(cluster);
         directory=Path.Combine(cluster.Store.Root,"watchdog-recovery-v1");
         _=UntamedOperationCoordinator.ResourceKey(directory);
@@ -649,8 +652,25 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         SteamHostLease? steamLease=null;
                         try{steamLease=SteamHostLease.Acquire();}catch(IOException){Write(row with{Evidence="RECOVERY_STEAM_HOST_BUSY"});continue;}
                         using var exclusiveSteam=steamLease;
-                        SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();
-                        DemandProfile(map,row,true);DemandNoPending(map);
+                        try{demandNoConcurrentSteamCmd();}
+                        catch(IOException ex) when(ex.Message=="UM-STEAM-EXTERNAL-PROCESS-BUSY")
+                        {
+                            // An external SteamCMD is temporary contention, not an
+                            // uncertain launch. No native Start has been dispatched.
+                            // Keep the crash claim and retry the full proof next tick.
+                            Write(row with{Evidence="RECOVERY_STEAM_EXTERNAL_BUSY"});
+                            continue;
+                        }
+                        DemandProfile(map,row,true);
+                        if(cluster.Operations.IsInstallationBusy(map.InstallationPath))
+                        {
+                            // Another real worker owns this installation.
+                            // Retry observation next tick, not native dispatch.
+                            // All proofs, intent and lease checks run again.
+                            Write(row with{Evidence="RECOVERY_INSTALLATION_BUSY"});
+                            continue;
+                        }
+                        DemandNoPending(map);
                         if(RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc)||
                             !Stopped(observe(map))||!exit.HasExited||!FatalExitCode(exit.ExitCode))
                         {End(row,"needsReview","FINAL_STOP_OR_OWNER_CHANGED",true);continue;}

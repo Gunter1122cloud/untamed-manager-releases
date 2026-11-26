@@ -679,6 +679,20 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
                     if(HasActive(mapId))return Fail(id,"UM-ASA-RESTART-BUSY");
+                    // Every ordinary native caller (UI, batch, scheduler or
+                    // Discord) gets the same physical-state reconciliation.
+                    // Only abandoned terminal manual attempts are eligible;
+                    // a scheduled retry or an active journal remains owned
+                    // by its respective state machine.
+                    var previous=new AsaManualRestartJournal(map.InstallationPath).Observe();
+                    if(previous?.Phase==AsaRestartPhase.NeedsOperator&&
+                       previous.ScheduledRunId==null&&previous.MapId==map.Id&&
+                       !map.ObservedReadOnlyImported&&!map.Maintenance&&
+                       cluster.Config.LocalMaps.Count(m=>!string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                           UntamedOperationCoordinator.ResourceKey(m.InstallationPath)==previous.Resource)==1)
+                    {
+                        if(!TryReconcileCurrentOwner(map))TryReconcileOldOwner(map);
+                    }
                     // Only a successful preview replaces this map's previous
                     // approval. A rejected preflight leaves it untouched.
                     var original=Eligible(map);

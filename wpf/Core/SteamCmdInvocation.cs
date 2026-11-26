@@ -11,6 +11,10 @@ namespace UntamedManager.Core;
 internal static class SteamCmdInvocation
 {
     internal static string[] UpdateArguments(string install)=>new[]{
+        // Non-interactive update switches from ChaosQK core/steamcmd.py
+        // (MIT, cb9e50a2393fdf939e231df87b0d9d11e1da5268, lines 116–117)
+        // and Ch4r0ne steamcmd_app_update (MIT, 1de9ed6d, lines 1591–1595).
+        "+@ShutdownOnFailedCommand","1","+@NoPromptForPassword","1",
         "+force_install_dir",install,"+login","anonymous","+app_update","2430930","validate","+quit"};
     internal static void Configure(ProcessStartInfo psi,IEnumerable<string> arguments,bool synthetic=false)
     {

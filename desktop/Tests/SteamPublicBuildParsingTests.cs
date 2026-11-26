@@ -106,10 +106,19 @@ internal static class SteamPublicBuildParsingTests
         var invocation=new System.Diagnostics.ProcessStartInfo("steamcmd.exe");
         invocation.Environment["STEAM_PASSWORD"]="fixture-secret";
         SteamCmdInvocation.Configure(invocation,SteamCmdInvocation.UpdateArguments(@"C:\ASA Test"));
-        Check(invocation.ArgumentList.SequenceEqual(new[]{"-language","english","+force_install_dir",
+        Check(invocation.ArgumentList.SequenceEqual(new[]{"-language","english",
+            "+@ShutdownOnFailedCommand","1","+@NoPromptForPassword","1","+force_install_dir",
             @"C:\ASA Test","+login","anonymous","+app_update","2430930","validate","+quit"})&&
             !invocation.Environment.ContainsKey("STEAM_PASSWORD"),
-            "English anonymous argv preserves spaced path and removes credentials");
+            "English non-interactive anonymous argv preserves spaced path and removes credentials");
+        var fixtureInvocation=new System.Diagnostics.ProcessStartInfo("FakeSteamCMD.exe");
+        SteamCmdInvocation.Configure(fixtureInvocation,SteamCmdInvocation.UpdateArguments(@"C:\ASA Test"),synthetic:true);
+        Check(fixtureInvocation.ArgumentList.SequenceEqual(invocation.ArgumentList.Skip(2)),
+            "isolated update fixture receives identical non-interactive command arguments without language switch");
+        var bootstrap=new System.Diagnostics.ProcessStartInfo("steamcmd.exe");
+        SteamCmdInvocation.Configure(bootstrap,new[]{"+quit"});
+        Check(bootstrap.ArgumentList.SequenceEqual(new[]{"-language","english","+quit"}),
+            "SteamCMD bootstrap retains its independent self-update invocation");
         string transient="ERROR! Failed to install app '2430930' (No connection)";
         Check(SteamCmdInvocation.CanRetryAppUpdate(0,1,transient,false)&&
             SteamCmdInvocation.CanRetryAppUpdate(1,1,transient,false)&&

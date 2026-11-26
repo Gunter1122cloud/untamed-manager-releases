@@ -167,10 +167,18 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
                     if(!ReferenceEquals(m,ownedMap)||!Identical(expected,process)||epoch!=approvedEpoch)
                         throw new InvalidOperationException("UM-ORIGINAL-RCON-SESSION-OWNER-CHANGED");
                 }
-                string response=send==null?
-                    await RconProtocol.ExecuteOwnedReadAsync(mapId,expected.Pid,expected.StartedUtc,
-                        ownedMap.RconPort,password,command,VerifyOwner,deadline.Token):
-                    await send("127.0.0.1",ownedMap.RconPort,password,command,deadline.Token);
+                string response;
+                try
+                {
+                    response=send==null?
+                        await RconProtocol.ExecuteOwnedReadAsync(mapId,expected.Pid,expected.StartedUtc,
+                            ownedMap.RconPort,password,command,VerifyOwner,deadline.Token):
+                        await send("127.0.0.1",ownedMap.RconPort,password,command,deadline.Token);
+                }
+                catch(System.Net.Sockets.SocketException ex)
+                {
+                    return Error(id,RconTransportDiagnostics.ReadOnlyFailure(ex));
+                }
                 var (after,observed,completedEpoch)=Require(mapId);
                 if(!ReferenceEquals(after,ownedMap)||!Identical(expected,observed))
                     return Error(id,"UM-ORIGINAL-RCON-POST-DISPATCH-CHANGED");

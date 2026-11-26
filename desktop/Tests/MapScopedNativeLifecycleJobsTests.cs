@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using UntamedDesktop;
 using UntamedManager.Core;
@@ -39,8 +40,73 @@ internal static class MapScopedNativeLifecycleJobsTests
         Check(response.GetProperty("ok").GetBoolean(),why);
         return response.GetProperty("data");
     }
+    private static async Task BatchPreDispatchIsolation(string testRoot)
+    {
+        string fixture=Path.Combine(testRoot,"batch-pre-dispatch-isolation");
+        await using var service=new ClusterService("batch-pre-dispatch",fixture);
+        var targets=Enumerable.Range(0,3).Select(i=>new LocalMap{
+            Name="Batch fixture "+i,InstallationPath=Path.Combine(fixture,"map-"+i)
+        }).ToArray();
+        service.Config.LocalMaps.AddRange(targets);
+        var epoch=DateTimeOffset.UtcNow;
+        ProcessCheck Observe(LocalMap target)=>new(true,"synthetic running",
+            new ProcessIdentity{Pid=81000+Array.IndexOf(targets,target),StartedUtc=epoch});
+        int previews=0,applies=0;
+        var token=Guid.NewGuid();var jobId=Guid.NewGuid();
+        Task<string> Never(string raw)=>throw new InvalidOperationException("unexpected route");
+        Task<string> Stop(string raw)
+        {
+            using var doc=JsonDocument.Parse(raw);
+            var request=doc.RootElement;
+            string? route=request.GetProperty("method").GetString();
+            var id=request.GetProperty("id").GetGuid();
+            if(route=="servers.gracefulStopPreview")
+            {
+                Interlocked.Increment(ref previews);
+                var targetId=request.GetProperty("mapId").GetGuid();
+                if(targetId==targets[1].Id)
+                    return Task.FromResult(JsonSerializer.Serialize(new{id,ok=false,error="UM-TEST-NATIVE-PREVIEW-DENIED"}));
+                Check(targetId==targets[2].Id,"changed target never reaches native preview");
+                return Task.FromResult(JsonSerializer.Serialize(new{id,ok=true,data=new{mapId=targetId,token}}));
+            }
+            if(route=="servers.gracefulStopApply")
+            {
+                Check(request.GetProperty("token").GetGuid()==token,"only unaffected map reaches apply");
+                Interlocked.Increment(ref applies);
+                return Task.FromResult(JsonSerializer.Serialize(new{id,ok=true,data=new{started=true,jobId}}));
+            }
+            if(route=="servers.gracefulStopStatus")
+                return Task.FromResult(JsonSerializer.Serialize(new{id,ok=true,data=new{jobId,state="completed",confirmedStopped=true}}));
+            throw new InvalidOperationException("unexpected route");
+        }
+        using var bridge=new DesktopLifecycleBatchBridge(service,Never,Stop,Never,Never,Never,Never,Never,Observe);
+        var preview=Data(await Call(bridge.HandleAsync,"operations.lifecycleBatchPreview",
+            new{mapIds=targets.Select(x=>x.Id).ToArray(),action="stop",delaySeconds=0}),
+            "three stopped-job targets are approved");
+        targets[0].Maintenance=true;
+        Data(await Call(bridge.HandleAsync,"operations.lifecycleBatchApply",
+            new{token=preview.GetProperty("token").GetGuid(),confirm=true}),
+            "a changed target does not reject the other approved targets");
+        JsonElement receipt=default;
+        for(int i=0;i<200;i++)
+        {
+            receipt=Data(await Call(bridge.HandleAsync,"operations.lifecycleBatchCurrent",new{}),
+                "batch state is readable").GetProperty("receipt");
+            if(receipt.GetProperty("state").GetString()!="running")break;
+            await Task.Delay(25);
+        }
+        var rows=receipt.GetProperty("targets");
+        Check(receipt.GetProperty("state").GetString()=="completed"&&previews==2&&applies==1&&
+            rows[0].GetProperty("state").GetString()=="skipped"&&
+            rows[1].GetProperty("state").GetString()=="skipped"&&
+            rows[1].GetProperty("evidence").GetString()=="UM-TEST-NATIVE-PREVIEW-DENIED"&&
+            rows[2].GetProperty("state").GetString()=="completed",
+            "changed map and refused preview are isolated; independent map completes once");
+    }
+
     public static async Task Run(string testRoot)
     {
+        await BatchPreDispatchIsolation(testRoot);
         string root=Path.Combine(testRoot,"multi-map-stop-job-isolation");
         Directory.CreateDirectory(root);
         LocalMap[] maps=new LocalMap[2];
@@ -940,11 +1006,33 @@ internal static class MapScopedNativeLifecycleJobsTests
             (mapId,restartId,stage)=>{
                 restartStartCalls++;
                 throw new InvalidOperationException("test must never launch ASA");
-            }))
+            },isolatedJournalReconciler:new DesktopAsaLifecycleJournalBridge(cluster,Probe)))
         {
+            // Use the actual historical native preview, not the explicit
+            // recovery RPC. The source/owner witness is fully synthetic.
+            var abandoned=new AsaManualRestartJournal(maps[1].InstallationPath);
+            var attempt=abandoned.Begin(maps[1].Id,processes[1].Pid);
+            var failure=abandoned.Change(attempt.Id,AsaRestartPhase.NeedsOperator);
+            string resource=UntamedOperationCoordinator.ResourceKey(maps[1].InstallationPath);
+            string oldPath=Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",resource+".json");
+            File.WriteAllText(oldPath,JsonSerializer.Serialize(failure with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-5)
+            }));
+            byte[] oldBytes=File.ReadAllBytes(oldPath);
+            using(var lease=cluster.Operations.Acquire(maps[1].InstallationPath,UntamedOperationKind.Configuration))
+            {
+                var refused=await Call(restarts.HandleAsync,"historical.restartPreview",new{mapId=maps[1].Id});
+                Check(!refused.GetProperty("ok").GetBoolean()&&File.ReadAllBytes(oldPath).SequenceEqual(oldBytes),
+                    "historical native reconciliation cannot bypass an active installation lease");
+                lease.Complete();
+            }
             var siblingBefore=Data(await Call(restarts.HandleAsync,
                 "historical.restartPreview",new{mapId=maps[1].Id}),
-                "sibling Restart preview succeeds with completed SaveWorld receipt");
+                "sibling Restart preview succeeds after automatic native reconciliation");
+            string audit=Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",resource+"-"+attempt.Id.ToString("N")+".operator-reviewed.json");
+            Check(abandoned.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+                File.ReadAllBytes(audit).SequenceEqual(oldBytes)&&restartStopCalls==0&&restartStartCalls==0,
+                "ordinary historical Restart admission preserves failed receipt without dispatching old commands");
             string pendingRestartToken=siblingBefore.GetProperty("token").GetString()!;
             var pending0=LegacyStoreV1SaveEvidenceJournal.Begin(
                 cluster.Store.Root,Guid.NewGuid(),maps[0].Id,
@@ -1028,9 +1116,10 @@ internal static class MapScopedNativeLifecycleJobsTests
                   deniedRestart.GetProperty("error").GetString()==
                     "UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW",
                 "Restart apply rechecks a newly pending SaveWorld receipt");
-            Check(new AsaManualRestartJournal(maps[1].InstallationPath)
-                      .Observe()==null&&restartStopCalls==0&&restartStartCalls==0,
-                "denied Restart creates no journal, RCON or ASA process");
+            Check(abandoned.Observe()?.Id==attempt.Id&&
+                  abandoned.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+                  restartStopCalls==0&&restartStartCalls==0,
+                "denied Restart preserves reconciled old receipt and creates no new journal, RCON or ASA process");
             var deniedStop=await Call(bridge.HandleAsync,
                 "historical.gracefulStopApply",
                 new{token=stopPreview.GetProperty("token").GetString(),

@@ -251,10 +251,18 @@ public sealed class DesktopRconReadOnlyBridge
                         lease.MarkMutationStarted();
                     }
                 }
-                string answer=useOwnedReadSession&&method!="rcon.saveWorld"?
-                    await RconProtocol.ExecuteOwnedReadAsync(map.Id,identity.Pid,identity.StartedUtc,
-                        map.RconPort,password,command,VerifyOwned,timeout.Token):
-                    await send("127.0.0.1",map.RconPort,password,command,AuthorizeDispatch,timeout.Token);
+                string answer;
+                try
+                {
+                    answer=useOwnedReadSession&&method!="rcon.saveWorld"?
+                        await RconProtocol.ExecuteOwnedReadAsync(map.Id,identity.Pid,identity.StartedUtc,
+                            map.RconPort,password,command,VerifyOwned,timeout.Token):
+                        await send("127.0.0.1",map.RconPort,password,command,AuthorizeDispatch,timeout.Token);
+                }
+                catch(System.Net.Sockets.SocketException ex) when(method!="rcon.saveWorld")
+                {
+                    return Deny(id,RconTransportDiagnostics.ReadOnlyFailure(ex));
+                }
                 var after=cluster.Check(map);
                 if(!after.Running || after.Identity==null ||
                    after.Identity.Pid!=identity.Pid ||

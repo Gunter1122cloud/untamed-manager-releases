@@ -1,5 +1,6 @@
 import {RconHistoryPanel} from "./RconHistoryPanel";
 import {recordRconEvent} from "./state/rconHistory";
+import {rconTransportHint} from "./state/rconTransportHint";
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,FileText,RefreshCw,Shield,Users} from "lucide-react";
 import {managerBridge,type HistoricalRconLiveStatus,
@@ -71,11 +72,12 @@ export function HistoricalRconLivePanel({mapId,running}:{
         throw new Error("UM-STORE-RCON-REPLY-IDENTITY-MISMATCH");
       setResult(response);
       recordRconEvent(requested,command,"reply");
-    }catch{
+    }catch(ex){
       if(belongs(requested,epoch)){
-        setStatus(null);
-        setError("A helyi ASA PID, RCON-port vagy a válasz mapazonossága "+
-          "nem igazolható. Új parancs nem indult.");
+        const hint=rconTransportHint(ex);
+        if(!hint)setStatus(null);
+        setError(hint??("A helyi ASA PID, RCON-port vagy a válasz mapazonossága "+
+          "nem igazolható. Új parancs nem indult."));
       }
     }finally{if(belongs(requested,epoch))setBusy(false);}
   };

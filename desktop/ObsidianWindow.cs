@@ -126,6 +126,54 @@ public sealed class ObsidianWindow : Form
         if(NativeWorkerBusy())return false;
         return TryEnterRecoveryLane();
     }
+    // Called under the host mutation gate by the periodic supervisor and
+    // normal manual lifecycle requests. Existing map/installation proofs
+    // remain authoritative; historical receipts are never replayed.
+    private bool ReconcileLifecycleMap(UntamedManager.Core.LocalMap map)
+    {
+        if(map.Maintenance||map.ObservedReadOnlyImported)return false;
+        bool changed=false;
+        if(map.HistoricalStoreProtected)
+        {
+            changed|=_historicalStop.TryReconcileSaveReceipt(map);
+            changed|=_lifecycleJournal.TryReconcileCurrentOwner(map);
+            changed|=_lifecycleJournal.TryReconcileOldOwner(map);
+            changed|=_lifecycleJournal.TryReconcileStopped(map);
+        }
+        else
+        {
+            changed|=_freshRestart.TryReconcileCurrentOwner(map);
+            changed|=_freshRestart.TryReconcileOldOwner(map);
+            changed|=_freshRestart.TryReconcileStopped(map);
+            changed|=_freshStop.TryReconcileStoppedReceipt(map);
+        }
+        return changed;
+    }
+
+    private async Task ReconcileBeforeLifecyclePreviewAsync(string? method,string raw)
+    {
+        Guid? id=DesktopRestartReconciler.RequestedPreviewMap(method,raw);
+        if(id==null||_updateHandoff||_suppressScheduledMutations)return;
+        var map=System.Linq.Enumerable.SingleOrDefault(_bridge.LocalCluster.Config.LocalMaps,
+            m=>m.Id==id.Value);
+        if(map==null||map.Maintenance||map.ObservedReadOnlyImported)return;
+        // Keep the existing scheduler/worker exclusion until the common
+        // per-map runtime lease replaces that host-wide coordination.
+        if(!TryEnterWatchdogLane())return;
+        try
+        {
+            await Task.Run(()=>{
+                _bridge.LocalCluster.Operations.TryCancelAbandonedPrepared(map.InstallationPath);
+                ReconcileLifecycleMap(map);
+            });
+        }
+        catch(Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning("Lifecycle reconciliation {0}: {1}",map.Id,ex.GetType().Name);
+        }
+        finally{ReleaseRecoveryLane();}
+    }
+
     private void ReleaseRecoveryLane()
     {
         _scheduledBackups.ReleaseManagerUpdateFreeze();
@@ -416,11 +464,7 @@ public sealed class ObsidianWindow : Form
         _lifecycleJournal = new DesktopAsaLifecycleJournalBridge(_bridge.LocalCluster);
         _restartReconciliation=new DesktopRestartReconciliationSupervisor(_bridge.LocalCluster,_bridgeGate,
             TryEnterWatchdogLane,ReleaseRecoveryLane,()=>_updateHandoff||_suppressScheduledMutations,
-            map=>map.HistoricalStoreProtected?
-                (_historicalStop.TryReconcileSaveReceipt(map)||_lifecycleJournal.TryReconcileCurrentOwner(map)||
-                 _lifecycleJournal.TryReconcileOldOwner(map)||_lifecycleJournal.TryReconcileStopped(map)):
-                (_freshRestart.TryReconcileCurrentOwner(map)||_freshRestart.TryReconcileOldOwner(map)||_freshRestart.TryReconcileStopped(map)||
-                 _freshStop.TryReconcileStoppedReceipt(map)));
+            ReconcileLifecycleMap);
         _asaDiscovery = new DesktopAutomaticAsaDiscoverySupervisor(_bridge.LocalCluster);
         _bridge.AttachAutomaticAsaDiscovery(_asaDiscovery);
         _readOnlySupervisor = new DesktopRecurringReadOnlySupervisor(_bridge.LocalCluster);
@@ -945,6 +989,8 @@ public sealed class ObsidianWindow : Form
                 try
                 {
                     using var operationOrigin=DiscordOperationEvents.EnterOrigin("manager");
+                    if(requireGlobalGate)
+                        await ReconcileBeforeLifecyclePreviewAsync(methodName,incoming);
                     string response = _updateHandoff&&requireGlobalGate
                         ? NativeErrorResponse(incoming,"UM-UPDATE-MANAGER-HANDOFF")
                         : IsManualOnlyDeniedPluginMethod(methodName)
