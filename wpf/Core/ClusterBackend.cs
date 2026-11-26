@@ -1839,10 +1839,8 @@ public sealed partial class ClusterService : IAsyncDisposable
         RecoveryNativeStartBoundary.Demand(id);
         bool marked=PendingGameIni.ApplyBeforeLaunch(this,map,()=>Check(map),lease.MarkMutationStarted);
         if(!marked)lease.MarkMutationStarted();
-        var identity=_inspector.Launch(map);
-        // The server may outlive the Manager UI. The durable identity is used
-        // to recognize the original process and reject PID reuse.
-        if(map.StartWithAsaApi)map.LastLoader=identity;else map.LastProcess=identity;
+        var identity=NativeAsaStartIdentity.Record(map,launch,_inspector.Launch(map),
+            redactHistoricalArguments:false);
         Save();
         RecoveryStopIntent.RecordNativeStart(map,identity,approvedRestartId);
         lease.Complete();
@@ -1894,31 +1892,9 @@ public sealed partial class ClusterService : IAsyncDisposable
         if(!marked)lease.MarkMutationStarted(); // durable marker BEFORE Process.Start
         var started=_inspector.Launch(exact);
         string expectedExe=inspected.UseApi?map.ApiLoaderPath:map.ExecutablePath;
-        if(started.Pid<=0||started.StartedUtc==default||
-           !string.Equals(Path.GetFullPath(started.ExecutablePath),
-             Path.GetFullPath(expectedExe),StringComparison.OrdinalIgnoreCase)||
-           started.Arguments!=inspected.Arguments)
-            throw new InvalidDataException("UM-STORE-NATIVE-SPAWN-IDENTITY-INVALID");
-        // Process.Start proves ONLY the created parent. For Loader mode the
-        // ASA child PID and actual RCON readiness remain independently unknown.
-        // Never persist the source UNC path or private launch switches.
-        var redacted=new ProcessIdentity{
-            Pid=started.Pid,StartedUtc=started.StartedUtc,
-            ExecutablePath=started.ExecutablePath,
-            Arguments=inspected.UseApi?
-                "HISTORICAL_STORE_V1_API_LOADER_START":
-                "HISTORICAL_STORE_V1_NATIVE_START"
-        };
-        if(inspected.UseApi)
-        {
-            map.LastLoader=redacted;
-            map.LastProcess=null;
-        }
-        else
-        {
-            map.LastProcess=redacted;
-            map.LastLoader=null;
-        }
+        var redacted=NativeAsaStartIdentity.Record(map,
+            new AsaApiLaunchPlan(inspected.UseApi,expectedExe,inspected.Arguments,
+                "ORIGINAL_STORE_NATIVE_PLAN"),started,redactHistoricalArguments:true);
         // A pending mod draft means "not yet submitted at launch", not
         // proof a mod downloaded or loaded in game. Clear it ONLY after
         // Process.Start returned the exact planned arguments and those
