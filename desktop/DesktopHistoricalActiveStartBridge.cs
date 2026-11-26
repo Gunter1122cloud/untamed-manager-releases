@@ -162,8 +162,8 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
             return false;
         if(useApi)
         {
-            var inspection=AsaApiInspector.Inspect(map.InstallationPath);
-            if(!inspection.Complete)return false;
+            var binaries=AsaApiInspector.InspectLaunchBinaries(map.InstallationPath);
+            if(binaries.Any(x=>!x.Present||!x.ValidPe64||x.Sha256==null))return false;
         }
         return true;
     }
