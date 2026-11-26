@@ -4919,7 +4919,9 @@ test("running Aberration Store-v1 stale Launch journal is reviewed once, never a
   await expect(locked).toContainText("Restart-v1 napló");
   await expect(locked).toContainText("NeedsOperator");
   await expect(locked).toContainText("régi PID 123456");
-  await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeDisabled();
+  // Header admission is now delegated to native preflight; the legacy
+  // recovery panel remains available without replaying the old operation.
+  await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeEnabled();
   // One deliberate click runs fresh native proof and one-shot journal
   // review; no typed phrase, stale token reuse, old RCON or Restart replay.
   const repair=locked.getByRole("button",{name:"Ellenőrzés és helyi naplórendezés"});
@@ -6846,7 +6848,9 @@ test("P0 running Store-v1 SaveWorld: owner-pinned unknown receipt can be reviewe
   const headerStop=page.locator(".uk-lifecycle-btn.uk-lifecycle-stop");
   const stop=page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"}).getByRole("button",{name:"SaveWorld + szabályos DoExit indítása"});
   const restart=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"}).getByRole("button",{name:"Store-v1 Restart indítása (SaveWorld + DoExit + Start)"});
-  await expect(headerStop).toBeDisabled();
+  // Ordinary header actions reach the native admission checks; the
+  // detailed legacy panels still have their independent UI gates.
+  await expect(headerStop).toBeEnabled();
   await expect(stop).toBeDisabled();
   await expect(restart).toBeDisabled();
   await expect(panel.getByRole("button",{name:"SaveWorld mentés indítása"}))
