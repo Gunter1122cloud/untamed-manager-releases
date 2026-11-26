@@ -129,9 +129,10 @@ public static class LegacyStoreV1ProcessObserver
                 "-ClusterDirOverride=",StringComparison.OrdinalIgnoreCase)).ToArray();
             if(paths.Length!=1)return false;
             string sharedPath=paths[0]["-ClusterDirOverride=".Length..];
-            if(!string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory)&&
-               !sharedPath.Equals(map.HistoricalRuntimeTransferDirectory,
-                   StringComparison.OrdinalIgnoreCase))
+            string? expectedTransfer=string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory)?
+                map.NativeStoreIdentity?.TransferRoot:map.HistoricalRuntimeTransferDirectory;
+            if(!string.IsNullOrWhiteSpace(expectedTransfer)&&
+               !sharedPath.Equals(expectedTransfer,StringComparison.OrdinalIgnoreCase))
                 return false;
             if(string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)!=
                string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory))
@@ -141,7 +142,7 @@ public static class LegacyStoreV1ProcessObserver
             // cluster and mod order for local PID reattachment.
             string runtimeCluster=string.IsNullOrWhiteSpace(
                 map.HistoricalRuntimeClusterId)?
-                VaultProtocol.ClusterId:map.HistoricalRuntimeClusterId;
+                (map.NativeStoreIdentity?.RuntimeClusterId??VaultProtocol.ClusterId):map.HistoricalRuntimeClusterId;
             var mods=ModStateController.Read(map);
             IReadOnlyList<string> enabled=mods.EnabledOrder,passive=mods.Passive;
             if(observeLiveMods)
@@ -165,7 +166,7 @@ public static class LegacyStoreV1ProcessObserver
                     map.HistoricalMapKey,map.GamePort,map.QueryPort,
                     enabled,passive,
                     runtimeCluster,sharedPath,"active",string.Empty,
-                    SourcePinnedClusterOnly:string.IsNullOrWhiteSpace(
+                    SourcePinnedClusterOnly:map.NativeStoreIdentity==null&&string.IsNullOrWhiteSpace(
                         map.HistoricalRuntimeClusterId)));
             return supplied.Length==canonical.Arguments.Length &&
                    (map.HistoricalSupplementalSource?
@@ -495,9 +496,8 @@ public static class LegacyStoreV1ProcessObserver
         // because it was present on a running command line.
         LocalMap expected=map;
         {
-            var localSource=LegacyStoreV1PinnedSource.ResolveLocalRuntime(cluster.Store.Root,
+            var identity=LegacyStoreV1PinnedSource.ResolveRuntimeIdentity(cluster.Store.Root,
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"Kova"),map);
-            var identity=LegacyStoreV1PinnedSource.ReadOriginalCluster(localSource);
             expected=System.Text.Json.JsonSerializer.Deserialize<LocalMap>(
                 System.Text.Json.JsonSerializer.Serialize(map))??
                 throw new InvalidDataException("UM-ORIGINAL-RESTART-MOD-CLONE");

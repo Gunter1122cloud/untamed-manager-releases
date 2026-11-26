@@ -705,7 +705,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                        LegacyStoreV1GracefulStop.SaveOnlyStartupBlocker(owned)
                            is { } startupBlocker)
                         return Fail(id,startupBlocker);
-                    bool legacyPeerNeeded=!LegacyStoreV1PinnedSource.HasApprovedLocalSource(
+                    bool legacyPeerNeeded=!LegacyStoreV1PinnedSource.HasRuntimeIdentity(
                         cluster.Store.Root,original);
                     var permit=new Approval(Guid.NewGuid(),mapId,owned.Process.Pid,
                         owned.Process.StartedUtc,JsonSerializer.Serialize(original),

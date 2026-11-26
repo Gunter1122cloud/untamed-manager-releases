@@ -168,7 +168,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
            !AsaReadyProbe.IsRegisteredServerBinary(map)||
            map.RconHost!="127.0.0.1"||map.RconPort is <1024 or >65535||
            string.IsNullOrWhiteSpace(map.RconPasswordProtected))return false;
-        try{return LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,map);}
+        try{return LegacyStoreV1PinnedSource.HasRuntimeIdentity(cluster.Store.Root,map);}
         catch(Exception){return false;}
     }
     private bool Eligible(LocalMap map)=>map.HistoricalStoreProtected?

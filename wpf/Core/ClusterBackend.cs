@@ -71,6 +71,9 @@ public sealed class LocalMap
     // Nonempty values are editable Obsidian runtime settings and must come
     // from an explicitly previewed, confirmed-stopped configuration change.
     // The immutable source pin remains separate and is never rewritten.
+    // Once verified on import, the runtime no longer reads historical source files.
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public NativeStoreIdentity? NativeStoreIdentity {get;set;}
     public string HistoricalRuntimeClusterId { get; set; } = "";
     public string HistoricalRuntimeTransferDirectory { get; set; } = "";
     public int GamePort { get; set; }

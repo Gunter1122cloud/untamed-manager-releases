@@ -165,7 +165,7 @@ public sealed class DesktopAsaLifecycleJournalBridge
         // For a locally pinned import, recovery uses the Manager-owned
         // immutable identity and current runtime configuration, just like
         // native Start/RCON. Never open the former Manager's live files.
-        if(LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,map))
+        if(LegacyStoreV1PinnedSource.HasRuntimeIdentity(cluster.Store.Root,map))
         {
             if(!AsaRconConfigurationEvidence.Matches(map))
                 throw new InvalidDataException("UM-RECOVERY-STOPPED-RCON-CONFIGURATION-CHANGED");
@@ -228,7 +228,7 @@ public sealed class DesktopAsaLifecycleJournalBridge
     internal static StoppedProof PinnedStoppedSourceEvidence(string managerRoot,
         string absentOrOriginalProfile,LocalMap map,int oldPid)
     {
-        if(oldPid<=0||!LegacyStoreV1PinnedSource.HasApprovedLocalSource(managerRoot,map))
+        if(oldPid<=0||!LegacyStoreV1PinnedSource.HasRuntimeIdentity(managerRoot,map))
             throw new InvalidDataException("UM-RECOVERY-STOPPED-PIN-REQUIRED");
         string epoch=LegacyStoreV1PinnedSource.RuntimeFingerprint(
             managerRoot,absentOrOriginalProfile,map);
@@ -413,7 +413,7 @@ public sealed class DesktopAsaLifecycleJournalBridge
                     int oldPid=replacement?restart!.OldPid:(stopped?.OldPid??running!.Process.Pid);
                     DateTimeOffset oldStart=running?.Process.StartedUtc??default;
                     string sourceSha=stopped?.SourceSha??running!.SourceSha;
-                    bool sourcePinned=LegacyStoreV1PinnedSource.HasApprovedLocalSource(
+                    bool sourcePinned=LegacyStoreV1PinnedSource.HasRuntimeIdentity(
                         cluster.Store.Root,map);
                     if(restart!=null&&restart.Phase is not AsaRestartPhase.Completed &&
                        (restart.MapId!=mapId||restart.OldPid!=oldPid||

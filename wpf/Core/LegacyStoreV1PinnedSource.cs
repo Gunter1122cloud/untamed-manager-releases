@@ -7,6 +7,11 @@ using System.Text.Json;
 
 namespace UntamedManager.Core;
 
+// Manager-owned, immutable import facts. Mutable runtime settings remain on LocalMap.
+public sealed record NativeStoreIdentity(Guid MapId,string MapKey,string InstallationRoot,
+    string RegisteredArchiveSha256,string FourFilesSha256,string LaunchProfileSha256,
+    string RuntimeClusterId,string TransferRoot);
+
 /// <summary>
 /// The original Kova five-map source is needed for initial evidence, not as a
 /// permanent running dependency. On an explicitly approved native import,
@@ -313,15 +318,60 @@ public static class LegacyStoreV1PinnedSource
     /// obsolete Kova ACTIVE/DONE coordination files. It is NOT a proof that
     /// cluster transfer is currently available.
     /// </summary>
-    public static string RuntimeFingerprint(string managerProfileRoot,
+    internal static NativeStoreIdentity ResolveRuntimeIdentity(string managerProfileRoot,
         string originalKovaProfile,LocalMap map)
     {
+        if(map.NativeStoreIdentity is { } native)
+        {
+            bool Hash(string? value)=>value is {Length:64}&&value.All(Uri.IsHexDigit);
+            if(!map.HistoricalStoreProtected||map.ObservedReadOnlyImported||map.Id==Guid.Empty||
+               native.MapId!=map.Id||native.MapKey!=map.HistoricalMapKey||
+               !Path.GetFullPath(map.InstallationPath).Equals(native.InstallationRoot,StringComparison.OrdinalIgnoreCase)||
+               native.RegisteredArchiveSha256!=map.HistoricalArchiveSha256||
+               !Hash(native.RegisteredArchiveSha256)||!Hash(native.FourFilesSha256)||
+               !Hash(native.LaunchProfileSha256)||
+               string.IsNullOrWhiteSpace(native.RuntimeClusterId)||string.IsNullOrWhiteSpace(native.TransferRoot))
+                throw new InvalidDataException("UM-NATIVE-STORE-IDENTITY-MISMATCH");
+            return native;
+        }
         string selected=ResolveLocalRuntime(managerProfileRoot,originalKovaProfile,map);
         var source=LegacyStoreV1OriginalImport.Inspect(selected);
         if(string.Equals(selected,originalKovaProfile,StringComparison.OrdinalIgnoreCase))
             DemandRegisteredLocalRuntimeSource(map,source);
         else RequireImmutableIdentity(map,source);
         var cluster=ReadOriginalCluster(selected);
+        return new(map.Id,map.HistoricalMapKey,Path.GetFullPath(map.InstallationPath),
+            map.HistoricalArchiveSha256,source.FourFilesSha256,source.LaunchProfileSha256,
+            cluster.RuntimeClusterId,cluster.TransferRoot);
+    }
+
+    internal static bool HasRuntimeIdentity(string managerProfileRoot,LocalMap map)
+    {
+        if(map.NativeStoreIdentity==null)return HasApprovedLocalSource(managerProfileRoot,map);
+        _=ResolveRuntimeIdentity(managerProfileRoot,"",map);
+        return true;
+    }
+
+    // Migrate metadata only; no process, transfer, INI or world writes.
+    // The caller holds its existing host/map reservation. ConfigStore CAS
+    // prevents publication over a concurrent Manager profile change.
+    internal static bool TryPersistRuntimeIdentity(ClusterService cluster,LocalMap map)
+    {
+        if(map.NativeStoreIdentity!=null||!map.HistoricalStoreProtected||map.ObservedReadOnlyImported||
+            !cluster.Config.LocalMaps.Contains(map)||cluster.Operations.IsInstallationBusy(map.InstallationPath))
+            return false;
+        var original=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"Kova");
+        var native=ResolveRuntimeIdentity(cluster.Store.Root,original,map);
+        map.NativeStoreIdentity=native;
+        try{cluster.Save();return true;}
+        catch{map.NativeStoreIdentity=null;throw;}
+    }
+
+    public static string RuntimeFingerprint(string managerProfileRoot,
+        string originalKovaProfile,LocalMap map)
+    {
+        var source=ResolveRuntimeIdentity(managerProfileRoot,originalKovaProfile,map);
+        var cluster=source;
         var mods=ModStateController.Read(map);
         string effectiveId=string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)
             ?cluster.RuntimeClusterId:map.HistoricalRuntimeClusterId;

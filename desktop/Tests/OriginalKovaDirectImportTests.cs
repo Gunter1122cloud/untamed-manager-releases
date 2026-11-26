@@ -862,6 +862,27 @@ internal static class OriginalKovaDirectImportTests
                   DesktopAsaLifecycleJournalBridge.PinnedStoppedSourceEvidence(
                     pinnedManager,local,parityMap,43211).SourceSha!=stoppedSource.SourceSha,
                 "stopped pinned source proof binds the exact old PID and stable runtime profile");
+            var nativeCopy=JsonSerializer.Deserialize<LocalMap>(JsonSerializer.Serialize(parityMap))!;
+            nativeCopy.NativeStoreIdentity=LegacyStoreV1PinnedSource.ResolveRuntimeIdentity(
+                pinnedManager,local,nativeCopy);
+            nativeCopy=JsonSerializer.Deserialize<LocalMap>(JsonSerializer.Serialize(nativeCopy))!;
+            string pinFolder=Path.Combine(pinnedManager,"original-store-v1-source");
+            Directory.Move(pinFolder,pinFolder+"-offline");
+            try
+            {
+                Check(LegacyStoreV1PinnedSource.HasRuntimeIdentity(pinnedManager,nativeCopy)&&
+                      LegacyStoreV1PinnedSource.RuntimeFingerprint(pinnedManager,local,nativeCopy)==oldEpoch,
+                    "persisted native Store identity survives loss of both original and copied legacy source without changing runtime epoch");
+                Check(DesktopAsaLifecycleJournalBridge.PinnedStoppedSourceEvidence(
+                    pinnedManager,local,nativeCopy,43210).SourceSha.Length==64,
+                    "stopped native runtime recovery does not need the old source files");
+                nativeCopy.HistoricalMapKey="Wrong_WP";
+                bool mismatch=false;
+                try{_=LegacyStoreV1PinnedSource.RuntimeFingerprint(pinnedManager,local,nativeCopy);}
+                catch(InvalidDataException){mismatch=true;}
+                Check(mismatch,"native Store identity cannot be reused for a different map");
+            }
+            finally{Directory.Move(pinFolder+"-offline",pinFolder);}
             string existingGus=AsaInitialRconSettings.NewIniPath(
                 parityMap.InstallationPath);
             Directory.CreateDirectory(Path.GetDirectoryName(existingGus)!);
