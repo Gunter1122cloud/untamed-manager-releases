@@ -57,6 +57,40 @@ static bool IsError(JsonElement value,string code)=>
     !value.GetProperty("ok").GetBoolean() &&
     value.GetProperty("error").GetString()==code;
 
+// Shared native start bookkeeping is used by both actual launch routes.
+{
+    var rootPath=Path.Combine(Path.GetTempPath(),"native-launch-identity-fixture");
+    var serverPath=Path.Combine(rootPath,"ArkAscendedServer.exe");
+    var loaderPath=Path.Combine(rootPath,"AsaApiLoader.exe");
+    var map=new LocalMap{Id=Guid.NewGuid(),Name="Start identity"};
+    ProcessIdentity Identity(int pid,string path,string args)=>new(){
+        Pid=pid,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath=path,Arguments=args};
+    var oldServer=Identity(90001,serverPath,"old");
+    var oldLoader=Identity(90002,loaderPath,"old");
+    map.LastProcess=oldServer;map.LastLoader=oldLoader;
+    var loader=Identity(90003,loaderPath,"fixture args");
+    NativeAsaStartIdentity.Record(map,new AsaApiLaunchPlan(true,loaderPath,
+        "fixture args","fixture"),loader,false);
+    Check(map.LastProcess==null&&ReferenceEquals(map.LastLoader,loader),
+        "native API start clears stale ASA child identity");
+    var server=Identity(90004,serverPath,"fixture args");
+    NativeAsaStartIdentity.Record(map,new AsaApiLaunchPlan(false,serverPath,
+        "fixture args","fixture"),server,false);
+    Check(map.LastLoader==null&&ReferenceEquals(map.LastProcess,server),
+        "native direct start clears stale Loader identity");
+    var historical=NativeAsaStartIdentity.Record(map,new AsaApiLaunchPlan(true,loaderPath,
+        "fixture args","fixture"),loader,true);
+    Check(map.LastProcess==null&&map.LastLoader==historical&&
+        historical.Arguments=="HISTORICAL_STORE_V1_API_LOADER_START",
+        "historical start uses shared identity handling and does not persist private args");
+    bool invalid=false;
+    try{NativeAsaStartIdentity.Record(map,new AsaApiLaunchPlan(false,serverPath,
+        "different args","fixture"),server,false);}
+    catch(InvalidDataException){invalid=true;}
+    Check(invalid&&map.LastLoader==historical&&map.LastProcess==null,
+        "mismatched spawned identity cannot replace current bookkeeping");
+}
+
 // Missing/failed SaveWorld telemetry must not strand an otherwise owned Stop.
 var noSaveWitness=await AsaGracefulStop.ObserveSaveBrieflyAsync(null,()=>{},CancellationToken.None);
 Check(!noSaveWitness.LogAndWorld&&!noSaveWitness.WorldMetadata,
