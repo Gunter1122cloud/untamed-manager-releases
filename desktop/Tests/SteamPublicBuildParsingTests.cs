@@ -61,6 +61,19 @@ internal static class SteamPublicBuildParsingTests
 
     public static void Run()
     {
+        const string json="""{"data":{"2430930":{"depots":{"branches":{"public":{"buildid":"123457"},"beta":{"buildid":"999999"}}}}}}""";
+        Check(AsaSteamBuildCatalog.ParsePublicBuildJson(json)=="123457",
+            "HTTP metadata reads only dedicated ASA public branch");
+        Check(AsaSteamBuildCatalog.ParsePublicBuildJson(json.Replace("2430930","2399830"))==null,
+            "client app metadata is not dedicated server metadata");
+        Check(AsaSteamBuildCatalog.ParsePublicBuildJson(json.Replace("123457","97.2"))==null,
+            "ARK game version cannot authorize a Steam update");
+        Check(AsaSteamBuildCatalog.ParsePublicBuildJson(json.Replace("public","private"))==null,
+            "a private branch does not authorize a public update");
+        Check(AsaSteamBuildCatalog.ParsePublicBuildJson(json[..^1])==null,
+            "truncated HTTP metadata stays unknown");
+        Check(AsaSteamBuildCatalog.Compare(@"C:\test","public","123458","123457",DateTimeOffset.UtcNow).State==AsaSteamBuildState.Current,
+            "public API lag does not mark newer local builds outdated");
         const string primary=
             "\"2430930\" {\"depots\" {\"branches\" {\"public\" "+
             "{\"buildid\" \"123457\"} \"beta\" {\"buildid\" \"456789\"}}}}";

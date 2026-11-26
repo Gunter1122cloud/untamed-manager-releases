@@ -41,7 +41,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     private readonly Func<LocalMap,SteamUpdatePreview> planner;
     private readonly bool isolatedExecution;
     private readonly Func<LocalMap,IProgress<SteamMaintenanceStage>,Task<SteamStoppedMapUpdater.Receipt>> runner;
-    private readonly Func<LocalMap,CancellationToken,Task<AsaSteamBuildCheck>> publishedBuild;
+    private readonly Func<LocalMap,bool,CancellationToken,Task<AsaSteamBuildCheck>> publishedBuild;
     private readonly Func<string?> pickSteamCmd;
     private readonly Func<CancellationToken,Task<string>> prepareSteamCmd;
     private readonly Func<Guid,IEnumerable<(string Path,string Source)>> candidatePathsForDiscovery;
@@ -87,9 +87,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
             SteamStoppedMapUpdater.UpdateAsync(
                 cluster,map,cluster.Config.SteamCmdExecutable,Reserve,
                 TimeSpan.FromHours(2),progress));
-        publishedBuild=inspectPublished??((map,token)=>
-            AsaSteamBuildCatalog.CheckAsync(cluster.Config.SteamCmdExecutable,
-                map.InstallationPath,"public",TimeSpan.FromSeconds(90),token));
+        publishedBuild=inspectPublished!=null?(map,force,token)=>inspectPublished(map,token):
+            (map,force,token)=>AsaSteamBuildCatalog.CheckPublicAsync(map.InstallationPath,force,token);
     }
     private static Task<string> PrepareOfficialSteamCmdAsync(CancellationToken ct)
     {
@@ -623,21 +622,15 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     var candidate=cluster.Config.LocalMaps.SingleOrDefault(
                         x=>x.Id==candidateId);
                     if(candidate==null)return Fail(id,"UM-MAP-NOT-OWNED");
-                    if(job!=null)
-                    {
-                        lock(sync)
-                            if(job.State is "queued" or "running")
-                                return Fail(id,"UM-STEAM-UPDATE-IN-PROGRESS");
-                    }
-                    if(QueueJournalBlockerCode() is { } queueBlocker)
-                        return Fail(id,queueBlocker);
+                    // Metadata lookup is independent of the local update queue.
+                    // A failed download or missing SteamCMD must never prevent
+                    // checking the public build; actual writes retain all leases.
                     if(!AsaReadyProbe.IsRegisteredServerBinary(candidate))
                         return Fail(id,"UM-STEAM-ASA-BINARY-INVALID");
-                    string? steamProblem=SteamCmdError(cluster.Config.SteamCmdExecutable);
-                    if(steamProblem!=null)return Fail(id,steamProblem);
-                    using var deadline=new CancellationTokenSource(
-                        TimeSpan.FromSeconds(95));
-                    var report=await publishedBuild(candidate,deadline.Token);
+                    bool force=!data.TryGetProperty("force",out var forceValue)||
+                        forceValue.ValueKind!=JsonValueKind.False;
+                    using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                    var report=await publishedBuild(candidate,force,deadline.Token);
                     if(!string.Equals(Path.GetFullPath(report.InstallationRoot),
                            Path.GetFullPath(candidate.InstallationPath),
                            StringComparison.OrdinalIgnoreCase)||
@@ -653,7 +646,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         updateAvailable=report.State==AsaSteamBuildState.UpdateAvailable,
                         downloadStarted=false,serverStopped=false,
                         storeWriterTouched=false,remoteHostTouched=false,
-                        evidence="STEAM_PUBLIC_BRANCH_APPINFO_READ_ONLY_NO_UPDATE"
+                        evidence="STEAM_PUBLIC_BRANCH_METADATA_READ_ONLY_NO_UPDATE"
                     });
                 }
                 if(method=="steam.stoppedCurrent")

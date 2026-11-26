@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -125,6 +126,77 @@ public static class AsaSteamBuildCatalog
             ? match.Groups["n"].Value:null;
     }
 
+    public const string PublicBuildEndpoint="https://api.steamcmd.net/v1/info/2430930";
+    private static readonly HttpClient PublicBuildHttp=new(){Timeout=TimeSpan.FromSeconds(4)};
+    private static readonly SemaphoreSlim PublicBuildGate=new(1,1);
+    private static string? publicBuild;
+    private static DateTimeOffset publicBuildChecked;
+    private static readonly TimeSpan PublicBuildTtl=TimeSpan.FromMinutes(15);
+
+    // Public-branch data must belong to the dedicated-server application,
+    // never the client, a beta branch, a depot manifest or a game version.
+    public static string? ParsePublicBuildJson(string raw)
+    {
+        if(string.IsNullOrWhiteSpace(raw)||raw.Length>2_000_000)return null;
+        try
+        {
+            using var doc=JsonDocument.Parse(raw);
+            var app=doc.RootElement;
+            if(app.ValueKind!=JsonValueKind.Object)return null;
+            if(app.TryGetProperty("data",out var data))app=data;
+            else if(app.TryGetProperty("response",out var response))app=response;
+            foreach(string key in new[]{"2430930","depots","branches","public"})
+            {
+                if(app.ValueKind!=JsonValueKind.Object||!app.TryGetProperty(key,out var next))return null;
+                app=next;
+            }
+            if(app.ValueKind!=JsonValueKind.Object||
+               (!app.TryGetProperty("buildid",out var id)&&!app.TryGetProperty("BuildID",out id)))return null;
+            string? value=id.ValueKind==JsonValueKind.String?id.GetString():
+                id.ValueKind==JsonValueKind.Number?id.GetRawText():null;
+            value=value?.Trim();
+            return value is {Length:>0 and <=20}&&value.All(char.IsAsciiDigit)?value:null;
+        }
+        catch(JsonException){return null;}
+    }
+
+    // Read-only network metadata. No SteamCMD executable, install lease,
+    // app_update, process shutdown or server filesystem write is needed.
+    public static async Task<AsaSteamBuildCheck> CheckPublicAsync(string install,
+        bool force=true,CancellationToken ct=default)
+    {
+        ct.ThrowIfCancellationRequested();
+        string? local=InstalledBuild(install);
+        await PublicBuildGate.WaitAsync(ct);
+        try
+        {
+            var now=DateTimeOffset.UtcNow;
+            if(!force&&publicBuild!=null&&now-publicBuildChecked<PublicBuildTtl)
+                return Compare(install,"public",local,publicBuild,publicBuildChecked);
+            try
+            {
+                using var reply=await PublicBuildHttp.GetAsync(PublicBuildEndpoint,ct);
+                reply.EnsureSuccessStatusCode();
+                string payload=await reply.Content.ReadAsStringAsync(ct);
+                string? fresh=ParsePublicBuildJson(payload);
+                if(fresh!=null)
+                {
+                    publicBuild=fresh;
+                    publicBuildChecked=DateTimeOffset.UtcNow;
+                    // Refresh the local manifest after the HTTP round trip.
+                    return Compare(install,"public",InstalledBuild(install),fresh,publicBuildChecked);
+                }
+            }
+            catch(Exception ex) when(!ct.IsCancellationRequested&&
+                ex is HttpRequestException or OperationCanceledException or IOException)
+            { /* No fresh authoritative comparison; retry on the next check. */ }
+            return Compare(install,"public",InstalledBuild(install),null,DateTimeOffset.UtcNow) with
+                {DiagnosticCode="UM-STEAM-PUBLIC-HTTP-UNAVAILABLE",
+                 Explanation="A publikus Steam build nem elérhető; próbáld újra. Nincs igazolt frissítési igény."};
+        }
+        finally{PublicBuildGate.Release();}
+    }
+
     // Parse only buildid within depots -> branches -> requested branch.
     // Never infer a build from change numbers, arbitrary output or game versions.
     public static string? ParseSteamAppInfo(string raw,string branch="public")
@@ -204,14 +276,13 @@ public static class AsaSteamBuildCatalog
         bool known=localValid&&remoteValid;
         // The public branch may lag a private / manually supplied install.
         // A different build ID is NOT sufficient to assert an upgrade exists.
-        var state=!known||installed>published?AsaSteamBuildState.Unknown:
-            installed==published?AsaSteamBuildState.Current:
+        var state=!known?AsaSteamBuildState.Unknown:
+            installed>=published?AsaSteamBuildState.Current:
             AsaSteamBuildState.UpdateAvailable;
         return new AsaSteamBuildCheck(install,branch,local,available,state,when,
-            state==AsaSteamBuildState.Current?"Naprakész (azonos Steam build ID)":
+            state==AsaSteamBuildState.Current?(installed>published?
+                "Naprakész (helyi build újabb a publikus lekérdezésnél)":"Naprakész (azonos Steam build ID)"):
             state==AsaSteamBuildState.UpdateAvailable?"Újabb Steam-frissítés elérhető":
-            known&&installed>published?
-                "A helyi build újabb a publikus ágnál: kézi ágellenőrzés szükséges":
                 "A Steam Build ID nem ellenőrizhető hitelesen");
     }
     /// <summary>

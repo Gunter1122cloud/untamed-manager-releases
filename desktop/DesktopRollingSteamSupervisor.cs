@@ -535,7 +535,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                     // Reuse the native read-only build endpoint so the same
                     // checked receipt and isolated Steam metadata witness are
                     // exercised by both UI and automatic maintenance.
-                    var report=Decode(await steam.HandleAsync(Message("steam.publishedBuild",new{mapId=map.Id})));
+                    var report=Decode(await steam.HandleAsync(Message("steam.publishedBuild",new{mapId=map.Id,force=false})));
                     ct.ThrowIfCancellationRequested();
                     if(report.GetProperty("mapId").GetGuid()!=map.Id||
                        report.GetProperty("downloadStarted").GetBoolean()||

@@ -35,7 +35,7 @@ public static class AsaSteamBuildCatalogTests
             "same build IDs suppress false positive updates");
         var newerLocal=AsaSteamBuildCatalog.Compare(install,"public","123458",
             "123457",DateTimeOffset.UtcNow);
-        Check(newerLocal.State==AsaSteamBuildState.Unknown,
+        Check(newerLocal.State==AsaSteamBuildState.Current,
             "locally newer/private build does not trigger a backwards public-branch update");
         var sameNumeric=AsaSteamBuildCatalog.Compare(install,"public","000123456",
             "123456",DateTimeOffset.UtcNow);
