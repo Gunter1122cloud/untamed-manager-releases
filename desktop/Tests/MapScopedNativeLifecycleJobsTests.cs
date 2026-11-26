@@ -1050,9 +1050,10 @@ internal static class MapScopedNativeLifecycleJobsTests
                   deniedRestart.GetProperty("error").GetString()==
                     "UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW",
                 "Restart apply rechecks a newly pending SaveWorld receipt");
-            Check(new AsaManualRestartJournal(maps[1].InstallationPath)
-                      .Observe()==null&&restartStopCalls==0&&restartStartCalls==0,
-                "denied Restart creates no journal, RCON or ASA process");
+            Check(abandoned.Observe()?.Id==attempt.Id&&
+                  abandoned.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+                  restartStopCalls==0&&restartStartCalls==0,
+                "denied Restart preserves reconciled old receipt and creates no new journal, RCON or ASA process");
             var deniedStop=await Call(bridge.HandleAsync,
                 "historical.gracefulStopApply",
                 new{token=stopPreview.GetProperty("token").GetString(),
