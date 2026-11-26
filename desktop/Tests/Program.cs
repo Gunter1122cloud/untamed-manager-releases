@@ -539,12 +539,13 @@ await SteamPublicBuildParsingTests.RunAsync(root);
             if(id==first.Id){Interlocked.Increment(ref firstCalls);throw new IOException("UM-BATCH-FIXTURE-UNKNOWN");}
             Interlocked.Increment(ref secondCalls);return Task.FromResult<(int,Guid?)>((0,null));
         },noActiveNativeWorker:id=>id!=first.Id||inactive);
-    var plan=await Call(batch.HandleAsync,"operations.lifecycleBatchPreview",
+    var invalidDirect=await Call(batch.HandleAsync,"operations.lifecycleBatchRun",
+        new{mapIds=new[]{first.Id,Guid.NewGuid()},action="start",delaySeconds=0});
+    Check(!invalidDirect.GetProperty("ok").GetBoolean()&&firstCalls==0&&secondCalls==0,
+        "direct batch validates all selected local targets before any dispatch");
+    var applied=await Call(batch.HandleAsync,"operations.lifecycleBatchRun",
         new{mapIds=new[]{first.Id,second.Id},action="start",delaySeconds=0});
-    IsOk(plan,"independent native batch plan");
-    var applied=await Call(batch.HandleAsync,"operations.lifecycleBatchApply",
-        new{token=plan.GetProperty("data").GetProperty("token").GetGuid(),confirm=true});
-    IsOk(applied,"independent native batch claimed");
+    IsOk(applied,"direct batch claims exact selected maps in one request without an approval token");
     Guid jobId=applied.GetProperty("data").GetProperty("jobId").GetGuid();
     JsonElement receipt=default;
     for(int n=0;n<150;n++){

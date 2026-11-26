@@ -895,7 +895,7 @@ public sealed class ObsidianWindow : Form
                         notificationsRoute = name is "notifications.status" or "notifications.save" or "notifications.clear" or "notifications.test";
                         operationsRoute = name is "operations.snapshot" or "operations.map" or
                             "operations.scheduleCreate" or "operations.scheduleDisable" or "operations.watchdogStart";
-                        lifecycleBatchRoute = name is "operations.lifecycleBatchPreview" or
+                        lifecycleBatchRoute = name is "operations.lifecycleBatchRun" or "operations.lifecycleBatchPreview" or
                             "operations.lifecycleBatchApply" or "operations.lifecycleBatchCurrent" or "operations.lifecycleBatchReview";
                         nativeScheduleRoute = name is "schedule.nativeStatus" or
                             "schedule.nativeSet" or "schedule.nativeDisable" or

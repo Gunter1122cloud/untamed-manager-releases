@@ -366,25 +366,22 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                             t.State=="queued"?t with{State="skipped",Evidence="NOT_DISPATCHED"}:t).ToArray()};
                     Write(reviewed);return Task.FromResult(Ok(id,reviewed));
                 }
-                if(method=="operations.lifecycleBatchPreview")
+                if(method is "operations.lifecycleBatchPreview" or "operations.lifecycleBatchRun")
                 {
-                    using var held=LockOwner();
-                    if(CloseIdleBatch(retireUncertain:true)?.State is "running" or "needsReview")
-                        return Task.FromResult(Fail(id,"UM-BATCH-PRIOR-REVIEW"));
-                    string action=a.GetProperty("action").GetString()??"";
-                    int delay=a.GetProperty("delaySeconds").GetInt32();
-                    var ids=a.GetProperty("mapIds").EnumerateArray().Select(x=>x.GetGuid()).ToArray();
-                    if(action is not ("start" or "stop" or "restart")||delay is <0 or >300||
-                       ids.Length is <1 or >25||ids.Distinct().Count()!=ids.Length)
-                        return Task.FromResult(Fail(id,"UM-BATCH-SCOPE"));
-                    var plans=ids.Select(mapId=>{
-                        var map=Owned(mapId);var state=observe(map);
-                        if(!Eligible(map,state,action))throw new InvalidOperationException("UM-BATCH-TARGET-STATE");
-                        return new Plan(map.Id,map.Name,Fingerprint(map),map.HistoricalStoreProtected,state);
-                    }).ToArray();
-                    pending=new Approval(Guid.NewGuid(),action,delay,DateTimeOffset.UtcNow.AddMinutes(3),plans);
-                    return Task.FromResult(Ok(id,new{token=pending.Token,action,delaySeconds=delay,
-                        maps=plans.Select(t=>new{mapId=t.MapId,mapName=t.MapName}),remoteExecutionAllowed=false}));
+                    // A direct user action has the same semantics as the
+                    // other managers' bulk buttons. One request, one claim.
+                    using(var held=LockOwner())
+                        if(CloseIdleBatch(retireUncertain:true)?.State is "running" or "needsReview")
+                            return Task.FromResult(Fail(id,"UM-BATCH-PRIOR-REVIEW"));
+                    var plan=BuildPlan(a);
+                    if(method=="operations.lifecycleBatchRun")
+                    {
+                        pending=null;
+                        return Task.FromResult(Ok(id,StartBatch(plan)));
+                    }
+                    pending=plan;
+                    return Task.FromResult(Ok(id,new{token=plan.Token,action=plan.Action,delaySeconds=plan.DelaySeconds,
+                        maps=plan.Plans.Select(t=>new{mapId=t.MapId,mapName=t.MapName}),remoteExecutionAllowed=false}));
                 }
                 if(method=="operations.lifecycleBatchApply")
                 {
@@ -392,34 +389,51 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                        pending.Expires<DateTimeOffset.UtcNow)
                         return Task.FromResult(Fail(id,"UM-BATCH-APPROVAL-REQUIRED"));
                     var approved=pending;pending=null;
-                    var held=LockOwner();
-                    try
-                    {
-                        var previous=CloseIdleBatch(retireUncertain:true);
-                        if(previous?.State is "running" or "needsReview")throw new InvalidOperationException("UM-BATCH-PRIOR-REVIEW");
-                        if(previous!=null)
-                        {
-                            var archive=Path.Combine(root,"native-lifecycle-batch-"+previous.JobId.ToString("N")+".json");
-                            if(!File.Exists(archive))File.Copy(journal,archive,false);
-                        }
-                        // The worker rechecks every exact approved target before
-                        // dispatch. A changed target is skipped, not a reason to
-                        // discard the entire batch or dispatch to a different map.
-                        var now=DateTimeOffset.UtcNow;
-                        var receipt=new Receipt(Guid.NewGuid(),approved.Action,"running",now,now,
-                            approved.Plans.Select(x=>new Target(x.MapId,x.MapName,"queued","NOT_DISPATCHED")).ToArray());
-                        Write(receipt);
-                        var events=new DiscordOperationEvents.NativeRun(cluster,receipt.JobId,receipt.Targets.Select(x=>x.MapId).ToArray(),approved.Action);
-                        events.Emit("claimed","in-progress","NATIVE_BATCH_JOURNAL_PREPARED");
-                        _=Task.Run(()=>RunAsync(receipt,approved,held,closing.Token,events));
-                        return Task.FromResult(Ok(id,receipt));
-                    }
-                    catch{held.Dispose();throw;}
+                    return Task.FromResult(Ok(id,StartBatch(approved)));
                 }
                 return Task.FromResult(Fail(id,"UM-METHOD-DENIED"));
             }
         }
         catch(Exception ex){return Task.FromResult(Fail(id,NativeLifecycleFailureCode.From(ex)));}
+    }
+    private Approval BuildPlan(JsonElement a)
+    {
+        string action=a.GetProperty("action").GetString()??"";
+        int delay=a.GetProperty("delaySeconds").GetInt32();
+        var ids=a.GetProperty("mapIds").EnumerateArray().Select(x=>x.GetGuid()).ToArray();
+        if(action is not ("start" or "stop" or "restart")||delay is <0 or >300||
+           ids.Length is <1 or >25||ids.Distinct().Count()!=ids.Length)
+            throw new InvalidDataException("UM-BATCH-SCOPE");
+        var plans=ids.Select(mapId=>{
+            var map=Owned(mapId);var state=observe(map);
+            if(!Eligible(map,state,action))throw new InvalidOperationException("UM-BATCH-TARGET-STATE");
+            return new Plan(map.Id,map.Name,Fingerprint(map),map.HistoricalStoreProtected,state);
+        }).ToArray();
+        return new Approval(Guid.NewGuid(),action,delay,DateTimeOffset.UtcNow.AddMinutes(3),plans);
+    }
+    private Receipt StartBatch(Approval approved)
+    {
+        var held=LockOwner();
+        try
+        {
+            var previous=CloseIdleBatch(retireUncertain:true);
+            if(previous?.State is "running" or "needsReview")throw new InvalidOperationException("UM-BATCH-PRIOR-REVIEW");
+            if(previous!=null)
+            {
+                var archive=Path.Combine(root,"native-lifecycle-batch-"+previous.JobId.ToString("N")+".json");
+                if(!File.Exists(archive))File.Copy(journal,archive,false);
+            }
+            // Exact same durable worker for legacy clients and direct intent.
+            var now=DateTimeOffset.UtcNow;
+            var receipt=new Receipt(Guid.NewGuid(),approved.Action,"running",now,now,
+                approved.Plans.Select(x=>new Target(x.MapId,x.MapName,"queued","NOT_DISPATCHED")).ToArray());
+            Write(receipt);
+            var events=new DiscordOperationEvents.NativeRun(cluster,receipt.JobId,receipt.Targets.Select(x=>x.MapId).ToArray(),approved.Action);
+            events.Emit("claimed","in-progress","NATIVE_BATCH_JOURNAL_PREPARED");
+            _=Task.Run(()=>RunAsync(receipt,approved,held,closing.Token,events));
+            return receipt;
+        }
+        catch{held.Dispose();throw;}
     }
     private void Recheck(Plan plan,string action)
     {
