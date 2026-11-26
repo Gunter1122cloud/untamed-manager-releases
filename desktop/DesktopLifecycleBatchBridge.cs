@@ -176,7 +176,7 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
         });
     }
     private sealed class BeforeDispatchFailure(Exception cause)
-        : InvalidOperationException("UM-BATCH-NOT-DISPATCHED",cause);
+        : InvalidOperationException("UM-BATCH-NOT-DISPATCHED",cause) { }
     private LocalMap Owned(Guid id)=>cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==id)??
         throw new UnauthorizedAccessException("UM-BATCH-NOT-LOCAL");
     private static string Fingerprint(LocalMap map)=>Convert.ToHexString(
