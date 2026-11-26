@@ -421,10 +421,10 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         catch(Exception){return false;}
     }
 
-    // The old slot is orchestration history. Only an unowned slot with
-    // clear native installation journals may be retired by a NEW explicit
-    // schedule configuration. Preserve the exact old bytes; never replay.
-    private DateTimeOffset RetireUnknownSlotsForNewSchedule(State state,LocalMap map,string kind)
+    // The old slot is orchestration history. Only an owned schedule lane
+    // with clear native installation journals may retire an abandoned slot.
+    // Preserve the exact old bytes; never replay an old occurrence.
+    private DateTimeOffset RetireUnknownSlots(State state,LocalMap map,string kind,string evidence)
     {
         var old=state.History.Where(x=>x.MapId==map.Id&&x.Kind==kind&&UnknownSlot(x.Status)).ToArray();
         var now=DateTimeOffset.UtcNow;
@@ -461,11 +461,16 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 }
                 finally{if(File.Exists(temp))File.Delete(temp);}
             }
+        }
+        // Finish ALL archives before modifying the in-memory state; a
+        // failed archive must not partially retire an unknown batch.
+        foreach(var entry in old)
+        {
             int index=state.History.FindIndex(x=>x.RunId==entry.RunId);
             state.History[index]=entry with{
                 Status="auto-retired-unknown-no-replay",
                 FinishedUtc=entry.FinishedUtc??now,
-                Evidence="NEW_SCHEDULE_INTENT_OLD_SLOT_OUTCOME_UNKNOWN"
+                Evidence=evidence
             };
         }
         return old.SelectMany(x=>new[]{x.ScheduledUtc,x.ClaimedUtc}).Append(now).Max();
@@ -512,7 +517,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             if(state.History.Any(x=>x.MapId==map.Id&&x.Kind==kind&&UnknownSlot(x.Status)))
             {
                 if(oldSlot==null)throw new InvalidOperationException("UM-ASA-SCHEDULE-SLOT-OTHER-WORKER");
-                cutoff=RetireUnknownSlotsForNewSchedule(state,map,kind);
+                cutoff=RetireUnknownSlots(state,map,kind,"NEW_SCHEDULE_INTENT_OLD_SLOT_OUTCOME_UNKNOWN");
             }
             var task=sample with {NextDueUtc=Next(sample,cutoff)};
             int ix=state.Jobs.FindIndex(j=>j.MapId==map.Id&&j.Kind==kind);
@@ -1354,21 +1359,44 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     var actual=state.Jobs[ix];
                     if(!actual.Enabled||actual.NextDueUtc!=observed.NextDueUtc||
                        actual.Revision!=observed.Revision||actual.Fingerprint!=observed.Fingerprint||actual.PostRestartWipe!=observed.PostRestartWipe||actual.WipeDelaySeconds!=observed.WipeDelaySeconds)return false;
-                    // Unknown earlier dispatch blocks ONLY this task. Do not
-                    // accidentally execute its next slot because the
-                    // schedule cursor was advanced before a crash.
+                    // A still-enabled recurring policy already authorizes
+                    // future slots, not replay of an old dispatch. Under the
+                    // exact OS slot lease, archive the old outcome only if
+                    // the same profile and native installation are clear.
                     if(state.History.Any(x=>x.MapId==actual.MapId&&
                        x.Kind==actual.Kind&&UnknownSlot(x.Status)))
                     {
+                        bool retired=false;
+                        DateTimeOffset cutoff=now;
+                        if(actual.Frequency!="Once")
+                        {
+                            try
+                            {
+                                var map=Owned(actual.MapId);
+                                if(Eligible(map)&&Fingerprint(map)==actual.Fingerprint)
+                                {
+                                    var oldCutoff=RetireUnknownSlots(state,map,actual.Kind,
+                                        "RECURRING_POLICY_OLD_SLOT_OUTCOME_UNKNOWN");
+                                    if(oldCutoff>cutoff)cutoff=oldCutoff;
+                                    retired=true;
+                                }
+                            }
+                            catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
+                                InvalidOperationException or InvalidDataException or ArgumentException or JsonException)
+                            {System.Diagnostics.Trace.TraceWarning("Scheduled slot reconciliation {0}: {1}",actual.MapId,ex.GetType().Name);}
+                        }
+                        string status=retired?"skipped-auto-retired-prior-slot":"skipped-blocked-prior-unknown-slot";
+                        string evidence=retired?"OLD_SLOT_ARCHIVED_NEXT_OCCURRENCE_ONLY":"PRIOR_SLOT_NATIVE_STATE_UNRESOLVED";
                         state.Jobs[ix]=actual with {
-                            NextDueUtc=Next(actual,now),Enabled=actual.Frequency!="Once",
-                            LastStatus="blocked-prior-unknown-slot",
-                            LastEvidence="REVIEW_OLD_CLAIM_NO_REPLAY"
+                            NextDueUtc=Next(actual,cutoff),Enabled=actual.Frequency!="Once",
+                            LastStatus=retired?"auto-retired-unknown-no-replay":"blocked-prior-unknown-slot",
+                            LastEvidence=evidence
                         };
+                        // Skip this occurrence as well; never dispatch during
+                        // bookkeeping or run a catch-up command.
                         AddHistory(state,new ScheduledAsaExecution(claimId,
                             actual.MapId,actual.Kind,observed.NextDueUtc,now,
-                            now,"skipped-blocked-prior-unknown-slot",
-                            "PRIOR_SLOT_NEEDS_OPERATOR"));
+                            now,status,evidence));
                         Write(state);return false;
                     }
                     // If a restart with a post-ready wipe is due in this
