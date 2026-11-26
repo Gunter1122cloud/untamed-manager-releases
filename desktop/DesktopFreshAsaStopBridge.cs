@@ -40,7 +40,11 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     private readonly Dictionary<Guid,Approval> approvalsByMap=new();
     // Retain a separate Stop receipt for every registered local ASA map.
     private readonly Dictionary<Guid,Job> jobsByMap=new();
-    internal bool RecoveryLaneBusy(){lock(sync)return jobsByMap.Values.Any(x=>x.State is "queued" or "running");}
+    internal bool RecoveryLaneBusy(Guid? mapId=null)
+    {
+        lock(sync)return jobsByMap.Values.Any(x=>
+            (!mapId.HasValue||x.MapId==mapId.Value)&&x.State is ("queued" or "running"));
+    }
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private string? PendingStopBlocker(LocalMap map)
     {

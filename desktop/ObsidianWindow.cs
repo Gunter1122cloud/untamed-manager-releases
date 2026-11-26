@@ -113,11 +113,30 @@ public sealed class ObsidianWindow : Form
         _scheduledBackups.ReleaseDiscord();
         _nativeSchedules.ReleaseDiscord();
     }
-    private bool NativeWorkerBusy()=>_freshStop.RecoveryLaneBusy()||_historicalStop.RecoveryLaneBusy()||
-        _freshRestart.RecoveryLaneBusy()||_historicalRestart.RecoveryLaneBusy()||
+    private bool NativeLifecycleWorkerBusy(Guid? mapId=null)=>
+        _freshStop.RecoveryLaneBusy(mapId)||_historicalStop.RecoveryLaneBusy(mapId)||
+        _freshRestart.RecoveryLaneBusy(mapId)||_historicalRestart.RecoveryLaneBusy(mapId);
+    private bool NativeStorageWorkerBusy()=>
         _steamUpdate.RecoveryLaneBusy()||_steamBatch.RecoveryLaneBusy()||
         _freshInstall.RecoveryLaneBusy()||_worldBackup.RecoveryLaneBusy()||
         _multiHostBackup.RecoveryLaneBusy();
+    private bool NativeWorkerBusy()=>NativeLifecycleWorkerBusy()||NativeStorageWorkerBusy();
+
+    // Manual reconciliation and automatic recovery share the same exact
+    // map reservation. Global storage/handoff exclusion remains until
+    // those workers can expose their own verified resource scopes.
+    private bool TryEnterMapRuntimeLane(Guid mapId)
+    {
+        if(_updateHandoff||_suppressScheduledMutations||
+           NativeLifecycleWorkerBusy(mapId)||NativeStorageWorkerBusy())return false;
+        var maps=_bridge.LocalCluster.Config.LocalMaps;
+        var map=System.Linq.Enumerable.SingleOrDefault(maps,m=>m.Id==mapId);
+        if(map==null||map.Maintenance||map.ObservedReadOnlyImported)return false;
+        string key=UntamedManager.Core.UntamedOperationCoordinator.ResourceKey(map.InstallationPath);
+        if(System.Linq.Enumerable.Count(maps,m=>!string.IsNullOrWhiteSpace(m.InstallationPath)&&
+            UntamedManager.Core.UntamedOperationCoordinator.ResourceKey(m.InstallationPath)==key)!=1)return false;
+        return TryEnterDiscordLane(new[]{mapId});
+    }
 
     private bool TryEnterWatchdogLane()
     {
@@ -157,21 +176,27 @@ public sealed class ObsidianWindow : Form
         var map=System.Linq.Enumerable.SingleOrDefault(_bridge.LocalCluster.Config.LocalMaps,
             m=>m.Id==id.Value);
         if(map==null||map.Maintenance||map.ObservedReadOnlyImported)return;
-        // Keep the existing scheduler/worker exclusion until the common
-        // per-map runtime lease replaces that host-wide coordination.
-        if(!TryEnterWatchdogLane())return;
+        // The host bridge gate excludes new interactive admissions, but
+        // already accepted lifecycle workers and scheduled work on other
+        // maps must not deny journal-only recovery here. Reuse the exact
+        // map reservation used by Discord; keep unscoped storage workers
+        // excluded until their resource scopes are independently proven.
         try
         {
-            await Task.Run(()=>{
-                _bridge.LocalCluster.Operations.TryCancelAbandonedPrepared(map.InstallationPath);
-                ReconcileLifecycleMap(map);
-            });
+            if(!TryEnterMapRuntimeLane(map.Id))return;
+            try
+            {
+                await Task.Run(()=>{
+                    _bridge.LocalCluster.Operations.TryCancelAbandonedPrepared(map.InstallationPath);
+                    ReconcileLifecycleMap(map);
+                });
+            }
+            finally{ReleaseDiscordLane();}
         }
         catch(Exception ex)
         {
             System.Diagnostics.Trace.TraceWarning("Lifecycle reconciliation {0}: {1}",map.Id,ex.GetType().Name);
         }
-        finally{ReleaseRecoveryLane();}
     }
 
     private void ReleaseRecoveryLane()
@@ -482,8 +507,9 @@ public sealed class ObsidianWindow : Form
         _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster,
             scheduledBackups:_scheduledBackups);
         _recovery = new DesktopWatchdogRecovery(_bridge.LocalCluster,_bridgeGate,
-            TryEnterWatchdogLane,ReleaseRecoveryLane,()=>_updateHandoff,
-            _freshStart.HandleAsync,_historicalStart.HandleAsync,_historicalReadOnlyRcon.HandleAsync);
+            ()=>false,ReleaseDiscordLane,()=>_updateHandoff||_suppressScheduledMutations,
+            _freshStart.HandleAsync,_historicalStart.HandleAsync,_historicalReadOnlyRcon.HandleAsync,
+            mapMaintenanceLane:TryEnterMapRuntimeLane);
         _nativeSchedules.AutomaticRecoveryPending=_recovery.HasPendingRecovery;
         _rollingSteam=new DesktopRollingSteamSupervisor(_bridge.LocalCluster,_lifecycleBatch,_steamUpdate,_bridgeGate,
             ()=>_recovery.CanManagerUpdate()&&TryEnterWatchdogLane(),ReleaseRecoveryLane,()=>_updateHandoff||_suppressScheduledMutations);
