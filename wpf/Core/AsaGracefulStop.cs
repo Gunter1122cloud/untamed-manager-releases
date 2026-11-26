@@ -182,20 +182,8 @@ public static class AsaGracefulStop
         }
         // DoExit normally closes ASA after its own world save. The process
         // must vanish before declaring a successful graceful stop.
-        while(true)
-        {
-            ct.ThrowIfCancellationRequested();
-            var check=cluster.Check(map);
-            if(check.ConfirmedStopped && !check.Running &&
-               check.Identity==null&&check.LoaderIdentity==null)
-                break;
-            if(check.Running &&
-               (!Same(check.Identity,expected)||
-                !SameOptional(check.LoaderIdentity,expectedLoader)))
-                throw new InvalidOperationException(
-                    "Unexpected replacement ASA/Loader process during shutdown");
-            await Task.Delay(300,ct);
-        }
+        await ProcessFamily.WaitForOwnedExitAsync(
+            ()=>cluster.Check(map),null,expected,expectedLoader,Same,ct);
         evidenceStage?.Invoke("Régi ASA Windows-folyamat kilépése igazolva");
         lease.Complete();
         return new(map.Id,expected.Pid,true,false,true,DateTimeOffset.UtcNow,
