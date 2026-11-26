@@ -153,6 +153,8 @@ public sealed class ObsidianWindow : Form
         if(map.Maintenance||map.ObservedReadOnlyImported)return false;
         bool changed=_bridge.LocalCluster.Operations.TryReconcileAtomicConfig(map.InstallationPath);
         changed|=_bridge.LocalCluster.Operations.TryReconcileBackupPublication(map.InstallationPath);
+        try{changed|=UntamedManager.Core.AsaApiOwnedInstaller.TryRecoverInterrupted(_bridge.LocalCluster,map);}
+        catch(Exception ex){System.Diagnostics.Trace.TraceWarning("API Core recovery {0}: {1}",map.Id,ex.GetType().Name);}
         try
         {
             var local=_bridge.LocalCluster;
