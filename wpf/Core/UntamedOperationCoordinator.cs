@@ -12,6 +12,7 @@ namespace UntamedManager.Core;
 public enum UntamedOperationKind { Launch, Configuration, PluginChange, Backup, Restore, Update, EmergencyKill }
 public enum UntamedOperationPhase { Prepared, Mutating, Completed, CancelledBeforeMutation, NeedsOperator, OperatorReviewed }
 public sealed record AtomicConfigWitness(string RelativePath,ConfigKind Kind,string BeforeSha256,string AfterSha256);
+public sealed record ApiCoreRecoveryWitness(Guid MapId,Guid TransactionId,string StateSha256,bool Rollback);
 public sealed record PluginToggleWitness(Guid MapId,string Plugin,bool Enabled,Guid BackupId);
 public sealed record LocalRestoreWitness(Guid MapId,Guid TransactionId,string MapKey,string SaveDirectory,
     string Point,string Protective);
@@ -26,6 +27,8 @@ public sealed record UntamedOperationRecord(int Schema,string Resource,Guid Oper
     public bool BackupPublicationOnly {get;init;}
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public PluginToggleWitness? PluginToggle {get;init;}
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ApiCoreRecoveryWitness? ApiCoreRecovery {get;init;}
 }
 
 // One machine-wide named semaphore per installation, independent of map/profile ID.
@@ -226,6 +229,28 @@ public sealed class UntamedOperationCoordinator
                record.UpdatedUtc==default||record.UpdatedUtc>DateTimeOffset.UtcNow)return false;
             ArchiveInterruptedStart(journal,key,record);
             if(Read(journal,key)!=record||!recover(record)||Read(journal,key)!=record)return false;
+            Write(journal,record with{Phase=UntamedOperationPhase.OperatorReviewed,UpdatedUtc=DateTimeOffset.UtcNow});
+            return true;
+        }
+        finally{semaphore.Release();}
+    }
+
+    // API Core and SteamCMD share the Update kind, but never its recovery
+    // authority. Only a pinned API transaction may invoke this callback.
+    internal bool TryReconcileApiCore(string installation,Func<ApiCoreRecoveryWitness,bool> recover)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return false;
+        try
+        {
+            string journal=Path.Combine(stateRoot,key+".json");
+            var record=Read(journal,key);
+            if(record==null||record.Kind!=UntamedOperationKind.Update||record.ApiCoreRecovery==null||
+               record.Phase is not (UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)||
+               record.UpdatedUtc==default||record.UpdatedUtc>DateTimeOffset.UtcNow)return false;
+            ArchiveInterruptedStart(journal,key,record);
+            if(Read(journal,key)!=record||!recover(record.ApiCoreRecovery)||Read(journal,key)!=record)return false;
             Write(journal,record with{Phase=UntamedOperationPhase.OperatorReviewed,UpdatedUtc=DateTimeOffset.UtcNow});
             return true;
         }
@@ -1037,6 +1062,17 @@ public sealed class UntamedOperationCoordinator
                witness.BackupId==Guid.Empty)
                 throw new InvalidOperationException("UM-PLUGIN-TOGGLE-WITNESS-INVALID");
             var next=record with{Phase=UntamedOperationPhase.Mutating,PluginToggle=witness,
+                UpdatedUtc=DateTimeOffset.UtcNow};
+            Write(journal,next);record=next;
+        }
+        internal void MarkApiCoreStarted(ApiCoreRecoveryWitness witness)
+        {
+            if(disposed||completed||record.Phase!=UntamedOperationPhase.Prepared||
+               record.Kind!=UntamedOperationKind.Update||witness.MapId==Guid.Empty||
+               witness.TransactionId==Guid.Empty||witness.StateSha256 is not {Length:64}||
+               !witness.StateSha256.All(Uri.IsHexDigit))
+                throw new InvalidOperationException("UM-API-CORE-WITNESS-INVALID");
+            var next=record with{Phase=UntamedOperationPhase.Mutating,ApiCoreRecovery=witness,
                 UpdatedUtc=DateTimeOffset.UtcNow};
             Write(journal,next);record=next;
         }
