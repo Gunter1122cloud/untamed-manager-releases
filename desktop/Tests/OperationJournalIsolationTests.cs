@@ -212,8 +212,37 @@ internal static class OperationJournalIsolationTests
             "generic Backup/SaveWorld mutation without publication witness is not released");
     }
 
+    private static void PluginToggleReconciliation(string testsRoot)
+    {
+        string folder=Path.Combine(testsRoot,"plugin-toggle-recovery");
+        string install=Path.Combine(folder,"map"),profile=Path.Combine(folder,"profile");
+        var map=new LocalMap{Id=Guid.NewGuid(),InstallationPath=install};
+        string bin=Path.Combine(install,"ShooterGame","Binaries","Win64");
+        string active=Path.Combine(bin,"ArkApi","Plugins","SyntheticPlugin");
+        string disabled=Path.Combine(bin,"UntamedDisabledPlugins","SyntheticPlugin");
+        Directory.CreateDirectory(active);Directory.CreateDirectory(Path.GetDirectoryName(disabled)!);
+        File.WriteAllText(Path.Combine(active,"config.json"),"{\"value\":42}");
+        Guid backupId=Guid.NewGuid();
+        string backup=Path.Combine(profile,"plugin-toggle-backups",map.Id.ToString("N"),"SyntheticPlugin",backupId.ToString("N"));
+        TestBackupPackage.Create(active,backup,map.Id,"Pre-plugin-toggle full directory; configs and licenses included");
+        var ops=new UntamedOperationCoordinator(Path.Combine(folder,"journals"));
+        using(var lease=ops.Acquire(install,UntamedOperationKind.PluginChange))
+        {
+            lease.MarkPluginToggleStarted(new PluginToggleWitness(map.Id,"SyntheticPlugin",false,backupId));
+            Directory.Move(active,disabled);
+            Check(!PluginStateManager.TryReconcileToggle(map,profile,ops,()=>true),
+                "active plugin toggle lease excludes reconciliation");
+        }
+        Check(!PluginStateManager.TryReconcileToggle(map,profile,ops,()=>false),
+            "unknown stopped owner cannot retire plugin toggle");
+        Check(PluginStateManager.TryReconcileToggle(map,profile,ops,()=>true)&&
+              File.ReadAllText(Path.Combine(disabled,"config.json"))=="{\"value\":42}"&&
+              !Directory.Exists(active),"verified plugin directory move is retired without changing plugin data");
+    }
+
     public static async Task Run(string testsRoot)
     {
+        PluginToggleReconciliation(testsRoot);
         BackupPublicationReconciliation(testsRoot);
         AtomicConfigReconciliation(testsRoot);
         StoppedStartReconciliation(testsRoot);
