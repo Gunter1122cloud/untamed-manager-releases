@@ -196,6 +196,30 @@ public static class LegacyStoreV1PinnedSource
         return pinned;
     }
 
+    // The already-registered local map may use its exact original source
+    // even if a separate Manager copy has not yet been made. Native ASA
+    // -usestore and local lifecycle do not require a live peer migration
+    // marker. Never accept a changed source identity on this fallback.
+    internal static string ResolveLocalRuntime(string managerProfileRoot,
+        string originalProfile,LocalMap map)
+    {
+        string selected=Resolve(managerProfileRoot,originalProfile,map);
+        if(!string.Equals(selected,originalProfile,StringComparison.OrdinalIgnoreCase))
+            return selected;
+        var source=LegacyStoreV1OriginalImport.Inspect(selected);
+        DemandRegisteredLocalRuntimeSource(map,source);
+        return selected;
+    }
+
+    internal static void DemandRegisteredLocalRuntimeSource(LocalMap map,
+        LegacyStoreV1OriginalLocalSelection source)
+    {
+        if(!string.Equals(map.HistoricalArchiveSha256,source.FourFilesSha256,
+               StringComparison.Ordinal))
+            throw new InvalidDataException("UM-STORE-PIN-MAP-IDENTITY");
+        RequireImmutableIdentity(map,source);
+    }
+
     /// <summary>
     /// Is the complete approved original metadata pinned locally to this
     /// concrete map? Never consult the retired Kova ACTIVE/DONE peer markers.
@@ -292,10 +316,11 @@ public static class LegacyStoreV1PinnedSource
     public static string RuntimeFingerprint(string managerProfileRoot,
         string originalKovaProfile,LocalMap map)
     {
-        string selected=Resolve(managerProfileRoot,originalKovaProfile,map);
-        if(string.Equals(selected,originalKovaProfile,StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("UM-STORE-PIN-NOT-YET-APPROVED");
+        string selected=ResolveLocalRuntime(managerProfileRoot,originalKovaProfile,map);
         var source=LegacyStoreV1OriginalImport.Inspect(selected);
+        if(string.Equals(selected,originalKovaProfile,StringComparison.OrdinalIgnoreCase))
+            DemandRegisteredLocalRuntimeSource(map,source);
+        else RequireImmutableIdentity(map,source);
         var cluster=ReadOriginalCluster(selected);
         var mods=ModStateController.Read(map);
         string effectiveId=string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)
