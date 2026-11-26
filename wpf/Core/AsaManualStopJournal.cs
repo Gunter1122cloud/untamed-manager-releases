@@ -210,7 +210,11 @@ public sealed class AsaManualStopJournal
     /// ownership, no in-memory running Stop, and conscious typed consent.
     /// This method cannot send commands, retry DoExit or write game data.
     /// </summary>
-    public AsaManualStopRecord ReviewStopped(Guid mapId,Guid id)
+    public AsaManualStopRecord ReviewStopped(Guid mapId,Guid id)=>ReviewInterrupted(mapId,id);
+
+    // Archive the old attempt as unresolved, never as successful. The caller
+    // holds the installation lease and has verified the current runtime owner.
+    internal AsaManualStopRecord ReviewInterrupted(Guid mapId,Guid id)
     {
         if(mapId==Guid.Empty||id==Guid.Empty)
             throw new InvalidDataException("UM-ASA-STOP-REVIEW-IDENTITY");

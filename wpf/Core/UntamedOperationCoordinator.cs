@@ -213,6 +213,17 @@ public sealed class UntamedOperationCoordinator
     // Automatic recovery for an abandoned standalone Stop when the entire
     // local process family is independently absent. Never replay DoExit.
     internal bool TryReconcileStoppedReceipt(string installation,Guid mapId,
+        AsaManualStopJournal stop,AsaManualStopRecord expected,Func<bool> verifyStopped)=>
+        TryReconcileInterruptedStop(installation,mapId,stop,expected,verifyStopped);
+
+    // Both an absent family and the exact original still-running family can
+    // retire an abandoned standalone stop. The running caller must verify
+    // PID AND creation time, loader family and RCON ownership.
+    internal bool TryReconcileRunningStopReceipt(string installation,Guid mapId,
+        AsaManualStopJournal stop,AsaManualStopRecord expected,Func<bool> verifyRunning)=>
+        TryReconcileInterruptedStop(installation,mapId,stop,expected,verifyRunning);
+
+    private bool TryReconcileInterruptedStop(string installation,Guid mapId,
         AsaManualStopJournal stop,AsaManualStopRecord expected,Func<bool> verifyStopped)
     {
         string key=ResourceKey(installation);
@@ -234,7 +245,7 @@ public sealed class UntamedOperationCoordinator
             new AsaManualRestartJournal(installation).DemandNoPending();
             if(paired)ArchiveInterruptedStart(journal,key,common!);
             if(stop.Observe()!=expected||Read(journal,key)!=common||!verifyStopped())return false;
-            stop.ReviewStopped(mapId,expected.Id);
+            stop.ReviewInterrupted(mapId,expected.Id);
             if(paired)
             {
                 // The original Stop and common Launch receipts represent one

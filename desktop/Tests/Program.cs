@@ -5762,6 +5762,48 @@ try
             "interrupted destructive restore cannot be retired as lifecycle history");
     }
 
+    // Interrupted standalone Stop: a current, independently verified owner
+    // can retire the old intent without reporting a stop or replaying DoExit.
+    {
+        string runningStopInstall=Path.Combine(root,"standalone-running-stop-reconcile");
+        Directory.CreateDirectory(runningStopInstall);
+        var runningStopCoordinator=new UntamedOperationCoordinator();
+        var runningStopJournal=new AsaManualStopJournal(runningStopInstall);
+        Guid runningStopMap=Guid.NewGuid();
+        var runningStopRecord=runningStopJournal.Begin(runningStopMap,43210,
+            DateTimeOffset.UtcNow.AddHours(-1));
+        string runningStopKey=UntamedOperationCoordinator.ResourceKey(runningStopInstall);
+        string runningStopPath=Path.Combine(UntamedOperationCoordinator.DefaultRoot,
+            "GracefulStop-v1",runningStopKey+".json");
+        var runningStopJson=new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        runningStopRecord=runningStopRecord with{
+            CreatedUtc=DateTimeOffset.UtcNow.AddMinutes(-6),
+            ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-5),
+            Phase=AsaStopPhase.NeedsOperator};
+        File.WriteAllText(runningStopPath,JsonSerializer.Serialize(runningStopRecord,runningStopJson));
+        byte[] runningStopOriginal=File.ReadAllBytes(runningStopPath);
+        Check(!runningStopCoordinator.TryReconcileRunningStopReceipt(runningStopInstall,
+            runningStopMap,runningStopJournal,runningStopRecord,()=>false)&&
+            File.ReadAllBytes(runningStopPath).SequenceEqual(runningStopOriginal),
+            "unverified running owner cannot retire an interrupted Stop");
+        using(var runningStopLease=runningStopCoordinator.Acquire(runningStopInstall,UntamedOperationKind.Launch))
+        {
+            Check(!runningStopCoordinator.TryReconcileRunningStopReceipt(runningStopInstall,
+                runningStopMap,runningStopJournal,runningStopRecord,()=>true),
+                "active installation lease excludes running Stop recovery");
+            runningStopLease.Complete();
+        }
+        Check(runningStopCoordinator.TryReconcileRunningStopReceipt(runningStopInstall,
+            runningStopMap,runningStopJournal,runningStopRecord,()=>true)&&
+            runningStopJournal.Observe()?.Phase==AsaStopPhase.OperatorReviewed,
+            "verified original running owner releases abandoned standalone Stop without replay");
+        runningStopJournal.DemandNoPending(runningStopMap);
+        string runningStopAudit=Path.Combine(Path.GetDirectoryName(runningStopPath)!,
+            runningStopKey+"-"+runningStopRecord.Id.ToString("N")+".operator-reviewed.json");
+        Check(File.ReadAllBytes(runningStopAudit).SequenceEqual(runningStopOriginal),
+            "running Stop recovery preserves original audit bytes");
+    }
+
     // Real durable coordinator + native recovery API, isolated in TEMP.
     // The original operation is kept for audit. Neither Test nor production
     // recovery can execute an ASA command, replay a dinowipe, or spawn a PID.
