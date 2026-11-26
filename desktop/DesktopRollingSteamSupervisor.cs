@@ -35,6 +35,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
     private readonly Func<bool> enterLane;
     private readonly Action leaveLane;
     private readonly Func<bool> frozen;
+    private readonly Action<LocalMap>? reconcileLifecycle;
     private readonly Func<int,int,bool> ownsPort;
     private readonly Func<TimeSpan,CancellationToken,Task> delay;
     private readonly DesktopRconAdminBridge? isolatedChat;
@@ -46,15 +47,17 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
 
     internal DesktopRollingSteamSupervisor(ClusterService cluster,DesktopLifecycleBatchBridge lifecycle,
         DesktopStoppedSteamUpdateBridge steam,SemaphoreSlim hostGate,Func<bool> enterLane,
-        Action leaveLane,Func<bool> frozen):
-        this(cluster,lifecycle,steam,hostGate,enterLane,leaveLane,frozen,null,null,null){}
+        Action leaveLane,Func<bool> frozen,Action<LocalMap>? reconcileLifecycle=null):
+        this(cluster,lifecycle,steam,hostGate,enterLane,leaveLane,frozen,null,null,null,reconcileLifecycle){}
     // Isolated native CI can replace the clock and RCON boundary together.
     // The shipping constructor always uses actual listeners and minute waits.
     internal DesktopRollingSteamSupervisor(ClusterService cluster,DesktopLifecycleBatchBridge lifecycle,
         DesktopStoppedSteamUpdateBridge steam,SemaphoreSlim hostGate,Func<bool> enterLane,
         Action leaveLane,Func<bool> frozen,DesktopRconAdminBridge? isolatedChat,
-        Func<int,int,bool>? isolatedOwner,Func<TimeSpan,CancellationToken,Task>? isolatedDelay)
+        Func<int,int,bool>? isolatedOwner,Func<TimeSpan,CancellationToken,Task>? isolatedDelay,
+        Action<LocalMap>? reconcileLifecycle=null)
     {
+        this.reconcileLifecycle=reconcileLifecycle;
         if((isolatedChat!=null)!=(isolatedOwner!=null)||(isolatedChat!=null)!=(isolatedDelay!=null))
             throw new ArgumentException("Isolated rolling witnesses must be supplied together");
         this.isolatedChat=isolatedChat;
@@ -281,6 +284,61 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
             Error=prior.Error??"UM-ROLLING-INTERRUPTED-BEFORE-LIFECYCLE"};
         Write(state);return true;
     });
+    private static bool InterruptedMutation(Run? run)=>run!=null&&
+        run.State is ("running" or "needs-review")&&run.Stage is ("stopping" or "updating" or "starting");
+
+    // Called only with host mutation reservation and rolling file lease held.
+    // Retire orchestration, NOT an interrupted native storage transaction.
+    // Keep the affected installation's native receipts untouched and disable
+    // just its automatic update policy. Never retry its uncertain action.
+    private bool TryIsolateInterruptedRun(Run expected)
+    {
+        try
+        {
+            if(steam.RecoveryLaneBusy()||!lifecycle.CanManagerUpdate())return false;
+            var map=Owned(expected.MapId);
+            string target=Canonical(map.InstallationPath);
+            if(cluster.Config.LocalMaps.Any(m=>m.Id!=map.Id&&
+                !string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                (Canonical(m.InstallationPath).Equals(target,StringComparison.OrdinalIgnoreCase)||
+                 Canonical(m.InstallationPath).StartsWith(target+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)||
+                 target.StartsWith(Canonical(m.InstallationPath)+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))))return false;
+            using var steamLease=SteamHostLease.Acquire();
+            SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd();
+            if(cluster.Operations.IsInstallationBusy(map.InstallationPath))return false;
+            return Locked(()=>{
+                var state=Read();
+                if(state.Current!=expected||!InterruptedMutation(expected))return false;
+                byte[] original=File.ReadAllBytes(path);
+                string digest=Convert.ToHexString(SHA256.HashData(original));
+                string archive=Path.Combine(root,"rolling-steam-isolated-"+expected.Id.ToString("N")+"-"+digest+".json");
+                if(File.Exists(archive))
+                {
+                    if((File.GetAttributes(archive)&FileAttributes.ReparsePoint)!=0||
+                       !File.ReadAllBytes(archive).SequenceEqual(original))
+                        throw new InvalidDataException("UM-ROLLING-ISOLATION-AUDIT-MISMATCH");
+                }
+                else
+                {
+                    string tmp=archive+"."+Guid.NewGuid().ToString("N")+".tmp";
+                    try
+                    {
+                        using(var f=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough))
+                        {f.Write(original);f.Flush(true);}
+                        File.Move(tmp,archive);
+                    }
+                    finally{if(File.Exists(tmp))File.Delete(tmp);}
+                }
+                state.Settings=state.Settings.Select(s=>s.MapId==expected.MapId?s with{Enabled=false}:s).ToList();
+                state.Current=expected with{State="reviewed",ChangedUtc=DateTimeOffset.UtcNow,
+                    Error=expected.Error??"UM-ROLLING-INTERRUPTED-MUTATION-ISOLATED"};
+                Write(state);return true;
+            });
+        }
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or InvalidOperationException or
+            InvalidDataException or ArgumentException or JsonException){return false;}
+    }
+
     private async Task LifecycleAsync(LocalMap map,string action,CancellationToken ct,ProcessCheck expected)
     {
         var preview=Decode(await lifecycle.HandleAsync(Message("operations.lifecycleBatchPreview",new{
@@ -494,7 +552,7 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
     internal async Task TickOnceAsync(CancellationToken ct=default)
     {
         if(frozen()||!Locked(()=>{var s=Read();return
-            (BeforeLifecycle(s.Current)||CanResumeVerifiedFiles(s.Current)||s.Current?.State is not ("running" or "needs-review"))&&
+            (BeforeLifecycle(s.Current)||CanResumeVerifiedFiles(s.Current)||InterruptedMutation(s.Current)||s.Current?.State is not ("running" or "needs-review"))&&
             s.Settings.Any(x=>x.Enabled);}))
             return;
         if(!await hostGate.WaitAsync(0,ct))return;
@@ -516,6 +574,11 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                 if(!await ResumeVerifiedFilesAsync(state.Current!,state,ct))return;
                 state=Locked(Read);
             }
+            if(InterruptedMutation(state.Current))
+            {
+                if(!TryIsolateInterruptedRun(state.Current!))return;
+                state=Locked(Read);
+            }
             if(state.Current?.State is "running" or "needs-review")return;
             var settings=state.Settings.Where(s=>s.Enabled).ToArray();
             string? latest=null;
@@ -529,6 +592,8 @@ internal sealed class DesktopRollingSteamSupervisor : IDisposable
                 // A stale per-map journal is not a failed rolling transaction.
                 // Skip only that map before querying Steam or claiming work.
                 // RunMapAsync still rechecks all journals before any mutation.
+                try{reconcileLifecycle?.Invoke(map);}
+                catch(Exception ex){System.Diagnostics.Trace.TraceWarning("Rolling journal reconciliation {0}: {1}",map.Id,ex.GetType().Name);continue;}
                 if(JournalBlocker(map)!=null)continue;
                 if(latest==null)
                 {

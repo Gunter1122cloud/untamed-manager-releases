@@ -65,8 +65,8 @@ internal static class RollingSteamPolicyTests
         using(var reopened=New())
         {
             await reopened.TickOnceAsync();
-            Check(lanes==0&&dispatches==0&&File.ReadAllText(journal)==original,
-                "interrupted persisted run cannot replay on Manager relaunch");
+            Check(lanes==1&&dispatches==0&&File.ReadAllText(journal)==original,
+                "interrupted persisted run cannot replay or isolate without host reservation");
             var denied=await Call(reopened,"steam.rollingReview",runId:Guid.NewGuid(),confirm:true);
             Check(!denied.GetProperty("ok").GetBoolean()&&File.ReadAllText(journal)==original,
                 "wrong recovery ID cannot rewrite journal");
@@ -79,7 +79,7 @@ internal static class RollingSteamPolicyTests
                 File.Exists(Path.Combine(cluster.Store.Root,"rolling-steam-reviewed-"+previous.Id.ToString("N")+".json")),
                 "review archives interrupted receipt and disables future automatic updates");
             await reopened.TickOnceAsync();
-            Check(dispatches==0&&lanes==0&&File.ReadAllText(legacyPath)==old,
+            Check(dispatches==0&&lanes==1&&File.ReadAllText(legacyPath)==old,
                 "review never starts or stops ASA and leaves retired journal intact");
         }
     }
