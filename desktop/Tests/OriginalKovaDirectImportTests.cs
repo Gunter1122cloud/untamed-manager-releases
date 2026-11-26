@@ -1171,6 +1171,10 @@ internal static class OriginalKovaDirectImportTests
               imported.HistoricalPassiveMods.SequenceEqual(new[]{"123456789"})&&
               !imported.AutoStart&&imported.HistoricalLaunchModeNeedsApproval,
             "stopped original import preserves identity but blocks unapproved direct ASA launch");
+        Check(imported.NativeStoreIdentity!=null&&
+              imported.NativeStoreIdentity.MapId==imported.Id&&
+              LegacyStoreV1PinnedSource.HasRuntimeIdentity(cluster.Store.Root,imported),
+            "direct native import persists verified Store identity in its initial map publication");
         bool startBlocked=false;
         try{_=LegacyStoreV1NativeStartPlanner.Prepare(cluster,imported);}
         catch(InvalidDataException ex)
@@ -1432,6 +1436,10 @@ internal static class OriginalKovaDirectImportTests
               m.HistoricalLaunchModeNeedsApproval&&
               !m.AutoStart&&m.RconPort==0),
             "all batch-imported maps require explicit launch-mode selection before first Start");
+        Check(batchCluster.Config.LocalMaps.All(m=>m.NativeStoreIdentity!=null&&
+            m.NativeStoreIdentity.MapId==m.Id&&
+            LegacyStoreV1PinnedSource.HasRuntimeIdentity(batchCluster.Store.Root,m)),
+            "all five native Store identities are committed in the atomic batch import");
         var afterBatch=await Call(batchBridge,"historical.originalBatchPreview");
         Check(!afterBatch.GetProperty("ok").GetBoolean(),
             "repeating an already imported five-map batch does not duplicate entries");
