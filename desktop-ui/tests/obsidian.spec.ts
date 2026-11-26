@@ -626,6 +626,8 @@ test.beforeEach(async ({ page }) => {
       Object.assign(state.local.maps[1],{storeProtected:true,
         running:true,status:"Fut",storeLifecycleState:"needsOperator"});
     };
+    (window as typeof window & {__UNTAMED_SAVE_AUTOMATICALLY_RECONCILED__?:()=>void})
+      .__UNTAMED_SAVE_AUTOMATICALLY_RECONCILED__=()=>{originalSaveReviewed=true;};
     (window as typeof window & {
       __UNTAMED_SAVE_EVIDENCE_TAMPER__?:()=>void;
     }).__UNTAMED_SAVE_EVIDENCE_TAMPER__=()=>{
@@ -6873,6 +6875,25 @@ test("P0 running Store-v1 SaveWorld: owner-pinned unknown receipt can be reviewe
   await expect(headerStop).toBeEnabled();
   await expect(stop).toBeEnabled();
   await expect(restart).toBeEnabled();
+});
+
+test("native automatic SaveWorld reconciliation releases mounted panel without clicking review",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_REVIEW_RUNNING_FIXTURE__?:()=>void;
+  }).__UNTAMED_SAVE_REVIEW_RUNNING_FIXTURE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  const save=panel.getByRole("button",{name:"SaveWorld mentés indítása"});
+  await expect(save).toBeDisabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_AUTOMATICALLY_RECONCILED__?:()=>void;
+  }).__UNTAMED_SAVE_AUTOMATICALLY_RECONCILED__?.());
+  await expect(save).toBeEnabled({timeout:15000});
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
 });
 
 test("unreadable original Store SaveWorld is visible on Save and Restart without any RCON retry",async({page})=>{
