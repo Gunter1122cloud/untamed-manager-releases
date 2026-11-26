@@ -65,13 +65,25 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                 "start"=>historical?"historical.activeStart":"servers.freshStart",
                 "stop"=>historical?"historical.gracefulStop":"servers.gracefulStop",
                 _=>historical?"historical.restart":"servers.restart"};
-            var preview=Decode(await invoke(Message(prefix+"Preview",new{mapId=id})));
-            if(preview.GetProperty("mapId").GetGuid()!=id)
-                throw new InvalidDataException("UM-BATCH-PREVIEW-MAP");
+            Guid token;
+            try
+            {
+                var preview=Decode(await invoke(Message(prefix+"Preview",new{mapId=id})));
+                if(preview.GetProperty("mapId").GetGuid()!=id)
+                    throw new InvalidDataException("UM-BATCH-PREVIEW-MAP");
+                token=preview.GetProperty("token").GetGuid();
+                if(token==Guid.Empty)throw new InvalidDataException("UM-BATCH-PREVIEW-TOKEN");
+            }
+            catch(Exception ex) when(ex is not OperationCanceledException)
+            {
+                // Preview has no native Start/Stop/Restart dispatch authority.
+                // A refused preview must not hold up unrelated selected maps.
+                throw new BeforeDispatchFailure(ex);
+            }
             ct.ThrowIfCancellationRequested();
             var applyTime=DateTimeOffset.UtcNow;
             var started=Decode(await invoke(Message(prefix+"Apply",new{
-                token=preview.GetProperty("token").GetGuid(),confirm=true})));
+                token,confirm=true})));
             int pid=0; Guid? jobId=null; DateTimeOffset? exactStart=null;
             if(action=="start")
             {
@@ -163,6 +175,8 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
             throw new TimeoutException("UM-BATCH-READINESS-TIMEOUT");
         });
     }
+    private sealed class BeforeDispatchFailure(Exception cause)
+        : InvalidOperationException("UM-BATCH-NOT-DISPATCHED",cause);
     private LocalMap Owned(Guid id)=>cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==id)??
         throw new UnauthorizedAccessException("UM-BATCH-NOT-LOCAL");
     private static string Fingerprint(LocalMap map)=>Convert.ToHexString(
@@ -380,7 +394,9 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                             var archive=Path.Combine(root,"native-lifecycle-batch-"+previous.JobId.ToString("N")+".json");
                             if(!File.Exists(archive))File.Copy(journal,archive,false);
                         }
-                        foreach(var plan in approved.Plans)Recheck(plan,approved.Action);
+                        // The worker rechecks every exact approved target before
+                        // dispatch. A changed target is skipped, not a reason to
+                        // discard the entire batch or dispatch to a different map.
                         var now=DateTimeOffset.UtcNow;
                         var receipt=new Receipt(Guid.NewGuid(),approved.Action,"running",now,now,
                             approved.Plans.Select(x=>new Target(x.MapId,x.MapName,"queued","NOT_DISPATCHED")).ToArray());
@@ -436,6 +452,11 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                         Set(i,"completed",approved.Action=="stop"?"NATIVE_STOP_RECEIPT":
                             "NEW_PID_AND_RCON_READY_GAME_CLIENT_UNVERIFIED",result.JobId);
                         DesktopDiscordNotifications.Record(cluster,plan.MapId,"lifecycle",false);
+                    }
+                    catch(BeforeDispatchFailure ex)
+                    {
+                        Set(i,"skipped",NativeLifecycleFailureCode.From(ex.InnerException!));
+                        continue;
                     }
                     catch(Exception ex)
                     {
