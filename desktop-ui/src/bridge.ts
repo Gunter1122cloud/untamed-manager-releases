@@ -1799,7 +1799,7 @@ type WireRequest = { id: string; method: "servers.relocationPreview" | "servers.
   "notifications.status" | "notifications.save" | "notifications.clear" | "notifications.test" |
   "recovery.status" | "recovery.arm" | "recovery.disarm" | "recovery.suspend" |
   "moderation.history" | "moderation.preview" | "moderation.apply" |
-  "operations.lifecycleBatchPreview" | "operations.lifecycleBatchApply" | "operations.lifecycleBatchCurrent" | "operations.lifecycleBatchReview" |
+  "operations.lifecycleBatchRun" | "operations.lifecycleBatchPreview" | "operations.lifecycleBatchApply" | "operations.lifecycleBatchCurrent" | "operations.lifecycleBatchReview" |
   "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" |
   "schedule.nativeReviewPreview" | "schedule.nativeReviewApply" |
   "schedule.nativeResume" |
@@ -2028,6 +2028,8 @@ export const managerBridge = {
   notificationsClear:()=>request<DiscordNotificationStatus>("notifications.clear",{confirm:true}),
   notificationsTest:()=>request<DiscordNotificationStatus>("notifications.test",{confirm:true}),
   operationsWatchdogStart:()=>request<{pid:number;requested:true;evidence:"LOCAL_WATCHDOG_PROCESS_REQUESTED"}>("operations.watchdogStart",{confirm:true}),
+  lifecycleBatchRun:(mapIds:string[],action:LifecycleBatchAction,delaySeconds:number)=>
+    request<LifecycleBatchReceipt>("operations.lifecycleBatchRun",{mapIds,action,delaySeconds}),
   lifecycleBatchPreview:(mapIds:string[],action:LifecycleBatchAction,delaySeconds:number)=>
     request<LifecycleBatchPreview>("operations.lifecycleBatchPreview",{mapIds,action,delaySeconds}),
   lifecycleBatchApply:(token:string)=>request<LifecycleBatchReceipt>("operations.lifecycleBatchApply",{token,confirm:true}),
