@@ -241,7 +241,7 @@ internal static class LegacyStoreV1GracefulStop
             lease.MarkMutationStarted();
             mutationStarted=true;
         }
-        bool preExitObserved=false,worldMetadataObserved=false;
+        bool preExitObserved=false,worldMetadataObserved=false,doExitDispatched=true;
         if(execute!=null)
         {
             AuthorizeSave();
@@ -265,9 +265,10 @@ internal static class LegacyStoreV1GracefulStop
                 ?"Új ASA SaveComplete napló és stabil világfájl igazolva"
                 :"A mentés nem igazolt; a DoExit saját mentéssel zárja le az ASA-t");
             Verify();
-            await RconProtocol.DispatchDoExitAsync(locked.Map.RconPort,
-                password,AuthorizeSave,ct);
-            stage?.Invoke("DoExit elküldve; a régi Windows ASA PID kilépését ellenőrzöm");
+            doExitDispatched=await AsaGracefulStop.TryDispatchDoExitAsync(
+                authorize=>RconProtocol.DispatchDoExitAsync(locked.Map.RconPort,password,authorize,ct),
+                AuthorizeSave,stage,ct);
+            if(doExitDispatched)stage?.Invoke("DoExit elküldve; a régi Windows ASA PID kilépését ellenőrzöm");
         }
         while(true)
         {
@@ -286,7 +287,8 @@ internal static class LegacyStoreV1GracefulStop
         }
         stage?.Invoke("Eredeti ASA-folyamat kilépése Windowsból igazolt");
         lease.Complete();
-        return new(mapId,approvedPid,true,false,true,DateTimeOffset.UtcNow,
+        return new(mapId,approvedPid,true,false,doExitDispatched,DateTimeOffset.UtcNow,
+            !doExitDispatched?"ORIGINAL_ACTIVE_STORE_PID_STOPPED_DOEXIT_DISPATCH_UNCERTAIN":
             preExitObserved?
               "ORIGINAL_ACTIVE_STORE_PREEXIT_SAVE_EVIDENCE_AND_DOEXIT_PID_STOPPED":
             worldMetadataObserved?
