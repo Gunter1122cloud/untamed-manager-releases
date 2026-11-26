@@ -16,8 +16,9 @@ public sealed record UntamedOperationRecord(int Schema,string Resource,Guid Oper
 
 // One machine-wide named semaphore per installation, independent of map/profile ID.
 // Semaphores are not thread-affine: a lease can span await safely. Persistent
-// pending state is NEVER cleared because of a timeout, PID exit, or GUI restart.
-// Live Store/SQL/ASA permissions remain the responsibility of capability gates.
+// A proven unowned pre-mutation receipt can be cancelled under the resource
+// lease. Mutating receipts still require specific state reconciliation; they
+// are never treated as completed merely because a process or UI exited.
 public sealed class UntamedOperationCoordinator
 {
     private readonly string stateRoot;
@@ -89,6 +90,14 @@ public sealed class UntamedOperationCoordinator
             Directory.CreateDirectory(LocalPath(stateRoot));
             string journal=Path.Combine(stateRoot,key+".json");
             var old=Read(journal,key);
+            if(old?.Phase==UntamedOperationPhase.Prepared&&old.UpdatedUtc!=default)
+            {
+                // Acquiring this exact installation semaphore proves there is
+                // no active cooperating lease. Prepared precedes mutation:
+                // archive and cancel, without waiting for a timer or review.
+                CancelPreparedUnderLease(journal,key,old);
+                old=Read(journal,key);
+            }
             if(old!=null&&old.Phase is not (UntamedOperationPhase.Completed or UntamedOperationPhase.CancelledBeforeMutation or UntamedOperationPhase.OperatorReviewed))
                 throw new IOException("UNTAMED_OPERATION_NEEDS_OPERATOR");
             var record=new UntamedOperationRecord(1,key,Guid.NewGuid(),kind,
@@ -113,35 +122,42 @@ public sealed class UntamedOperationCoordinator
         {
             string journal=Path.Combine(stateRoot,key+".json");
             var old=Read(journal,key);
-            if(old==null||old.Phase!=UntamedOperationPhase.Prepared||
-                old.UpdatedUtc==default||DateTimeOffset.UtcNow-old.UpdatedUtc<TimeSpan.FromMinutes(3))
+            if(old==null||old.Phase!=UntamedOperationPhase.Prepared||old.UpdatedUtc==default)
                 return false;
-            string audit=Path.Combine(stateRoot,key+"-"+old.Operation.ToString("N")+".pre-mutation-cancelled.json");
-            byte[] bytes=File.ReadAllBytes(journal);
-            if(File.Exists(audit))
-            {
-                if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
-                    new FileInfo(audit).Length!=bytes.Length||
-                    !CryptographicOperations.FixedTimeEquals(File.ReadAllBytes(audit),bytes))
-                    throw new InvalidDataException("UNTAMED_OPERATION_PREPARED_AUDIT_MISMATCH");
-            }
-            else
-            {
-                string tmp=audit+"."+Guid.NewGuid().ToString("N")+".tmp";
-                try
-                {
-                    using(var stream=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None))
-                    {stream.Write(bytes);stream.Flush(true);}
-                    File.Move(tmp,audit);
-                }
-                finally{if(File.Exists(tmp))File.Delete(tmp);}
-            }
-            if(Read(journal,key)!=old||!File.ReadAllBytes(journal).SequenceEqual(bytes))
-                throw new IOException("UNTAMED_OPERATION_PREPARED_CHANGED");
-            Write(journal,old with{Phase=UntamedOperationPhase.CancelledBeforeMutation,UpdatedUtc=DateTimeOffset.UtcNow});
+            CancelPreparedUnderLease(journal,key,old);
             return true;
         }
         finally{semaphore.Release();}
+    }
+
+    // Both admission and the background reconciler hold the same exact OS
+    // lease before calling this helper. Preserve the historical bytes and do
+    // not touch secondary Stop/Restart/Save receipts.
+    private void CancelPreparedUnderLease(string journal,string key,UntamedOperationRecord old)
+    {
+        string audit=Path.Combine(stateRoot,key+"-"+old.Operation.ToString("N")+".pre-mutation-cancelled.json");
+        byte[] bytes=File.ReadAllBytes(journal);
+        if(File.Exists(audit))
+        {
+            if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+                new FileInfo(audit).Length!=bytes.Length||
+                !CryptographicOperations.FixedTimeEquals(File.ReadAllBytes(audit),bytes))
+                throw new InvalidDataException("UNTAMED_OPERATION_PREPARED_AUDIT_MISMATCH");
+        }
+        else
+        {
+            string tmp=audit+"."+Guid.NewGuid().ToString("N")+".tmp";
+            try
+            {
+                using(var stream=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+                {stream.Write(bytes);stream.Flush(true);}
+                File.Move(tmp,audit);
+            }
+            finally{if(File.Exists(tmp))File.Delete(tmp);}
+        }
+        if(Read(journal,key)!=old||!File.ReadAllBytes(journal).SequenceEqual(bytes))
+            throw new IOException("UNTAMED_OPERATION_PREPARED_CHANGED");
+        Write(journal,old with{Phase=UntamedOperationPhase.CancelledBeforeMutation,UpdatedUtc=DateTimeOffset.UtcNow});
     }
 
     // Automatic recovery for an abandoned standalone Stop when the entire

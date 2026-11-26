@@ -92,6 +92,55 @@ internal static class OperationJournalIsolationTests
               File.Exists(Path.Combine(journals,"Restart-v1",key+".json")),
             "generic and Restart-v1 journals are both beneath TEMP");
 
+        // A previous manager can disappear before any operation is dispatched.
+        // The exact OS lease, not an arbitrary age, distinguishes active from
+        // abandoned Prepared. Never silently mark the old operation successful.
+        {
+            string preparedRoot=Path.Combine(root,"prepared-admission");
+            string first=Path.Combine(preparedRoot,"map-a");
+            string second=Path.Combine(preparedRoot,"map-b");
+            Directory.CreateDirectory(first);
+            Directory.CreateDirectory(second);
+            string journalRoot=Path.Combine(preparedRoot,"journals");
+            var coordinator=new UntamedOperationCoordinator(journalRoot);
+            using(var active=coordinator.Acquire(first,UntamedOperationKind.Launch))
+            {
+                bool busy=false;
+                try{using var duplicate=coordinator.Acquire(first,UntamedOperationKind.Configuration);}
+                catch(IOException ex) when(ex.Message=="UNTAMED_OPERATION_BUSY"){busy=true;}
+                Check(busy&&!coordinator.TryCancelAbandonedPrepared(first),
+                    "active lease cannot be cancelled or replaced");
+                using(var sibling=coordinator.Acquire(second,UntamedOperationKind.Configuration))
+                    sibling.Complete();
+                Check(coordinator.Observe(second)?.Phase==UntamedOperationPhase.Completed,
+                    "active map does not block a different installation");
+            }
+            string resourceKey=UntamedOperationCoordinator.ResourceKey(first);
+            string file=Path.Combine(journalRoot,resourceKey+".json");
+            var abandoned=new UntamedOperationRecord(1,resourceKey,Guid.NewGuid(),
+                UntamedOperationKind.Launch,UntamedOperationPhase.Prepared,DateTimeOffset.UtcNow);
+            File.WriteAllText(file,JsonSerializer.Serialize(abandoned));
+            byte[] original=File.ReadAllBytes(file);
+            string audit=Path.Combine(journalRoot,resourceKey+"-"+abandoned.Operation.ToString("N")+".pre-mutation-cancelled.json");
+            using(var next=coordinator.Acquire(first,UntamedOperationKind.Configuration))
+            {
+                Check(coordinator.Observe(first)?.Operation!=abandoned.Operation&&
+                    coordinator.Observe(first)?.Phase==UntamedOperationPhase.Prepared,
+                    "new operation immediately admits an unowned Prepared receipt");
+                Check(File.ReadAllBytes(audit).SequenceEqual(original),
+                    "abandoned receipt bytes are preserved before the next operation");
+                next.Complete();
+            }
+            // Real unknown mutation is not equivalent to abandoned Prepared.
+            using(var unknown=coordinator.Acquire(first,UntamedOperationKind.Restore))
+                unknown.MarkMutationStarted();
+            bool unknownBlocked=false;
+            try{using var denied=coordinator.Acquire(first,UntamedOperationKind.Launch);}
+            catch(IOException ex) when(ex.Message=="UNTAMED_OPERATION_NEEDS_OPERATOR"){unknownBlocked=true;}
+            Check(unknownBlocked&&!coordinator.TryCancelAbandonedPrepared(first),
+                "interrupted restore still requires storage-specific reconciliation");
+        }
+
         // P1/P2: a directory occupying a journal filename must not be
         // mistaken for a missing file (File.Exists returns false), and an
         // exclusively locked journal must not become an automatic unlock.
