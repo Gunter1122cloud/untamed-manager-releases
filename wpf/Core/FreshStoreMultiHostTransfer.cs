@@ -21,7 +21,7 @@ public static class FreshStoreMultiHostTransfer
         {
             try
             {
-                if(Same(cluster.ClusterId,"KovaCluster")||!cluster.TransferDirectory.StartsWith(@"\\",StringComparison.Ordinal))continue;
+                if(!cluster.TransferDirectory.StartsWith(@"\\",StringComparison.Ordinal))continue;
                 var ids=config.ClusterRegistry.MapAssignments.Where(a=>Same(a.ClusterId,cluster.ClusterId)).Select(a=>a.MapId).ToHashSet();
                 var local=config.LocalMaps.Where(m=>ids.Contains(m.Id)).ToArray();
                 if(local.Length is <1 or >128||local.Any(m=>m.HistoricalStoreProtected||m.ObservedReadOnlyImported||

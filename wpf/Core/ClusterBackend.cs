@@ -435,9 +435,9 @@ public sealed partial class WindowsProcessInspector
         ArgumentNullException.ThrowIfNull(map);
         ArgumentNullException.ThrowIfNull(launch);
         string executable=launch.ExecutablePath;
-        string directory=launch.UseApi ? Path.GetDirectoryName(executable)! :
-            string.IsNullOrWhiteSpace(map.InstallationPath) ?
-            Path.GetDirectoryName(executable)! : Path.GetFullPath(map.InstallationPath);
+        // Same native working directory for direct ASA and API Loader.
+        // The executable owns relative game/plugin paths, not the install root.
+        string directory=Path.GetDirectoryName(Path.GetFullPath(executable))!;
         return new ProcessStartInfo(executable,launch.Arguments) {
             WorkingDirectory=directory,
             UseShellExecute=false,

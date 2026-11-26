@@ -119,8 +119,6 @@ public static class FreshStoreEnrollmentPolicy
         if(string.IsNullOrWhiteSpace(clusterId))
             Deny("UM-FRESH-STORE-CLUSTER-NOT-SELECTED");
         string normalized=ClusterRegistrySchema.NormalizeClusterId(clusterId);
-        if(normalized.Equals("kovacluster",StringComparison.OrdinalIgnoreCase))
-            Deny("UM-FRESH-STORE-KOVA-CLUSTER-RESERVED");
         var snapshot=cluster.Registry.Snapshot();
         // Imported historical Store clusters may have a source-pinned ID
         // different from the conventional "KovaCluster" label. A fresh

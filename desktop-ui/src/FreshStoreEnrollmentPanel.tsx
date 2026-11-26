@@ -25,7 +25,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
       const memberships=registry.clusterRegistry.mapAssignments.filter(x=>
         x.mapId.toLowerCase()===mapId.toLowerCase());
       const options=memberships.length===1?registry.clusterRegistry.clusters.filter(x=>
-        x.clusterId===memberships[0].clusterId&&x.clusterId.toLowerCase()!=="kovacluster"):[];
+        x.clusterId===memberships[0].clusterId):[];
       setClusters(options);setSelected(options[0]?.clusterId??"");
     }).catch(()=>{
       if(active)setError("A helyi map és a clusterhozzárendelés nem igazolható. Nem történt módosítás.");
@@ -40,7 +40,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
     catch(e){
       const code=e instanceof Error?e.message:"UM-FRESH-STORE-PREFLIGHT";
       const hints:Record<string,string>={
-        "UM-FRESH-STORE-KOVA-CLUSTER-RESERVED":
+        "UM-FRESH-STORE-HISTORICAL-CLUSTER-RESERVED":
           "Az eredeti történeti cluster nem érhető el az új, üres Store-map általános regisztrációjával. Az eredeti kétgazdás transferazonosságot külön kell igazolni; az eredeti világot nem módosítottuk.",
         "UM-FRESH-STORE-RCON-SETUP-REQUIRED-BEFORE-ENROLLMENT":
           "Először a map RCON fülén konfiguráld a helyi RCON-portot és jelszót, utána kérj új Store-előellenőrzést.",
