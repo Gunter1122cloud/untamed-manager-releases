@@ -252,12 +252,10 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         bool restartPending=journalDiagnosis.RestartUnreadable||
             restart!=null&&restart.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
         Job? running;
-        bool localNeedsOperator;
         lock(sync)
         {
             jobsByMap.TryGetValue(mapId,out var tracked);
             running=tracked?.State is "queued" or "running"?tracked:null;
-            localNeedsOperator=tracked?.State=="needsOperator";
         }
         bool operationBlocked=journalDiagnosis.OperationUnreadable||
             journal!=null&&journal.Phase is
@@ -271,10 +269,12 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         // second, Manager-local crash-recovery signal, not Kova ownership.
         bool pendingSaveEvidence=unreadableSaveEvidence||
             saveEvidence?.Phase is "prepared" or "needsOperator";
+        // An old terminal worker result is diagnostic history, not a lease.
+        // Native receipts remain authoritative after automatic reconciliation.
         bool blocked=operationBlocked||restartPending||pendingSaveEvidence||
-            running!=null||localNeedsOperator;
+            running!=null;
         bool needsOperator=journalDiagnosis.AnyUnreadable||
-            localNeedsOperator||unreadableSaveEvidence||pendingSaveEvidence||(journal!=null&&(
+            unreadableSaveEvidence||pendingSaveEvidence||(journal!=null&&(
             journal.Phase==UntamedOperationPhase.NeedsOperator||
             operationBlocked&&running==null))||
             restart?.Phase==AsaRestartPhase.NeedsOperator;
