@@ -229,19 +229,17 @@ internal static class LegacyStoreV1GracefulStop
                 throw new InvalidOperationException("UM-ORIGINAL-STOP-OWNER-CHANGED");
         }
         Verify();
-        // Absence of a real ASA log/world witness is a PRE-MUTATION error:
-        // do not strand a durable NEEDS_OPERATOR journal if we have sent no
-        // RCON byte. Mutating operation state is marked only after witness
-        // acquisition and immediately before first command.
+        // Missing save telemetry must not prevent an owned graceful shutdown.
         var witness=execute==null?
-            AsaWorldSaveEvidence.Begin(locked.Map,locked.Process)
-                ??throw new InvalidOperationException("UM-ORIGINAL-STOP-SAVE-WITNESS-MISSING"):
-            null;
+            AsaGracefulStop.TryCaptureSaveEvidence(locked.Map,locked.Process):null;
+        bool mutationStarted=false;
         void AuthorizeSave()
         {
             Verify();
+            if(mutationStarted)return;
             RecoveryStopIntent.Mark(locked.Map,locked.Process,approvedRestartId);
             lease.MarkMutationStarted();
+            mutationStarted=true;
         }
         bool preExitObserved=false,worldMetadataObserved=false;
         if(execute!=null)
@@ -251,27 +249,24 @@ internal static class LegacyStoreV1GracefulStop
         }
         else
         {
-            var evidence=witness!;
             string password=SecureStore.Unprotect(locked.Map.RconPasswordProtected);
             Verify();
             stage?.Invoke("SaveWorld elküldése az eredeti helyi Store-v1 ASA-nak");
-            await RconProtocol.DispatchOwnedSaveWorldAsync(locked.Map.RconPort,
-                password,AuthorizeSave,ct);
-            var observed=await AsaWorldSaveEvidence.WaitAsync(
-                evidence,()=>{
-                    try{Verify();return true;}catch{return false;}
-                },TimeSpan.FromSeconds(90),ct,allowWorldMetadata:true);
-            if(!observed.CompletionObserved&&!observed.WorldMetadataObserved)
-                throw new InvalidOperationException(
-                    "UM-ORIGINAL-STOP-SAVE-NOT-OBSERVED:"+observed.Stage);
-            preExitObserved=observed.CompletionObserved;
-            worldMetadataObserved=observed.WorldMetadataObserved;
+            bool sent=await AsaGracefulStop.TrySendSaveAsync(
+                ()=>RconProtocol.DispatchOwnedSaveWorldAsync(locked.Map.RconPort,password,AuthorizeSave,ct),
+                Verify,stage,ct);
+            if(sent)
+            {
+                var observed=await AsaGracefulStop.ObserveSaveBrieflyAsync(witness,Verify,ct);
+                preExitObserved=observed.LogAndWorld;
+                worldMetadataObserved=observed.WorldMetadata;
+            }
             stage?.Invoke(preExitObserved
                 ?"Új ASA SaveComplete napló és stabil világfájl igazolva"
-                :"Új stabil világfájl megfigyelve; ASA SaveComplete napló nem igazolt");
+                :"A mentés nem igazolt; a DoExit saját mentéssel zárja le az ASA-t");
             Verify();
             await RconProtocol.DispatchDoExitAsync(locked.Map.RconPort,
-                password,Verify,ct);
+                password,AuthorizeSave,ct);
             stage?.Invoke("DoExit elküldve; a régi Windows ASA PID kilépését ellenőrzöm");
         }
         while(true)
@@ -294,7 +289,9 @@ internal static class LegacyStoreV1GracefulStop
         return new(mapId,approvedPid,true,false,true,DateTimeOffset.UtcNow,
             preExitObserved?
               "ORIGINAL_ACTIVE_STORE_PREEXIT_SAVE_EVIDENCE_AND_DOEXIT_PID_STOPPED":
-              "ORIGINAL_ACTIVE_STORE_PREEXIT_WORLD_METADATA_LOG_UNVERIFIED_DOEXIT_PID_STOPPED")
+            worldMetadataObserved?
+              "ORIGINAL_ACTIVE_STORE_PREEXIT_WORLD_METADATA_LOG_UNVERIFIED_DOEXIT_PID_STOPPED":
+              "ORIGINAL_ACTIVE_STORE_DOEXIT_PID_STOPPED_NO_INDEPENDENT_SAVE_WITNESS")
         {
             PreExitSaveLogAndWorldObserved=preExitObserved,
             PreExitWorldMetadataObserved=worldMetadataObserved
