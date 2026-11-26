@@ -85,7 +85,7 @@ internal static class LocalAsaApiModeTests
         var directStart=WindowsProcessInspector.BuildLaunchStartInfo(
             consoleFixture,directLaunch);
         Check(directStart.FileName==exe&&directStart.CreateNoWindow&&
-              directStart.WorkingDirectory==root,
+              directStart.WorkingDirectory==folder,
             "direct ASA keeps previous hidden-console launch behavior");
         // Merely inspecting ProcessStartInfo cannot start/stop any process.
 

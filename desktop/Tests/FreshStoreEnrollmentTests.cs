@@ -205,7 +205,22 @@ internal static class FreshStoreEnrollmentTests
                 "RCON/INI must be configured before new Store enrollment, never repaired after a first Start");
             manager.ReplaceMap(missingRcon,map);
             Reject(()=>FreshStoreEnrollmentPolicy.Prepare(manager,map,"KovaCluster"),
-                "new Store map cannot enroll directly into protected historical KovaCluster");
+                "unregistered cluster ID is not a valid target");
+            // The spelling of a cluster ID alone is not a storage format or
+            // ownership marker. A clean local profile may use any valid ID.
+            string ordinaryTransfer=Path.Combine(root,"ordinary-named-transfer");
+            Directory.CreateDirectory(ordinaryTransfer);
+            var ordinary=manager.Registry.CreateCluster("KovaCluster","Ordinary native cluster",ordinaryTransfer);
+            var ordinaryAssignment=manager.Registry.PreviewMapAssignments(ordinary.ClusterId,new[]{mapId});
+            Check(ordinaryAssignment.IsValid,"ordinary cluster ID is not reserved");
+            manager.Registry.ApplyMapAssignments(ordinary.ClusterId,new[]{mapId},ordinaryAssignment.BaseRevision);
+            var ordinaryPlan=FreshStoreEnrollmentPolicy.Prepare(manager,map,ordinary.ClusterId);
+            Check(ordinaryPlan.ClusterId==ordinary.ClusterId&&ordinaryPlan.TransferDirectory==ordinaryTransfer&&
+                ordinaryPlan.Arguments.Contains("-clusterid="+ordinary.ClusterId,StringComparison.Ordinal)&&
+                !AsaStoreArgumentSwitches.ContainsConversion(ordinaryPlan.Arguments),
+                "native cluster arguments follow actual registry ID and path, not a historical label");
+            var returnAssignment=manager.Registry.PreviewMapAssignments("new-local-cluster",new[]{mapId});
+            manager.Registry.ApplyMapAssignments("new-local-cluster",new[]{mapId},returnAssignment.BaseRevision);
             var unknownFlag=JsonSerializer.Deserialize<LocalMap>(
                 JsonSerializer.Serialize(map))!;
             unknownFlag.Arguments+=" -UnreviewedCommand=1";
@@ -323,8 +338,8 @@ internal static class FreshStoreEnrollmentTests
                     new{mapId,clusterId="KovaCluster"});
                 Check(!reserved.GetProperty("ok").GetBoolean()&&
                       reserved.GetProperty("error").GetString()==
-                        "UM-FRESH-STORE-KOVA-CLUSTER-RESERVED",
-                    "native enrollment reports the exact reserved historical cluster blocker without exposing UNC paths or other secrets");
+                        "UM-FRESH-STORE-MAP-MEMBERSHIP-REQUIRED",
+                    "native enrollment reports actual missing membership without exposing UNC paths or other secrets");
                 var preview=await Call(bridge,"freshStore.enrollmentPreview",
                     new{mapId,clusterId="new-local-cluster"});
                 Check(preview.GetProperty("ok").GetBoolean()&&
@@ -337,8 +352,8 @@ internal static class FreshStoreEnrollmentTests
                     new{mapId,clusterId="KovaCluster"});
                 Check(!rejectedReplacement.GetProperty("ok").GetBoolean()&&
                       rejectedReplacement.GetProperty("error").GetString()==
-                        "UM-FRESH-STORE-KOVA-CLUSTER-RESERVED",
-                    "rejected historical Store assignment cannot erase valid fresh enrollment ticket");
+                        "UM-FRESH-STORE-MAP-MEMBERSHIP-REQUIRED",
+                    "rejected foreign cluster assignment cannot erase valid fresh enrollment ticket");
                 var secondPreview=await Call(bridge,
                     "freshStore.enrollmentPreview",
                     new{mapId=secondMapId,clusterId="future-preview-cluster"});
