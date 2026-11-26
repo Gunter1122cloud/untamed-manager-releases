@@ -204,16 +204,29 @@ public sealed class UntamedOperationCoordinator
         if(!semaphore.WaitOne(0))return false;
         try
         {
-            var common=Read(Path.Combine(stateRoot,key+".json"),key);
-            if(common?.Phase is (UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator))
-                return false;
+            string journal=Path.Combine(stateRoot,key+".json");
+            var common=Read(journal,key);
+            bool paired=common?.Phase is (UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator);
+            if(paired&&(common!.Kind!=UntamedOperationKind.Launch||
+                common.UpdatedUtc<expected.CreatedUtc||
+                common.UpdatedUtc>DateTimeOffset.UtcNow||
+                DateTimeOffset.UtcNow-common.UpdatedUtc<TimeSpan.FromMinutes(3)))return false;
             if(expected.MapId!=mapId||expected.Resource!=key||
                 expected.Phase is not (AsaStopPhase.Pending or AsaStopPhase.NeedsOperator)||
                 DateTimeOffset.UtcNow-expected.ChangedUtc<TimeSpan.FromMinutes(3)||
                 stop.Observe()!=expected||!verifyStopped())return false;
             new AsaManualRestartJournal(installation).DemandNoPending();
-            if(stop.Observe()!=expected||!verifyStopped())return false;
+            if(paired)ArchiveInterruptedStart(journal,key,common!);
+            if(stop.Observe()!=expected||Read(journal,key)!=common||!verifyStopped())return false;
             stop.ReviewStopped(mapId,expected.Id);
+            if(paired)
+            {
+                // The original Stop and common Launch receipts represent one
+                // interrupted runtime operation. Neither is marked successful.
+                // The installation lease excludes another native mutation.
+                if(Read(journal,key)!=common||!verifyStopped())return false;
+                Write(journal,common! with{Phase=UntamedOperationPhase.OperatorReviewed,UpdatedUtc=DateTimeOffset.UtcNow});
+            }
             return true;
         }
         finally{semaphore.Release();}

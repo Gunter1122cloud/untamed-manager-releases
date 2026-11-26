@@ -111,9 +111,50 @@ internal static class OperationJournalIsolationTests
             "failed launch does not reserve an unrelated installation");
     }
 
+    private static void PairedStopReconciliation(string testsRoot)
+    {
+        string folder=Path.Combine(testsRoot,"paired-stop-reconciliation");
+        string installation=Path.Combine(folder,"installation");
+        string journals=Path.Combine(folder,"journals");
+        Directory.CreateDirectory(installation);
+        using var scope=UntamedOperationCoordinator.UseIsolatedRootForTests(journals);
+        var operations=new UntamedOperationCoordinator(journals);
+        var stop=new AsaManualStopJournal(installation);
+        Guid map=Guid.NewGuid();
+        var attempt=stop.Begin(map,12345,DateTimeOffset.UtcNow.AddHours(-1));
+        using(var interrupted=operations.Acquire(installation,UntamedOperationKind.Launch))
+            interrupted.MarkMutationStarted();
+        var stoppedRecord=stop.Finish(attempt.Id,AsaStopPhase.NeedsOperator);
+        // Age the synthetic receipts, not the actual Windows clock.
+        var timestamp=DateTimeOffset.UtcNow.AddMinutes(-5);
+        string key=UntamedOperationCoordinator.ResourceKey(installation);
+        string commonPath=Path.Combine(journals,key+".json");
+        string stopPath=Path.Combine(journals,"GracefulStop-v1",key+".json");
+        var common=operations.Observe(installation)! with{UpdatedUtc=timestamp};
+        stoppedRecord=stoppedRecord with{CreatedUtc=timestamp.AddSeconds(-2),ChangedUtc=timestamp};
+        File.WriteAllText(commonPath,JsonSerializer.Serialize(common));
+        File.WriteAllText(stopPath,JsonSerializer.Serialize(stoppedRecord,new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        var commonBytes=File.ReadAllBytes(commonPath);
+        var stopBytes=File.ReadAllBytes(stopPath);
+        Check(!operations.TryReconcileStoppedReceipt(installation,map,stop,stoppedRecord,()=>false)&&
+            File.ReadAllBytes(commonPath).SequenceEqual(commonBytes)&&File.ReadAllBytes(stopPath).SequenceEqual(stopBytes),
+            "unverified process state never clears either paired receipt");
+        Check(operations.TryReconcileStoppedReceipt(installation,map,stop,stoppedRecord,()=>true),
+            "stopped process releases paired runtime receipts without operator action");
+        stop.DemandNoPending(map);
+        Check(operations.Observe(installation)?.Phase==UntamedOperationPhase.OperatorReviewed&&
+            stop.Observe()?.Phase==AsaStopPhase.OperatorReviewed,
+            "both interrupted receipts close without claiming success");
+        Check(File.ReadAllBytes(Path.Combine(journals,key+"-"+common.Operation.ToString("N")+".interrupted-runtime.json")).SequenceEqual(commonBytes)&&
+            File.ReadAllBytes(Path.Combine(journals,"GracefulStop-v1",key+"-"+attempt.Id.ToString("N")+".operator-reviewed.json")).SequenceEqual(stopBytes),
+            "paired runtime reconciliation preserves both original receipts");
+        using(var next=operations.Acquire(installation,UntamedOperationKind.Launch))next.Complete();
+    }
+
     public static async Task Run(string testsRoot)
     {
         StoppedStartReconciliation(testsRoot);
+        PairedStopReconciliation(testsRoot);
         string root=Path.Combine(testsRoot,"child-operation-journal-isolation");
         string journals=Path.Combine(root,"journals");
         string install=Path.Combine(root,"fake-asa-install");
