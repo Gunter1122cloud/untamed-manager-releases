@@ -82,6 +82,41 @@ using(var cancelledSave=new CancellationTokenSource())
     Check(cancellationPreserved&&fallbackChecks==1,"cancelled operation does not permit DoExit fallback");
 }
 
+// DoExit can close its socket during the command write. Only transport
+// uncertainty AFTER successful authenticated ownership authorization may
+// enter the existing bounded process-exit observation; never replay it.
+{
+    int dispatchAttempts=0,authorizationChecks=0;
+    bool sent=await AsaGracefulStop.TryDispatchDoExitAsync(authorize=>{
+        dispatchAttempts++;authorize();
+        return Task.FromException(new IOException("synthetic socket closed during DoExit"));
+    },()=>authorizationChecks++,null,CancellationToken.None);
+    Check(!sent&&dispatchAttempts==1&&authorizationChecks==1,
+        "uncertain authenticated DoExit proceeds to exit observation without replay or dispatch certification");
+    bool preAuthRejected=false;
+    try{await AsaGracefulStop.TryDispatchDoExitAsync(
+        _=>Task.FromException(new IOException("synthetic connection failed before auth")),
+        ()=>authorizationChecks++,null,CancellationToken.None);}
+    catch(IOException){preAuthRejected=true;}
+    Check(preAuthRejected&&authorizationChecks==1,"pre-authentication transport failure does not authorize shutdown");
+    bool ownerRejected=false;
+    try{await AsaGracefulStop.TryDispatchDoExitAsync(authorize=>{
+        authorize();return Task.CompletedTask;
+    },()=>throw new IOException("synthetic ownership verification failed"),null,CancellationToken.None);}
+    catch(IOException){ownerRejected=true;}
+    Check(ownerRejected,"failed ownership verification never permits uncertain dispatch handling");
+    using var cancelledExit=new CancellationTokenSource();
+    bool cancelRejected=false;
+    try{await AsaGracefulStop.TryDispatchDoExitAsync(authorize=>{
+        authorize();cancelledExit.Cancel();return Task.FromCanceled(cancelledExit.Token);
+    },()=>{},null,cancelledExit.Token);}
+    catch(OperationCanceledException){cancelRejected=true;}
+    Check(cancelRejected,"outer Stop deadline and cancellation remain authoritative");
+    Check(await AsaGracefulStop.TryDispatchDoExitAsync(authorize=>{
+        authorize();return Task.CompletedTask;
+    },()=>{},null,CancellationToken.None),"normal successful DoExit retains dispatch receipt");
+}
+
 // A reconciled Stop receipt must override terminal error history, but not
 // an active worker or an unresolved durable Stop.
 Check(!DesktopFreshAsaStopBridge.PreferTrackedStop("needsOperator",AsaStopPhase.Completed)&&
