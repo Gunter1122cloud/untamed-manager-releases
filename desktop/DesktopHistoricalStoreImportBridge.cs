@@ -715,7 +715,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     if(existing!=null)
                     {
                         if(!existing.HistoricalSupplementalSource||
-                           !LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,existing))
+                           !LegacyStoreV1PinnedSource.HasRuntimeIdentity(cluster.Store.Root,existing))
                             return Fail(id,"UM-STORE-EXTRA-GUID-OR-NAME-CONFLICT");
                         return Ok(id,new{alreadyRegistered=true,mapId=extraId,mapName=existing.Name});
                     }
@@ -750,7 +750,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         if(existing!=null)
                         {
                             if(!existing.HistoricalSupplementalSource||
-                               !LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,existing)||
+                               !LegacyStoreV1PinnedSource.HasRuntimeIdentity(cluster.Store.Root,existing)||
                                !cluster.Registry.Snapshot().ClusterRegistry.MapAssignments.Any(x=>x.MapId==requestedExtra))
                                 return Fail(id,"UM-STORE-EXTRA-GUID-OR-NAME-CONFLICT");
                             return Ok(id,new{alreadyRegistered=true,mapId=existing.Id,mapName=existing.Name,
