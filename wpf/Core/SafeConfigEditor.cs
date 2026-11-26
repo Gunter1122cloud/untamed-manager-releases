@@ -90,9 +90,9 @@ public static class SafeConfigEditor
         string backup=target+".untamed-"+token+".bak";
         try
         {
-            operation.MarkMutationStarted();
             var data=Encode(baseline,Normalize(edited,baseline.LineEnding));
-            File.WriteAllBytes(tmp,data);
+            using(var staged=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+            {staged.Write(data);staged.Flush(true);}
             if(!Hex(File.ReadAllBytes(tmp)).Equals(preview.NewSha256,StringComparison.Ordinal))
                 throw new IOException("Staged config checksum mismatch");
             if(!Hex(File.ReadAllBytes(target)).Equals(baseline.Sha256,StringComparison.Ordinal))
@@ -102,6 +102,8 @@ public static class SafeConfigEditor
             // not inherit the earlier 'stopped' decision from editor opening.
             if(recheck!=null)
                 ValidatePath(target,mapInstallation,baseline.Kind,recheck(),maintenance);
+            operation.MarkAtomicConfigurationStarted(mapInstallation,new AtomicConfigWitness(
+                Path.GetRelativePath(mapInstallation,target),baseline.Kind,baseline.Sha256,preview.NewSha256));
             File.Replace(tmp,target,backup,true);
             if(!Hex(File.ReadAllBytes(target)).Equals(preview.NewSha256,StringComparison.Ordinal))
                 throw new IOException("Applied config checksum mismatch; manual recovery required: "+backup);
@@ -109,6 +111,25 @@ public static class SafeConfigEditor
             return backup;
         }
         finally{if(File.Exists(tmp))File.Delete(tmp);}
+    }
+
+    // Read-only classification of an atomic replacement. A third hash,
+    // missing target, symlink or malformed journal never grants admission.
+    internal static string? ObserveAtomicConfig(string installation,AtomicConfigWitness witness)
+    {
+        try
+        {
+            bool Hash(string? s)=>s is {Length:64}&&s.All(Uri.IsHexDigit);
+            if(string.IsNullOrWhiteSpace(witness.RelativePath)||Path.IsPathRooted(witness.RelativePath)||
+               !Hash(witness.BeforeSha256)||!Hash(witness.AfterSha256)||
+               witness.BeforeSha256==witness.AfterSha256)return null;
+            string target=Path.GetFullPath(Path.Combine(installation,witness.RelativePath));
+            ValidatePath(target,installation,witness.Kind,null,false,requireStopped:false);
+            var observed=ReadBytes(target,witness.Kind).Sha256;
+            return observed==witness.BeforeSha256||observed==witness.AfterSha256?observed:null;
+        }
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or ArgumentException or
+            InvalidOperationException or JsonException or NotSupportedException){return null;}
     }
 
     // Called only while the caller holds the installation Launch lease.
