@@ -204,7 +204,8 @@ public static class AsaApiOwnedInstaller
                (item.HadOriginal&&Hash(target)!=item.PreviousHash))
                 throw new IOException("UM-API-CORE-SOURCE-CHANGED");
         }
-        lease.MarkMutationStarted();
+        lease.MarkApiCoreStarted(new ApiCoreRecoveryWitness(mapId,Guid.ParseExact(id,"N"),
+            Hash(Path.Combine(journal,"transaction.json")),false));
         try
         {
             foreach(var item in items)
@@ -253,6 +254,95 @@ public static class AsaApiOwnedInstaller
             throw;
         }
     }
+    // Reconcile the exact transaction, not an arbitrary Update receipt.
+    // A failed install is restored to its previous verified binary set;
+    // an already completed install is retained. Explicit rollback resumes
+    // toward the previous set. Unknown bytes are never overwritten.
+    internal static bool TryRecoverInterrupted(ClusterService cluster,LocalMap map)
+    {
+        return cluster.Operations.TryReconcileApiCore(map.InstallationPath,witness=>{
+            if(witness.MapId!=map.Id)return false;
+            var (_,root,binary)=Preflight(cluster,map.Id);
+            string tx=Safe(Path.Combine(cluster.Store.Root,"api-core-transactions",
+                witness.TransactionId.ToString("N")));
+            return RecoverTransaction(map.Id,root,binary,tx,witness,()=>{
+                var current=Preflight(cluster,map.Id);
+                return current.Root==root&&current.Binary==binary;
+            });
+        });
+    }
+
+    internal static bool RecoverTransaction(Guid mapId,string root,string binary,string transaction,
+        ApiCoreRecoveryWitness witness,Func<bool> stopped)
+    {
+        if(witness.MapId!=mapId||witness.TransactionId==Guid.Empty||
+           Path.GetFileName(transaction)!=witness.TransactionId.ToString("N")||!stopped())return false;
+        string statePath=Safe(Path.Combine(transaction,"transaction.json"));
+        if(!File.Exists(statePath)||new FileInfo(statePath).Length is <50 or >32768)return false;
+        byte[] stateBytes=File.ReadAllBytes(statePath);
+        if(Convert.ToHexString(SHA256.HashData(stateBytes))!=witness.StateSha256)return false;
+        var state=JsonSerializer.Deserialize<State>(stateBytes);
+        bool Digest(string? s)=>s is {Length:64}&&s.All(Uri.IsHexDigit);
+        var eligible=Required.Concat(Dependencies).ToHashSet(StringComparer.Ordinal);
+        if(state==null||state.Schema!=1||state.MapId!=mapId||
+           !string.Equals(state.Installation,root,StringComparison.OrdinalIgnoreCase)||
+           state.Phase!="prepared"||!Digest(state.AssetDigest)||
+           state.Files==null||state.Files.Length<Required.Length||state.Files.Length>eligible.Count||
+           state.Files.Any(i=>i==null||!eligible.Contains(i.Relative)||!Digest(i.NewHash)||
+                (i.HadOriginal?!Digest(i.PreviousHash):i.PreviousHash!=""))||
+           state.Files.Select(i=>i.Relative).Distinct(StringComparer.Ordinal).Count()!=state.Files.Length||
+           Required.Any(n=>!state.Files.Any(i=>i.Relative==n)))return false;
+        string complete=Safe(Path.Combine(transaction,"complete"));
+        string rolled=Safe(Path.Combine(transaction,"rolled-back"));
+        string intent=Safe(Path.Combine(transaction,"rollback-intent"));
+        if(witness.Rollback?(!File.Exists(complete)||!File.Exists(intent)):File.Exists(intent))return false;
+        string Target(Item i)=>Safe(Path.Combine(binary,i.Relative.Replace('/',Path.DirectorySeparatorChar)));
+        string Previous(Item i)=>Safe(Path.Combine(transaction,"previous",i.Relative.Replace('/',Path.DirectorySeparatorChar)));
+        string Payload(Item i)=>Safe(Path.Combine(transaction,"payload",i.Relative.Replace('/',Path.DirectorySeparatorChar)));
+        bool Old(Item i)=>i.HadOriginal?File.Exists(Target(i))&&Hash(Target(i))==i.PreviousHash:
+            !File.Exists(Target(i))&&!Directory.Exists(Target(i));
+        bool New(Item i)=>File.Exists(Target(i))&&Hash(Target(i))==i.NewHash;
+        bool Known(Item i)=>Old(i)||New(i);
+        if(state.Files.Any(i=>!File.Exists(Payload(i))||Hash(Payload(i))!=i.NewHash||
+            (i.HadOriginal&&(!File.Exists(Previous(i))||Hash(Previous(i))!=i.PreviousHash))||
+            !Known(i)))return false;
+        if(!witness.Rollback&&File.Exists(complete))
+            return !File.Exists(rolled)&&state.Files.All(New)&&stopped();
+        if(File.Exists(rolled))return witness.Rollback&&state.Files.All(Old)&&stopped();
+        // Verify the entire set before any write, then the affected file
+        // again at each boundary. The saved payload retains newly added DLLs.
+        foreach(var i in state.Files.Reverse())
+        {
+            if(!stopped()||!Known(i)||Hash(statePath)!=witness.StateSha256)return false;
+            if(Old(i))continue;
+            string target=Target(i);
+            if(i.HadOriginal)
+            {
+                string incoming=target+".untamed-recovery-"+Guid.NewGuid().ToString("N");
+                try
+                {
+                    File.Copy(Previous(i),incoming,false);
+                    if(Hash(incoming)!=i.PreviousHash||!stopped()||!New(i))return false;
+                    using(var output=new FileStream(incoming,FileMode.Open,FileAccess.ReadWrite,FileShare.None))
+                        output.Flush(true);
+                    File.Move(incoming,target,true);
+                }
+                finally{if(File.Exists(incoming))File.Delete(incoming);}
+            }
+            else
+            {
+                if(!stopped()||!New(i)||Hash(Payload(i))!=i.NewHash)return false;
+                File.Delete(target);
+            }
+        }
+        if(!state.Files.All(Old)||!stopped())return false;
+        string marker=witness.Rollback?rolled:Safe(Path.Combine(transaction,"recovered-original"));
+        if(!File.Exists(marker))
+            Durable(marker,new{schema=1,mapId,transactionId=witness.TransactionId,
+                utc=DateTimeOffset.UtcNow,bytesVerified=true,runtimeVerified=false});
+        return true;
+    }
+
     // UI receives opaque transaction identifiers only, never arbitrary disk
     // paths. The actual rollback revalidates every SHA-256 under a machine lock.
     public sealed record RollbackCandidate(string TransactionId,string ReleaseTag,
@@ -381,7 +471,8 @@ public static class AsaApiOwnedInstaller
             schema=1,mapId,transactionId,utc=DateTimeOffset.UtcNow,
             expected=state.Files.Length
         });
-        lease.MarkMutationStarted();
+        lease.MarkApiCoreStarted(new ApiCoreRecoveryWitness(mapId,Guid.ParseExact(transactionId,"N"),
+            Hash(statePath),true));
         int restored=0,removed=0;
         foreach(var item in state.Files)
         {

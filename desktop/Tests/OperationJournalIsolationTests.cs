@@ -240,8 +240,49 @@ internal static class OperationJournalIsolationTests
               !Directory.Exists(active),"verified plugin directory move is retired without changing plugin data");
     }
 
+    private static void ApiCoreReconciliation(string testsRoot)
+    {
+        string folder=Path.Combine(testsRoot,"api-core-recovery");
+        string install=Path.Combine(folder,"map"),binary=Path.Combine(install,"ShooterGame","Binaries","Win64");
+        Guid mapId=Guid.NewGuid(),tx=Guid.NewGuid();
+        string transaction=Path.Combine(folder,"profile","api-core-transactions",tx.ToString("N"));
+        string previous=Path.Combine(transaction,"previous"),payload=Path.Combine(transaction,"payload");
+        Directory.CreateDirectory(Path.Combine(binary,"ArkApi"));
+        Directory.CreateDirectory(previous);Directory.CreateDirectory(Path.Combine(payload,"ArkApi"));
+        string HashText(string s)=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(s)));
+        File.WriteAllText(Path.Combine(previous,"AsaApiLoader.exe"),"old-loader");
+        File.WriteAllText(Path.Combine(payload,"AsaApiLoader.exe"),"new-loader");
+        File.WriteAllText(Path.Combine(payload,"ArkApi","AsaApi.dll"),"new-api");
+        File.WriteAllText(Path.Combine(binary,"AsaApiLoader.exe"),"new-loader");
+        File.WriteAllText(Path.Combine(binary,"ArkApi","AsaApi.dll"),"external-change");
+        string state=Path.Combine(transaction,"transaction.json");
+        File.WriteAllText(state,JsonSerializer.Serialize(new{Schema=1,MapId=mapId,Installation=install,
+            ReleaseTag="synthetic",AssetDigest=new string('A',64),Phase="prepared",Files=new[]{
+                new{Relative="AsaApiLoader.exe",HadOriginal=true,PreviousHash=HashText("old-loader"),NewHash=HashText("new-loader")},
+                new{Relative="ArkApi/AsaApi.dll",HadOriginal=false,PreviousHash="",NewHash=HashText("new-api")}
+            }}));
+        var witness=new ApiCoreRecoveryWitness(mapId,tx,HashText(File.ReadAllText(state)),false);
+        Check(!AsaApiOwnedInstaller.RecoverTransaction(mapId,install,binary,transaction,witness,()=>true)&&
+            File.ReadAllText(Path.Combine(binary,"AsaApiLoader.exe"))=="new-loader",
+            "unknown API core bytes prevent recovery before any file mutation");
+        File.WriteAllText(Path.Combine(binary,"ArkApi","AsaApi.dll"),"new-api");
+        Check(!AsaApiOwnedInstaller.RecoverTransaction(mapId,install,binary,transaction,witness,()=>false),
+            "running API owner prevents automatic recovery");
+        var ops=new UntamedOperationCoordinator(Path.Combine(folder,"journals"));
+        using(var lease=ops.Acquire(install,UntamedOperationKind.Update))
+            lease.MarkApiCoreStarted(witness);
+        Check(ops.TryReconcileApiCore(install,w=>AsaApiOwnedInstaller.RecoverTransaction(
+            mapId,install,binary,transaction,w,()=>true))&&
+            File.ReadAllText(Path.Combine(binary,"AsaApiLoader.exe"))=="old-loader"&&
+            !File.Exists(Path.Combine(binary,"ArkApi","AsaApi.dll"))&&
+            File.Exists(Path.Combine(payload,"ArkApi","AsaApi.dll")),
+            "interrupted API core install restores prior set while retaining staged bytes");
+    }
+
     public static async Task Run(string testsRoot)
     {
+        ApiCoreReconciliation(testsRoot);
         PluginToggleReconciliation(testsRoot);
         BackupPublicationReconciliation(testsRoot);
         AtomicConfigReconciliation(testsRoot);
