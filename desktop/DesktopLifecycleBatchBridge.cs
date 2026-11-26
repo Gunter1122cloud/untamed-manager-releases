@@ -27,6 +27,7 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
         DateTimeOffset Expires,Plan[] Plans);
     private readonly ClusterService cluster;
     private readonly Func<LocalMap,ProcessCheck> observe;
+    private readonly Func<Guid,bool>? noActiveNativeWorker;
     private readonly Func<Guid,string,bool,CancellationToken,Task<(int Pid,Guid? JobId)>> execute;
     private readonly object sync=new();
     private readonly string root,journal,owner;
@@ -40,9 +41,10 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
         Func<string,Task<string>> historicalStop,Func<string,Task<string>> historicalRestart,
         Func<string,Task<string>> historicalReadOnly,
         Func<LocalMap,ProcessCheck>? isolatedObservation=null,
-        Func<Guid,string,bool,CancellationToken,Task<(int Pid,Guid? JobId)>>? isolatedExecution=null)
+        Func<Guid,string,bool,CancellationToken,Task<(int Pid,Guid? JobId)>>? isolatedExecution=null,
+        Func<Guid,bool>? noActiveNativeWorker=null)
     {
-        cluster=source;
+        cluster=source;this.noActiveNativeWorker=noActiveNativeWorker;
         root=Path.GetFullPath(cluster.Store.Root);
         if(root.StartsWith(@"\\",StringComparison.Ordinal)||
            new DriveInfo(Path.GetPathRoot(root)!).DriveType!=DriveType.Fixed)
@@ -247,13 +249,18 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
             held.Dispose();
         }
     }
-    // Only a batch without any unresolved dispatch may be closed
-    // automatically. The original receipt remains byte-for-byte archived.
-    private Receipt? CloseIdleBatch()
+    // The caller owns the batch OS lease. A dead orchestration receipt is
+    // history, not a native installation lock. Retire an uncertain dispatch
+    // only when its native worker and installation lease are no longer active.
+    // The next action still goes through the full native preflight.
+    private Receipt? CloseIdleBatch(bool retireUncertain=false)
     {
         var previous=Read();
-        if(previous?.State is not ("running" or "needsReview")||
-            previous.Targets.Any(t=>t.State is not ("queued" or "skipped" or "completed")))return previous;
+        if(previous?.State is not ("running" or "needsReview"))return previous;
+        if(previous.Targets.Any(t=>t.State is not ("queued" or "skipped" or "completed" or "dispatching" or "unknown")))return previous;
+        var uncertain=previous.Targets.Where(t=>t.State is "dispatching" or "unknown").ToArray();
+        if(uncertain.Length!=0&&(!retireUncertain||noActiveNativeWorker==null||
+            uncertain.Any(t=>!noActiveNativeWorker(t.MapId))))return previous;
         string archive=Path.Combine(root,"native-lifecycle-batch-"+previous.JobId.ToString("N")+".abandoned.json");
         byte[] bytes=File.ReadAllBytes(journal);
         if(File.Exists(archive))
@@ -273,7 +280,8 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
             finally{if(File.Exists(tmp))File.Delete(tmp);}
         }
         var closed=previous with{State="reviewed",UpdatedUtc=DateTimeOffset.UtcNow,
-            Targets=previous.Targets.Select(t=>t.State=="queued"?t with{State="skipped",Evidence="ABANDONED_NOT_DISPATCHED"}:t).ToArray()};
+            Targets=previous.Targets.Select(t=>t.State=="queued"?t with{State="skipped",Evidence="ABANDONED_NOT_DISPATCHED"}:
+                t.State=="dispatching"?t with{State="unknown",Evidence="ABANDONED_DISPATCH_OUTCOME_UNKNOWN_NO_REPLAY"}:t).ToArray()};
         Write(closed);return closed;
     }
     // The outer host also checks native workers before handing off. A
@@ -295,7 +303,7 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                 var current=Read();
                 if(current==null||current.State is not ("running" or "needsReview"))return true;
                 bool live;
-                try{using var held=LockOwner();current=CloseIdleBatch();live=false;}
+                try{using var held=LockOwner();current=CloseIdleBatch(retireUncertain:true);live=false;}
                 catch(IOException){live=true;}
                 if(current==null||current.State is not ("running" or "needsReview"))return true;
                 return !current.Targets.Any(t=>maps.Contains(t.MapId)&&
@@ -361,7 +369,7 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                 if(method=="operations.lifecycleBatchPreview")
                 {
                     using var held=LockOwner();
-                    if(CloseIdleBatch()?.State is "running" or "needsReview")
+                    if(CloseIdleBatch(retireUncertain:true)?.State is "running" or "needsReview")
                         return Task.FromResult(Fail(id,"UM-BATCH-PRIOR-REVIEW"));
                     string action=a.GetProperty("action").GetString()??"";
                     int delay=a.GetProperty("delaySeconds").GetInt32();
@@ -387,7 +395,7 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                     var held=LockOwner();
                     try
                     {
-                        var previous=CloseIdleBatch();
+                        var previous=CloseIdleBatch(retireUncertain:true);
                         if(previous?.State is "running" or "needsReview")throw new InvalidOperationException("UM-BATCH-PRIOR-REVIEW");
                         if(previous!=null)
                         {
@@ -418,6 +426,23 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
         var map=Owned(plan.MapId);var state=observe(map);
         if(Fingerprint(map)!=plan.Fingerprint||!Eligible(map,state,action)||!SameState(state,plan.Observation))
             throw new InvalidOperationException("UM-BATCH-TARGET-CHANGED");
+    }
+    private bool RemainingInstallationsDisjoint(Plan failed,IEnumerable<Plan> remaining)
+    {
+        try
+        {
+            string Root(Guid id)=>Path.TrimEndingDirectorySeparator(Path.GetFullPath(Owned(id).InstallationPath));
+            string old=Root(failed.MapId);
+            foreach(var plan in remaining)
+            {
+                string next=Root(plan.MapId);
+                if(old.Equals(next,StringComparison.OrdinalIgnoreCase)||
+                   old.StartsWith(next+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)||
+                   next.StartsWith(old+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))return false;
+            }
+            return true;
+        }
+        catch{return false;}
     }
     private async Task RunAsync(Receipt initial,Approval approved,FileStream held,CancellationToken ct,DiscordOperationEvents.NativeRun events)
     {
@@ -461,16 +486,25 @@ public sealed class DesktopLifecycleBatchBridge : IDisposable
                     catch(Exception ex)
                     {
                         Set(i,"unknown",NativeLifecycleFailureCode.From(ex));
+                        DesktopDiscordNotifications.Record(cluster,plan.MapId,"lifecycle",true);
+                        // Cerious bulk operations retain individual failures.
+                        // Do not replay this target. Proceed only if its worker
+                        // is inactive and the remaining installations are disjoint.
+                        if(ex is not OperationCanceledException&&!ct.IsCancellationRequested&&
+                            noActiveNativeWorker?.Invoke(plan.MapId)==true&&
+                            RemainingInstallationsDisjoint(plan,approved.Plans.Skip(i+1)))
+                            continue;
                         for(int j=i+1;j<approved.Plans.Length;j++)Set(j,"skipped","HALTED_AFTER_UNCERTAIN_NATIVE_OPERATION");
                         receipt=receipt with{State="needsReview",UpdatedUtc=DateTimeOffset.UtcNow};Finish(receipt,held);
-                        events.Emit("terminal","uncertain","BATCH_HALTED_AFTER_UNCERTAIN_NATIVE_OPERATION");
-                        DesktopDiscordNotifications.Record(cluster,plan.MapId,"lifecycle",true);return;
+                        events.Emit("terminal","uncertain","BATCH_HALTED_AFTER_UNCERTAIN_NATIVE_OPERATION");return;
                     }
                     if(i+1<approved.Plans.Length&&approved.DelaySeconds>0)
                         await Task.Delay(TimeSpan.FromSeconds(approved.DelaySeconds),ct);
                 }
-                receipt=receipt with{State="completed",UpdatedUtc=DateTimeOffset.UtcNow};Finish(receipt,held);
-                events.Emit("terminal","limited",receipt.Targets.All(t=>t.State=="completed")?"BATCH_LOCAL_RECEIPTS_CLIENT_GAMEPLAY_UNVERIFIED":"BATCH_COMPLETED_WITH_SKIPPED_TARGETS");
+                bool uncertain=receipt.Targets.Any(t=>t.State=="unknown");
+                receipt=receipt with{State=uncertain?"needsReview":"completed",UpdatedUtc=DateTimeOffset.UtcNow};Finish(receipt,held);
+                events.Emit("terminal",uncertain?"uncertain":"limited",uncertain?"BATCH_FINISHED_WITH_UNKNOWN_TARGETS_NO_REPLAY":
+                    receipt.Targets.All(t=>t.State=="completed")?"BATCH_LOCAL_RECEIPTS_CLIENT_GAMEPLAY_UNVERIFIED":"BATCH_COMPLETED_WITH_SKIPPED_TARGETS");
             }
             catch(Exception ex)
             {

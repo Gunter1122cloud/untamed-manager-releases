@@ -506,7 +506,11 @@ public sealed class ObsidianWindow : Form
         _lifecycleBatch = new DesktopLifecycleBatchBridge(_bridge.LocalCluster,
             _freshStart.HandleAsync,_freshStop.HandleAsync,_freshRestart.HandleAsync,
             _historicalStart.HandleAsync,_historicalStop.HandleAsync,_historicalRestart.HandleAsync,
-            _historicalReadOnlyRcon.HandleAsync);
+            _historicalReadOnlyRcon.HandleAsync,noActiveNativeWorker:id=>{
+                if(NativeLifecycleWorkerBusy(id))return false;
+                var map=System.Linq.Enumerable.SingleOrDefault(_bridge.LocalCluster.Config.LocalMaps,m=>m.Id==id);
+                return map!=null&&!_bridge.LocalCluster.Operations.IsInstallationBusy(map.InstallationPath);
+            });
         _lan = new DesktopLanSettingsBridge(_bridge.LocalCluster);
         _travel = new DesktopStoreTravelEvidenceBridge(_bridge.LocalCluster);
         _embeddedStore = new DesktopEmbeddedStoreBridge();
