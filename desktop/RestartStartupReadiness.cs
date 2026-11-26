@@ -35,6 +35,42 @@ internal static class RestartStartupReadiness
         string.Equals(current.ExecutablePath,expected.ExecutablePath,
             StringComparison.OrdinalIgnoreCase);
 
+    // Shared Loader-to-ASA adoption for both restart paths. Like YARK's
+    // process-start adoption, this only observes a child of the launched
+    // Loader; it never starts another process or treats the parent as ASA.
+    internal static async Task<ProcessCheck> WaitForApiChildAsync(
+        LocalMap map,ProcessIdentity loader,int oldPid,
+        Func<LocalMap,ProcessCheck> inspect,Func<int,int,bool> portOwner,
+        CancellationToken ct,TimeSpan? maximum=null,TimeSpan? interval=null)
+    {
+        var duration=maximum??FreshStoreApiPairObserver.StartupObservationWindow;
+        var poll=interval??TimeSpan.FromMilliseconds(850);
+        var elapsed=System.Diagnostics.Stopwatch.StartNew();
+        int missingLoader=0;
+        bool childEverSeen=false;
+        while(elapsed.Elapsed<duration)
+        {
+            ct.ThrowIfCancellationRequested();
+            var family=inspect(map);
+            bool sameLoader=Same(family.LoaderIdentity,loader);
+            if(sameLoader)missingLoader=0;
+            else if(++missingLoader>=3)
+                throw new InvalidOperationException("UM-RESTART-API-LOADER-EXITED-OR-REPLACED");
+            var child=family.Identity;
+            bool correctChild=child is {Pid:>0}&&child.Pid!=oldPid&&child.Pid!=loader.Pid&&
+                string.Equals(child.ExecutablePath,map.ExecutablePath,StringComparison.OrdinalIgnoreCase);
+            if(correctChild)childEverSeen=true;
+            else if(childEverSeen)
+                throw new InvalidOperationException("UM-RESTART-NEW-ASA-EXITED-OR-REPLACED");
+            if(sameLoader&&correctChild&&family.Running&&!family.ConfirmedStopped&&
+                portOwner(map.RconPort,child!.Pid))return family;
+            var remaining=duration-elapsed.Elapsed;
+            if(remaining<=TimeSpan.Zero)break;
+            await Task.Delay(poll<remaining?poll:remaining,ct);
+        }
+        throw new TimeoutException("UM-RESTART-API-CHILD-RCON-NOT-VERIFIED");
+    }
+
     private static bool LoadedPlugins(LocalMap map,ProcessIdentity child)
     {
         if(!map.StartWithAsaApi)return true;

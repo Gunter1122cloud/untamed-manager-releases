@@ -98,6 +98,31 @@ internal static class RestartStartupReadinessTests
               Directory.GetFiles(journals,"*.failed.json").Length==3,
             "failed attempts preserved after retry exhaustion");
 
+        // Both restart paths now use one process-family adoption routine.
+        var loaderIdentity=new ProcessIdentity{Pid=200,StartedUtc=DateTimeOffset.UtcNow,
+            ExecutablePath=Path.Combine(root,"AsaApiLoader.exe")};
+        var childIdentity=new ProcessIdentity{Pid=201,StartedUtc=loaderIdentity.StartedUtc.AddSeconds(1),
+            ExecutablePath=Path.Combine(root,"ArkAscendedServer.exe")};
+        var apiMap=new LocalMap{ExecutablePath=childIdentity.ExecutablePath,RconPort=37085,StartWithAsaApi=true};
+        int adoptionPolls=0;
+        var adopted=await RestartStartupReadiness.WaitForApiChildAsync(apiMap,loaderIdentity,199,_=>{
+            adoptionPolls++;
+            return new ProcessCheck(true,"fixture",adoptionPolls==1?null:childIdentity,false,loaderIdentity);
+        },(port,pid)=>port==37085&&pid==201&&adoptionPolls>=3,CancellationToken.None,
+            TimeSpan.FromSeconds(2),TimeSpan.FromMilliseconds(1));
+        Check(adoptionPolls==3&&adopted.Identity==childIdentity,
+            "shared Loader adoption waits for exact ASA child and owned RCON port");
+        bool wrongParentRejected=false;
+        var otherLoader=new ProcessIdentity{Pid=loaderIdentity.Pid,StartedUtc=loaderIdentity.StartedUtc.AddSeconds(1),
+            ExecutablePath=loaderIdentity.ExecutablePath};
+        try{
+            await RestartStartupReadiness.WaitForApiChildAsync(apiMap,loaderIdentity,199,
+                _=>new ProcessCheck(true,"reused PID",childIdentity,false,otherLoader),
+                (_,_)=>true,CancellationToken.None,TimeSpan.FromSeconds(2),TimeSpan.FromMilliseconds(1));
+        }catch(InvalidOperationException ex) when(ex.Message=="UM-RESTART-API-LOADER-EXITED-OR-REPLACED")
+        {wrongParentRejected=true;}
+        Check(wrongParentRejected,"reused Loader PID cannot adopt another ASA family");
+
         var pidOnly=Proof(true,true,false,false,false,false);
         Check(!pidOnly.Ready(true)&&!pidOnly.Ready(false),
             "an ASA child PID alone never certifies restart");

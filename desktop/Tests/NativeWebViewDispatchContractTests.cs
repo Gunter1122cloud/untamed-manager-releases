@@ -315,15 +315,16 @@ internal static class NativeWebViewDispatchContractTests
         Check(FreshStoreApiPairObserver.StartupObservationWindow==
                 TimeSpan.FromMinutes(10),
             "production ASA Loader-child observation window is ten minutes");
+        Check(Read("desktop/RestartStartupReadiness.cs").Contains(
+                "FreshStoreApiPairObserver.StartupObservationWindow",StringComparison.Ordinal),
+            "common restart observer uses the ten-minute Loader window");
         foreach(var path in new[]{
             "desktop/DesktopFreshAsaRestartBridge.cs",
-            "desktop/DesktopHistoricalRestartBridge.cs",
-            "desktop/DesktopHistoricalActiveStartBridge.cs"})
-        {
-            Check(Read(path).Contains(
-                    "FreshStoreApiPairObserver.StartupObservationWindow",
-                    StringComparison.Ordinal),
-                "native Loader lifecycle uses shared bounded readiness interval: "+path);
-        }
+            "desktop/DesktopHistoricalRestartBridge.cs"})
+            Check(Read(path).Contains("RestartStartupReadiness.WaitForApiChildAsync",StringComparison.Ordinal),
+                "restart uses common Loader adoption: "+path);
+        Check(Read("desktop/DesktopHistoricalActiveStartBridge.cs").Contains(
+                "FreshStoreApiPairObserver.StartupObservationWindow",StringComparison.Ordinal),
+            "historical initial launch uses the bounded Loader window");
     }
 }
