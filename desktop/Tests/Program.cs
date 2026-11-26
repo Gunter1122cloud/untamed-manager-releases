@@ -523,6 +523,53 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     IsOk(review,"batch journal can be explicitly reviewed without redispatch");
     Check(calls==1&&batch.CanManagerUpdate(),"explicit review preserves Manager handoff eligibility without replay");
 }
+// Native batch history is not an installation lock. Independent targets
+// continue after an uncertain outcome once its worker is inactive.
+{
+    string independentRoot=Path.Combine(root,"lifecycle-batch-independent-fixture");
+    await using var independentCluster=new ClusterService("batch-independent",independentRoot);
+    var first=new LocalMap{Id=Guid.NewGuid(),Name="Uncertain",InstallationPath=Path.Combine(independentRoot,"first")};
+    var second=new LocalMap{Id=Guid.NewGuid(),Name="Independent",InstallationPath=Path.Combine(independentRoot,"second")};
+    independentCluster.Config.LocalMaps.AddRange(new[]{first,second});
+    int firstCalls=0,secondCalls=0;bool inactive=true;
+    Task<string> Never(string raw)=>throw new InvalidOperationException("Unexpected real bridge");
+    using var batch=new DesktopLifecycleBatchBridge(independentCluster,Never,Never,Never,Never,Never,Never,Never,
+        _=>new ProcessCheck(false,"synthetic stopped",null,true),
+        (id,action,historical,ct)=>{
+            if(id==first.Id){Interlocked.Increment(ref firstCalls);throw new IOException("UM-BATCH-FIXTURE-UNKNOWN");}
+            Interlocked.Increment(ref secondCalls);return Task.FromResult<(int,Guid?)>((0,null));
+        },noActiveNativeWorker:id=>id!=first.Id||inactive);
+    var plan=await Call(batch.HandleAsync,"operations.lifecycleBatchPreview",
+        new{mapIds=new[]{first.Id,second.Id},action="start",delaySeconds=0});
+    IsOk(plan,"independent native batch plan");
+    var applied=await Call(batch.HandleAsync,"operations.lifecycleBatchApply",
+        new{token=plan.GetProperty("data").GetProperty("token").GetGuid(),confirm=true});
+    IsOk(applied,"independent native batch claimed");
+    Guid jobId=applied.GetProperty("data").GetProperty("jobId").GetGuid();
+    JsonElement receipt=default;
+    for(int n=0;n<150;n++){
+        receipt=(await Call(batch.HandleAsync,"operations.lifecycleBatchCurrent")).GetProperty("data").GetProperty("receipt");
+        if(receipt.GetProperty("state").GetString()=="needsReview")break;
+        await Task.Delay(20);
+    }
+    Check(firstCalls==1&&secondCalls==1&&receipt.GetProperty("targets")[0].GetProperty("state").GetString()=="unknown"&&
+        receipt.GetProperty("targets")[1].GetProperty("state").GetString()=="completed",
+        "uncertain target is never replayed and independent target still completes");
+    string journal=Path.Combine(independentRoot,"native-lifecycle-batch-v1.json");
+    byte[] before=File.ReadAllBytes(journal);
+    inactive=false;
+    var blocked=await Call(batch.HandleAsync,"operations.lifecycleBatchPreview",
+        new{mapIds=new[]{first.Id},action="start",delaySeconds=0});
+    Check(IsError(blocked,"UM-BATCH-PRIOR-REVIEW")&&File.ReadAllBytes(journal).SequenceEqual(before),
+        "active native target prevents retirement of uncertain batch");
+    inactive=true;
+    var next=await Call(batch.HandleAsync,"operations.lifecycleBatchPreview",
+        new{mapIds=new[]{second.Id},action="start",delaySeconds=0});
+    IsOk(next,"new explicit batch admitted without operator review");
+    string archive=Path.Combine(independentRoot,"native-lifecycle-batch-"+jobId.ToString("N")+".abandoned.json");
+    Check(File.ReadAllBytes(archive).SequenceEqual(before)&&firstCalls==1&&secondCalls==1,
+        "old uncertain receipt archived byte-exactly, without dispatch from reconciliation");
+}
 // Deterministic calendar tests: no Windows clock changes and no RCON.
 {
     var sample=new ScheduledAsaOperation(Guid.NewGuid(),"Restart","Daily",0,60,127,
