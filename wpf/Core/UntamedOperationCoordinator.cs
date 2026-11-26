@@ -12,6 +12,7 @@ namespace UntamedManager.Core;
 public enum UntamedOperationKind { Launch, Configuration, PluginChange, Backup, Restore, Update, EmergencyKill }
 public enum UntamedOperationPhase { Prepared, Mutating, Completed, CancelledBeforeMutation, NeedsOperator, OperatorReviewed }
 public sealed record AtomicConfigWitness(string RelativePath,ConfigKind Kind,string BeforeSha256,string AfterSha256);
+public sealed record PluginToggleWitness(Guid MapId,string Plugin,bool Enabled,Guid BackupId);
 public sealed record LocalRestoreWitness(Guid MapId,Guid TransactionId,string MapKey,string SaveDirectory,
     string Point,string Protective);
 public sealed record UntamedOperationRecord(int Schema,string Resource,Guid Operation,
@@ -23,6 +24,8 @@ public sealed record UntamedOperationRecord(int Schema,string Resource,Guid Oper
     public LocalRestoreWitness? LocalRestore {get;init;}
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public bool BackupPublicationOnly {get;init;}
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public PluginToggleWitness? PluginToggle {get;init;}
 }
 
 // One machine-wide named semaphore per installation, independent of map/profile ID.
@@ -223,6 +226,28 @@ public sealed class UntamedOperationCoordinator
                record.UpdatedUtc==default||record.UpdatedUtc>DateTimeOffset.UtcNow)return false;
             ArchiveInterruptedStart(journal,key,record);
             if(Read(journal,key)!=record||!recover(record)||Read(journal,key)!=record)return false;
+            Write(journal,record with{Phase=UntamedOperationPhase.OperatorReviewed,UpdatedUtc=DateTimeOffset.UtcNow});
+            return true;
+        }
+        finally{semaphore.Release();}
+    }
+
+    // Only the exact interrupted plugin directory rename can be retired.
+    internal bool TryReconcilePluginToggle(string installation,Func<PluginToggleWitness,bool> verify)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return false;
+        try
+        {
+            string journal=Path.Combine(stateRoot,key+".json");
+            var record=Read(journal,key);
+            if(record==null||record.Kind!=UntamedOperationKind.PluginChange||record.PluginToggle==null||
+               record.Phase is not (UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)||
+               record.UpdatedUtc==default||record.UpdatedUtc>DateTimeOffset.UtcNow||
+               !verify(record.PluginToggle))return false;
+            ArchiveInterruptedStart(journal,key,record);
+            if(Read(journal,key)!=record||!verify(record.PluginToggle))return false;
             Write(journal,record with{Phase=UntamedOperationPhase.OperatorReviewed,UpdatedUtc=DateTimeOffset.UtcNow});
             return true;
         }
@@ -1002,6 +1027,16 @@ public sealed class UntamedOperationCoordinator
                record.Kind!=UntamedOperationKind.Backup)
                 throw new InvalidOperationException("UM-BACKUP-PUBLICATION-WITNESS-INVALID");
             var next=record with{Phase=UntamedOperationPhase.Mutating,BackupPublicationOnly=true,
+                UpdatedUtc=DateTimeOffset.UtcNow};
+            Write(journal,next);record=next;
+        }
+        internal void MarkPluginToggleStarted(PluginToggleWitness witness)
+        {
+            if(disposed||completed||record.Phase!=UntamedOperationPhase.Prepared||
+               record.Kind!=UntamedOperationKind.PluginChange||witness.MapId==Guid.Empty||
+               witness.BackupId==Guid.Empty)
+                throw new InvalidOperationException("UM-PLUGIN-TOGGLE-WITNESS-INVALID");
+            var next=record with{Phase=UntamedOperationPhase.Mutating,PluginToggle=witness,
                 UpdatedUtc=DateTimeOffset.UtcNow};
             Write(journal,next);record=next;
         }
