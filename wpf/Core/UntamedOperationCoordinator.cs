@@ -11,8 +11,13 @@ namespace UntamedManager.Core;
 
 public enum UntamedOperationKind { Launch, Configuration, PluginChange, Backup, Restore, Update, EmergencyKill }
 public enum UntamedOperationPhase { Prepared, Mutating, Completed, CancelledBeforeMutation, NeedsOperator, OperatorReviewed }
+public sealed record AtomicConfigWitness(string RelativePath,ConfigKind Kind,string BeforeSha256,string AfterSha256);
 public sealed record UntamedOperationRecord(int Schema,string Resource,Guid Operation,
-    UntamedOperationKind Kind,UntamedOperationPhase Phase,DateTimeOffset UpdatedUtc);
+    UntamedOperationKind Kind,UntamedOperationPhase Phase,DateTimeOffset UpdatedUtc)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public AtomicConfigWitness? AtomicConfig {get;init;}
+}
 
 // One machine-wide named semaphore per installation, independent of map/profile ID.
 // Semaphores are not thread-affine: a lease can span await safely. Persistent
@@ -109,6 +114,8 @@ public sealed class UntamedOperationCoordinator
                 CancelPreparedUnderLease(journal,key,old);
                 old=Read(journal,key);
             }
+            if(old!=null&&ReconcileAtomicConfigUnderLease(installation,journal,key,old))
+                old=Read(journal,key);
             if(old!=null&&old.Phase is not (UntamedOperationPhase.Completed or UntamedOperationPhase.CancelledBeforeMutation or UntamedOperationPhase.OperatorReviewed))
             {
                 if(verifyStopped==null||old.Kind!=UntamedOperationKind.Launch||
@@ -158,6 +165,37 @@ public sealed class UntamedOperationCoordinator
         }
         if(Read(journal,key)!=old||!File.ReadAllBytes(journal).SequenceEqual(bytes))
             throw new IOException("UM-ASA-START-RECONCILIATION-CHANGED");
+    }
+
+    // Atomic file replacements have a transaction-specific witness. No
+    // old intent is replayed and no current configuration bytes are changed.
+    internal bool TryReconcileAtomicConfig(string installation)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return false;
+        try
+        {
+            string journal=Path.Combine(stateRoot,key+".json");
+            var record=Read(journal,key);
+            return record!=null&&ReconcileAtomicConfigUnderLease(installation,journal,key,record);
+        }
+        finally{semaphore.Release();}
+    }
+
+    private bool ReconcileAtomicConfigUnderLease(string installation,string journal,string key,
+        UntamedOperationRecord record)
+    {
+        if(record.Kind!=UntamedOperationKind.Configuration||record.AtomicConfig==null||
+           record.Phase is not (UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)||
+           record.UpdatedUtc==default||record.UpdatedUtc>DateTimeOffset.UtcNow)return false;
+        string? first=SafeConfigEditor.ObserveAtomicConfig(installation,record.AtomicConfig);
+        if(first==null)return false;
+        ArchiveInterruptedStart(journal,key,record);
+        if(Read(journal,key)!=record||SafeConfigEditor.ObserveAtomicConfig(installation,record.AtomicConfig)!=first)
+            return false;
+        Write(journal,record with{Phase=UntamedOperationPhase.OperatorReviewed,UpdatedUtc=DateTimeOffset.UtcNow});
+        return true;
     }
 
     // Prepared is the durable pre-mutation boundary. An unowned stale
@@ -876,6 +914,16 @@ public sealed class UntamedOperationCoordinator
             if(disposed||completed||record.Phase!=UntamedOperationPhase.Prepared)
                 throw new InvalidOperationException("UNTAMED_OPERATION_PHASE");
             var next=record with {Phase=UntamedOperationPhase.Mutating,UpdatedUtc=DateTimeOffset.UtcNow};
+            Write(journal,next);record=next;
+        }
+        internal void MarkAtomicConfigurationStarted(string installation,AtomicConfigWitness witness)
+        {
+            if(disposed||completed||record.Phase!=UntamedOperationPhase.Prepared||
+               record.Kind!=UntamedOperationKind.Configuration||ResourceKey(installation)!=record.Resource||
+               SafeConfigEditor.ObserveAtomicConfig(installation,witness)!=witness.BeforeSha256)
+                throw new InvalidOperationException("UM-ATOMIC-CONFIG-WITNESS-INVALID");
+            var next=record with{Phase=UntamedOperationPhase.Mutating,AtomicConfig=witness,
+                UpdatedUtc=DateTimeOffset.UtcNow};
             Write(journal,next);record=next;
         }
         public void Complete()
