@@ -86,7 +86,7 @@ using(var cancelledSave=new CancellationTokenSource())
 // or a fixed ten-map roster when the registered local source is unchanged.
 {
     var id=Guid.NewGuid();
-    string install=Path.Combine(root,"native-store-local-source-fixture");
+    string install=Path.Combine(Path.GetTempPath(),"native-store-local-source-fixture",id.ToString("N"));
     var m=new LocalMap{Id=id,Name="Native Store",InstallationPath=install,
         HistoricalStoreProtected=true,HistoricalMapKey="TheIsland_WP",
         HistoricalArchiveSha256=new string('A',64)};
