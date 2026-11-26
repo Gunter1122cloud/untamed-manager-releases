@@ -242,6 +242,66 @@ internal static class DesktopRestartReconciler
         catch(Exception ex) when(IsRecoverable(ex)){return false;}
     }
 
+    // A crashed Manager may leave a pending Stop although the original
+    // ASA is still running. A fresh user intent must not depend on a manual
+    // review of that abandoned attempt. Never send or replay an RCON command.
+    internal static bool TryReconcileRunningStop(ClusterService cluster,LocalMap map)
+    {
+        try
+        {
+            if(map.Maintenance||map.ObservedReadOnlyImported||
+               !AsaReadyProbe.IsRegisteredServerBinary(map)||
+               !AsaRconConfigurationEvidence.Matches(map)||
+               KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))return false;
+            var stop=new AsaManualStopJournal(map.InstallationPath);
+            var receipt=stop.Observe();
+            if(receipt==null||receipt.MapId!=map.Id||
+               receipt.Phase is not (AsaStopPhase.Pending or AsaStopPhase.NeedsOperator)||
+               DateTimeOffset.UtcNow-receipt.ChangedUtc<TimeSpan.FromMinutes(3))return false;
+            string profile=JsonSerializer.Serialize(map);
+            string key=UntamedOperationCoordinator.ResourceKey(map.InstallationPath);
+            string Source()
+            {
+                if(map.HistoricalStoreProtected)
+                    return LegacyStoreV1GracefulStop.OriginalSource(cluster,map);
+                if(FreshStoreEnrollmentPolicy.IsEnrolled(map))
+                    FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+                else FreshAsaInstallationSafety.Demand(cluster,map);
+                return "native-local";
+            }
+            string source=Source();
+            ProcessCheck Observe()=>map.HistoricalStoreProtected?
+                cluster.ObserveLocalProcessesReadOnly(map):cluster.Check(map);
+            bool Valid(ProcessCheck current)=>current.Running&&!current.ConfirmedStopped&&
+                current.Identity is {Pid:>0} asa&&asa.Pid==receipt.OldPid&&
+                asa.StartedUtc==receipt.OldStartedUtc&&
+                map.StartWithAsaApi==(current.LoaderIdentity!=null)&&
+                (current.LoaderIdentity==null||
+                    (current.LoaderIdentity.Pid!=asa.Pid&&
+                     current.LoaderIdentity.StartedUtc<=asa.StartedUtc))&&
+                RconPortOwnership.IsOwnedListener(map.RconPort,asa.Pid);
+            var first=Observe();
+            if(!Valid(first))return false;
+            bool Verify()
+            {
+                if(!ReferenceEquals(cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==map.Id),map)||
+                   JsonSerializer.Serialize(map)!=profile||
+                   cluster.Config.LocalMaps.Count(m=>!string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                       UntamedOperationCoordinator.ResourceKey(m.InstallationPath)==key)!=1||
+                   KovaCompatibleWorldBackup.InstallationRecoveryRequired(map)||
+                   !AsaRconConfigurationEvidence.Matches(map)||Source()!=source||
+                   (map.HistoricalStoreProtected&&LegacyStoreV1SaveEvidenceJournal.Inspect(
+                        cluster.Store.Root,map.Id)?.Phase is ("prepared" or "needsOperator")))return false;
+                var current=Observe();
+                return Valid(current)&&Same(first.Identity,current.Identity)&&
+                    Same(first.LoaderIdentity,current.LoaderIdentity);
+            }
+            return cluster.Operations.TryReconcileRunningStopReceipt(
+                map.InstallationPath,map.Id,stop,receipt,Verify);
+        }
+        catch(Exception ex) when(IsRecoverable(ex)){return false;}
+    }
+
     private static bool IsRecoverable(Exception ex)=>ex is IOException or InvalidDataException or
         UnauthorizedAccessException or InvalidOperationException or ArgumentException or
         JsonException or NotSupportedException;
