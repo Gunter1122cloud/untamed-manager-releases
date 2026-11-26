@@ -526,7 +526,11 @@ public sealed class ObsidianWindow : Form
             });
         _nativeSchedules.AutomaticRecoveryPending=_recovery.HasPendingRecovery;
         _rollingSteam=new DesktopRollingSteamSupervisor(_bridge.LocalCluster,_lifecycleBatch,_steamUpdate,_bridgeGate,
-            ()=>_recovery.CanManagerUpdate()&&TryEnterWatchdogLane(),ReleaseRecoveryLane,()=>_updateHandoff||_suppressScheduledMutations);
+            ()=>_recovery.CanManagerUpdate()&&TryEnterWatchdogLane(),ReleaseRecoveryLane,()=>_updateHandoff||_suppressScheduledMutations,
+            reconcileLifecycle:map=>{
+                _bridge.LocalCluster.Operations.TryCancelAbandonedPrepared(map.InstallationPath);
+                ReconcileLifecycleMap(map);
+            });
         _discordControl = new DesktopDiscordControlApi(_bridge.LocalCluster,_bridgeGate,()=>_updateHandoff,
             TryEnterRecoveryLane,ReleaseRecoveryLane,DispatchDiscordNative,_asaDiscovery.Snapshot,_nativeSchedules.LegacyOperationHistory,
             TryEnterDiscordLane,ReleaseDiscordLane,ReconcileRequestedMapAsync);

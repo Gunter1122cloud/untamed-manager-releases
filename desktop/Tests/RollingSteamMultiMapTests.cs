@@ -126,7 +126,7 @@ internal static class RollingSteamMultiMapTests
                 if(mode=="start-failure"&&id==a.Id)throw new InvalidOperationException("UM-TEST-START-FAILED");
                 observed[id]=Running(m);
                 return Task.FromResult<(int,Guid?)>((observed[id].Identity!.Pid,Guid.NewGuid()));
-            });
+            },noActiveNativeWorker:_=>true);
         int checks=0;
         using var steam=new DesktopStoppedSteamUpdateBridge(cluster,
             m=>new SteamUpdatePreview(Path.GetFullPath(m.InstallationPath),new[]{m.Name},"ISOLATED",
@@ -272,11 +272,23 @@ internal static class RollingSteamMultiMapTests
                 "failure freezes remaining queue: "+mode+" "+string.Join(",",trace));
             Check(AsaSteamBuildCatalog.InstalledBuild(c.InstallationPath)=="123456"&&observed[c.Id].Running,
                 "unvisited map remains online on original build");
-            int before=trace.Count;await supervisor.TickOnceAsync();
-            Check(trace.Count==before&&entered==1,"uncertain update cannot auto-replay");
-            Guid failedMap=current.GetProperty("mapId").GetGuid();
-            var reviewed=await Call("steam.rollingReview",new{runId=current.GetProperty("id").GetGuid(),confirm=true});
-            Check(reviewed.GetProperty("ok").GetBoolean(),"review archives failed rolling run");
+            int before=trace.Count;
+            Guid failedMap=current.GetProperty("mapId").GetGuid(),failedRun=current.GetProperty("id").GetGuid();
+            byte[] original=File.ReadAllBytes(journal);
+            using(var externalLease=SteamHostLease.Acquire())
+            {
+                await supervisor.TickOnceAsync();
+                Check(trace.Count==before&&File.ReadAllBytes(journal).SequenceEqual(original),
+                    "active Steam host lease prevents isolation or further dispatch");
+            }
+            await supervisor.TickOnceAsync();
+            string[] resumed=mode=="start-failure"?new[]{"Ragnarok:steam","The Island:stop","The Island:steam","The Island:start"}:
+                new[]{"The Island:stop","The Island:steam","The Island:start"};
+            Check(trace.Skip(before).SequenceEqual(resumed)&&entered==3&&left==3&&
+                AsaSteamBuildCatalog.InstalledBuild(c.InstallationPath)=="123457",
+                "next poll isolates only failed map and updates independent siblings without replay");
+            string archive=Path.Combine(profile,"rolling-steam-isolated-"+failedRun.ToString("N")+"-"+Convert.ToHexString(SHA256.HashData(original))+".json");
+            Check(File.ReadAllBytes(archive).SequenceEqual(original),"interrupted rolling journal archived byte-exactly");
             var settings=(await Call("steam.rollingStatus",new{})).GetProperty("data").GetProperty("settings");
             foreach(var m in maps.Take(3))
                 Check(settings.EnumerateArray().Single(x=>x.GetProperty("mapId").GetGuid()==m.Id)
