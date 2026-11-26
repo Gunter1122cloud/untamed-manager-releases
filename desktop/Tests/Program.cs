@@ -116,6 +116,31 @@ using(var cancelledSave=new CancellationTokenSource())
     Check(cancellationPreserved&&fallbackChecks==1,"cancelled operation does not permit DoExit fallback");
 }
 
+// A legacy five-map world backup needs those exact five stopped members,
+// not an unrelated sixth map's lifecycle lane. Manager handoff still
+// observes the complete active batch, and missing scope fails closed.
+{
+    var backupMaps=Enumerable.Range(0,5).Select(_=>Guid.NewGuid()).ToArray();
+    var independentMap=Guid.NewGuid();
+    foreach(string active in new[]{"queued","running"})
+    {
+        Check(DesktopWorldBackupBridge.OriginalBatchBlocksMap(active,backupMaps,null),
+            "active world backup batch still reserves host handoff");
+        Check(backupMaps.All(id=>DesktopWorldBackupBridge.OriginalBatchBlocksMap(active,backupMaps,id)),
+            "all accepted original world backup members remain reserved");
+        Check(!DesktopWorldBackupBridge.OriginalBatchBlocksMap(active,backupMaps,independentMap),
+            "unrelated sixth map is not reserved by original world backup batch");
+        Check(DesktopWorldBackupBridge.OriginalBatchBlocksMap(active,null,independentMap)&&
+            DesktopWorldBackupBridge.OriginalBatchBlocksMap(active,new[]{backupMaps[0]},independentMap)&&
+            DesktopWorldBackupBridge.OriginalBatchBlocksMap(active,Enumerable.Repeat(backupMaps[0],5).ToArray(),independentMap),
+            "missing or ambiguous active backup scope is not treated as independent");
+    }
+    foreach(string terminal in new[]{"completed","needsOperator"})
+        Check(!DesktopWorldBackupBridge.OriginalBatchBlocksMap(terminal,backupMaps,null)&&
+              !DesktopWorldBackupBridge.OriginalBatchBlocksMap(terminal,backupMaps,backupMaps[0]),
+            "terminal batch history does not reserve active runtime lanes");
+}
+
 // DoExit can close its socket during the command write. Only transport
 // uncertainty AFTER successful authenticated ownership authorization may
 // enter the existing bounded process-exit observation; never replay it.

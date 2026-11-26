@@ -116,19 +116,19 @@ public sealed class ObsidianWindow : Form
     private bool NativeLifecycleWorkerBusy(Guid? mapId=null)=>
         _freshStop.RecoveryLaneBusy(mapId)||_historicalStop.RecoveryLaneBusy(mapId)||
         _freshRestart.RecoveryLaneBusy(mapId)||_historicalRestart.RecoveryLaneBusy(mapId);
-    private bool NativeStorageWorkerBusy()=>
+    private bool NativeStorageWorkerBusy(Guid? mapId=null)=>
         _steamUpdate.RecoveryLaneBusy()||_steamBatch.RecoveryLaneBusy()||
-        _freshInstall.RecoveryLaneBusy()||_worldBackup.RecoveryLaneBusy()||
+        _freshInstall.RecoveryLaneBusy()||_worldBackup.RecoveryLaneBusy(mapId)||
         _multiHostBackup.RecoveryLaneBusy();
     private bool NativeWorkerBusy()=>NativeLifecycleWorkerBusy()||NativeStorageWorkerBusy();
 
     // Manual reconciliation and automatic recovery share the same exact
-    // map reservation. Global storage/handoff exclusion remains until
-    // those workers can expose their own verified resource scopes.
+    // map reservation. Original world backup batches reserve their exact
+    // accepted members; SteamCMD and coordinated archives remain global.
     private bool TryEnterMapRuntimeLane(Guid mapId)
     {
         if(_updateHandoff||_suppressScheduledMutations||
-           NativeLifecycleWorkerBusy(mapId)||NativeStorageWorkerBusy())return false;
+           NativeLifecycleWorkerBusy(mapId)||NativeStorageWorkerBusy(mapId))return false;
         var maps=_bridge.LocalCluster.Config.LocalMaps;
         var map=System.Linq.Enumerable.SingleOrDefault(maps,m=>m.Id==mapId);
         if(map==null||map.Maintenance||map.ObservedReadOnlyImported)return false;
