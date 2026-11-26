@@ -49,6 +49,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
     private readonly Func<LocalMap,ProcessCheck> inspectFamily;
     private readonly Func<int,int,bool> owner;
     private readonly bool nativeLauncher;
+    private readonly DesktopAsaLifecycleJournalBridge? journalReconciler;
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly object sync=new();
     private readonly Dictionary<Guid,Approval> approvalsByMap=new();
@@ -84,10 +85,15 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             Task<AsaGracefulStopReceipt>>? stopper,
         Func<Guid,Guid,Action<string>,ProcessIdentity>? launcher,
         Func<LocalMap,ProcessCheck>? apiInspector=null,
-        Func<int,int,bool>? apiPortOwner=null)
+        Func<int,int,bool>? apiPortOwner=null,
+        DesktopAsaLifecycleJournalBridge? isolatedJournalReconciler=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         nativeLauncher=launcher==null;
+        if(isolatedJournalReconciler!=null&&(probe==null||stopper==null||launcher==null))
+            throw new ArgumentException("Isolated reconciliation requires all synthetic lifecycle handlers");
+        journalReconciler=isolatedJournalReconciler??(probe==null&&stopper==null&&launcher==null?
+            new DesktopAsaLifecycleJournalBridge(cluster):null);
         inspectFamily=apiInspector??(map=>
             LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps));
         owner=apiPortOwner??RconPortOwnership.IsOwnedListener;
@@ -289,7 +295,23 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     if((map.StartWithAsaApi&&string.IsNullOrWhiteSpace(map.ApiLoaderPath))||
                        !string.IsNullOrWhiteSpace(map.ApiLoaderArguments))
                         return Fail(id,"UM-ORIGINAL-RESTART-LOADER-NOT-SUPPORTED");
-                    new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+                    var restartJournal=new AsaManualRestartJournal(map.InstallationPath);
+                    var previous=restartJournal.Observe();
+                    if(journalReconciler!=null&&previous?.Phase==AsaRestartPhase.NeedsOperator&&
+                       previous.ScheduledRunId==null&&previous.MapId==map.Id&&
+                       !map.ObservedReadOnlyImported&&
+                       cluster.Config.LocalMaps.Count(m=>!string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                           UntamedOperationCoordinator.ResourceKey(m.InstallationPath)==previous.Resource)==1)
+                    {
+                        // Reconcile only historical receipts; the existing
+                        // source/owner proofs and installation lease are used.
+                        // No earlier RCON or Start is sent by reconciliation.
+                        await Task.Run(()=>{
+                            if(!journalReconciler.TryReconcileCurrentOwner(map))
+                                journalReconciler.TryReconcileOldOwner(map);
+                        });
+                    }
+                    restartJournal.DemandNoPending();
                     var existing=cluster.Operations.Observe(map.InstallationPath);
                     if(existing?.Phase is UntamedOperationPhase.Prepared or
                         UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
