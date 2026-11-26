@@ -722,7 +722,7 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         fetches++;
         foreach(string dir in new[]{@"steamapps",@"ShooterGame\Content\Paks",@"ShooterGame\Saved",@"ShooterGame\Binaries\Win64"})
             Directory.CreateDirectory(Path.Combine(stage,dir));
-        File.WriteAllText(Path.Combine(stage,@"steamapps\appmanifest_2430930.acf"),"\"appid\" \"2430930\"\n\"buildid\" \"987654\"");
+        File.WriteAllText(Path.Combine(stage,@"steamapps\appmanifest_2430930.acf"),"\"AppState\"\n{\n\"appid\" \"2430930\"\n\"buildid\" \"987654\"\n}\n");
         File.WriteAllText(Path.Combine(stage,@"ShooterGame\Binaries\Win64\ArkAscendedServer.exe"),"tiny-fixture-exe");
         File.WriteAllText(Path.Combine(stage,@"ShooterGame\Content\Paks\pakchunk0-WindowsServer.pak"),"tiny-fixture-pak");
         File.WriteAllText(Path.Combine(stage,@"ShooterGame\Content\Paks\custom-mod.pak"),"never cache");
