@@ -411,6 +411,51 @@ public sealed class ClusterRegistryService
         });
     }
 
+    // A migrated local map already carries the exact native ASA cluster ID
+    // and transfer directory. Publish only missing registry metadata; never
+    // move a map, change a registered path, or open/write the transfer share.
+    internal bool TryEnsureNativeStoreMembership(LocalMap map)
+    {
+        if(map.NativeStoreIdentity==null||map.ObservedReadOnlyImported||
+           !owner.Config.LocalMaps.Contains(map))return false;
+        var native=LegacyStoreV1PinnedSource.ResolveRuntimeIdentity(owner.Store.Root,"",map);
+        if(string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)!=
+           string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory))return false;
+        string id=string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)?
+            native.RuntimeClusterId:map.HistoricalRuntimeClusterId;
+        string path=string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory)?
+            native.TransferRoot:map.HistoricalRuntimeTransferDirectory;
+        var proposed=ClusterRegistrySchema.NormalizeCluster(id,id,path,null,DateTimeOffset.UtcNow);
+        if(!LegacyStoreV1PinnedSource.MatchesNativeCluster(map,proposed))return false;
+        var snapshot=Snapshot();
+        var assigned=snapshot.ClusterRegistry.MapAssignments.SingleOrDefault(a=>a.MapId==map.Id);
+        var existing=snapshot.ClusterRegistry.Clusters.SingleOrDefault(c=>
+            StringComparer.OrdinalIgnoreCase.Equals(c.ClusterId,proposed.ClusterId));
+        if(assigned!=null)return false; // never rebind an existing assignment
+        if(existing!=null&&!LegacyStoreV1PinnedSource.MatchesNativeCluster(map,existing))return false;
+        return owner.UpdateClusterRegistry(snapshot.Revision,config=>{
+            var current=config.LocalMaps.SingleOrDefault(m=>m.Id==map.Id);
+            if(current==null||current.NativeStoreIdentity!=native||
+               !LegacyStoreV1PinnedSource.MatchesNativeCluster(current,proposed))
+                throw new InvalidOperationException("UM-NATIVE-STORE-REGISTRY-IDENTITY-CHANGED");
+            if(config.ClusterRegistry.MapAssignments.Any(a=>a.MapId==map.Id))
+                throw new InvalidOperationException("UM-NATIVE-STORE-REGISTRY-ASSIGNMENT-CHANGED");
+            var registered=config.ClusterRegistry.Clusters.SingleOrDefault(c=>
+                StringComparer.OrdinalIgnoreCase.Equals(c.ClusterId,proposed.ClusterId));
+            if(registered==null)
+            {
+                ClusterRegistrySchema.ValidateClusterPaths(config.ClusterRegistry.Clusters,proposed);
+                config.ClusterRegistry.Clusters.Add(proposed);
+                registered=proposed;
+            }
+            else if(!LegacyStoreV1PinnedSource.MatchesNativeCluster(current,registered))
+                throw new InvalidOperationException("UM-NATIVE-STORE-REGISTRY-TRANSFER-MISMATCH");
+            config.ClusterRegistry.MapAssignments.Add(new ClusterMapAssignment{
+                MapId=map.Id,ClusterId=registered.ClusterId});
+            return true;
+        });
+    }
+
     public ClusterMembershipPreview PreviewMapAssignments(string clusterId,
         IEnumerable<Guid> requestedMapIds)
     {

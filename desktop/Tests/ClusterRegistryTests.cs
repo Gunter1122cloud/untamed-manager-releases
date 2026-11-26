@@ -210,6 +210,50 @@ internal static class ClusterRegistryTests
             "source-named historical cluster transfer path and original Store bytes are protected");
     }
 
+    private static async Task ValidateNativeMembershipReconciliation(string testRoot)
+    {
+        string root=Path.Combine(testRoot,"native-membership-reconcile");
+        await using var service=new ClusterService("native-membership-fixture",root,
+            _=>new ProcessCheck(false,"Synthetic",null,true));
+        string transfer=Path.Combine(root,"unchanged-transfer");
+        LocalMap Add(int i,string path)
+        {
+            var map=new LocalMap{Id=SyntheticMapId(900+i),Name="Native map "+i,
+                HistoricalStoreProtected=true,HistoricalMapKey="Native"+i+"_WP",
+                InstallationPath=Path.Combine(root,"install-"+i),
+                HistoricalArchiveSha256=new string('A',64)};
+            map.NativeStoreIdentity=new NativeStoreIdentity(map.Id,map.HistoricalMapKey,
+                map.InstallationPath,map.HistoricalArchiveSha256,new string('B',64),
+                new string('C',64),"native-registry",path);
+            service.AddMap(map);return map;
+        }
+        var first=Add(1,transfer);
+        Check(service.Registry.TryEnsureNativeStoreMembership(first),
+            "one native imported map creates missing registry metadata without a fixed roster");
+        long revision=service.Registry.Snapshot().Revision;
+        Check(!service.Registry.TryEnsureNativeStoreMembership(first)&&
+            service.Registry.Snapshot().Revision==revision,
+            "native membership reconciliation is idempotent");
+        var second=Add(2,transfer);
+        Check(service.Registry.TryEnsureNativeStoreMembership(second),
+            "a second imported map automatically joins the same native cluster");
+        var mismatch=Add(3,Path.Combine(root,"different-transfer"));
+        revision=service.Registry.Snapshot().Revision;
+        Check(!service.Registry.TryEnsureNativeStoreMembership(mismatch)&&
+            service.Registry.Snapshot().Revision==revision,
+            "different transfer path cannot replace existing native cluster");
+        var foreign=Add(4,transfer);
+        var other=service.Registry.CreateCluster("other-cluster","Other",Path.Combine(root,"other-transfer"));
+        service.Config.ClusterRegistry.MapAssignments.Add(new ClusterMapAssignment{
+            MapId=foreign.Id,ClusterId=other.ClusterId});
+        service.Save();
+        Check(!service.Registry.TryEnsureNativeStoreMembership(foreign)&&
+            service.Registry.Snapshot().ClusterRegistry.MapAssignments.Single(a=>a.MapId==foreign.Id).ClusterId==other.ClusterId,
+            "existing foreign membership is not silently moved");
+        Check(!Directory.Exists(transfer),
+            "native membership never opens or creates transfer directory");
+    }
+
     private static void ValidateLargeSyntheticTopology(string testRoot)
     {
         const int hostCount = 300;
@@ -469,6 +513,7 @@ internal static class ClusterRegistryTests
             "approved map assignment survives Manager restart without duplicate ownership");
 
         await ValidateOriginalKovaMembershipIsImmutable(testRoot);
+        await ValidateNativeMembershipReconciliation(testRoot);
         ValidateLargeSyntheticTopology(testRoot);
     }
 
