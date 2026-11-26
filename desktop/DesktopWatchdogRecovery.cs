@@ -54,7 +54,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     }
     private readonly ClusterService cluster;
     private readonly SemaphoreSlim hostGate;
-    private readonly Func<bool> tryEnterMaintenanceLane;
+    private readonly Func<Guid,bool> tryEnterMaintenanceLane;
     private readonly Action releaseMaintenanceLane;
     private readonly Func<bool> handoff;
     private readonly Func<LocalMap,ProcessCheck> observe;
@@ -85,10 +85,12 @@ public sealed class DesktopWatchdogRecovery : IDisposable
         Func<LocalMap,string>? isolatedLaunchHash=null,
         Func<LocalMap,ProcessCheck,Task<bool>>? isolatedReady=null,
         Func<LocalMap,Task<(int Pid,DateTimeOffset Started)>>? isolatedLaunch=null,
-        Action? isolatedSteamPreflight=null)
+        Action? isolatedSteamPreflight=null,
+        Func<Guid,bool>? mapMaintenanceLane=null)
     {
         this.cluster=cluster;this.hostGate=hostGate;
-        this.tryEnterMaintenanceLane=tryEnterMaintenanceLane;this.releaseMaintenanceLane=releaseMaintenanceLane;
+        this.tryEnterMaintenanceLane=mapMaintenanceLane??(_=>tryEnterMaintenanceLane());
+        this.releaseMaintenanceLane=releaseMaintenanceLane;
         this.handoff=handoff;
         demandNoConcurrentSteamCmd=isolatedSteamPreflight??(()=>SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd());
         events=new DiscordOperationEvents(cluster);
@@ -471,7 +473,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         // Re-arm observation only after the actual local ASA
                         // is already healthy and its native journals clear.
                         // Never launch a stopped map or replay a failed claim.
-                        if(row.Claim.HasValue||!tryEnterMaintenanceLane())continue;
+                        if(row.Claim.HasValue||!tryEnterMaintenanceLane(map.Id))continue;
                         try
                         {
                             DemandProfile(map,row,true);DemandNoPending(map);
@@ -540,7 +542,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                             receipt.StartedUtc<=intent.MarkedUtc||receipt.RecoveryClaim.HasValue||
                             (intent.RestartId.HasValue&&intent.RestartId!=receipt.RestartId)||!Running(map,state)||
                             !RecoveryStopIntent.MatchesNativeStart(receipt,map.StartWithAsaApi?state.LoaderIdentity:state.Identity))continue;
-                        if(!tryEnterMaintenanceLane())continue;
+                        if(!tryEnterMaintenanceLane(map.Id))continue;
                         try{
                             DemandProfile(map,row,true);DemandNoPending(map);
                             if(!await ready(map,state))continue;
@@ -640,13 +642,13 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                     if(count<3)continue;
                     if(row.LastAttemptUtc.HasValue&&now<row.LastAttemptUtc.Value.AddMinutes(30))
                     {End(row,"needsReview","RECOVERY_COOLDOWN_NO_CRASH_LOOP",true);continue;}
-                    // Freeze independent automatic lanes before final source
+                    // Reserve the selected map's automatic lanes before final source
                     // proof. Existing native launch also acquires the map's
                     // machine-wide installation lease and rechecks all ports.
                     // Readiness is per-map. A different map's pending receipt
                     // does not own this installation. Actual dispatch remains
                     // serialized by the host gate and native installation lease.
-                    if(!tryEnterMaintenanceLane()){Write(row with{Evidence="RECOVERY_NATIVE_LANE_BUSY"});continue;}
+                    if(!tryEnterMaintenanceLane(map.Id)){Write(row with{Evidence="RECOVERY_NATIVE_LANE_BUSY"});continue;}
                     try
                     {
                         SteamHostLease? steamLease=null;
