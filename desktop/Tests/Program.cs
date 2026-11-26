@@ -1071,11 +1071,16 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key))),
         guild,new[]{channel,"723456789012345678"},new[]{admin,owner},"823456789012345678",channel,"723456789012345678");
     int sends=0;Guid nativeToken=Guid.NewGuid();
+    int reconciliations=0,preflights=0;
     Task<string> Fake(string route,string raw)
     {
         using var doc=JsonDocument.Parse(raw);var a=doc.RootElement;
         if(route=="servers.freshStartPreview")
+        {
+            preflights++;
+            Check(reconciliations==preflights,"Discord native lifecycle preflight follows the same reconciliation as UI");
             return Task.FromResult(JsonSerializer.Serialize(new{ok=true,data=new{mapId=m.Id,token=nativeToken,launchMode="directAsa"}}));
+        }
         if(route=="servers.freshStartApply"&&a.GetProperty("token").GetGuid()==nativeToken)
         {
             sends++;
@@ -1084,7 +1089,11 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         throw new InvalidOperationException("Unexpected native call");
     }
     using var gate=new SemaphoreSlim(1,1);
-    using var api=new DesktopDiscordControlApi(apiCluster,gate,()=>false,()=>true,()=>{},Fake);
+    using var api=new DesktopDiscordControlApi(apiCluster,gate,()=>false,()=>true,()=>{},Fake,
+        reconcileLifecycle:target=>{
+            Check(target==m.Id,"Discord reconciliation is scoped to authenticated local target");
+            reconciliations++;return Task.CompletedTask;
+        });
     async Task<JsonElement> Request(string kind,Guid request,string actor,string role,object fields)
     {
         var data=new Dictionary<string,object?>{["kind"]=kind,["requestId"]=request,["credential"]=key,
@@ -1142,6 +1151,8 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     Check(!directDenied.GetProperty("ok").GetBoolean()&&sends==2,"Discord direct control retains role authorization");
     var directForeign=await Request("execute",Guid.NewGuid(),alice,owner,new{action="start",mapIds=new[]{Guid.NewGuid()}});
     Check(!directForeign.GetProperty("ok").GetBoolean()&&sends==2,"Discord direct control retains local map ownership");
+    Check(reconciliations==3&&preflights==3,
+        "unauthorized, foreign, replayed and read-only Discord requests never enter reconciliation");
 }
 // The actual bot service identity is read-only, even if it claims admin roles.
 {

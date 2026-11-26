@@ -53,6 +53,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
     private readonly Func<Guid[],bool> enterLane;
     private readonly Action leaveLane;
     private readonly Func<string,string,Task<string>> native;
+    private readonly Func<Guid,Task>? reconcileLifecycle;
     private readonly Func<DesktopAutomaticAsaDiscoverySupervisor.State>? discovery;
     internal sealed record DiscoveredMap(int Pid,DateTimeOffset? StartedUtc,
         string MapKey,string MatchState,bool LoaderParentObserved,
@@ -77,12 +78,13 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         Func<bool> enterLane,Action leaveLane,Func<string,string,Task<string>> native,
         Func<DesktopAutomaticAsaDiscoverySupervisor.State>? discovery=null,
         Func<Guid?,int,object>? legacySchedules=null,
-        Func<Guid[],bool>? scopedEnter=null,Action? scopedLeave=null)
+        Func<Guid[],bool>? scopedEnter=null,Action? scopedLeave=null,
+        Func<Guid,Task>? reconcileLifecycle=null)
     {
         this.cluster=cluster;this.hostGate=hostGate;this.frozen=frozen;
         if((scopedEnter==null)!=(scopedLeave==null))throw new ArgumentException("Paired scoped lane required");
         this.enterLane=scopedEnter??(_=>enterLane());this.leaveLane=scopedLeave??leaveLane;this.native=native;
-        this.discovery=discovery;this.legacySchedules=legacySchedules;
+        this.discovery=discovery;this.legacySchedules=legacySchedules;this.reconcileLifecycle=reconcileLifecycle;
         eventStream=new DiscordOperationEvents(cluster);
         root=Path.Combine(cluster.Store.Root,"discord-control-v1");
         settingsPath=Path.Combine(root,"settings.json");
@@ -430,6 +432,8 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         {
             if(mode.HasValue||action is not ("start" or "stop" or "restart")||delay is <0 or >300)
                 throw new InvalidDataException("UM-DC-BATCH-SCOPE");
+            if(reconcileLifecycle!=null)
+                foreach(Guid target in ids)await reconcileLifecycle(target);
             preview=await Invoke("operations.lifecycleBatchPreview",new{mapIds=ids,action,delaySeconds=delay});
             if(!preview.GetProperty("maps").EnumerateArray().Select(x=>x.GetProperty("mapId").GetGuid()).SequenceEqual(ids))
                 throw new InvalidDataException("UM-DC-BATCH-PREVIEW-SCOPE");
@@ -449,6 +453,8 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             if(mode.HasValue&&action is not ("start" or "restart"))throw new InvalidDataException("UM-DC-MODE");
             if(action=="restart"&&mode.HasValue&&mode!=m.StartWithAsaApi)
                 throw new InvalidOperationException("UM-DC-MODE-SWITCH-REQUIRES-STOP-THEN-START");
+            if(reconcileLifecycle!=null&&action is ("start" or "stop" or "restart" or "save"))
+                await reconcileLifecycle(mapId);
             if(action=="start"&&mode.HasValue&&mode!=m.StartWithAsaApi)
             {
                 string changing=historical?"historical.loaderMode":"servers.apiMode";

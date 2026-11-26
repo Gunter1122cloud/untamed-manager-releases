@@ -172,9 +172,16 @@ public sealed class ObsidianWindow : Form
     private async Task ReconcileBeforeLifecyclePreviewAsync(string? method,string raw)
     {
         Guid? id=DesktopRestartReconciler.RequestedPreviewMap(method,raw);
-        if(id==null||_updateHandoff||_suppressScheduledMutations)return;
+        if(id.HasValue)await ReconcileRequestedMapAsync(id.Value);
+    }
+
+    // UI and authenticated Discord lifecycle intent use the same
+    // map-local, journal-only reconciliation before native preflight.
+    private async Task ReconcileRequestedMapAsync(Guid id)
+    {
+        if(_updateHandoff||_suppressScheduledMutations)return;
         var map=System.Linq.Enumerable.SingleOrDefault(_bridge.LocalCluster.Config.LocalMaps,
-            m=>m.Id==id.Value);
+            m=>m.Id==id);
         if(map==null||map.Maintenance||map.ObservedReadOnlyImported)return;
         // The host bridge gate excludes new interactive admissions, but
         // already accepted lifecycle workers and scheduled work on other
@@ -515,7 +522,7 @@ public sealed class ObsidianWindow : Form
             ()=>_recovery.CanManagerUpdate()&&TryEnterWatchdogLane(),ReleaseRecoveryLane,()=>_updateHandoff||_suppressScheduledMutations);
         _discordControl = new DesktopDiscordControlApi(_bridge.LocalCluster,_bridgeGate,()=>_updateHandoff,
             TryEnterRecoveryLane,ReleaseRecoveryLane,DispatchDiscordNative,_asaDiscovery.Snapshot,_nativeSchedules.LegacyOperationHistory,
-            TryEnterDiscordLane,ReleaseDiscordLane);
+            TryEnterDiscordLane,ReleaseDiscordLane,ReconcileRequestedMapAsync);
         _liveMods=new DesktopHistoricalLiveModSync(_bridge.LocalCluster,_bridgeGate,
             ()=>_updateHandoff,TryEnterRecoveryLane,ReleaseRecoveryLane);
         Text = suppressScheduledMutations&&!smokeTest
