@@ -34,7 +34,11 @@ public static class LocalModRepair
                 throw new InvalidDataException("UM-MOD-REPAIR-TREE-UNSAFE");
             foreach(string candidate in Directory.EnumerateFileSystemEntries(full,"*",SearchOption.TopDirectoryOnly))
             {
-                if(!Regex.IsMatch(Path.GetFileName(candidate),"\\A"+project+@"_[0-9]{1,20}\z"))continue;
+                // ObeliskPanel ServerFiles.cs:23 (MIT, GodlyBDS, 3389140)
+                // recognizes the bare project ID as well as a suffixed folder.
+                // Retain our stricter numeric file-ID suffix and path proofs.
+                string name=Path.GetFileName(candidate);
+                if(name!=project&&!Regex.IsMatch(name,"\\A"+project+@"_[0-9]{1,20}\z"))continue;
                 attrs=File.GetAttributes(candidate);
                 if((attrs&FileAttributes.Directory)==0||(attrs&FileAttributes.ReparsePoint)!=0)
                     throw new InvalidDataException("UM-MOD-REPAIR-FOLDER-UNSAFE");

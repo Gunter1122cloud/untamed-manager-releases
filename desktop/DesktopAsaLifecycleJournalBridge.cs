@@ -162,8 +162,18 @@ public sealed class DesktopAsaLifecycleJournalBridge
             throw new InvalidOperationException("UM-RECOVERY-STOPPED-PORTS-NOT-FREE");
         string legacy=Path.Combine(Environment.GetFolderPath(
             Environment.SpecialFolder.ApplicationData),"Kova");
+        // For a locally pinned import, recovery uses the Manager-owned
+        // immutable identity and current runtime configuration, just like
+        // native Start/RCON. Never open the former Manager's live files.
+        if(LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,map))
+        {
+            if(!AsaRconConfigurationEvidence.Matches(map))
+                throw new InvalidDataException("UM-RECOVERY-STOPPED-RCON-CONFIGURATION-CHANGED");
+            return PinnedStoppedSourceEvidence(cluster.Store.Root,legacy,map,oldPid);
+        }
         string profile=LegacyStoreV1PinnedSource.PreferredProfile(
             cluster.Store.Root,legacy);
+        // Unpinned legacy imports retain their existing source migration proof.
         // Verify CURRENT five selected historical owners even with a sixth
         // local event map. The original session, map roots, lock and source
         // hashes are still checked by the native source readers.
@@ -211,6 +221,22 @@ public sealed class DesktopAsaLifecycleJournalBridge
         return new(map,oldPid,Convert.ToHexString(SHA256.HashData(
             Encoding.UTF8.GetBytes(evidence))),reapproval,
             source.FourFilesSha256,map.HistoricalArchiveSha256);
+    }
+
+    // Source-only evidence: the caller must separately prove stopped ASA
+    // and Loader, free ports, local ownership and matching RCON INI.
+    internal static StoppedProof PinnedStoppedSourceEvidence(string managerRoot,
+        string absentOrOriginalProfile,LocalMap map,int oldPid)
+    {
+        if(oldPid<=0||!LegacyStoreV1PinnedSource.HasApprovedLocalSource(managerRoot,map))
+            throw new InvalidDataException("UM-RECOVERY-STOPPED-PIN-REQUIRED");
+        string epoch=LegacyStoreV1PinnedSource.RuntimeFingerprint(
+            managerRoot,absentOrOriginalProfile,map);
+        string evidence=string.Join("\n",epoch,JsonSerializer.Serialize(map),
+            oldPid.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return new(map,oldPid,Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(evidence))),false,
+            map.HistoricalArchiveSha256,map.HistoricalArchiveSha256);
     }
 
     private StoppedProof VerifyStopped(Guid mapId,int oldPid)
