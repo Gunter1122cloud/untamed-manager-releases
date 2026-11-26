@@ -18,7 +18,9 @@ internal static class NativeAsaStartIdentity
            !string.Equals(Path.GetFullPath(started.ExecutablePath),
                Path.GetFullPath(plan.ExecutablePath),StringComparison.OrdinalIgnoreCase)||
            !string.Equals(started.Arguments,plan.Arguments,StringComparison.Ordinal))
-            throw new InvalidDataException("UM-ASA-NATIVE-SPAWN-IDENTITY-INVALID");
+            throw new InvalidDataException(redactHistoricalArguments?
+                "UM-STORE-NATIVE-SPAWN-IDENTITY-INVALID":
+                "UM-ASA-NATIVE-SPAWN-IDENTITY-INVALID");
         var identity=redactHistoricalArguments?new ProcessIdentity{
             Pid=started.Pid,StartedUtc=started.StartedUtc,
             ExecutablePath=started.ExecutablePath,
