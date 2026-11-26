@@ -224,6 +224,35 @@ internal static class OriginalStoreApiRconAttachTests
         Check(File.ReadAllBytes(ini).SequenceEqual(iniBefore),
             "original GameUserSettings.ini remains byte-identical");
 
+        // Directly exercise the imported diagnostics on the existing native
+        // read route. No real socket, original data or credential is exposed.
+        int attempts=0;
+        using(var live=new DesktopHistoricalRconReadOnlyBridge(cluster,
+            _=>seen,_=>new string('A',64),(p,pid)=>p==port&&pid==serverPid,
+            (_,_,_,_,_)=>++attempts==1
+                ?Task.FromException<string>(new System.Net.Sockets.SocketException(
+                    (int)System.Net.Sockets.SocketError.ConnectionRefused))
+                :Task.FromResult("No Players Connected")))
+        {
+            string query=JsonSerializer.Serialize(new{id=Guid.NewGuid(),
+                method="historical.rconPlayers",mapId=committed.Id});
+            using var failed=JsonDocument.Parse(await live.HandleAsync(query));
+            var error=failed.RootElement.GetProperty("error").GetString()!;
+            Check(!failed.RootElement.GetProperty("ok").GetBoolean()&&
+                error.StartsWith("UM-RCON-TRANSPORT: Connection refused",StringComparison.Ordinal)&&
+                error.Contains("ServerAdminPassword",StringComparison.Ordinal)&&
+                !error.Contains(password,StringComparison.Ordinal),
+                "imported RCON socket diagnosis is actionable without exposing the credential");
+            using var again=JsonDocument.Parse(await live.HandleAsync(query));
+            Check(again.RootElement.GetProperty("ok").GetBoolean()&&attempts==2,
+                "read-only transport failure does not block a subsequent request");
+        }
+        Check(RconTransportDiagnostics.DescribeSocketError(System.Net.Sockets.SocketError.TimedOut)
+                .Contains("timed out",StringComparison.Ordinal)&&
+              RconTransportDiagnostics.DescribeSocketError(System.Net.Sockets.SocketError.InvalidArgument)
+                .Contains("InvalidArgument",StringComparison.Ordinal),
+            "upstream timeout and unknown socket error mappings retained");
+
         // The critical stopped-import path: the API Loader mode can be
         // selected before ASA is running. Previously RCON attachment then
         // demanded a live Loader-child pair, but Start itself required RCON:

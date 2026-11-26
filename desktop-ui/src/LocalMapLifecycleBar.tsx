@@ -172,7 +172,11 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
   },[job,historical,onRefresh]);
 
   const preview=async(action:Action)=>{
-    if(actionInFlight.current||busy||job||blocked||reconnecting||reconnectFailed)return;
+    // A historical journal is diagnostic, not authority to disable an
+    // ordinary lifecycle request. Native preflight reconciles and verifies
+    // current ownership. Kill is intentionally excluded from this policy.
+    if(actionInFlight.current||busy||job||reconnecting||reconnectFailed||
+       (action==="kill"&&blocked))return;
     actionInFlight.current=true;
     const requestedMap=mapId;
     setBusy(true);setError("");setMessage("");
@@ -267,7 +271,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
         ". A parancs már elindulhatott; nincs automatikus ismétlés, előbb a natív naplót ellenőrizd.");
     }finally{if(belongs(selected.mapId))setBusy(false);}
   };
-  const unavailable=busy||Boolean(job)||blocked||reconnecting||reconnectFailed;
+  const unavailable=busy||Boolean(job)||reconnecting||reconnectFailed;
   return <section className="uk-lifecycle-command" aria-label="Helyi map életciklus vezérlése">
     <div className="uk-lifecycle-row" role="group" aria-label={mapName+" alapvezérlők"}>
       {(["start","restart","stop","kill"] as Action[]).map(action=>{
@@ -275,9 +279,9 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
           action==="kill"?historical||!running:!running;
         return <button type="button" key={action}
           className={"uk-lifecycle-btn uk-lifecycle-"+action}
-          disabled={unavailable||impossible} onClick={()=>{void preview(action);}}
+          disabled={unavailable||impossible||(action==="kill"&&blocked)} onClick={()=>{void preview(action);}}
           title={action==="kill"&&historical?"Eredeti Store-v1 mapokon tiltott: használj SaveWorld/DoExit-et":
-            blocked?"Műveleti napló felülvizsgálata szükséges":
+            action==="kill"&&blocked?"A Kill művelethez a helyi állapot nem igazolt":
             impossible?"A jelenlegi folyamatállapotban nem engedélyezett":copy[action]+" natív előellenőrzés"}>
           {action==="start"?<Play size={15}/>:action==="restart"?<RotateCcw size={15}/>:
             action==="stop"?<Octagon size={15}/>:<Skull size={15}/>}
@@ -289,7 +293,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
     {reconnectFailed&&<button type="button" className="secondary"
       onClick={()=>setReconnectNonce(n=>n+1)}>Műveleti állapot újraellenőrzése</button>}
     {blocked&&<p role="alert" className="warning-inline"><Shield size={15}/>
-      A műveleti napló nincs igazolva vagy kézi ellenőrzést igényel. Nem indul új ASA-művelet.</p>}
+      A korábbi művelet állapota bizonytalan. A Start, Stop vagy Restart natív előellenőrzése újra ellenőrzi a tényleges folyamatállapotot.</p>}
     <p className="muted small">Cél: {mapName} ({mapId}). A Start indít;
       a Stop mentés után szabályosan leállít; a Restart leállítás után újraindít.
       A Kill nem küld SaveWorldot, azonnali adatvesztést okozhat, és Store-v1

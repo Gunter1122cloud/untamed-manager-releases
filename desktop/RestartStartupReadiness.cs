@@ -142,22 +142,44 @@ internal static class RestartStartupReadiness
         if(maximum<=TimeSpan.Zero||maximum>TimeSpan.FromMinutes(12)||
            interval<=TimeSpan.Zero||interval>TimeSpan.FromMinutes(1))
             throw new ArgumentOutOfRangeException(nameof(maximum));
-        var deadline=DateTimeOffset.UtcNow+maximum;
+        // One deadline covers both the probe and the polling delay. A slow
+        // RCON/readiness observer must not extend the caller's entire budget.
+        using var budget=CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(maximum);
+        var elapsed=System.Diagnostics.Stopwatch.StartNew();
         RestartStartupProof? last=null;
-        do
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            last=await observe(ct);
-            if(last.Ready(apiMode))return last;
-            // A dead or replaced exact child/Loader is terminal; do not
-            // continue polling and DO NOT automatically dispatch another
-            // Start/DestroyWildDinos from this observer.
-            if(!last.AsaRunning||apiMode&&!last.LoaderRunning)
-                return last;
-            if(DateTimeOffset.UtcNow+interval>=deadline)break;
-            await Task.Delay(interval,ct);
+            while(true)
+            {
+                budget.Token.ThrowIfCancellationRequested();
+                var sample=await observe(budget.Token).WaitAsync(budget.Token);
+                budget.Token.ThrowIfCancellationRequested();
+                if(elapsed.Elapsed>=maximum)break;
+                last=sample;
+                if(last.Ready(apiMode))return last;
+                // A dead or replaced exact child/Loader is terminal. This
+                // observer never dispatches another Start or Dino wipe.
+                if(!last.AsaRunning||apiMode&&!last.LoaderRunning)return last;
+                var remaining=maximum-elapsed.Elapsed;
+                if(remaining<=TimeSpan.Zero)break;
+                if(interval>=remaining)
+                {
+                    // There is no scheduled poll before the deadline.
+                    // Windows timers may complete a fractional millisecond
+                    // early: do not issue a last unscheduled probe.
+                    await Task.Delay(remaining,budget.Token);
+                    break;
+                }
+                await Task.Delay(interval,budget.Token);
+            }
         }
-        while(DateTimeOffset.UtcNow<deadline);
-        return last??throw new InvalidOperationException("UM-RESTART-READINESS-NO-OBSERVATION");
+        catch(OperationCanceledException) when(budget.IsCancellationRequested&&!ct.IsCancellationRequested)
+        {
+            // A deadline is a readiness failure, not a successful restart.
+        }
+        ct.ThrowIfCancellationRequested();
+        if(last==null)throw new TimeoutException("UM-RESTART-READINESS-TIMEOUT");
+        return last with{Reason="UM-RESTART-READINESS-TIMEOUT"};
     }
 }

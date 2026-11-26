@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Threading;
@@ -57,8 +58,103 @@ internal static class OperationJournalIsolationTests
         }
     }
 
+    private static void StoppedStartReconciliation(string testsRoot)
+    {
+        string folder=Path.Combine(testsRoot,"stopped-start-reconciliation");
+        string installation=Path.Combine(folder,"map-a");
+        string other=Path.Combine(folder,"map-b");
+        Directory.CreateDirectory(installation);Directory.CreateDirectory(other);
+        var operations=new UntamedOperationCoordinator(Path.Combine(folder,"journals"));
+        using(var interrupted=operations.Acquire(installation,UntamedOperationKind.Launch))
+            interrupted.MarkMutationStarted();
+        var previous=operations.Observe(installation)!;
+        string key=UntamedOperationCoordinator.ResourceKey(installation);
+        string journal=Path.Combine(folder,"journals",key+".json");
+        byte[] original=File.ReadAllBytes(journal);
+        bool denied=false;
+        try{using var refused=operations.AcquireStoppedStart(installation,()=>false);}
+        catch(IOException){denied=true;}
+        Check(denied&&File.ReadAllBytes(journal).SequenceEqual(original),
+            "unknown physical state preserves abandoned launch receipt");
+        int observations=0;
+        using(var next=operations.AcquireStoppedStart(installation,()=>++observations>0))
+        {
+            Check(operations.Observe(installation)?.Operation!=previous.Operation&&observations==2,
+                "proven stopped map gets a fresh operation ID without operator review");
+            bool busy=false;
+            try{using var conflict=operations.AcquireStoppedStart(installation,()=>true);}
+            catch(IOException){busy=true;}
+            Check(busy,"a live installation lease cannot be bypassed");
+            next.Complete();
+        }
+        string audit=Path.Combine(folder,"journals",key+"-"+previous.Operation.ToString("N")+".interrupted-runtime.json");
+        Check(File.ReadAllBytes(audit).SequenceEqual(original),
+            "old uncertain outcome is archived byte-identically, never reported successful");
+        using(var restore=operations.Acquire(other,UntamedOperationKind.Restore))
+            restore.MarkMutationStarted();
+        bool protectedRestore=false;
+        try{using var refused=operations.AcquireStoppedStart(other,()=>true);}
+        catch(IOException){protectedRestore=true;}
+        Check(protectedRestore&&operations.Observe(other)?.Kind==UntamedOperationKind.Restore,
+            "runtime Start does not override an interrupted destructive restore");
+        using(var repeat=operations.Acquire(installation,UntamedOperationKind.Launch))
+            repeat.MarkMutationStarted();
+        var interruptedAgain=operations.Observe(installation)!;
+        int calls=0;bool changed=false;
+        try{using var refused=operations.AcquireStoppedStart(installation,()=>++calls==1);}
+        catch(IOException){changed=true;}
+        Check(changed&&operations.Observe(installation)==interruptedAgain,
+            "changed second observation prevents fresh Start");
+        using(var independent=operations.Acquire(Path.Combine(folder,"map-c"),UntamedOperationKind.Launch))
+            independent.Complete();
+        Check(operations.Observe(installation)==interruptedAgain,
+            "failed launch does not reserve an unrelated installation");
+    }
+
+    private static void PairedStopReconciliation(string testsRoot)
+    {
+        string folder=Path.Combine(testsRoot,"paired-stop-reconciliation");
+        string installation=Path.Combine(folder,"installation");
+        string journals=Path.Combine(folder,"journals");
+        Directory.CreateDirectory(installation);
+        using var scope=UntamedOperationCoordinator.UseIsolatedRootForTests(journals);
+        var operations=new UntamedOperationCoordinator(journals);
+        var stop=new AsaManualStopJournal(installation);
+        Guid map=Guid.NewGuid();
+        var attempt=stop.Begin(map,12345,DateTimeOffset.UtcNow.AddHours(-1));
+        using(var interrupted=operations.Acquire(installation,UntamedOperationKind.Launch))
+            interrupted.MarkMutationStarted();
+        var stoppedRecord=stop.Finish(attempt.Id,AsaStopPhase.NeedsOperator);
+        // Age the synthetic receipts, not the actual Windows clock.
+        var timestamp=DateTimeOffset.UtcNow.AddMinutes(-5);
+        string key=UntamedOperationCoordinator.ResourceKey(installation);
+        string commonPath=Path.Combine(journals,key+".json");
+        string stopPath=Path.Combine(journals,"GracefulStop-v1",key+".json");
+        var common=operations.Observe(installation)! with{UpdatedUtc=timestamp};
+        stoppedRecord=stoppedRecord with{CreatedUtc=timestamp.AddSeconds(-2),ChangedUtc=timestamp};
+        File.WriteAllText(commonPath,JsonSerializer.Serialize(common));
+        File.WriteAllText(stopPath,JsonSerializer.Serialize(stoppedRecord,new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        var commonBytes=File.ReadAllBytes(commonPath);
+        var stopBytes=File.ReadAllBytes(stopPath);
+        Check(!operations.TryReconcileStoppedReceipt(installation,map,stop,stoppedRecord,()=>false)&&
+            File.ReadAllBytes(commonPath).SequenceEqual(commonBytes)&&File.ReadAllBytes(stopPath).SequenceEqual(stopBytes),
+            "unverified process state never clears either paired receipt");
+        Check(operations.TryReconcileStoppedReceipt(installation,map,stop,stoppedRecord,()=>true),
+            "stopped process releases paired runtime receipts without operator action");
+        stop.DemandNoPending(map);
+        Check(operations.Observe(installation)?.Phase==UntamedOperationPhase.OperatorReviewed&&
+            stop.Observe()?.Phase==AsaStopPhase.OperatorReviewed,
+            "both interrupted receipts close without claiming success");
+        Check(File.ReadAllBytes(Path.Combine(journals,key+"-"+common.Operation.ToString("N")+".interrupted-runtime.json")).SequenceEqual(commonBytes)&&
+            File.ReadAllBytes(Path.Combine(journals,"GracefulStop-v1",key+"-"+attempt.Id.ToString("N")+".operator-reviewed.json")).SequenceEqual(stopBytes),
+            "paired runtime reconciliation preserves both original receipts");
+        using(var next=operations.Acquire(installation,UntamedOperationKind.Launch))next.Complete();
+    }
+
     public static async Task Run(string testsRoot)
     {
+        StoppedStartReconciliation(testsRoot);
+        PairedStopReconciliation(testsRoot);
         string root=Path.Combine(testsRoot,"child-operation-journal-isolation");
         string journals=Path.Combine(root,"journals");
         string install=Path.Combine(root,"fake-asa-install");
@@ -91,6 +187,55 @@ internal static class OperationJournalIsolationTests
         Check(File.Exists(Path.Combine(journals,key+".json"))&&
               File.Exists(Path.Combine(journals,"Restart-v1",key+".json")),
             "generic and Restart-v1 journals are both beneath TEMP");
+
+        // A previous manager can disappear before any operation is dispatched.
+        // The exact OS lease, not an arbitrary age, distinguishes active from
+        // abandoned Prepared. Never silently mark the old operation successful.
+        {
+            string preparedRoot=Path.Combine(root,"prepared-admission");
+            string first=Path.Combine(preparedRoot,"map-a");
+            string second=Path.Combine(preparedRoot,"map-b");
+            Directory.CreateDirectory(first);
+            Directory.CreateDirectory(second);
+            string journalRoot=Path.Combine(preparedRoot,"journals");
+            var coordinator=new UntamedOperationCoordinator(journalRoot);
+            using(var active=coordinator.Acquire(first,UntamedOperationKind.Launch))
+            {
+                bool busy=false;
+                try{using var duplicate=coordinator.Acquire(first,UntamedOperationKind.Configuration);}
+                catch(IOException ex) when(ex.Message=="UNTAMED_OPERATION_BUSY"){busy=true;}
+                Check(busy&&!coordinator.TryCancelAbandonedPrepared(first),
+                    "active lease cannot be cancelled or replaced");
+                using(var sibling=coordinator.Acquire(second,UntamedOperationKind.Configuration))
+                    sibling.Complete();
+                Check(coordinator.Observe(second)?.Phase==UntamedOperationPhase.Completed,
+                    "active map does not block a different installation");
+            }
+            string resourceKey=UntamedOperationCoordinator.ResourceKey(first);
+            string file=Path.Combine(journalRoot,resourceKey+".json");
+            var abandoned=new UntamedOperationRecord(1,resourceKey,Guid.NewGuid(),
+                UntamedOperationKind.Launch,UntamedOperationPhase.Prepared,DateTimeOffset.UtcNow);
+            File.WriteAllText(file,JsonSerializer.Serialize(abandoned));
+            byte[] original=File.ReadAllBytes(file);
+            string audit=Path.Combine(journalRoot,resourceKey+"-"+abandoned.Operation.ToString("N")+".pre-mutation-cancelled.json");
+            using(var next=coordinator.Acquire(first,UntamedOperationKind.Configuration))
+            {
+                Check(coordinator.Observe(first)?.Operation!=abandoned.Operation&&
+                    coordinator.Observe(first)?.Phase==UntamedOperationPhase.Prepared,
+                    "new operation immediately admits an unowned Prepared receipt");
+                Check(File.ReadAllBytes(audit).SequenceEqual(original),
+                    "abandoned receipt bytes are preserved before the next operation");
+                next.Complete();
+            }
+            // Real unknown mutation is not equivalent to abandoned Prepared.
+            using(var unknown=coordinator.Acquire(first,UntamedOperationKind.Restore))
+                unknown.MarkMutationStarted();
+            bool unknownBlocked=false;
+            try{using var denied=coordinator.Acquire(first,UntamedOperationKind.Launch);}
+            catch(IOException ex) when(ex.Message=="UNTAMED_OPERATION_NEEDS_OPERATOR"){unknownBlocked=true;}
+            Check(unknownBlocked&&!coordinator.TryCancelAbandonedPrepared(first),
+                "interrupted restore still requires storage-specific reconciliation");
+        }
 
         // P1/P2: a directory occupying a journal filename must not be
         // mistaken for a missing file (File.Exists returns false), and an

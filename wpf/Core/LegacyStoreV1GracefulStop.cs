@@ -269,21 +269,10 @@ internal static class LegacyStoreV1GracefulStop
                 password,AuthorizeSave,ct);
             stage?.Invoke("DoExit elküldve; a régi Windows ASA PID kilépését ellenőrzöm");
         }
-        while(true)
-        {
-            ct.ThrowIfCancellationRequested();
-            var check=stopped(locked.Map);
-            if(check.ConfirmedStopped&&!check.Running&&check.Identity==null&&
-               check.LoaderIdentity==null)
-                break;
-            // If a different process has taken over the same old map
-            // before the old PID is gone, do not claim completed shutdown.
-            var live=inspect(locked.Map);
-            if(live.Running&&live.Identity is {Pid:>0} current&&
-               !Same(current,locked.Process))
-                throw new InvalidOperationException("UM-ORIGINAL-STOP-REPLACEMENT-ASA-PID");
-            await Task.Delay(300,ct);
-        }
+        await ProcessFamily.WaitForOwnedExitAsync(
+            ()=>stopped(locked.Map),()=>inspect(locked.Map),
+            locked.Process,locked.LoaderIdentity,
+            (a,b)=>a!=null&&b!=null&&Same(a,b),ct);
         stage?.Invoke("Eredeti ASA-folyamat kilépése Windowsból igazolt");
         lease.Complete();
         return new(mapId,approvedPid,true,false,true,DateTimeOffset.UtcNow,

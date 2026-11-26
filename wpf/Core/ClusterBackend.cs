@@ -1753,6 +1753,36 @@ public sealed partial class ClusterService : IAsyncDisposable
     // deliberately separate from historical Store-v1 imports and FakeAsa.
     // No automatic server restart or recovery is authorized here. A successful
     // Process.Start is not evidence of RCON/ASA client readiness.
+    private bool CanArchiveAbandonedLaunch(LocalMap map,string profile,
+        Func<ProcessCheck> observeStopped)
+    {
+        // The old installation journal has no map ID. Do not attribute a
+        // shared installation's failed mutation to a different map.
+        if(map.Maintenance||map.ObservedReadOnlyImported||
+           !ReferenceEquals(Config.LocalMaps.SingleOrDefault(m=>m.Id==map.Id),map)||
+           JsonSerializer.Serialize(map)!=profile)return false;
+        string resource=UntamedOperationCoordinator.ResourceKey(map.InstallationPath);
+        if(Config.LocalMaps.Count(m=>!string.IsNullOrWhiteSpace(m.InstallationPath)&&
+            UntamedOperationCoordinator.ResourceKey(m.InstallationPath)==resource)!=1)
+            return false;
+        if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map)||
+           !AsaReadyProbe.IsRegisteredServerBinary(map)||
+           !AsaRconConfigurationEvidence.Matches(map))return false;
+        new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+        new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
+        if(map.HistoricalStoreProtected&&
+           LegacyStoreV1SaveEvidenceJournal.Inspect(Store.Root,map.Id)?.Phase is ("prepared" or "needsOperator"))
+            return false;
+        // A failed launch may have staged configuration changes. A
+        // conflicting/unreadable draft is a separate concrete disk problem.
+        foreach(string ini in new[]{"Game.ini","GameUserSettings.ini"})
+            if(PendingGameIni.Status(this,map,ini).State is not ("none" or "queued" or "applied"))
+                return false;
+        var state=observeStopped();
+        return state.ConfirmedStopped&&!state.Running&&state.Identity==null&&
+            state.LoaderIdentity==null&&AsaLocalPortPreflight.CanStart(map);
+    }
+
     public ProcessIdentity LaunchFreshAsa(Guid id,bool operatorApproved,Guid? approvedRestartId=null)
     {
         var map=Config.LocalMaps.SingleOrDefault(x=>x.Id==id) ??
@@ -1811,7 +1841,13 @@ public sealed partial class ClusterService : IAsyncDisposable
             throw new InvalidOperationException("ASA start requires a confirmed stopped local map");
         if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             throw new InvalidOperationException("Unresolved restore prevents ASA start");
-        using var lease=Operations.Acquire(root,UntamedOperationKind.Launch);
+        string approvedProfile=JsonSerializer.Serialize(map);
+        using var lease=approvedRestartId.HasValue?
+            Operations.Acquire(root,UntamedOperationKind.Launch):
+            Operations.AcquireStoppedStart(root,()=>CanArchiveAbandonedLaunch(
+                map,approvedProfile,()=>Check(map))&&
+                AsaSteamBuildCatalog.InstalledBuild(root)==build&&
+                AsaApiLaunchPolicy.Resolve(map)==launch);
         restartJournal.DemandAuthorizedStart(approvedRestartId);
         // Recheck while holding the installation mutation lease, immediately
         // before the OS process spawn. Fail closed; never retry/force-kill.
@@ -1839,10 +1875,8 @@ public sealed partial class ClusterService : IAsyncDisposable
         RecoveryNativeStartBoundary.Demand(id);
         bool marked=PendingGameIni.ApplyBeforeLaunch(this,map,()=>Check(map),lease.MarkMutationStarted);
         if(!marked)lease.MarkMutationStarted();
-        var identity=_inspector.Launch(map);
-        // The server may outlive the Manager UI. The durable identity is used
-        // to recognize the original process and reject PID reuse.
-        if(map.StartWithAsaApi)map.LastLoader=identity;else map.LastProcess=identity;
+        var identity=NativeAsaStartIdentity.Record(map,launch,_inspector.Launch(map),
+            redactHistoricalArguments:false);
         Save();
         RecoveryStopIntent.RecordNativeStart(map,identity,approvedRestartId);
         lease.Complete();
@@ -1870,7 +1904,13 @@ public sealed partial class ClusterService : IAsyncDisposable
         var preview=LegacyStoreV1NativeStartPlanner.Prepare(this,map,approvedRestartId);
         if(!string.Equals(preview.Fingerprint,approvedFingerprint,StringComparison.Ordinal))
             throw new InvalidDataException("UM-STORE-NATIVE-SOURCE-CHANGED");
-        using var lease=Operations.Acquire(map.InstallationPath,UntamedOperationKind.Launch);
+        string approvedProfile=JsonSerializer.Serialize(map);
+        using var lease=approvedRestartId.HasValue?
+            Operations.Acquire(map.InstallationPath,UntamedOperationKind.Launch):
+            Operations.AcquireStoppedStart(map.InstallationPath,()=>CanArchiveAbandonedLaunch(
+                map,approvedProfile,()=>LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
+                    map,Config.LocalMaps))&&
+                LegacyStoreV1NativeStartPlanner.Prepare(this,map).Fingerprint==approvedFingerprint);
         var current=Config.LocalMaps.SingleOrDefault(x=>x.Id==mapId);
         if(!ReferenceEquals(current,map))
             throw new InvalidOperationException("UM-STORE-NATIVE-MAP-CHANGED");
@@ -1894,31 +1934,9 @@ public sealed partial class ClusterService : IAsyncDisposable
         if(!marked)lease.MarkMutationStarted(); // durable marker BEFORE Process.Start
         var started=_inspector.Launch(exact);
         string expectedExe=inspected.UseApi?map.ApiLoaderPath:map.ExecutablePath;
-        if(started.Pid<=0||started.StartedUtc==default||
-           !string.Equals(Path.GetFullPath(started.ExecutablePath),
-             Path.GetFullPath(expectedExe),StringComparison.OrdinalIgnoreCase)||
-           started.Arguments!=inspected.Arguments)
-            throw new InvalidDataException("UM-STORE-NATIVE-SPAWN-IDENTITY-INVALID");
-        // Process.Start proves ONLY the created parent. For Loader mode the
-        // ASA child PID and actual RCON readiness remain independently unknown.
-        // Never persist the source UNC path or private launch switches.
-        var redacted=new ProcessIdentity{
-            Pid=started.Pid,StartedUtc=started.StartedUtc,
-            ExecutablePath=started.ExecutablePath,
-            Arguments=inspected.UseApi?
-                "HISTORICAL_STORE_V1_API_LOADER_START":
-                "HISTORICAL_STORE_V1_NATIVE_START"
-        };
-        if(inspected.UseApi)
-        {
-            map.LastLoader=redacted;
-            map.LastProcess=null;
-        }
-        else
-        {
-            map.LastProcess=redacted;
-            map.LastLoader=null;
-        }
+        var redacted=NativeAsaStartIdentity.Record(map,
+            new AsaApiLaunchPlan(inspected.UseApi,expectedExe,inspected.Arguments,
+                "ORIGINAL_STORE_NATIVE_PLAN"),started,redactHistoricalArguments:true);
         // A pending mod draft means "not yet submitted at launch", not
         // proof a mod downloaded or loaded in game. Clear it ONLY after
         // Process.Start returned the exact planned arguments and those

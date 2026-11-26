@@ -55,6 +55,26 @@ internal static class NativeWebViewDispatchContractTests
 
     public static void Run()
     {
+        // Reconciliation is called only for an exact ordinary lifecycle
+        // request, not an arbitrary request, a status poll or token apply.
+        var lifecycleMap=Guid.NewGuid();
+        string PreviewRequest(string route,Guid map)=>System.Text.Json.JsonSerializer.Serialize(
+            new{id=Guid.NewGuid(),method=route,mapId=map});
+        string[] previews={"servers.freshStartPreview","servers.gracefulStopPreview",
+            "servers.restartPreview","historical.activeStartPreview",
+            "historical.gracefulStopPreview","historical.restartPreview"};
+        foreach(var route in previews)
+            Check(DesktopRestartReconciler.RequestedPreviewMap(route,PreviewRequest(route,lifecycleMap))==lifecycleMap,
+                "normal lifecycle preflight reconciles selected map: "+route);
+        foreach(var route in new[]{"servers.freshStartApply","rcon.listPlayers",
+            "servers.lifecycleRecoveryPreview","historical.activeStartStatus"})
+            Check(DesktopRestartReconciler.RequestedPreviewMap(route,PreviewRequest(route,lifecycleMap))==null,
+                "unrelated route does not trigger lifecycle reconciliation: "+route);
+        Check(DesktopRestartReconciler.RequestedPreviewMap(previews[0],PreviewRequest(previews[1],lifecycleMap))==null&&
+              DesktopRestartReconciler.RequestedPreviewMap(previews[0],PreviewRequest(previews[0],Guid.Empty))==null&&
+              DesktopRestartReconciler.RequestedPreviewMap(previews[0],"{}")==null,
+            "mismatched and malformed requests never trigger reconciliation");
+
         // Pure Windows task state contract: never register/start/stop a real task in CI.
         Check(Enumerable.Range(0,6).Where(DesktopDiscordBotRuntime.CanStart).SequenceEqual(new[]{3})&&
               Enumerable.Range(0,6).Where(DesktopDiscordBotRuntime.CanStop).SequenceEqual(new[]{2,4}),

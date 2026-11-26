@@ -1,5 +1,6 @@
 import {RconHistoryPanel} from "./RconHistoryPanel";
 import {recordRconEvent} from "./state/rconHistory";
+import {rconTransportHint} from "./state/rconTransportHint";
 import {useCallback,useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,RefreshCw,Shield,Terminal,Users,Save} from "lucide-react";
 import {managerBridge,type RconStatus,type RconPlayers,type RconReadLog,type RconWorldSave,type RconSaveStatus,type RconAdminPreview,type RconAdminResult,type RconConfigStatus,type RconConfigPreview} from "./bridge";
@@ -128,8 +129,8 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
         throw new Error("UM-RCON-PLAYERS-MAP-MISMATCH");
       setResult(reply);
       recordRconEvent(requested,"ListPlayers","reply");
-    }catch{if(belongs(requested,epoch))
-      setError("A helyi ASA játékoslista válasza vagy mapazonosítója nem igazolható.");}
+    }catch(ex){if(belongs(requested,epoch))
+      setError(rconTransportHint(ex)??"A helyi ASA játékoslista válasza vagy mapazonosítója nem igazolható.");}
     finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const queryReadLog=async(type:"game"|"chat")=>{
@@ -146,9 +147,9 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
         throw new Error("UM-RCON-LOG-MAP-MISMATCH");
       setReadLog(response);
       recordRconEvent(requested,type==="game"?"GetGameLog":"GetChat","reply");
-    }catch{
+    }catch(ex){
       if(belongs(requested,epoch))
-        setError("Az ASA napló/chat RCON-válasz mapazonossága nem igazolható.");
+        setError(rconTransportHint(ex)??"Az ASA napló/chat RCON-válasz mapazonossága nem igazolható.");
     }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const saveWorld=async()=>{
