@@ -87,7 +87,7 @@ internal static class FreshAsaRestartReplacementReviewTests
         await using var cluster=new ClusterService("fresh-replacement-review",
             Path.Combine(testRoot,"fresh-replacement-profile"),
             _=>new ProcessCheck(true,"synthetic exact ASA/Loader family",
-                currentAsa,false,currentLoader));
+                currentAsa,false,map.StartWithAsaApi?currentLoader:null));
         cluster.AddMap(map);
         Check(AsaApiLaunchPolicy.Resolve(map).UseApi,
             "isolated API fixture passes the production launch file policy");
@@ -95,7 +95,7 @@ internal static class FreshAsaRestartReplacementReviewTests
         {
             Check(ReferenceEquals(requested,map),"review only observes the registered fixture map");
             return new ProcessCheck(true,"synthetic exact ASA/Loader family",
-                currentAsa,false,currentLoader);
+                currentAsa,false,map.StartWithAsaApi?currentLoader:null);
         }
         using(var lease=cluster.Operations.Acquire(install,UntamedOperationKind.Launch))
             lease.Complete();
@@ -167,5 +167,33 @@ internal static class FreshAsaRestartReplacementReviewTests
             new{token,confirm=true});
         Check(!replay.GetProperty("ok").GetBoolean(),
             "the journal-review approval token is one-shot and cannot be replayed");
+
+        // Exercise the real ordinary Restart admission with an isolated
+        // direct-ASA observation. The earlier fixture covered Loader review.
+        map.StartWithAsaApi=false;map.ApiLoaderPath="";map.ApiLoaderArguments="";
+        cluster.Save();
+        var oldOwnerFailure=restart.Begin(map.Id,replacementPid);
+        var terminal=restart.Change(oldOwnerFailure.Id,AsaRestartPhase.NeedsOperator);
+        File.WriteAllText(restartFile,JsonSerializer.Serialize(terminal with{
+            ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-4)
+        }));
+        byte[] interruptedBytes=File.ReadAllBytes(restartFile);
+        using(var active=cluster.Operations.Acquire(install,UntamedOperationKind.Configuration))
+        {
+            var busyPreview=await Call(bridge.HandleAsync,"servers.restartPreview",new{mapId=map.Id});
+            Check(!busyPreview.GetProperty("ok").GetBoolean()&&
+                File.ReadAllBytes(restartFile).SequenceEqual(interruptedBytes),
+                "ordinary request cannot reconcile while another installation operation owns the lease");
+            active.Complete();
+        }
+        var ordinary=await Call(bridge.HandleAsync,"servers.restartPreview",new{mapId=map.Id});
+        Check(ordinary.GetProperty("ok").GetBoolean()&&
+            ordinary.GetProperty("data").GetProperty("currentPid").GetInt32()==replacementPid&&
+            restart.Observe()?.Phase==AsaRestartPhase.OperatorReviewed,
+            "ordinary native Restart request automatically reconciles verified old owner: "+ordinary.GetRawText());
+        string preserved=Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",
+            key+"-"+oldOwnerFailure.Id.ToString("N")+".operator-reviewed.json");
+        Check(File.ReadAllBytes(preserved).SequenceEqual(interruptedBytes),
+            "ordinary Restart admission preserves original failure bytes and does not dispatch");
     }
 }
