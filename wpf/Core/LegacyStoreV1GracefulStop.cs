@@ -229,9 +229,6 @@ internal static class LegacyStoreV1GracefulStop
                 throw new InvalidOperationException("UM-ORIGINAL-STOP-OWNER-CHANGED");
         }
         Verify();
-        // Missing save telemetry must not prevent an owned graceful shutdown.
-        var witness=execute==null?
-            AsaGracefulStop.TryCaptureSaveEvidence(locked.Map,locked.Process):null;
         bool mutationStarted=false;
         void AuthorizeSave()
         {
@@ -249,26 +246,8 @@ internal static class LegacyStoreV1GracefulStop
         }
         else
         {
-            string password=SecureStore.Unprotect(locked.Map.RconPasswordProtected);
-            Verify();
-            stage?.Invoke("SaveWorld elküldése az eredeti helyi Store-v1 ASA-nak");
-            bool sent=await AsaGracefulStop.TrySendSaveAsync(
-                ()=>RconProtocol.DispatchOwnedSaveWorldAsync(locked.Map.RconPort,password,AuthorizeSave,ct),
-                Verify,stage,ct);
-            if(sent)
-            {
-                var observed=await AsaGracefulStop.ObserveSaveBrieflyAsync(witness,Verify,ct);
-                preExitObserved=observed.LogAndWorld;
-                worldMetadataObserved=observed.WorldMetadata;
-            }
-            stage?.Invoke(preExitObserved
-                ?"Új ASA SaveComplete napló és stabil világfájl igazolva"
-                :"A mentés nem igazolt; a DoExit saját mentéssel zárja le az ASA-t");
-            Verify();
-            doExitDispatched=await AsaGracefulStop.TryDispatchDoExitAsync(
-                authorize=>RconProtocol.DispatchDoExitAsync(locked.Map.RconPort,password,authorize,ct),
-                AuthorizeSave,stage,ct);
-            if(doExitDispatched)stage?.Invoke("DoExit elküldve; a régi Windows ASA PID kilépését ellenőrzöm");
+            (preExitObserved,worldMetadataObserved,doExitDispatched)=await AsaGracefulStop.ShutdownAsync(
+                locked.Map,locked.Process,Verify,AuthorizeSave,stage,ct);
         }
         await ProcessFamily.WaitForOwnedExitAsync(
             ()=>stopped(locked.Map),()=>inspect(locked.Map),
