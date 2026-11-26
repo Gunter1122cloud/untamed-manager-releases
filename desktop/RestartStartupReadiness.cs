@@ -163,7 +163,15 @@ internal static class RestartStartupReadiness
                 if(!last.AsaRunning||apiMode&&!last.LoaderRunning)return last;
                 var remaining=maximum-elapsed.Elapsed;
                 if(remaining<=TimeSpan.Zero)break;
-                await Task.Delay(interval<remaining?interval:remaining,budget.Token);
+                if(interval>=remaining)
+                {
+                    // There is no scheduled poll before the deadline.
+                    // Windows timers may complete a fractional millisecond
+                    // early: do not issue a last unscheduled probe.
+                    await Task.Delay(remaining,budget.Token);
+                    break;
+                }
+                await Task.Delay(interval,budget.Token);
             }
         }
         catch(OperationCanceledException) when(budget.IsCancellationRequested&&!ct.IsCancellationRequested)
