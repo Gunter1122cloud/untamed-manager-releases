@@ -157,6 +157,8 @@ public sealed class ObsidianWindow : Form
             try{changed|=UntamedManager.Core.LegacyStoreV1PinnedSource.TryPersistRuntimeIdentity(
                 _bridge.LocalCluster,map);}
             catch(Exception ex){System.Diagnostics.Trace.TraceWarning("Native Store metadata {0}: {1}",map.Id,ex.GetType().Name);}
+            try{changed|=_bridge.LocalCluster.Registry.TryEnsureNativeStoreMembership(map);}
+            catch(Exception ex){System.Diagnostics.Trace.TraceWarning("Native cluster metadata {0}: {1}",map.Id,ex.GetType().Name);}
             changed|=_historicalStop.TryReconcileSaveReceipt(map);
             changed|=_lifecycleJournal.TryReconcileCurrentOwner(map);
             changed|=_lifecycleJournal.TryReconcileOldOwner(map);
