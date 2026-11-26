@@ -238,9 +238,10 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved,refreshRevi
         canonicalSaveId(evidence.operationId)===canonicalSaveId(jobId);
       const manuallyReviewed=(job?.state==="needsOperator"||
           job?.state==="reviewed")&&evidence.phase==="reviewed"&&
-        evidence.operationId===jobId;
-      if(!automatic&&jobId&&!review.blocked&&!evidence.unreadable&&
-         (completedVerified||manuallyReviewed||noDispatchVerified)){
+        canonicalSaveId(evidence.operationId)!==null&&
+        canonicalSaveId(evidence.operationId)===canonicalSaveId(jobId);
+      if(jobId&&!review.blocked&&!evidence.unreadable&&
+         (manuallyReviewed||(!automatic&&(completedVerified||noDispatchVerified)))){
         setJobId("");setJob(null);finished.current=false;
       }
       if(review.operationJournalUnreadable||review.restartJournalUnreadable)
@@ -268,6 +269,19 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved,refreshRevi
     }finally{if(belongs(requested,revision))setBusy(false);}
   };
   useMapEvidenceRefresh(refreshRevision,busy||!!jobId&&job?.state!=="completed"&&job?.state!=="notDispatched"&&job?.state!=="needsOperator"&&job?.state!=="reviewed",()=>refreshDurable(true));
+  // The native supervisor can retire an abandoned receipt without a
+  // renderer command or navigation. Poll only read-only evidence, and keep
+  // an active/unknown job protected until its exact receipt is reconciled.
+  const refreshLatest=useRef(refreshDurable);
+  refreshLatest.current=refreshDurable;
+  const needsRefresh=!!recovery?.blocked||durableUnknown||
+    durableSave?.phase==="prepared"||durableSave?.phase==="needsOperator"||
+    job?.state==="needsOperator";
+  useEffect(()=>{
+    if(!needsRefresh||busy||recovery?.inMemoryRunning)return;
+    const timer=window.setTimeout(()=>{void refreshLatest.current(true);},5000);
+    return ()=>window.clearTimeout(timer);
+  },[mapId,needsRefresh,busy,recovery?.inMemoryRunning]);
   const inspectLateEvidence=async()=>{
     if(busy||!running||!durableChecked||!durableSave||
        !["prepared","needsOperator","reviewed"].includes(durableSave.phase)||
