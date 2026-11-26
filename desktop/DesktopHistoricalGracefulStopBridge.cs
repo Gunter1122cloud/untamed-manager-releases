@@ -52,7 +52,11 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     // Per-map Store SaveWorld/DoExit receipts must remain observable when
     // a second independent map starts another approved native operation.
     private readonly Dictionary<Guid,Job> jobsByMap=new();
-    internal bool RecoveryLaneBusy(){lock(sync)return jobsByMap.Values.Any(x=>x.State is "queued" or "running");}
+    internal bool RecoveryLaneBusy(Guid? mapId=null)
+    {
+        lock(sync)return jobsByMap.Values.Any(x=>
+            (!mapId.HasValue||x.MapId==mapId.Value)&&x.State is ("queued" or "running"));
+    }
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private bool HasActive(Guid mapId)
     {
