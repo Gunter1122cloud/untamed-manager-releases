@@ -308,6 +308,10 @@ internal static class NativeWebViewDispatchContractTests
                 StringComparison.Ordinal),
             "new Store per-map Loader approvals fail closed instead of clearing sibling maps");
 
+        Check(Read("wpf/Core/AsaGracefulStop.cs").Contains("await ShutdownAsync(",StringComparison.Ordinal)&&
+            Read("wpf/Core/LegacyStoreV1GracefulStop.cs").Contains("await AsaGracefulStop.ShutdownAsync(",StringComparison.Ordinal),
+            "both native stop paths use the same SaveWorld/DoExit command sequence");
+
         // Three independent native Loader lifecycle paths must not impose
         // older 2–3-minute false-failure windows on large modded ASA worlds.
         // All use the same bounded read-only family/RCON verification period;

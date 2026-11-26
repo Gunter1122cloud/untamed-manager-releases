@@ -103,6 +103,39 @@ public static class AsaGracefulStop
         }
     }
 
+    // Single native RCON shutdown sequence for every local ASA profile.
+    // Profile-specific ownership and installation lease stay with the caller.
+    // Save telemetry is observational; DoExit is sent once, then exit is
+    // witnessed by the same process-family observer in both callers.
+    internal static async Task<(bool LogAndWorld,bool WorldMetadata,bool DoExitDispatched)> ShutdownAsync(
+        LocalMap map,ProcessIdentity process,Action verify,Action authorize,
+        Action<string>? stage,CancellationToken ct)
+    {
+        string password=SecureStore.Unprotect(map.RconPasswordProtected);
+        if(string.IsNullOrWhiteSpace(password))
+            throw new InvalidDataException("Local RCON credential unavailable");
+        verify();
+        var witness=TryCaptureSaveEvidence(map,process);
+        bool sent=await TrySendSaveAsync(
+            ()=>RconProtocol.DispatchOwnedSaveWorldAsync(map.RconPort,password,authorize,ct),
+            verify,stage,ct);
+        (bool LogAndWorld,bool WorldMetadata) observed=(false,false);
+        if(sent)
+        {
+            stage?.Invoke("RCON SaveWorld elküldve");
+            observed=await ObserveSaveBrieflyAsync(witness,verify,ct);
+        }
+        stage?.Invoke(observed.LogAndWorld
+            ?"ASA SaveComplete napló és stabil .ark megfigyelve"
+            :"A mentés nem igazolt; a DoExit saját mentéssel zárja le az ASA-t");
+        verify();
+        bool dispatched=await TryDispatchDoExitAsync(
+            check=>RconProtocol.DispatchDoExitAsync(map.RconPort,password,check,ct),
+            authorize,stage,ct);
+        if(dispatched)stage?.Invoke("DoExit elküldve; PID kilépésére vár");
+        return(observed.LogAndWorld,observed.WorldMetadata,dispatched);
+    }
+
     public static async Task<AsaGracefulStopReceipt> StopAsync(
         ClusterService cluster,Guid mapId,ProcessIdentity expected,
         TimeSpan timeout,CancellationToken cancellationToken=default,
@@ -121,8 +154,8 @@ public static class AsaGracefulStop
         bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
         if((!newStore&&(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
             !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
-            (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
-                StringComparison.OrdinalIgnoreCase)))||
+            AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments)||
+            AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments)))||
            map.Maintenance||!AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new InvalidOperationException("Historical or unverified map cannot stop");
         if(map.RconHost!="127.0.0.1"||map.RconPort is <1024 or >65535||
@@ -182,30 +215,8 @@ public static class AsaGracefulStop
         }
         else
         {
-            string password=SecureStore.Unprotect(map.RconPasswordProtected);
-            if(string.IsNullOrWhiteSpace(password))
-                throw new InvalidDataException("Local RCON credential unavailable");
-            // Capture the current log byte offset BEFORE irreversible RCON
-            // dispatch. Old autosave lines must not certify this SaveWorld.
-            var witness=TryCaptureSaveEvidence(map,expected);
-            bool sent=await TrySendSaveAsync(
-                ()=>RconProtocol.DispatchOwnedSaveWorldAsync(map.RconPort,password,AuthorizeSave,ct),
-                Verify,evidenceStage,ct);
-            if(sent)
-            {
-                evidenceStage?.Invoke("RCON SaveWorld elküldve");
-                var observed=await ObserveSaveBrieflyAsync(witness,Verify,ct);
-                preExitEvidence=observed.LogAndWorld;
-                worldMetadataEvidence=observed.WorldMetadata;
-            }
-            evidenceStage?.Invoke(preExitEvidence
-                ?"ASA SaveComplete napló és stabil .ark megfigyelve"
-                :"A mentés nem igazolt; a DoExit saját mentéssel zárja le az ASA-t");
-            Verify();
-            doExitDispatched=await TryDispatchDoExitAsync(
-                authorize=>RconProtocol.DispatchDoExitAsync(map.RconPort,password,authorize,ct),
-                AuthorizeSave,evidenceStage,ct);
-            if(doExitDispatched)evidenceStage?.Invoke("DoExit elküldve; PID kilépésére vár");
+            (preExitEvidence,worldMetadataEvidence,doExitDispatched)=await ShutdownAsync(
+                map,expected,Verify,AuthorizeSave,evidenceStage,ct);
         }
         // DoExit normally closes ASA after its own world save. The process
         // must vanish before declaring a successful graceful stop.
