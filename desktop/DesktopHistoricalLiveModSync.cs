@@ -53,7 +53,7 @@ internal sealed class DesktopHistoricalLiveModSync : IDisposable
             try
             {
                 if(!Eligible(map)||!cluster.Config.LocalMaps.Contains(map)||
-                   !LegacyStoreV1PinnedSource.HasApprovedLocalSource(cluster.Store.Root,map)||
+                   !LegacyStoreV1PinnedSource.HasRuntimeIdentity(cluster.Store.Root,map)||
                    Pending(map))return;
                 using var lease=cluster.Operations.AcquireMany(
                     new[]{cluster.Store.Root,map.InstallationPath},UntamedOperationKind.Configuration);
