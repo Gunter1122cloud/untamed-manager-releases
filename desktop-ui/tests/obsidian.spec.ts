@@ -2978,6 +2978,8 @@ test.beforeEach(async ({ page }) => {
           evidence:"OFFICIAL_ASA_API_GITHUB_RELEASE_METADATA_ONLY"
         };
         case "api.corePreview":
+          if(state.local.maps[1].storeProtected&&!state.local.maps[1].freshStoreEnrolled)
+            throw new Error("UM-API-CORE-NOT-STOPPED-NONSTORE");
           if(m.mapId!==two||m.assetName!=="ArkServerApi-verified.zip")
             throw new Error("UM-API-CORE-MAP-OR-ASSET-MISMATCH");
           return {
@@ -5514,15 +5516,20 @@ test("native ASA API CORE installation and rollback are available only on eligib
     {name:"Eredeti API CORE binárisok visszaállítása"}).click();
   await expect(core.getByText(/API CORE visszaállítva/)).toBeVisible();
   await expect(core.getByRole("button",{name:"Plugin reload"})).toHaveCount(0);
-  // A historical original Store map must not expose binary installation.
+  // The panel is available on managed maps; an unmigrated Store fixture
+  // is refused by native eligibility rather than a blanket React exclusion.
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_PROTECT_TEST_MAP__?:()=>void
   }).__UNTAMED_PROTECT_TEST_MAP__?.());
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
-  await expect(page.getByRole("region",
-    {name:"Hivatalos ASA API CORE telepítés · Astraeos"})).toHaveCount(0);
-  await expect(page.getByText(/ASA API CORE binárisfrissítés ezen a mapon nem/))
-    .toBeVisible();
+  await expect(core).toBeVisible();
+  await core.getByRole("button",{name:"Hivatalos ASA API kiadás lekérdezése"}).click();
+  await core.getByRole("button",{name:"Leállítás, helyi tulajdonjog és ZIP előellenőrzése"}).click();
+  await expect(core.getByRole("region",{name:"ASA API CORE telepítés jóváhagyása"})).toHaveCount(0);
+  await expect(core.getByRole("alert")).toContainText("nem igazolható");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_API_CORE_INSTALLS__?:()=>number
+  }).__UNTAMED_API_CORE_INSTALLS__?.())).toBe(1);
 });
 
 test("newly enrolled Store has native API CORE access while original Store remains protected",async({page})=>{
