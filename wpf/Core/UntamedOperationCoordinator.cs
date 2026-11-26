@@ -76,7 +76,18 @@ public sealed class UntamedOperationCoordinator
                 throw new InvalidDataException("UNTAMED_LINKED_PATH");
         return full;
     }
-    public Lease Acquire(string installation,UntamedOperationKind kind)
+    public Lease Acquire(string installation,UntamedOperationKind kind)=>
+        AcquireCore(installation,kind,null);
+
+    // A new explicit Start is not a replay of a previous launch. As in
+    // instance-based managers, current physical state controls admission.
+    // The native caller supplies the stopped-family/configuration proof.
+    internal Lease AcquireStoppedStart(string installation,Func<bool> verifyStopped)=>
+        AcquireCore(installation,UntamedOperationKind.Launch,
+            verifyStopped??throw new ArgumentNullException(nameof(verifyStopped)));
+
+    private Lease AcquireCore(string installation,UntamedOperationKind kind,
+        Func<bool>? verifyStopped)
     {
         if(!Enum.IsDefined(kind))throw new InvalidDataException("UNTAMED_OPERATION_KIND");
         string key=ResourceKey(installation);
@@ -90,7 +101,19 @@ public sealed class UntamedOperationCoordinator
             string journal=Path.Combine(stateRoot,key+".json");
             var old=Read(journal,key);
             if(old!=null&&old.Phase is not (UntamedOperationPhase.Completed or UntamedOperationPhase.CancelledBeforeMutation or UntamedOperationPhase.OperatorReviewed))
-                throw new IOException("UNTAMED_OPERATION_NEEDS_OPERATOR");
+            {
+                if(verifyStopped==null||old.Kind!=UntamedOperationKind.Launch||
+                   old.UpdatedUtc==default||old.UpdatedUtc>DateTimeOffset.UtcNow||
+                   (old.Phase!=UntamedOperationPhase.NeedsOperator&&
+                    DateTimeOffset.UtcNow-old.UpdatedUtc<TimeSpan.FromMinutes(3))||
+                   !verifyStopped())
+                    throw new IOException("UNTAMED_OPERATION_NEEDS_OPERATOR");
+                ArchiveInterruptedStart(journal,key,old);
+                if(Read(journal,key)!=old||!verifyStopped())
+                    throw new IOException("UM-ASA-START-RECONCILIATION-CHANGED");
+                // Do not claim the previous command succeeded. Preserve its
+                // exact bytes, and replace it only with a NEW operation ID.
+            }
             var record=new UntamedOperationRecord(1,key,Guid.NewGuid(),kind,
                 UntamedOperationPhase.Prepared,DateTimeOffset.UtcNow);
             Write(journal,record);
@@ -101,6 +124,33 @@ public sealed class UntamedOperationCoordinator
             if(entered)semaphore.Release();semaphore.Dispose();throw;
         }
     }
+    private void ArchiveInterruptedStart(string journal,string key,UntamedOperationRecord old)
+    {
+        byte[] bytes=File.ReadAllBytes(journal);
+        string audit=Path.Combine(stateRoot,key+"-"+old.Operation.ToString("N")+
+            ".interrupted-runtime.json");
+        if(File.Exists(audit))
+        {
+            if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+                new FileInfo(audit).Length!=bytes.Length||
+                !File.ReadAllBytes(audit).SequenceEqual(bytes))
+                throw new InvalidDataException("UM-ASA-START-RECONCILIATION-AUDIT-MISMATCH");
+        }
+        else
+        {
+            string tmp=audit+"."+Guid.NewGuid().ToString("N")+".tmp";
+            try
+            {
+                using(var stream=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+                {stream.Write(bytes);stream.Flush(true);}
+                File.Move(tmp,audit);
+            }
+            finally{if(File.Exists(tmp))File.Delete(tmp);}
+        }
+        if(Read(journal,key)!=old||!File.ReadAllBytes(journal).SequenceEqual(bytes))
+            throw new IOException("UM-ASA-START-RECONCILIATION-CHANGED");
+    }
+
     // Prepared is the durable pre-mutation boundary. An unowned stale
     // Prepared receipt can be cancelled, never marked successful or replayed.
     // Secondary restart/stop/save receipts are deliberately left untouched.
