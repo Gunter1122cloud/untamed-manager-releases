@@ -684,6 +684,82 @@ public static class UntamedWorldBackup
         }
     }
 
+    // This recovery is intentionally local NON-Store only. A distributed
+    // Store rollback must never be inferred from a local directory layout.
+    internal static bool TryRecoverLocalRestore(LocalMap map,string profile,
+        Func<ProcessCheck> process,UntamedOperationCoordinator coordinator)
+    {
+        if(map.ObservedReadOnlyImported||map.Maintenance||HasLiveOrHistoricalStore(map))return false;
+        return coordinator.TryReconcileLocalRestore(map.InstallationPath,record=>{
+            var witness=record.LocalRestore!;
+            if(witness.MapId!=map.Id||witness.TransactionId==Guid.Empty||
+               witness.MapKey!=MapKey(map)||
+               !Guid.TryParseExact(witness.Point,"D",out var point)||point==Guid.Empty||
+               !Guid.TryParseExact(witness.Protective,"D",out var protective)||protective==Guid.Empty)
+                return false;
+            string world=World(map),key=MapKey(map),parent=Path.GetDirectoryName(world)!;
+            if(witness.SaveDirectory!=Path.GetFileName(world))return false;
+            string suffix=witness.TransactionId.ToString("N");
+            string stage=Guard(Path.Combine(parent,".untamed-stage-"+suffix));
+            string old=Guard(Path.Combine(parent,".untamed-previous-"+key+"-"+suffix));
+            string marker=Guard(Path.Combine(parent,".untamed-restore-"+key+".json"));
+            Stopped(process);
+            if(Directory.Exists(marker)||File.Exists(stage)||File.Exists(old)||File.Exists(world))return false;
+            if(Directory.EnumerateFiles(parent,".kova-restore-*.json").Any()||
+               Directory.EnumerateFiles(parent,".untamed-restore-*.json")
+                   .Any(p=>!p.Equals(marker,StringComparison.OrdinalIgnoreCase)))return false;
+            byte[]? markerBytes=null;
+            if(File.Exists(marker))
+            {
+                markerBytes=ReadMetadata(marker,2,16384);
+                using var doc=JsonDocument.Parse(markerBytes);
+                var m=doc.RootElement;
+                if(m.TryGetProperty("transactionId",out _)||
+                   m.GetProperty("schema").GetInt32()!=1||m.GetProperty("owner").GetGuid()!=map.Id||
+                   m.GetProperty("map").GetString()!=key||m.GetProperty("point").GetString()!=witness.Point||
+                   m.GetProperty("protective").GetString()!=witness.Protective||
+                   m.GetProperty("world").GetString()!=world||m.GetProperty("stage").GetString()!=stage||
+                   m.GetProperty("old").GetString()!=old)return false;
+            }
+            var archive=ArchiveRoot(profile,map);
+            var before=Read(Guard(Path.Combine(archive,witness.Protective)),map.Id,key,Guard(map.InstallationPath));
+            var after=Read(Guard(Path.Combine(archive,witness.Point)),map.Id,key,Guard(map.InstallationPath));
+            if(before.Kind!="protective")return false;
+            bool Match(string directory,Entry[] expected)=>Directory.Exists(directory)&&
+                Scan(directory,key).SequenceEqual(expected);
+            bool MarkerUnchanged()=>markerBytes==null?!File.Exists(marker):
+                File.Exists(marker)&&ReadMetadata(marker,2,16384).SequenceEqual(markerBytes);
+            bool hasWorld=Directory.Exists(world),hasOld=Directory.Exists(old),hasStage=Directory.Exists(stage);
+            if(hasStage&&!Match(stage,after.Files))return false;
+            if(hasOld&&!Match(old,before.Files))return false;
+            if(!MarkerUnchanged())return false;
+            Stopped(process);
+            if(!hasWorld)
+            {
+                // Only the first rename completed. Roll back the exact
+                // protective previous world; do not copy or delete any data.
+                if(!hasOld||!hasStage||!Match(old,before.Files)||!Match(stage,after.Files)||
+                   Directory.Exists(world)||!MarkerUnchanged())return false;
+                Directory.Move(old,world);
+            }
+            else if(hasOld)
+            {
+                // Both renames completed; the target must match the selected
+                // verified backup and the old world is retained intact.
+                if(hasStage||!Match(world,after.Files))return false;
+            }
+            else if(!Match(world,before.Files))return false;
+            Stopped(process);
+            if(!MarkerUnchanged()||
+               !(Directory.Exists(old)?Match(world,after.Files)&&Match(old,before.Files):
+                 Match(world,before.Files)))return false;
+            if(markerBytes!=null)File.Delete(marker);
+            // A crash before journal retirement is safe: the same witness
+            // classifies the retained world again even if the marker is gone.
+            return true;
+        });
+    }
+
     public static RestoreReceipt Restore(LocalMap map,string profile,string point,
         Func<ProcessCheck> process,Action? beforeSwap=null,
         UntamedOperationCoordinator? operationCoordinator=null)
@@ -733,8 +809,10 @@ public static class UntamedWorldBackup
             if(!Scan(world,key).SequenceEqual(current))
                 throw new IOException("UM-BACKUP-CURRENT-WORLD-CHANGED");
             beforeSwap?.Invoke();
-            // Crash during the swap must leave a NEEDS_OPERATOR journal.
-            lease.MarkMutationStarted();
+            // Persist the exact recoverable single-map swap identity before
+            // the marker or first rename. No cluster decision can be inferred.
+            lease.MarkLocalRestoreStarted(new LocalRestoreWitness(map.Id,Guid.ParseExact(id,"N"),
+                key,Path.GetFileName(world),point,protective.Id));
             // Durable recovery marker precedes every rename, exactly like Kova.
             WriteDurable(marker,JsonSerializer.Serialize(new{
                 schema=1,owner=map.Id,map=key,point,protective=protective.Id,
