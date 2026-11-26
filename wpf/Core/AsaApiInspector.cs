@@ -16,7 +16,7 @@ public sealed record AsaApiInspection(string Installation,bool Complete,
 
 public static class AsaApiInspector
 {
-    public static AsaApiInspection Inspect(string installation,ProcessCheck? mapState=null)
+    internal static IReadOnlyList<ApiBinary> InspectLaunchBinaries(string installation)
     {
         if(string.IsNullOrWhiteSpace(installation)||!Path.IsPathFullyQualified(installation)||
            installation.StartsWith(@"\\"))
@@ -31,6 +31,9 @@ public static class AsaApiInspector
         foreach(var rel in files)
         {
             string path=Path.Combine(binary,rel);
+            for(var d=new DirectoryInfo(Path.GetDirectoryName(path)!);d!=null;d=d.Parent)
+                if(d.Exists&&(d.Attributes&FileAttributes.ReparsePoint)!=0)
+                    throw new InvalidDataException("Linked ASA API binary directory");
             if(!File.Exists(path))
             {
                 result.Add(new(rel,false,false,null,null));continue;
@@ -47,6 +50,14 @@ public static class AsaApiInspector
             try{version=FileVersionInfo.GetVersionInfo(path).FileVersion;}catch{}
             result.Add(new(rel,true,valid,hash,version));
         }
+        return result;
+    }
+
+    public static AsaApiInspection Inspect(string installation,ProcessCheck? mapState=null)
+    {
+        var result=InspectLaunchBinaries(installation);
+        string root=Path.GetFullPath(installation);
+        string binary=Path.Combine(root,"ShooterGame","Binaries","Win64");
         bool config=false;
         string configFile=Path.Combine(binary,"config.json");
         if(File.Exists(configFile) && new FileInfo(configFile).Length<=1_000_000 &&

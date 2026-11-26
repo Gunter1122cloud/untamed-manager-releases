@@ -87,6 +87,26 @@ internal static class LocalAsaApiModeTests
         Check(directStart.FileName==exe&&directStart.CreateNoWindow&&
               directStart.WorkingDirectory==folder,
             "direct ASA keeps previous hidden-console launch behavior");
+        // Cerious AASM uses executable selection, not plugin metadata, to
+        // admit a launch. Keep API diagnostics visible without blocking it.
+        var loaderFixture=new LocalMap{Id=Guid.NewGuid(),InstallationPath=root,
+            ExecutablePath=exe,ApiLoaderPath=loader,StartWithAsaApi=true,
+            Arguments="TheCenter_WP?listen -log",ApiLoaderArguments="TheCenter_WP?listen -log"};
+        string apiConfig=Path.Combine(folder,"config.json");
+        string plugins=Path.Combine(folder,"ArkApi","Plugins");
+        File.Delete(apiConfig);Directory.Delete(plugins);
+        Check(!AsaApiInspector.Inspect(root).Complete&&
+              AsaApiLaunchPolicy.Resolve(loaderFixture).ExecutablePath==loader,
+              "missing plugin directory/config is diagnostic, not a Loader launch veto");
+        File.WriteAllText(apiConfig,"{broken");
+        Check(!AsaApiInspector.Inspect(root).ConfigValid&&
+              AsaApiLaunchPolicy.Resolve(loaderFixture).UseApi,
+              "API owns config initialization failures; Manager does not veto valid local Loader");
+        File.Delete(apiDll);
+        bool rejected=false;
+        try{_=AsaApiLaunchPolicy.Resolve(loaderFixture);}catch(InvalidOperationException){rejected=true;}
+        Check(rejected,"missing core DLL still refuses an impossible Loader launch");
+        FakePe64(apiDll);File.WriteAllText(apiConfig,"{}");Directory.CreateDirectory(plugins);
         // Merely inspecting ProcessStartInfo cannot start/stop any process.
 
         await using var cluster=new ClusterService("local-api-mode-test",
