@@ -62,32 +62,32 @@ static bool IsError(JsonElement value,string code)=>
     var rootPath=Path.Combine(Path.GetTempPath(),"native-launch-identity-fixture");
     var serverPath=Path.Combine(rootPath,"ArkAscendedServer.exe");
     var loaderPath=Path.Combine(rootPath,"AsaApiLoader.exe");
-    var map=new LocalMap{Id=Guid.NewGuid(),Name="Start identity"};
+    var launchIdentityMap=new LocalMap{Id=Guid.NewGuid(),Name="Start identity"};
     ProcessIdentity Identity(int pid,string path,string args)=>new(){
         Pid=pid,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath=path,Arguments=args};
     var oldServer=Identity(90001,serverPath,"old");
     var oldLoader=Identity(90002,loaderPath,"old");
-    map.LastProcess=oldServer;map.LastLoader=oldLoader;
+    launchIdentityMap.LastProcess=oldServer;launchIdentityMap.LastLoader=oldLoader;
     var loader=Identity(90003,loaderPath,"fixture args");
-    NativeAsaStartIdentity.Record(map,new AsaApiLaunchPlan(true,loaderPath,
+    NativeAsaStartIdentity.Record(launchIdentityMap,new AsaApiLaunchPlan(true,loaderPath,
         "fixture args","fixture"),loader,false);
-    Check(map.LastProcess==null&&ReferenceEquals(map.LastLoader,loader),
+    Check(launchIdentityMap.LastProcess==null&&ReferenceEquals(launchIdentityMap.LastLoader,loader),
         "native API start clears stale ASA child identity");
     var server=Identity(90004,serverPath,"fixture args");
-    NativeAsaStartIdentity.Record(map,new AsaApiLaunchPlan(false,serverPath,
+    NativeAsaStartIdentity.Record(launchIdentityMap,new AsaApiLaunchPlan(false,serverPath,
         "fixture args","fixture"),server,false);
-    Check(map.LastLoader==null&&ReferenceEquals(map.LastProcess,server),
+    Check(launchIdentityMap.LastLoader==null&&ReferenceEquals(launchIdentityMap.LastProcess,server),
         "native direct start clears stale Loader identity");
-    var historical=NativeAsaStartIdentity.Record(map,new AsaApiLaunchPlan(true,loaderPath,
+    var historical=NativeAsaStartIdentity.Record(launchIdentityMap,new AsaApiLaunchPlan(true,loaderPath,
         "fixture args","fixture"),loader,true);
-    Check(map.LastProcess==null&&map.LastLoader==historical&&
+    Check(launchIdentityMap.LastProcess==null&&launchIdentityMap.LastLoader==historical&&
         historical.Arguments=="HISTORICAL_STORE_V1_API_LOADER_START",
         "historical start uses shared identity handling and does not persist private args");
     bool invalid=false;
-    try{NativeAsaStartIdentity.Record(map,new AsaApiLaunchPlan(false,serverPath,
+    try{NativeAsaStartIdentity.Record(launchIdentityMap,new AsaApiLaunchPlan(false,serverPath,
         "different args","fixture"),server,false);}
     catch(InvalidDataException){invalid=true;}
-    Check(invalid&&map.LastLoader==historical&&map.LastProcess==null,
+    Check(invalid&&launchIdentityMap.LastLoader==historical&&launchIdentityMap.LastProcess==null,
         "mismatched spawned identity cannot replace current bookkeeping");
 }
 
