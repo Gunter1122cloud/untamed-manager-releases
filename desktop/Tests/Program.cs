@@ -5720,6 +5720,48 @@ try
             "foreign map cannot query native operation journal");
     }
 
+    // Standalone Launch recovery is map-scoped, lease-checked, and never
+    // treats an abandoned command as a successful operation.
+    {
+        string installation=Path.Combine(root,"standalone-native-reconcile");
+        Directory.CreateDirectory(installation);
+        var coordinator=new UntamedOperationCoordinator();
+        Guid mapId=Guid.NewGuid();
+        using(var lease=coordinator.Acquire(installation,UntamedOperationKind.Launch))
+        {
+            lease.MarkMutationStarted();
+            var active=coordinator.Observe(installation)!;
+            Check(!coordinator.TryReconcileIdleLaunch(installation,mapId,active,()=>true),
+                "live OS lease cannot be retired by runtime reconciliation");
+        }
+        string key=UntamedOperationCoordinator.ResourceKey(installation);
+        string journal=Path.Combine(root,"operation-journals",key+".json");
+        var stale=coordinator.Observe(installation)! with{UpdatedUtc=DateTimeOffset.UtcNow.AddMinutes(-5)};
+        File.WriteAllText(journal,JsonSerializer.Serialize(stale));
+        byte[] original=File.ReadAllBytes(journal);
+        Check(!coordinator.TryReconcileIdleLaunch(installation,mapId,stale,()=>false)&&
+            File.ReadAllBytes(journal).SequenceEqual(original),
+            "unverified current family keeps prior runtime receipt unchanged");
+        Check(coordinator.TryReconcileIdleLaunch(installation,mapId,stale,()=>true)&&
+            coordinator.Observe(installation)?.Phase==UntamedOperationPhase.OperatorReviewed,
+            "standalone stale Launch retires automatically without marking success");
+        string audit=Path.Combine(root,"operation-journals",key+"-"+stale.Operation.ToString("N")+".interrupted-runtime.json");
+        Check(File.ReadAllBytes(audit).SequenceEqual(original),
+            "automatic retirement preserves original bytes");
+        using(var next=coordinator.Acquire(installation,UntamedOperationKind.Launch))
+        {
+            Check(coordinator.Observe(installation)?.Operation!=stale.Operation,
+                "next explicit native command receives a new operation identity");
+            next.Complete();
+        }
+        using(var restore=coordinator.Acquire(installation,UntamedOperationKind.Restore))
+            restore.MarkMutationStarted();
+        var unsafeRestore=coordinator.Observe(installation)! with{UpdatedUtc=DateTimeOffset.UtcNow.AddMinutes(-5)};
+        File.WriteAllText(journal,JsonSerializer.Serialize(unsafeRestore));
+        Check(!coordinator.TryReconcileIdleLaunch(installation,mapId,unsafeRestore,()=>true),
+            "interrupted destructive restore cannot be retired as lifecycle history");
+    }
+
     // Real durable coordinator + native recovery API, isolated in TEMP.
     // The original operation is kept for audit. Neither Test nor production
     // recovery can execute an ASA command, replay a dinowipe, or spawn a PID.

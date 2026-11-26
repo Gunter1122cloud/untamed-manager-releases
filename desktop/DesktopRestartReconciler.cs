@@ -180,6 +180,68 @@ internal static class DesktopRestartReconciler
         catch(Exception ex) when(IsRecoverable(ex)){return false;}
     }
 
+    // A standalone abandoned Start/Stop can lack a paired Restart record.
+    // Map ownership and actual process state, not the obsolete receipt,
+    // determine whether it is safe to retire its orchestration history.
+    internal static bool TryReconcileIdleLaunch(ClusterService cluster,LocalMap map)
+    {
+        try
+        {
+            if(map.Maintenance||map.ObservedReadOnlyImported||
+               !AsaReadyProbe.IsRegisteredServerBinary(map)||
+               !AsaRconConfigurationEvidence.Matches(map)||
+               KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))return false;
+            var record=cluster.Operations.Observe(map.InstallationPath);
+            if(record==null||record.Kind!=UntamedOperationKind.Launch||
+               record.Phase is not (UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator))
+                return false;
+            string profile=JsonSerializer.Serialize(map);
+            string key=UntamedOperationCoordinator.ResourceKey(map.InstallationPath);
+            string Source()
+            {
+                if(map.HistoricalStoreProtected)
+                    return LegacyStoreV1GracefulStop.OriginalSource(cluster,map);
+                if(FreshStoreEnrollmentPolicy.IsEnrolled(map))
+                    FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+                else FreshAsaInstallationSafety.Demand(cluster,map);
+                return "native-local";
+            }
+            string source=Source();
+            ProcessCheck Observe()
+            {
+                if(!map.HistoricalStoreProtected)return cluster.Check(map);
+                var live=cluster.ObserveLocalProcessesReadOnly(map);
+                return live.Running?live:LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(map,cluster.Config.LocalMaps);
+            }
+            bool Valid(ProcessCheck state)=>state.Running?
+                !state.ConfirmedStopped&&state.Identity is {Pid:>0} asa&&
+                map.StartWithAsaApi==(state.LoaderIdentity!=null)&&
+                (state.LoaderIdentity==null||state.LoaderIdentity.Pid!=asa.Pid)&&
+                RconPortOwnership.IsOwnedListener(map.RconPort,asa.Pid):
+                state.ConfirmedStopped&&state.Identity==null&&state.LoaderIdentity==null&&
+                AsaLocalPortPreflight.CanStart(map);
+            var first=Observe();
+            if(!Valid(first))return false;
+            bool Verify()
+            {
+                if(!ReferenceEquals(cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==map.Id),map)||
+                   JsonSerializer.Serialize(map)!=profile||
+                   cluster.Config.LocalMaps.Count(m=>!string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                       UntamedOperationCoordinator.ResourceKey(m.InstallationPath)==key)!=1||
+                   KovaCompatibleWorldBackup.InstallationRecoveryRequired(map)||
+                   !AsaRconConfigurationEvidence.Matches(map)||Source()!=source||
+                   (map.HistoricalStoreProtected&&LegacyStoreV1SaveEvidenceJournal.Inspect(cluster.Store.Root,map.Id)?.Phase is ("prepared" or "needsOperator")))
+                    return false;
+                var current=Observe();
+                return Valid(current)&&current.Running==first.Running&&
+                    current.ConfirmedStopped==first.ConfirmedStopped&&
+                    Same(current.Identity,first.Identity)&&Same(current.LoaderIdentity,first.LoaderIdentity);
+            }
+            return cluster.Operations.TryReconcileIdleLaunch(map.InstallationPath,map.Id,record,Verify);
+        }
+        catch(Exception ex) when(IsRecoverable(ex)){return false;}
+    }
+
     private static bool IsRecoverable(Exception ex)=>ex is IOException or InvalidDataException or
         UnauthorizedAccessException or InvalidOperationException or ArgumentException or
         JsonException or NotSupportedException;

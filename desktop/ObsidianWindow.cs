@@ -169,6 +169,7 @@ public sealed class ObsidianWindow : Form
             changed|=_freshRestart.TryReconcileStopped(map);
             changed|=_freshStop.TryReconcileStoppedReceipt(map);
         }
+        changed|=DesktopRestartReconciler.TryReconcileIdleLaunch(_bridge.LocalCluster,map);
         return changed;
     }
 
