@@ -9093,7 +9093,7 @@ test("fresh Restart reattaches a running native job without restarting it twice"
   }).__UNTAMED_LOCAL_RESTART_APPLIES__?.())).toBe(1);
 });
 
-test("interrupted lifecycle journal disables fresh ASA Start and Stop in map Overview",async({page})=>{
+test("interrupted journal is diagnostic in the common map bar; native preflight still owns admission",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_LIFECYCLE_INTERRUPTED__?:()=>void
@@ -9101,11 +9101,19 @@ test("interrupted lifecycle journal disables fresh ASA Start and Stop in map Ove
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").first().click();
   await expect(page.getByText(/Félbeszakadt helyi ASA-művelet/)).toBeVisible();
+  const bar=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
+  await expect(bar.getByRole("button",{name:"Leállítás",exact:true})).toBeEnabled();
+  await expect(bar.getByRole("button",{name:"Újraindítás",exact:true})).toBeEnabled();
+  await expect(bar.getByRole("button",{name:"Kill",exact:true})).toBeDisabled();
   await expect(page.getByRole("button",{name:"Szerver szabályos leállítása"})).toBeDisabled();
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await expect(page.getByText(/Félbeszakadt helyi ASA-művelet/)).toBeVisible();
   await expect(page.getByRole("button",{name:"ASA szerver indítása"})).toBeDisabled();
+  const startBar=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
+  await expect(startBar.getByRole("button",{name:"Indítás",exact:true})).toBeEnabled();
+  await startBar.getByRole("button",{name:"Indítás",exact:true}).click();
+  await expect(startBar).toContainText("ASA-indítás elküldve.");
 });
 
 test("one-click normal Restart preserves old and new PID evidence",async({page})=>{
