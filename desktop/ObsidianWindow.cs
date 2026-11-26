@@ -151,7 +151,7 @@ public sealed class ObsidianWindow : Form
     private bool ReconcileLifecycleMap(UntamedManager.Core.LocalMap map)
     {
         if(map.Maintenance||map.ObservedReadOnlyImported)return false;
-        bool changed=false;
+        bool changed=_bridge.LocalCluster.Operations.TryReconcileAtomicConfig(map.InstallationPath);
         if(map.HistoricalStoreProtected)
         {
             try{changed|=UntamedManager.Core.LegacyStoreV1PinnedSource.TryPersistRuntimeIdentity(

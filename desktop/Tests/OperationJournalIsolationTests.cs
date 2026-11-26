@@ -151,8 +151,46 @@ internal static class OperationJournalIsolationTests
         using(var next=operations.Acquire(installation,UntamedOperationKind.Launch))next.Complete();
     }
 
+    private static void AtomicConfigReconciliation(string testsRoot)
+    {
+        string folder=Path.Combine(testsRoot,"atomic-config-reconciliation");
+        string installation=Path.Combine(folder,"map");
+        Directory.CreateDirectory(installation);
+        string ini=Path.Combine(installation,"Game.ini");
+        string before="[ServerSettings]\\nValue=1\\n",after="[ServerSettings]\\nValue=2\\n";
+        string Digest(string value)=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(value)));
+        var witness=new AtomicConfigWitness("Game.ini",ConfigKind.GameIni,Digest(before),Digest(after));
+        var ops=new UntamedOperationCoordinator(Path.Combine(folder,"journals"));
+        File.WriteAllText(ini,before);
+        using(var lease=ops.Acquire(installation,UntamedOperationKind.Configuration))
+        {
+            lease.MarkAtomicConfigurationStarted(installation,witness);
+            Check(!ops.TryReconcileAtomicConfig(installation),"active atomic configuration cannot be reconciled");
+        }
+        Check(ops.TryReconcileAtomicConfig(installation)&&File.ReadAllText(ini)==before,
+            "interrupted pre-replace configuration is retired without writing or replay");
+        using(var lease=ops.Acquire(installation,UntamedOperationKind.Configuration))
+        {
+            lease.MarkAtomicConfigurationStarted(installation,witness);
+            File.WriteAllText(ini,after);
+        }
+        using(var next=ops.Acquire(installation,UntamedOperationKind.Launch))next.Complete();
+        Check(File.ReadAllText(ini)==after,"verified applied atomic configuration admits next lifecycle command");
+        File.WriteAllText(ini,before);
+        using(var lease=ops.Acquire(installation,UntamedOperationKind.Configuration))
+        {
+            lease.MarkAtomicConfigurationStarted(installation,witness);
+            File.WriteAllText(ini,"[ServerSettings]\\nValue=3\\n");
+        }
+        var unknown=ops.Observe(installation);
+        Check(!ops.TryReconcileAtomicConfig(installation)&&ops.Observe(installation)==unknown,
+            "unrecognized external configuration hash is not overwritten or falsely recovered");
+    }
+
     public static async Task Run(string testsRoot)
     {
+        AtomicConfigReconciliation(testsRoot);
         StoppedStartReconciliation(testsRoot);
         PairedStopReconciliation(testsRoot);
         string root=Path.Combine(testsRoot,"child-operation-journal-isolation");
