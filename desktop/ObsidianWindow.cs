@@ -122,6 +122,22 @@ public sealed class ObsidianWindow : Form
         _multiHostBackup.RecoveryLaneBusy();
     private bool NativeWorkerBusy()=>NativeLifecycleWorkerBusy()||NativeStorageWorkerBusy();
 
+    // Manual reconciliation and automatic recovery share the same exact
+    // map reservation. Global storage/handoff exclusion remains until
+    // those workers can expose their own verified resource scopes.
+    private bool TryEnterMapRuntimeLane(Guid mapId)
+    {
+        if(_updateHandoff||_suppressScheduledMutations||
+           NativeLifecycleWorkerBusy(mapId)||NativeStorageWorkerBusy())return false;
+        var maps=_bridge.LocalCluster.Config.LocalMaps;
+        var map=System.Linq.Enumerable.SingleOrDefault(maps,m=>m.Id==mapId);
+        if(map==null||map.Maintenance||map.ObservedReadOnlyImported)return false;
+        string key=UntamedManager.Core.UntamedOperationCoordinator.ResourceKey(map.InstallationPath);
+        if(System.Linq.Enumerable.Count(maps,m=>!string.IsNullOrWhiteSpace(m.InstallationPath)&&
+            UntamedManager.Core.UntamedOperationCoordinator.ResourceKey(m.InstallationPath)==key)!=1)return false;
+        return TryEnterDiscordLane(new[]{mapId});
+    }
+
     private bool TryEnterWatchdogLane()
     {
         // The caller holds the UI/Discord host gate. Do not race an already
@@ -165,14 +181,9 @@ public sealed class ObsidianWindow : Form
         // maps must not deny journal-only recovery here. Reuse the exact
         // map reservation used by Discord; keep unscoped storage workers
         // excluded until their resource scopes are independently proven.
-        if(NativeLifecycleWorkerBusy(map.Id)||NativeStorageWorkerBusy())return;
         try
         {
-            string key=UntamedManager.Core.UntamedOperationCoordinator.ResourceKey(map.InstallationPath);
-            if(System.Linq.Enumerable.Count(_bridge.LocalCluster.Config.LocalMaps,m=>
-                !string.IsNullOrWhiteSpace(m.InstallationPath)&&
-                UntamedManager.Core.UntamedOperationCoordinator.ResourceKey(m.InstallationPath)==key)!=1)return;
-            if(!TryEnterDiscordLane(new[]{map.Id}))return;
+            if(!TryEnterMapRuntimeLane(map.Id))return;
             try
             {
                 await Task.Run(()=>{
@@ -496,8 +507,9 @@ public sealed class ObsidianWindow : Form
         _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster,
             scheduledBackups:_scheduledBackups);
         _recovery = new DesktopWatchdogRecovery(_bridge.LocalCluster,_bridgeGate,
-            TryEnterWatchdogLane,ReleaseRecoveryLane,()=>_updateHandoff,
-            _freshStart.HandleAsync,_historicalStart.HandleAsync,_historicalReadOnlyRcon.HandleAsync);
+            ()=>false,ReleaseDiscordLane,()=>_updateHandoff||_suppressScheduledMutations,
+            _freshStart.HandleAsync,_historicalStart.HandleAsync,_historicalReadOnlyRcon.HandleAsync,
+            mapMaintenanceLane:TryEnterMapRuntimeLane);
         _nativeSchedules.AutomaticRecoveryPending=_recovery.HasPendingRecovery;
         _rollingSteam=new DesktopRollingSteamSupervisor(_bridge.LocalCluster,_lifecycleBatch,_steamUpdate,_bridgeGate,
             ()=>_recovery.CanManagerUpdate()&&TryEnterWatchdogLane(),ReleaseRecoveryLane,()=>_updateHandoff||_suppressScheduledMutations);
