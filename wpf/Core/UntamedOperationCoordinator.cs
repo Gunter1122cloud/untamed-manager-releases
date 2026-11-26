@@ -169,6 +169,18 @@ public sealed class UntamedOperationCoordinator
         finally{semaphore.Release();}
     }
 
+    // Observation only: do not treat a free lease as authorization to
+    // mutate. The native operation still acquires it and validates state.
+    // Unlike a persisted receipt, a held OS lease is transient contention.
+    internal bool IsInstallationBusy(string installation)
+    {
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))return true;
+        semaphore.Release();
+        return false;
+    }
+
     // Updating the Manager executable is not an ASA installation mutation.
     // Allow a terminal unresolved receipt to survive handoff, but never
     // while another process owns the installation operation semaphore.
