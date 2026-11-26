@@ -940,11 +940,33 @@ internal static class MapScopedNativeLifecycleJobsTests
             (mapId,restartId,stage)=>{
                 restartStartCalls++;
                 throw new InvalidOperationException("test must never launch ASA");
-            }))
+            },isolatedJournalReconciler:new DesktopAsaLifecycleJournalBridge(cluster,Probe)))
         {
+            // Use the actual historical native preview, not the explicit
+            // recovery RPC. The source/owner witness is fully synthetic.
+            var abandoned=new AsaManualRestartJournal(maps[1].InstallationPath);
+            var attempt=abandoned.Begin(maps[1].Id,processes[1].Pid);
+            var failure=abandoned.Change(attempt.Id,AsaRestartPhase.NeedsOperator);
+            string resource=UntamedOperationCoordinator.ResourceKey(maps[1].InstallationPath);
+            string oldPath=Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",resource+".json");
+            File.WriteAllText(oldPath,JsonSerializer.Serialize(failure with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-5)
+            }));
+            byte[] oldBytes=File.ReadAllBytes(oldPath);
+            using(var lease=cluster.Operations.Acquire(maps[1].InstallationPath,UntamedOperationKind.Configuration))
+            {
+                var refused=await Call(restarts.HandleAsync,"historical.restartPreview",new{mapId=maps[1].Id});
+                Check(!refused.GetProperty("ok").GetBoolean()&&File.ReadAllBytes(oldPath).SequenceEqual(oldBytes),
+                    "historical native reconciliation cannot bypass an active installation lease");
+                lease.Complete();
+            }
             var siblingBefore=Data(await Call(restarts.HandleAsync,
                 "historical.restartPreview",new{mapId=maps[1].Id}),
-                "sibling Restart preview succeeds with completed SaveWorld receipt");
+                "sibling Restart preview succeeds after automatic native reconciliation");
+            string audit=Path.Combine(UntamedOperationCoordinator.DefaultRoot,"Restart-v1",resource+"-"+attempt.Id.ToString("N")+".operator-reviewed.json");
+            Check(abandoned.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+                File.ReadAllBytes(audit).SequenceEqual(oldBytes)&&restartStopCalls==0&&restartStartCalls==0,
+                "ordinary historical Restart admission preserves failed receipt without dispatching old commands");
             string pendingRestartToken=siblingBefore.GetProperty("token").GetString()!;
             var pending0=LegacyStoreV1SaveEvidenceJournal.Begin(
                 cluster.Store.Root,Guid.NewGuid(),maps[0].Id,
