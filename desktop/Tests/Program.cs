@@ -494,14 +494,24 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         await recovery.TickOnceAsync(now.AddSeconds(30));
         Check(launches==0,"host Steam lease blocks recovery before native Start");
     }
+    using(var activeOperation=recoveryCluster.Operations.Acquire(m.InstallationPath,UntamedOperationKind.Configuration))
+    {
+        activeOperation.MarkMutationStarted();
+        await recovery.TickOnceAsync(now.AddSeconds(40));
+        var busyMap=(await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0];
+        Check(launches==0&&busyMap.GetProperty("status").GetString()=="armed"&&
+            busyMap.GetProperty("evidence").GetString()=="RECOVERY_INSTALLATION_BUSY"&&recovery.HasPendingRecovery(m.Id),
+            "active installation mutation defers recovery without losing its crash claim");
+        activeOperation.Complete();
+    }
     externalSteamBusy=true;
-    await recovery.TickOnceAsync(now.AddSeconds(40));
+    await recovery.TickOnceAsync(now.AddSeconds(50));
     var waitingSteam=(await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0];
     Check(launches==0&&waitingSteam.GetProperty("status").GetString()=="armed"&&
         waitingSteam.GetProperty("evidence").GetString()=="RECOVERY_STEAM_EXTERNAL_BUSY"&&recovery.HasPendingRecovery(m.Id),
         "external SteamCMD delays recovery without terminal review or launch");
     externalSteamBusy=false;
-    await recovery.TickOnceAsync(now.AddSeconds(50));
+    await recovery.TickOnceAsync(now.AddSeconds(60));
     Check(launches==1&&!recovery.CanManagerUpdate(),"confirmed crash claims one start and blocks Manager handoff during readiness");
     // The historical Core launcher may clear only the submitted-mod draft
     // marker after proving ordered mod arguments. This must not disarm
@@ -510,13 +520,13 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     stopped=false;fake.Exited=false;readyForRecovery=false;
     loader=new ProcessIdentity{Pid=52320,StartedUtc=launchedUtc,ExecutablePath="synthetic-loader"};
     child=new ProcessIdentity{Pid=52321,StartedUtc=launchedUtc,ExecutablePath="synthetic-asa"};
-    await recovery.TickOnceAsync(now.AddSeconds(50));
+    await recovery.TickOnceAsync(now.AddSeconds(60));
     Check(launches==1&&!recovery.CanManagerUpdate(),"new PID without readiness is not success");
     readyForRecovery=true;
-    await recovery.TickOnceAsync(now.AddSeconds(60));
+    await recovery.TickOnceAsync(now.AddSeconds(70));
     Check(launches==1&&recovery.CanManagerUpdate(),"verified new family rearms and releases handoff without second Start");
     stopped=true;fake.Exited=true;
-    await recovery.TickOnceAsync(now.AddSeconds(70));await recovery.TickOnceAsync(now.AddSeconds(80));await recovery.TickOnceAsync(now.AddSeconds(90));
+    await recovery.TickOnceAsync(now.AddSeconds(80));await recovery.TickOnceAsync(now.AddSeconds(90));await recovery.TickOnceAsync(now.AddSeconds(100));
     Check(launches==1&&(await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0].GetProperty("evidence").GetString()=="RECOVERY_COOLDOWN_NO_CRASH_LOOP","repeated crash cannot bypass 30-minute limit after verified recovery");
     // Separate exact epoch and retained stop intent suppress a manual stop
     // even when the process exits with a crash-style code.
