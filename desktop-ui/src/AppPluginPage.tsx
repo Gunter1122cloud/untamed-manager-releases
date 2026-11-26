@@ -74,19 +74,16 @@ export function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
     </div>
     {owned&&<AsaApiLaunchModeSwitch key={selected} map={owned}
         onSaved={onLaunchModeSaved}/>}
-    {owned&&(!owned.storeProtected||owned.freshStoreEnrolled)&&
-      !owned.observedReadOnlyImported&&<AsaApiCoreInstaller key={selected}
+    {owned&&!owned.observedReadOnlyImported&&<AsaApiCoreInstaller key={selected}
         mapId={selected} mapName={owned.name} onInstalled={()=>{
           // The CORE binaries are separate from manually copied plugins.
           // Refresh only read-only native inventory; never trigger a restart.
           setRevision(n=>n+1);
           if(onLaunchModeSaved)void onLaunchModeSaved().catch(()=>{});
         }}/>}
-    {owned&&((owned.storeProtected&&!owned.freshStoreEnrolled)||
-      owned.observedReadOnlyImported)&&<div className="warning-inline" role="status">
-      <Shield size={17}/> ASA API CORE binárisfrissítés ezen a mapon nem
-      támogatott a jelenlegi védett telepítési útvonalon. A pluginmappa
-      kézi megnyitása és a meglévő Loader-indítási mód külön működik.
+    {owned&&owned.observedReadOnlyImported&&<div className="warning-inline" role="status">
+      <Shield size={17}/> Megfigyelési profil: a helyi telepítés átvétele szükséges
+      az ASA API Core módosításához.
     </div>}
     <Panel className="premium-plugin-inventory"
       title={info?"Helyi pluginfájlok · "+info.mapName:"Helyi pluginfájlok"}>
