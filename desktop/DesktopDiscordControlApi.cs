@@ -133,7 +133,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             if(actor==s.ServiceUserId)
                 return channel==s.StatusChannelId&&(kind is "status" or "players" or "job" or "events" or "scheduleHistory");
             if(channel!=s.ControlChannelId||kind is not
-                ("status" or "players" or "job" or "backupHistory" or "events" or "scheduleHistory" or "preview" or "apply"))return false;
+                ("status" or "players" or "job" or "backupHistory" or "events" or "scheduleHistory" or "preview" or "apply" or "execute"))return false;
             var roles=a.GetProperty("roleIds");
             if(roles.ValueKind!=JsonValueKind.Array||roles.GetArrayLength()>100||
                 !roles.EnumerateArray().Any(x=>x.ValueKind==JsonValueKind.String&&s.RoleIds.Contains(x.GetString())))return false;
@@ -213,7 +213,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
         try{reply=await handling.WaitAsync(TimeSpan.FromSeconds(20),closing.Token);}
         catch(TimeoutException)
         {
-            reply=Error(Field(request,"kind",32)=="apply"?"UM-DC-REPLY-PENDING":"UM-DC-READ-TIMEOUT");
+            reply=Error((Field(request,"kind",32) is "apply" or "execute")?"UM-DC-REPLY-PENDING":"UM-DC-READ-TIMEOUT");
             _=handling.ContinueWith(t=>{_=t.Exception;},TaskContinuationOptions.OnlyOnFaulted);
         }
         if(Encoding.UTF8.GetByteCount(reply)>1_048_576)reply=Error("UM-DC-RESPONSE-LIMIT");
@@ -385,7 +385,7 @@ internal sealed class DesktopDiscordControlApi : IDisposable
                 var observed=discovery?.Invoke();
                 return new{hostId=cluster.Config.LocalHostId,hostName=cluster.Config.LocalHostName,
                     observedUtc=DateTimeOffset.UtcNow,maps=result,
-                    capabilities=new{operationEventsVersion=1,legacyScheduleHistory=legacySchedules!=null,completeOperationCoverage=false,
+                    capabilities=new{operationEventsVersion=1,directControlVersion=1,legacyScheduleHistory=legacySchedules!=null,completeOperationCoverage=false,
                         coverage=new[]{"scheduler-native","discord-dispatch","manual-local-lifecycle","manual-local-wipe-save","manual-stopped-backup-restore-steam","local-batch-lifecycle-steam"}},
                     discoveryFresh=observed?.Fresh??false,
                     discoveryObservedUtc=observed?.ObservedUtc,
@@ -493,12 +493,16 @@ internal sealed class DesktopDiscordControlApi : IDisposable
             p.Actor!=actor||p.Channel!=channel||p.Expires<DateTimeOffset.UtcNow)
             return Error("UM-DC-APPROVAL");
         approvals.Remove(p.Token);
+        return await ExecutePlan(p,requestId);
+    }
+    private async Task<string> ExecutePlan(Approval p,Guid requestId)
+    {
         if(p.Maps.Select(Owned).Select(Profile).Where((hash,i)=>hash!=p.Profiles[i]).Any())
             return Error("UM-DC-PROFILE-CHANGED");
         if(!enterLane(p.Maps))return Error("UM-DC-MAP-BUSY");
         try
         {
-            var row=new Audit(requestId,DateTimeOffset.UtcNow,actor,p.Action,p.Maps,"claimed-no-replay",null,null,
+            var row=new Audit(requestId,DateTimeOffset.UtcNow,p.Actor,p.Action,p.Maps,"claimed-no-replay",null,null,
                 p.Maps.Select(id=>Owned(id).Name).ToArray(),cluster.Config.LocalHostName);
             Claim(row); // durable before any native dispatch
             eventStream.Record(row.RequestId,row.Maps,row.Action,"discord",row.Actor,"claimed","in-progress","DISCORD_DURABLE_CLAIM",row.Utc);
@@ -623,6 +627,15 @@ internal sealed class DesktopDiscordControlApi : IDisposable
                 return Ok(new{token=plan.Token,action=plan.Action,maps=plan.Maps.Select(id=>new{mapId=id,mapName=Owned(id).Name}),
                     useApi=plan.UseApi,confirmationRequired=true,expiresUtc=plan.Expires,delaySeconds=plan.Delay,
                     point=plan.Point,command=plan.Message});
+            }
+            if(kind=="execute")
+            {
+                // A single authenticated control request performs the native
+                // preflight and dispatch internally. No external approval token
+                // or second Discord interaction is necessary.
+                if(File.Exists(AuditPath(id)))return Error("UM-DC-DUPLICATE-REQUEST");
+                var plan=await Preview(a,actor,channel);
+                return await ExecutePlan(plan,id);
             }
             if(kind=="apply")return await Apply(a,id,actor,channel);
             return Error("UM-DC-METHOD-DENIED");

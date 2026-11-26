@@ -907,6 +907,15 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     approve=pre.GetProperty("data").GetProperty("token").GetGuid();
     var duplicate=await Request("apply",operation,alice,owner,new{token=approve,confirm=true});
     Check(!duplicate.GetProperty("ok").GetBoolean()&&sends==1,"Discord durable request ID prevents replay even with new owner-role preview");
+    var directId=Guid.NewGuid();
+    var direct=await Request("execute",directId,alice,admin,new{action="start",mapIds=new[]{m.Id}});
+    Check(direct.GetProperty("ok").GetBoolean()&&sends==2,"Discord executes authenticated Start in one request without client approval token");
+    var directReplay=await Request("execute",directId,alice,owner,new{action="start",mapIds=new[]{m.Id}});
+    Check(!directReplay.GetProperty("ok").GetBoolean()&&sends==2,"Discord direct request cannot replay a dispatched mutation");
+    var directDenied=await Request("execute",Guid.NewGuid(),alice,"999999999999999999",new{action="start",mapIds=new[]{m.Id}});
+    Check(!directDenied.GetProperty("ok").GetBoolean()&&sends==2,"Discord direct control retains role authorization");
+    var directForeign=await Request("execute",Guid.NewGuid(),alice,owner,new{action="start",mapIds=new[]{Guid.NewGuid()}});
+    Check(!directForeign.GetProperty("ok").GetBoolean()&&sends==2,"Discord direct control retains local map ownership");
 }
 // The actual bot service identity is read-only, even if it claims admin roles.
 {
@@ -922,6 +931,7 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         DesktopDiscordControlApi.Authorize(cfg,Request("events"),now)&&DesktopDiscordControlApi.Authorize(cfg,Request("scheduleHistory"),now)&&
         !DesktopDiscordControlApi.Authorize(cfg,Request("events","723456789012345678"),now)&&
         !DesktopDiscordControlApi.Authorize(cfg,Request("preview"),now)&&!DesktopDiscordControlApi.Authorize(cfg,Request("apply"),now)&&
+        !DesktopDiscordControlApi.Authorize(cfg,Request("execute"),now)&&!DesktopDiscordControlApi.Authorize(cfg,Request("execute","723456789012345678"),now)&&
         !DesktopDiscordControlApi.Authorize(cfg,Request("apply","723456789012345678"),now)&&
         !DesktopDiscordControlApi.Authorize(cfg,Request("status","723456789012345678"),now),
         "Discord service principal is strictly read-only even with an admin role assertion");
