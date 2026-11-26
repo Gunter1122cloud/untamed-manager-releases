@@ -516,7 +516,10 @@ public sealed class ObsidianWindow : Form
         _recovery = new DesktopWatchdogRecovery(_bridge.LocalCluster,_bridgeGate,
             ()=>false,ReleaseDiscordLane,()=>_updateHandoff||_suppressScheduledMutations,
             _freshStart.HandleAsync,_historicalStart.HandleAsync,_historicalReadOnlyRcon.HandleAsync,
-            mapMaintenanceLane:TryEnterMapRuntimeLane);
+            mapMaintenanceLane:TryEnterMapRuntimeLane,reconcileLifecycle:map=>{
+                _bridge.LocalCluster.Operations.TryCancelAbandonedPrepared(map.InstallationPath);
+                ReconcileLifecycleMap(map);
+            });
         _nativeSchedules.AutomaticRecoveryPending=_recovery.HasPendingRecovery;
         _rollingSteam=new DesktopRollingSteamSupervisor(_bridge.LocalCluster,_lifecycleBatch,_steamUpdate,_bridgeGate,
             ()=>_recovery.CanManagerUpdate()&&TryEnterWatchdogLane(),ReleaseRecoveryLane,()=>_updateHandoff||_suppressScheduledMutations);

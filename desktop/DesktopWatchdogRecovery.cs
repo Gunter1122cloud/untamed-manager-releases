@@ -55,6 +55,7 @@ public sealed class DesktopWatchdogRecovery : IDisposable
     private readonly ClusterService cluster;
     private readonly SemaphoreSlim hostGate;
     private readonly Func<Guid,bool> tryEnterMaintenanceLane;
+    private readonly Action<LocalMap>? reconcileLifecycle;
     private readonly Action releaseMaintenanceLane;
     private readonly Func<bool> handoff;
     private readonly Func<LocalMap,ProcessCheck> observe;
@@ -86,11 +87,12 @@ public sealed class DesktopWatchdogRecovery : IDisposable
         Func<LocalMap,ProcessCheck,Task<bool>>? isolatedReady=null,
         Func<LocalMap,Task<(int Pid,DateTimeOffset Started)>>? isolatedLaunch=null,
         Action? isolatedSteamPreflight=null,
-        Func<Guid,bool>? mapMaintenanceLane=null)
+        Func<Guid,bool>? mapMaintenanceLane=null,Action<LocalMap>? reconcileLifecycle=null)
     {
         this.cluster=cluster;this.hostGate=hostGate;
         this.tryEnterMaintenanceLane=mapMaintenanceLane??(_=>tryEnterMaintenanceLane());
         this.releaseMaintenanceLane=releaseMaintenanceLane;
+        this.reconcileLifecycle=reconcileLifecycle;
         this.handoff=handoff;
         demandNoConcurrentSteamCmd=isolatedSteamPreflight??(()=>SteamStoppedMapUpdater.DemandNoConcurrentSteamCmd());
         events=new DiscordOperationEvents(cluster);
@@ -476,7 +478,9 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                         if(row.Claim.HasValue||!tryEnterMaintenanceLane(map.Id))continue;
                         try
                         {
-                            DemandProfile(map,row,true);DemandNoPending(map);
+                            DemandProfile(map,row,true);
+                            reconcileLifecycle?.Invoke(map);
+                            DemandNoPending(map);
                             var before=observe(map);
                             if(!Running(map,before))continue;
                             var receipt=RecoveryStopIntent.ReadNativeStart(map);
@@ -544,7 +548,9 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                             !RecoveryStopIntent.MatchesNativeStart(receipt,map.StartWithAsaApi?state.LoaderIdentity:state.Identity))continue;
                         if(!tryEnterMaintenanceLane(map.Id))continue;
                         try{
-                            DemandProfile(map,row,true);DemandNoPending(map);
+                            DemandProfile(map,row,true);
+                            reconcileLifecycle?.Invoke(map);
+                            DemandNoPending(map);
                             if(!await ready(map,state))continue;
                             var confirmed=observe(map);
                             if(!Running(map,confirmed)||!Same(state.Identity,confirmed.Identity)||
@@ -672,6 +678,10 @@ public sealed class DesktopWatchdogRecovery : IDisposable
                             Write(row with{Evidence="RECOVERY_INSTALLATION_BUSY"});
                             continue;
                         }
+                        // Native journal repair is the same proof-based admission
+                        // used by UI/Discord. It runs only after the exact map
+                        // reservation and busy-installation checks; never replay.
+                        reconcileLifecycle?.Invoke(map);
                         DemandNoPending(map);
                         if(RecoveryStopIntent.Suppresses(map,row.Pid,row.StartedUtc,row.ArmedUtc)||
                             !Stopped(observe(map))||!exit.HasExited||!FatalExitCode(exit.ExitCode))

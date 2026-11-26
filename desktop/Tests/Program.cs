@@ -629,7 +629,7 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     var mapLane=new DiscordMapReservation();
     Guid siblingMap=Guid.NewGuid();
     Check(mapLane.TryBeginWorker(siblingMap),"unrelated scheduled map worker owns its own lane");
-    int scopedAdmissions=0;
+    int scopedAdmissions=0,watchdogReconciliations=0;
     using var recovery=new DesktopWatchdogRecovery(recoveryCluster,hostGate,
         ()=>throw new InvalidOperationException("legacy host lane must not be used"),
         mapLane.Release,()=>false,
@@ -643,6 +643,11 @@ await SteamPublicBuildParsingTests.RunAsync(root);
             Check(id==m.Id,"watchdog reservation targets the recovering map");
             scopedAdmissions++;
             return mapLane.TryReserve(new[]{id});
+        },reconcileLifecycle:target=>{
+            Check(target.Id==m.Id&&mapLane.HasReservation&&
+                !recoveryCluster.Operations.IsInstallationBusy(target.InstallationPath),
+                "watchdog journal reconciliation holds exact map reservation and no competing installation worker");
+            watchdogReconciliations++;
         });
     IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=m.Id,confirm=true}),"watchdog arms exact Store-v1 API family");
     var now=DateTimeOffset.UtcNow;
@@ -683,6 +688,8 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     externalSteamBusy=false;
     await recovery.TickOnceAsync(now.AddSeconds(60));
     Check(launches==1&&!recovery.CanManagerUpdate(),"confirmed crash claims one start and blocks Manager handoff during readiness");
+    Check(watchdogReconciliations==1,
+        "watchdog uses common journal recovery before dispatch, not during active Steam or installation contention");
     Check(scopedAdmissions>=4&&!mapLane.HasReservation&&!mapLane.TryBeginWorker(siblingMap),
         "watchdog starts despite unrelated active worker and releases only its own reservation");
     mapLane.EndWorker(siblingMap);
