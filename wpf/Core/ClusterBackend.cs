@@ -1753,6 +1753,36 @@ public sealed partial class ClusterService : IAsyncDisposable
     // deliberately separate from historical Store-v1 imports and FakeAsa.
     // No automatic server restart or recovery is authorized here. A successful
     // Process.Start is not evidence of RCON/ASA client readiness.
+    private bool CanArchiveAbandonedLaunch(LocalMap map,string profile,
+        Func<ProcessCheck> observeStopped)
+    {
+        // The old installation journal has no map ID. Do not attribute a
+        // shared installation's failed mutation to a different map.
+        if(map.Maintenance||map.ObservedReadOnlyImported||
+           !ReferenceEquals(Config.LocalMaps.SingleOrDefault(m=>m.Id==map.Id),map)||
+           JsonSerializer.Serialize(map)!=profile)return false;
+        string resource=UntamedOperationCoordinator.ResourceKey(map.InstallationPath);
+        if(Config.LocalMaps.Count(m=>!string.IsNullOrWhiteSpace(m.InstallationPath)&&
+            UntamedOperationCoordinator.ResourceKey(m.InstallationPath)==resource)!=1)
+            return false;
+        if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map)||
+           !AsaReadyProbe.IsRegisteredServerBinary(map)||
+           !AsaRconConfigurationEvidence.Matches(map))return false;
+        new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+        new AsaManualStopJournal(map.InstallationPath).DemandNoPending(map.Id);
+        if(map.HistoricalStoreProtected&&
+           LegacyStoreV1SaveEvidenceJournal.Inspect(Store.Root,map.Id)?.Phase is ("prepared" or "needsOperator"))
+            return false;
+        // A failed launch may have staged configuration changes. A
+        // conflicting/unreadable draft is a separate concrete disk problem.
+        foreach(string ini in new[]{"Game.ini","GameUserSettings.ini"})
+            if(PendingGameIni.Status(this,map,ini).State is not ("none" or "queued" or "applied"))
+                return false;
+        var state=observeStopped();
+        return state.ConfirmedStopped&&!state.Running&&state.Identity==null&&
+            state.LoaderIdentity==null&&AsaLocalPortPreflight.CanStart(map);
+    }
+
     public ProcessIdentity LaunchFreshAsa(Guid id,bool operatorApproved,Guid? approvedRestartId=null)
     {
         var map=Config.LocalMaps.SingleOrDefault(x=>x.Id==id) ??
@@ -1811,7 +1841,13 @@ public sealed partial class ClusterService : IAsyncDisposable
             throw new InvalidOperationException("ASA start requires a confirmed stopped local map");
         if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             throw new InvalidOperationException("Unresolved restore prevents ASA start");
-        using var lease=Operations.Acquire(root,UntamedOperationKind.Launch);
+        string approvedProfile=JsonSerializer.Serialize(map);
+        using var lease=approvedRestartId.HasValue?
+            Operations.Acquire(root,UntamedOperationKind.Launch):
+            Operations.AcquireStoppedStart(root,()=>CanArchiveAbandonedLaunch(
+                map,approvedProfile,()=>Check(map))&&
+                AsaSteamBuildCatalog.InstalledBuild(root)==build&&
+                AsaApiLaunchPolicy.Resolve(map)==launch);
         restartJournal.DemandAuthorizedStart(approvedRestartId);
         // Recheck while holding the installation mutation lease, immediately
         // before the OS process spawn. Fail closed; never retry/force-kill.
@@ -1870,7 +1906,13 @@ public sealed partial class ClusterService : IAsyncDisposable
         var preview=LegacyStoreV1NativeStartPlanner.Prepare(this,map,approvedRestartId);
         if(!string.Equals(preview.Fingerprint,approvedFingerprint,StringComparison.Ordinal))
             throw new InvalidDataException("UM-STORE-NATIVE-SOURCE-CHANGED");
-        using var lease=Operations.Acquire(map.InstallationPath,UntamedOperationKind.Launch);
+        string approvedProfile=JsonSerializer.Serialize(map);
+        using var lease=approvedRestartId.HasValue?
+            Operations.Acquire(map.InstallationPath,UntamedOperationKind.Launch):
+            Operations.AcquireStoppedStart(map.InstallationPath,()=>CanArchiveAbandonedLaunch(
+                map,approvedProfile,()=>LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
+                    map,Config.LocalMaps))&&
+                LegacyStoreV1NativeStartPlanner.Prepare(this,map).Fingerprint==approvedFingerprint);
         var current=Config.LocalMaps.SingleOrDefault(x=>x.Id==mapId);
         if(!ReferenceEquals(current,map))
             throw new InvalidOperationException("UM-STORE-NATIVE-MAP-CHANGED");
