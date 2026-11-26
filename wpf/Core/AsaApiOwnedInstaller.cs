@@ -52,17 +52,35 @@ public static class AsaApiOwnedInstaller
             throw new InvalidDataException("UM-API-CORE-LINKED-FILE");
         return full;
     }
-    // An enrolled Store map requires stronger ownership and transfer proof
-    // than a fresh non-Store install. The original Kova profiles remain denied.
+    // Store is a game save mode, not a dependency of the API binaries.
+    // A verified migrated profile is a normal local installation owner.
+    // Unverified archive-only registrations still cannot write binaries.
     private static void DemandSafeOwnedMap(ClusterService cluster,LocalMap map)
     {
-        if(map.Maintenance||map.HistoricalStoreProtected)
+        if(map.Maintenance||map.ObservedReadOnlyImported)
             throw new InvalidOperationException("UM-API-CORE-PROTECTED-MAP");
+        if(map.HistoricalStoreProtected)
+        {
+            if(map.NativeStoreIdentity==null||map.HistoricalLaunchModeNeedsApproval)
+                throw new InvalidOperationException("UM-API-CORE-PROTECTED-MAP");
+            _=LegacyStoreV1PinnedSource.ResolveRuntimeIdentity(cluster.Store.Root,"",map);
+            if(!string.IsNullOrWhiteSpace(map.Arguments)||!string.IsNullOrWhiteSpace(map.ApiLoaderArguments)||
+               !string.IsNullOrWhiteSpace(map.StoreTestRoot))
+                throw new InvalidOperationException("UM-API-CORE-PROTECTED-MAP");
+            return;
+        }
         if(FreshStoreEnrollmentPolicy.IsEnrolled(map))
             FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
         else if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
                 UntamedWorldBackup.HasLiveOrHistoricalStore(map))
             throw new InvalidOperationException("UM-API-CORE-UNVERIFIED-LOCAL-MAP");
+    }
+
+    internal static bool IsOwnedStoppedEligible(ClusterService cluster,Guid mapId)
+    {
+        try{_=Preflight(cluster,mapId);return true;}
+        catch(Exception ex) when(ex is IOException or InvalidOperationException or
+            UnauthorizedAccessException or ArgumentException or NotSupportedException){return false;}
     }
 
     private static (LocalMap Map,string Root,string Binary) Preflight(ClusterService cluster,Guid mapId)
@@ -83,10 +101,21 @@ public static class AsaApiOwnedInstaller
             string.Equals(Path.GetFullPath(x.InstallationPath),root,
                 StringComparison.OrdinalIgnoreCase)).ToArray();
         if(owned.Length==0)throw new InvalidOperationException("UM-API-CORE-NO-OWNER");
+        foreach(var other in cluster.Config.LocalMaps.Where(x=>!string.IsNullOrWhiteSpace(x.InstallationPath)))
+        {
+            string path=Path.TrimEndingDirectorySeparator(Path.GetFullPath(other.InstallationPath));
+            if(path.StartsWith(root+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)||
+               root.StartsWith(path+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("UM-API-CORE-NESTED-INSTALLATION");
+        }
         foreach(var participant in owned)
         {
             DemandSafeOwnedMap(cluster,participant);
-            var process=cluster.ObserveLocalProcessesReadOnly(participant);
+            var generic=cluster.ObserveLocalProcessesReadOnly(participant);
+            if(generic.Running||generic.Identity!=null||generic.LoaderIdentity!=null)
+                throw new InvalidOperationException("UM-API-CORE-SERVER-UNCERTAIN-OR-RUNNING");
+            var process=participant.HistoricalStoreProtected?
+                LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(participant,cluster.Config.LocalMaps):generic;
             if(process.Running||!process.ConfirmedStopped||
                process.Identity!=null||process.LoaderIdentity!=null)
                 throw new InvalidOperationException("UM-API-CORE-SERVER-UNCERTAIN-OR-RUNNING");

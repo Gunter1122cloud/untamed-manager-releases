@@ -43,34 +43,8 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
     private static string Ok(string? id,object data)=>
         JsonSerializer.Serialize(new{id,ok=true,data},Json);
     private LocalMap? Local(Guid id)=>cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==id);
-    private bool Eligible(LocalMap map)
-    {
-        if(map.Maintenance||map.HistoricalStoreProtected||
-           !AsaReadyProbe.IsRegisteredServerBinary(map))
-            return false;
-        if(FreshStoreEnrollmentPolicy.IsEnrolled(map))
-        {
-            try { FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map); }
-            catch(Exception ex) when(ex is InvalidDataException or
-                InvalidOperationException or IOException or UnauthorizedAccessException)
-            { return false; }
-        }
-        else if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
-                UntamedWorldBackup.HasLiveOrHistoricalStore(map))
-            return false;
-        var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
-        if(restart!=null&&restart.Phase is not
-            (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed))return false;
-        return cluster.Config.LocalMaps.Where(m=>
-            !string.IsNullOrWhiteSpace(m.InstallationPath)&&
-            string.Equals(Path.GetFullPath(m.InstallationPath),
-                Path.GetFullPath(map.InstallationPath),StringComparison.OrdinalIgnoreCase))
-            .All(m=>{
-                var p=cluster.ObserveLocalProcessesReadOnly(m);
-                return p.ConfirmedStopped&&!p.Running&&
-                    p.Identity==null&&p.LoaderIdentity==null;
-            });
-    }
+    // One native ownership/process/binary policy for UI and actual write.
+    private bool Eligible(LocalMap map)=>AsaApiOwnedInstaller.IsOwnedStoppedEligible(cluster,map.Id);
     public async Task<string> HandleAsync(string raw)
     {
         string? id=null;

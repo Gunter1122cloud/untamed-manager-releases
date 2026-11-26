@@ -47,7 +47,7 @@ export function AsaApiCoreInstaller({mapId,mapName,onInstalled}:{
       setPreview(result);
     }
     catch{
-      setError("A hivatalos ZIP SHA-256 azonosítója, vagy a leállított, saját non-Store szerver nem igazolható.");
+      setError("A hivatalos ZIP SHA-256 azonosítója, vagy a leállított, saját helyi szerver nem igazolható.");
     }finally{setBusy(false);}
   };
   const apply=async()=>{
@@ -81,7 +81,7 @@ export function AsaApiCoreInstaller({mapId,mapName,onInstalled}:{
       setRollbackCandidates(transactions.candidates);
       setRollbackId(transactions.candidates[0]?.transactionId??"");
     }catch{
-      setError("Korábbi telepítések csak leállított, saját non-Store ASA-n ellenőrizhetők. A történeti Store-v1 és a függő műveletek zároltak.");
+      setError("Korábbi telepítések csak igazoltan leállított, saját helyi ASA-telepítésen ellenőrizhetők.");
     }finally{setBusy(false);}
   };
   const prepareRollback=async()=>{
@@ -122,7 +122,7 @@ export function AsaApiCoreInstaller({mapId,mapName,onInstalled}:{
   };
   return <section className="premium-panel" aria-label={"Hivatalos ASA API CORE telepítés · "+mapName} style={{marginTop:18,padding:20}}>
     <header className="premium-panel-heading"><h2><Download size={19}/> ASA API CORE · hivatalos GitHub frissítő</h2></header>
-    <p>Csak saját, igazoltan leállított friss ASA vagy külön regisztrált új Store mapon végez célzott binárisfrissítést. Az eredetileg importált Store-v1 mapok védettek. A hivatalos kiadás GitHub SHA-256 ellenőrzése és a régi DLL/EXE bájtpontos megőrzése kötelező. Pluginbeállítások, mentések és a világfájlok nem módosulnak.</p>
+    <p>Saját, igazoltan leállított ASA-telepítéseken végez célzott binárisfrissítést. Az átvett Store-mapoknál a natív tulajdonosi ellenőrzés dönt. A hivatalos kiadás GitHub SHA-256 ellenőrzése és a régi DLL/EXE bájtpontos megőrzése kötelező. Pluginbeállítások, mentések és a világfájlok nem módosulnak.</p>
     <button className="secondary" type="button" disabled={busy}
       onClick={()=>{void refresh();}}>
       <RefreshCcw size={15}/>{busy?"Hivatalos kiadás ellenőrzése...":"Hivatalos ASA API kiadás lekérdezése"}
