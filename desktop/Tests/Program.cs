@@ -463,7 +463,7 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     var start=DateTimeOffset.UtcNow.AddHours(-1);
     var child=new ProcessIdentity{Pid=52311,StartedUtc=start,ExecutablePath="synthetic-asa"};
     var loader=new ProcessIdentity{Pid=52310,StartedUtc=start,ExecutablePath="synthetic-loader"};
-    bool stopped=false,readyForRecovery=true;ProcessCheck? overrideObservation=null;var fake=new SyntheticRecoveryExitWitness();
+    bool stopped=false,readyForRecovery=true,externalSteamBusy=false;ProcessCheck? overrideObservation=null;var fake=new SyntheticRecoveryExitWitness();
     DateTimeOffset launchedUtc=default;
     using var hostGate=new SemaphoreSlim(1,1);int launches=0;
     Task<string> NoNative(string raw)=>throw new InvalidOperationException("unexpected real request");
@@ -472,7 +472,8 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         _=>overrideObservation??(stopped?new ProcessCheck(false,"stopped",null,true):
             new ProcessCheck(true,"running",child,false,loader)),
         _=>fake,_=>new string('A',64),(_,_)=>Task.FromResult(readyForRecovery),
-        _=>{launches++;launchedUtc=DateTimeOffset.UtcNow;return Task.FromResult((52320,launchedUtc));});
+        _=>{launches++;launchedUtc=DateTimeOffset.UtcNow;return Task.FromResult((52320,launchedUtc));},
+        ()=>{if(externalSteamBusy)throw new IOException("UM-STEAM-EXTERNAL-PROCESS-BUSY");});
     IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=m.Id,confirm=true}),"watchdog arms exact Store-v1 API family");
     var now=DateTimeOffset.UtcNow;
     await recovery.TickOnceAsync(now);Check(launches==0,"running map never auto-starts");
@@ -493,7 +494,14 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         await recovery.TickOnceAsync(now.AddSeconds(30));
         Check(launches==0,"host Steam lease blocks recovery before native Start");
     }
+    externalSteamBusy=true;
     await recovery.TickOnceAsync(now.AddSeconds(40));
+    var waitingSteam=(await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0];
+    Check(launches==0&&waitingSteam.GetProperty("status").GetString()=="armed"&&
+        waitingSteam.GetProperty("evidence").GetString()=="RECOVERY_STEAM_EXTERNAL_BUSY"&&recovery.HasPendingRecovery(m.Id),
+        "external SteamCMD delays recovery without terminal review or launch");
+    externalSteamBusy=false;
+    await recovery.TickOnceAsync(now.AddSeconds(50));
     Check(launches==1&&!recovery.CanManagerUpdate(),"confirmed crash claims one start and blocks Manager handoff during readiness");
     // The historical Core launcher may clear only the submitted-mod draft
     // marker after proving ordered mod arguments. This must not disarm
