@@ -41,7 +41,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
       const code=e instanceof Error?e.message:"UM-FRESH-STORE-PREFLIGHT";
       const hints:Record<string,string>={
         "UM-FRESH-STORE-HISTORICAL-CLUSTER-RESERVED":
-          "Az eredeti történeti cluster nem érhető el az új, üres Store-map általános regisztrációjával. Az eredeti kétgazdás transferazonosságot külön kell igazolni; az eredeti világot nem módosítottuk.",
+          "A meglévő cluster natív mapazonossága vagy transferútvonala még nem igazolt. A régi profilok automatikus átvételét ellenőrizd; világkonverzió nem történt.",
         "UM-FRESH-STORE-RCON-SETUP-REQUIRED-BEFORE-ENROLLMENT":
           "Először a map RCON fülén konfiguráld a helyi RCON-portot és jelszót, utána kérj új Store-előellenőrzést.",
         "UM-FRESH-STORE-MAP-MEMBERSHIP-REQUIRED":
@@ -88,7 +88,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
         <p className="muted small">Csak soha nem indított, mentés nélküli SteamCMD-maphoz.
           A Store-regisztráció ELŐTT készítsd el a helyi RCON/INI-beállítást a
           RCON fülön, majd a Cluster fülön rendeld hozzá egy létrehozott clusterhez.
-          A történeti cluster és az igazolatlan többgépes megosztás továbbra is védett.</p>
+          A már átvett natív Store-clusterhez új üres map is csatlakozhat. A többgépes megosztás egyezését regisztrációkor ellenőrzi a Manager.</p>
         <label><span>Jóváhagyott helyi cluster</span>
           <select aria-label="Új Store-map cluster" value={selected}
             disabled={busy||clusters.length===0}

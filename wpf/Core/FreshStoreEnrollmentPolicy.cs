@@ -120,19 +120,17 @@ public static class FreshStoreEnrollmentPolicy
             Deny("UM-FRESH-STORE-CLUSTER-NOT-SELECTED");
         string normalized=ClusterRegistrySchema.NormalizeClusterId(clusterId);
         var snapshot=cluster.Registry.Snapshot();
-        // Imported historical Store clusters may have a source-pinned ID
-        // different from the conventional "KovaCluster" label. A fresh
-        // Store writer must never enroll through this generic new-cluster
-        // path when ANY member is historical.
-        if(snapshot.ClusterRegistry.MapAssignments.Any(a=>
-            a.ClusterId.Equals(normalized,StringComparison.OrdinalIgnoreCase) &&
-            cluster.Config.LocalMaps.Any(m=>m.Id==a.MapId &&
-                (m.HistoricalStoreProtected ||
-                 !string.IsNullOrWhiteSpace(m.HistoricalArchiveSha256)))))
-            Deny("UM-FRESH-STORE-HISTORICAL-CLUSTER-RESERVED");
         var entry=snapshot.ClusterRegistry.Clusters.SingleOrDefault(x=>
             x.ClusterId.Equals(normalized,StringComparison.Ordinal));
         if(entry==null)Deny("UM-FRESH-STORE-CLUSTER-NOT-REGISTERED");
+        // Empty new maps can use the same native ID/path as migrated
+        // members. Unverified legacy imports cannot establish this identity.
+        if(cluster.Config.LocalMaps.Any(m=>
+            (m.HistoricalStoreProtected||!string.IsNullOrWhiteSpace(m.HistoricalArchiveSha256))&&
+            snapshot.ClusterRegistry.MapAssignments.Any(a=>a.MapId==m.Id&&
+                a.ClusterId.Equals(normalized,StringComparison.OrdinalIgnoreCase))&&
+            !LegacyStoreV1PinnedSource.MatchesNativeCluster(m,entry!)))
+            Deny("UM-FRESH-STORE-HISTORICAL-CLUSTER-RESERVED");
         var matches=snapshot.ClusterRegistry.MapAssignments.Where(x=>
             x.MapId==map.Id).ToArray();
         if(matches.Length!=1||!matches[0].ClusterId.Equals(normalized,

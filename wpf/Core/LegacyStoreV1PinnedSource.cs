@@ -345,6 +345,28 @@ public static class LegacyStoreV1PinnedSource
             cluster.RuntimeClusterId,cluster.TransferRoot);
     }
 
+    // A verified imported profile participates in the same native cluster
+    // as a new empty ASA map. No original archive or remote peer is opened.
+    internal static bool MatchesNativeCluster(LocalMap map,RegisteredCluster cluster)
+    {
+        if(map.NativeStoreIdentity==null)return false;
+        try
+        {
+            var native=ResolveRuntimeIdentity("","",map);
+            string id=string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)?
+                native.RuntimeClusterId:map.HistoricalRuntimeClusterId;
+            string path=string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory)?
+                native.TransferRoot:map.HistoricalRuntimeTransferDirectory;
+            return string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)==
+                   string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory)&&
+                id.Equals(cluster.ClusterId,StringComparison.OrdinalIgnoreCase)&&
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)).Equals(
+                    Path.TrimEndingDirectorySeparator(Path.GetFullPath(cluster.TransferDirectory)),
+                    StringComparison.OrdinalIgnoreCase);
+        }
+        catch(Exception){return false;}
+    }
+
     internal static bool HasRuntimeIdentity(string managerProfileRoot,LocalMap map)
     {
         if(map.NativeStoreIdentity==null)return HasApprovedLocalSource(managerProfileRoot,map);
