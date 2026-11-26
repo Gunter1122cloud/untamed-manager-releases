@@ -152,6 +152,22 @@ public sealed class ObsidianWindow : Form
     {
         if(map.Maintenance||map.ObservedReadOnlyImported)return false;
         bool changed=_bridge.LocalCluster.Operations.TryReconcileAtomicConfig(map.InstallationPath);
+        if(!UntamedManager.Core.UntamedWorldBackup.HasLiveOrHistoricalStore(map))
+        {
+            var local=_bridge.LocalCluster;
+            try
+            {
+                // Do not recover a shared installation or an overlapping
+                // save folder from a single-map receipt.
+                string resource=UntamedManager.Core.UntamedOperationCoordinator.ResourceKey(map.InstallationPath);
+                if(System.Linq.Enumerable.Count(local.Config.LocalMaps,m=>
+                    !string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                    UntamedManager.Core.UntamedOperationCoordinator.ResourceKey(m.InstallationPath)==resource)==1)
+                    changed|=UntamedManager.Core.UntamedWorldBackup.TryRecoverLocalRestore(map,
+                        local.Store.Root,()=>local.Check(map),local.Operations);
+            }
+            catch(Exception ex){System.Diagnostics.Trace.TraceWarning("Local restore recovery {0}: {1}",map.Id,ex.GetType().Name);}
+        }
         if(map.HistoricalStoreProtected)
         {
             try{changed|=UntamedManager.Core.LegacyStoreV1PinnedSource.TryPersistRuntimeIdentity(
