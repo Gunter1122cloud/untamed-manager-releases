@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace UntamedManager.Core;
 
@@ -8,6 +10,36 @@ public sealed record ObservedProcess(int Pid, int ParentPid, DateTimeOffset Star
     string ExecutablePath, string Arguments);
 public static class ProcessFamily
 {
+    // Adapted from DiFuks/ark-manager ServerManager.WaitForExitAsync
+    // (63ab649f12efdebd036a8474d8aa1cb676fc5aae, MIT).
+    // The caller owns the deadline. Unlike a PID-only check, an absent
+    // member of a draining Loader/ASA family is not a replacement.
+    internal static async Task WaitForOwnedExitAsync(
+        Func<ProcessCheck> observeStopped,Func<ProcessCheck>? observeLive,
+        ProcessIdentity expectedAsa,ProcessIdentity? expectedLoader,
+        Func<ProcessIdentity?,ProcessIdentity?,bool> same,
+        CancellationToken ct,TimeSpan? pollInterval=null)
+    {
+        void RejectReplacement(ProcessCheck check)
+        {
+            if((check.Identity!=null&&!same(check.Identity,expectedAsa))||
+               (check.LoaderIdentity!=null&&
+                (expectedLoader==null||!same(check.LoaderIdentity,expectedLoader))))
+                throw new InvalidOperationException("UM-ASA-STOP-REPLACEMENT-FAMILY");
+        }
+        while(true)
+        {
+            ct.ThrowIfCancellationRequested();
+            var check=observeStopped();
+            RejectReplacement(check);
+            if(check.ConfirmedStopped&&!check.Running&&
+               check.Identity==null&&check.LoaderIdentity==null)
+                return;
+            if(observeLive!=null)RejectReplacement(observeLive());
+            await Task.Delay(pollInterval??TimeSpan.FromMilliseconds(300),ct);
+        }
+    }
+
     // Read-only classifier shared by actual Windows inspection and tests.
     // A configured-but-unused API Loader cannot prevent direct ASA from
     // being recognized. Conversely a previously verified Loader child
