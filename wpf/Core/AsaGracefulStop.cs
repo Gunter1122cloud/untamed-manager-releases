@@ -77,6 +77,32 @@ public static class AsaGracefulStop
         }
     }
 
+    // DiFuks ServerManager.cs:356–360 and Ch4r0ne _stop_server_impl:
+    // a DoExit transport failure is not proof the process failed to exit.
+    // Only after authenticated ownership authorization may we observe the
+    // uncertain dispatch. Never retry the command or turn uncertainty into
+    // a claimed successful transmission.
+    internal static async Task<bool> TryDispatchDoExitAsync(
+        Func<Action,Task> send,Action authorize,Action<string>? stage,CancellationToken ct)
+    {
+        bool authorized=false;
+        try
+        {
+            await send(()=>{
+                ct.ThrowIfCancellationRequested();
+                authorize();
+                authorized=true;
+            });
+            return true;
+        }
+        catch(Exception ex) when(authorized&&!ct.IsCancellationRequested&&
+            (ex is IOException or System.Net.Sockets.SocketException or OperationCanceledException))
+        {
+            stage?.Invoke("DoExit átvitele bizonytalan; az ASA/Loader tényleges kilépését ellenőrzöm");
+            return false;
+        }
+    }
+
     public static async Task<AsaGracefulStopReceipt> StopAsync(
         ClusterService cluster,Guid mapId,ProcessIdentity expected,
         TimeSpan timeout,CancellationToken cancellationToken=default,
@@ -140,7 +166,7 @@ public static class AsaGracefulStop
         if(!AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new InvalidOperationException("UM-ASA-STOP-LOCAL-BINARY-CHANGED");
         Verify();
-        bool preExitEvidence=false,worldMetadataEvidence=false,mutationStarted=false;
+        bool preExitEvidence=false,worldMetadataEvidence=false,mutationStarted=false,doExitDispatched=true;
         void AuthorizeSave()
         {
             Verify();
@@ -176,9 +202,10 @@ public static class AsaGracefulStop
                 ?"ASA SaveComplete napló és stabil .ark megfigyelve"
                 :"A mentés nem igazolt; a DoExit saját mentéssel zárja le az ASA-t");
             Verify();
-            await RconProtocol.DispatchDoExitAsync(
-                map.RconPort,password,AuthorizeSave,ct);
-            evidenceStage?.Invoke("DoExit elküldve; PID kilépésére vár");
+            doExitDispatched=await TryDispatchDoExitAsync(
+                authorize=>RconProtocol.DispatchDoExitAsync(map.RconPort,password,authorize,ct),
+                AuthorizeSave,evidenceStage,ct);
+            if(doExitDispatched)evidenceStage?.Invoke("DoExit elküldve; PID kilépésére vár");
         }
         // DoExit normally closes ASA after its own world save. The process
         // must vanish before declaring a successful graceful stop.
@@ -198,7 +225,8 @@ public static class AsaGracefulStop
         }
         evidenceStage?.Invoke("Régi ASA Windows-folyamat kilépése igazolva");
         lease.Complete();
-        return new(map.Id,expected.Pid,true,false,true,DateTimeOffset.UtcNow,
+        return new(map.Id,expected.Pid,true,false,doExitDispatched,DateTimeOffset.UtcNow,
+            !doExitDispatched?"LOCAL_PID_STOPPED_DOEXIT_DISPATCH_UNCERTAIN":
             preExitEvidence?
               "REAL_LOCAL_PREEXIT_SAVE_LOG_AND_WORLD_VERIFIED_FINAL_EXIT_SAVE_UNVERIFIED":
             worldMetadataEvidence?
