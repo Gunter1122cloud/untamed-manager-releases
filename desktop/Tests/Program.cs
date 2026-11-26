@@ -537,13 +537,24 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     DateTimeOffset launchedUtc=default;
     using var hostGate=new SemaphoreSlim(1,1);int launches=0;
     Task<string> NoNative(string raw)=>throw new InvalidOperationException("unexpected real request");
-    using var recovery=new DesktopWatchdogRecovery(recoveryCluster,hostGate,()=>true,()=>{},()=>false,
+    var mapLane=new DiscordMapReservation();
+    Guid siblingMap=Guid.NewGuid();
+    Check(mapLane.TryBeginWorker(siblingMap),"unrelated scheduled map worker owns its own lane");
+    int scopedAdmissions=0;
+    using var recovery=new DesktopWatchdogRecovery(recoveryCluster,hostGate,
+        ()=>throw new InvalidOperationException("legacy host lane must not be used"),
+        mapLane.Release,()=>false,
         NoNative,NoNative,NoNative,
         _=>overrideObservation??(stopped?new ProcessCheck(false,"stopped",null,true):
             new ProcessCheck(true,"running",child,false,loader)),
         _=>fake,_=>new string('A',64),(_,_)=>Task.FromResult(readyForRecovery),
         _=>{launches++;launchedUtc=DateTimeOffset.UtcNow;return Task.FromResult((52320,launchedUtc));},
-        ()=>{if(externalSteamBusy)throw new IOException("UM-STEAM-EXTERNAL-PROCESS-BUSY");});
+        ()=>{if(externalSteamBusy)throw new IOException("UM-STEAM-EXTERNAL-PROCESS-BUSY");},
+        mapMaintenanceLane:id=>{
+            Check(id==m.Id,"watchdog reservation targets the recovering map");
+            scopedAdmissions++;
+            return mapLane.TryReserve(new[]{id});
+        });
     IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=m.Id,confirm=true}),"watchdog arms exact Store-v1 API family");
     var now=DateTimeOffset.UtcNow;
     await recovery.TickOnceAsync(now);Check(launches==0,"running map never auto-starts");
@@ -583,6 +594,9 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     externalSteamBusy=false;
     await recovery.TickOnceAsync(now.AddSeconds(60));
     Check(launches==1&&!recovery.CanManagerUpdate(),"confirmed crash claims one start and blocks Manager handoff during readiness");
+    Check(scopedAdmissions>=4&&!mapLane.HasReservation&&!mapLane.TryBeginWorker(siblingMap),
+        "watchdog starts despite unrelated active worker and releases only its own reservation");
+    mapLane.EndWorker(siblingMap);
     // The historical Core launcher may clear only the submitted-mod draft
     // marker after proving ordered mod arguments. This must not disarm
     // watchdog readiness for the already-approved native Start.
