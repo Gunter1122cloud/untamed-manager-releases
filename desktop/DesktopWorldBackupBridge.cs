@@ -42,13 +42,31 @@ public sealed class DesktopWorldBackupBridge
         public Guid Id=Guid.NewGuid();
         public string State="queued",Step="queued";
         public string FourFilesSha="",LaunchProfileSha="";
+        // Immutable accepted selection; restored terminal history owns no active reservation.
+        public Guid[] MapIds=Array.Empty<Guid>();
         public readonly List<OriginalBatchPoint> Points=new();
         public long TotalBytes;
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
     }
     private readonly object originalBatchSync=new();
     private OriginalBatchJob? originalBatchJob;
-    internal bool RecoveryLaneBusy(){lock(originalBatchSync)return originalBatchJob?.State is "queued" or "running";}
+    // Adapt YARK backup-critical-queue.ts hasServerWork: query the active
+    // job's server scope rather than freezing every independent map.
+    // This legacy batch validates all five members before every copy and
+    // at completion, so reserve ALL accepted members until it terminates.
+    // Unknown or malformed active scope remains conservatively host-wide.
+    internal static bool OriginalBatchBlocksMap(string? state,Guid[]? mapIds,Guid? mapId)
+    {
+        if(state is not ("queued" or "running"))return false;
+        if(!mapId.HasValue||mapId.Value==Guid.Empty||mapIds==null||
+           mapIds.Length!=5||mapIds.Contains(Guid.Empty)||mapIds.Distinct().Count()!=5)return true;
+        return mapIds.Contains(mapId.Value);
+    }
+    internal bool RecoveryLaneBusy(Guid? mapId=null)
+    {
+        lock(originalBatchSync)
+            return OriginalBatchBlocksMap(originalBatchJob?.State,originalBatchJob?.MapIds,mapId);
+    }
     private bool originalBatchJournalInvalid;
     private sealed record RepairApproval(Guid Token,string FourSha,string LaunchSha,
         string JournalSha,DateTimeOffset ExpiresUtc);
@@ -487,7 +505,8 @@ public sealed class DesktopWorldBackupBridge
                             OriginalStoreFiveBatchJournal.ArchivePrevious(cluster.Store.Root);
                             job=new OriginalBatchJob{
                                 FourFilesSha=approved.FourFilesSha,
-                                LaunchProfileSha=approved.LaunchProfileSha
+                                LaunchProfileSha=approved.LaunchProfileSha,
+                                MapIds=approved.MapIds.ToArray()
                             };
                             PublishOriginalBatch(job); // durable QUEUED before worker
                             originalBatchJob=job;
