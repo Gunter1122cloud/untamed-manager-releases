@@ -1385,18 +1385,18 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                                 InvalidOperationException or InvalidDataException or ArgumentException or JsonException)
                             {System.Diagnostics.Trace.TraceWarning("Scheduled slot reconciliation {0}: {1}",actual.MapId,ex.GetType().Name);}
                         }
-                        string status=retired?"skipped-auto-retired-prior-slot":"skipped-blocked-prior-unknown-slot";
-                        string evidence=retired?"OLD_SLOT_ARCHIVED_NEXT_OCCURRENCE_ONLY":"PRIOR_SLOT_NATIVE_STATE_UNRESOLVED";
+                        string skippedStatus=retired?"skipped-auto-retired-prior-slot":"skipped-blocked-prior-unknown-slot";
+                        string skippedEvidence=retired?"OLD_SLOT_ARCHIVED_NEXT_OCCURRENCE_ONLY":"PRIOR_SLOT_NATIVE_STATE_UNRESOLVED";
                         state.Jobs[ix]=actual with {
                             NextDueUtc=Next(actual,cutoff),Enabled=actual.Frequency!="Once",
                             LastStatus=retired?"auto-retired-unknown-no-replay":"blocked-prior-unknown-slot",
-                            LastEvidence=evidence
+                            LastEvidence=skippedEvidence
                         };
                         // Skip this occurrence as well; never dispatch during
                         // bookkeeping or run a catch-up command.
                         AddHistory(state,new ScheduledAsaExecution(claimId,
                             actual.MapId,actual.Kind,observed.NextDueUtc,now,
-                            now,status,evidence));
+                            now,skippedStatus,skippedEvidence));
                         Write(state);return false;
                     }
                     // If a restart with a post-ready wipe is due in this
