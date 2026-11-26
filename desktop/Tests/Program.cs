@@ -57,6 +57,40 @@ static bool IsError(JsonElement value,string code)=>
     !value.GetProperty("ok").GetBoolean() &&
     value.GetProperty("error").GetString()==code;
 
+// Shared native start bookkeeping is used by both actual launch routes.
+{
+    var rootPath=Path.Combine(Path.GetTempPath(),"native-launch-identity-fixture");
+    var serverPath=Path.Combine(rootPath,"ArkAscendedServer.exe");
+    var loaderPath=Path.Combine(rootPath,"AsaApiLoader.exe");
+    var launchIdentityMap=new LocalMap{Id=Guid.NewGuid(),Name="Start identity"};
+    ProcessIdentity Identity(int pid,string path,string args)=>new(){
+        Pid=pid,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath=path,Arguments=args};
+    var oldServer=Identity(90001,serverPath,"old");
+    var oldLoader=Identity(90002,loaderPath,"old");
+    launchIdentityMap.LastProcess=oldServer;launchIdentityMap.LastLoader=oldLoader;
+    var loader=Identity(90003,loaderPath,"fixture args");
+    NativeAsaStartIdentity.Record(launchIdentityMap,new AsaApiLaunchPlan(true,loaderPath,
+        "fixture args","fixture"),loader,false);
+    Check(launchIdentityMap.LastProcess==null&&ReferenceEquals(launchIdentityMap.LastLoader,loader),
+        "native API start clears stale ASA child identity");
+    var server=Identity(90004,serverPath,"fixture args");
+    NativeAsaStartIdentity.Record(launchIdentityMap,new AsaApiLaunchPlan(false,serverPath,
+        "fixture args","fixture"),server,false);
+    Check(launchIdentityMap.LastLoader==null&&ReferenceEquals(launchIdentityMap.LastProcess,server),
+        "native direct start clears stale Loader identity");
+    var historical=NativeAsaStartIdentity.Record(launchIdentityMap,new AsaApiLaunchPlan(true,loaderPath,
+        "fixture args","fixture"),loader,true);
+    Check(launchIdentityMap.LastProcess==null&&launchIdentityMap.LastLoader==historical&&
+        historical.Arguments=="HISTORICAL_STORE_V1_API_LOADER_START",
+        "historical start uses shared identity handling and does not persist private args");
+    bool invalid=false;
+    try{NativeAsaStartIdentity.Record(launchIdentityMap,new AsaApiLaunchPlan(false,serverPath,
+        "different args","fixture"),server,false);}
+    catch(InvalidDataException){invalid=true;}
+    Check(invalid&&launchIdentityMap.LastLoader==historical&&launchIdentityMap.LastProcess==null,
+        "mismatched spawned identity cannot replace current bookkeeping");
+}
+
 // Missing/failed SaveWorld telemetry must not strand an otherwise owned Stop.
 var noSaveWitness=await AsaGracefulStop.ObserveSaveBrieflyAsync(null,()=>{},CancellationToken.None);
 Check(!noSaveWitness.LogAndWorld&&!noSaveWitness.WorldMetadata,
@@ -115,6 +149,42 @@ using(var cancelledSave=new CancellationTokenSource())
     Check(await AsaGracefulStop.TryDispatchDoExitAsync(authorize=>{
         authorize();return Task.CompletedTask;
     },()=>{},null,CancellationToken.None),"normal successful DoExit retains dispatch receipt");
+}
+
+// Shared production shutdown observer: an exiting Loader is not a
+// replacement; an unknown or partially observed family is not stopped.
+{
+    var child=new ProcessIdentity{Pid=90101,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath="fixture-asa"};
+    var loader=new ProcessIdentity{Pid=90100,StartedUtc=child.StartedUtc.AddSeconds(-1),ExecutablePath="fixture-loader"};
+    bool SameFixture(ProcessIdentity? x,ProcessIdentity? y)=>x!=null&&y!=null&&
+        x.Pid==y.Pid&&x.StartedUtc==y.StartedUtc&&x.ExecutablePath==y.ExecutablePath;
+    var samples=new Queue<ProcessCheck>(new[]{
+        new ProcessCheck(true,"loader exited first",child,false),
+        new ProcessCheck(false,"unknown",null,false),
+        new ProcessCheck(false,"fully stopped",null,true)});
+    await ProcessFamily.WaitForOwnedExitAsync(()=>samples.Dequeue(),null,
+        child,loader,SameFixture,CancellationToken.None,TimeSpan.FromMilliseconds(1));
+    Check(samples.Count==0,"shared stop waits for confirmed absence, not just Loader exit");
+    bool replacementDenied=false;
+    try
+    {
+        await ProcessFamily.WaitForOwnedExitAsync(
+            ()=>new ProcessCheck(false,"unknown",null,false),
+            ()=>new ProcessCheck(true,"replacement Loader",child,false,
+                new ProcessIdentity{Pid=loader.Pid,StartedUtc=loader.StartedUtc.AddSeconds(1),ExecutablePath=loader.ExecutablePath}),
+            child,loader,SameFixture,CancellationToken.None);
+    }
+    catch(InvalidOperationException ex) when(ex.Message=="UM-ASA-STOP-REPLACEMENT-FAMILY")
+    {replacementDenied=true;}
+    Check(replacementDenied,"shared stop rejects a reused Loader PID with new epoch");
+    using var cancellation=new CancellationTokenSource();
+    var waiting=ProcessFamily.WaitForOwnedExitAsync(
+        ()=>new ProcessCheck(false,"uncertain",null,false),null,
+        child,loader,SameFixture,cancellation.Token);
+    cancellation.Cancel();
+    bool cancelled=false;
+    try{await waiting;}catch(OperationCanceledException){cancelled=true;}
+    Check(cancelled,"unknown process state stays cancellable, not falsely stopped");
 }
 
 // A reconciled Stop receipt must override terminal error history, but not
@@ -498,7 +568,7 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     var start=DateTimeOffset.UtcNow.AddHours(-1);
     var child=new ProcessIdentity{Pid=52311,StartedUtc=start,ExecutablePath="synthetic-asa"};
     var loader=new ProcessIdentity{Pid=52310,StartedUtc=start,ExecutablePath="synthetic-loader"};
-    bool stopped=false,readyForRecovery=true;ProcessCheck? overrideObservation=null;var fake=new SyntheticRecoveryExitWitness();
+    bool stopped=false,readyForRecovery=true,externalSteamBusy=false;ProcessCheck? overrideObservation=null;var fake=new SyntheticRecoveryExitWitness();
     DateTimeOffset launchedUtc=default;
     using var hostGate=new SemaphoreSlim(1,1);int launches=0;
     Task<string> NoNative(string raw)=>throw new InvalidOperationException("unexpected real request");
@@ -507,7 +577,8 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         _=>overrideObservation??(stopped?new ProcessCheck(false,"stopped",null,true):
             new ProcessCheck(true,"running",child,false,loader)),
         _=>fake,_=>new string('A',64),(_,_)=>Task.FromResult(readyForRecovery),
-        _=>{launches++;launchedUtc=DateTimeOffset.UtcNow;return Task.FromResult((52320,launchedUtc));});
+        _=>{launches++;launchedUtc=DateTimeOffset.UtcNow;return Task.FromResult((52320,launchedUtc));},
+        ()=>{if(externalSteamBusy)throw new IOException("UM-STEAM-EXTERNAL-PROCESS-BUSY");});
     IsOk(await Call(recovery.HandleAsync,"recovery.arm",new{mapId=m.Id,confirm=true}),"watchdog arms exact Store-v1 API family");
     var now=DateTimeOffset.UtcNow;
     await recovery.TickOnceAsync(now);Check(launches==0,"running map never auto-starts");
@@ -528,7 +599,24 @@ await SteamPublicBuildParsingTests.RunAsync(root);
         await recovery.TickOnceAsync(now.AddSeconds(30));
         Check(launches==0,"host Steam lease blocks recovery before native Start");
     }
-    await recovery.TickOnceAsync(now.AddSeconds(40));
+    using(var activeOperation=recoveryCluster.Operations.Acquire(m.InstallationPath,UntamedOperationKind.Configuration))
+    {
+        activeOperation.MarkMutationStarted();
+        await recovery.TickOnceAsync(now.AddSeconds(40));
+        var busyMap=(await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0];
+        Check(launches==0&&busyMap.GetProperty("status").GetString()=="armed"&&
+            busyMap.GetProperty("evidence").GetString()=="RECOVERY_INSTALLATION_BUSY"&&recovery.HasPendingRecovery(m.Id),
+            "active installation mutation defers recovery without losing its crash claim");
+        activeOperation.Complete();
+    }
+    externalSteamBusy=true;
+    await recovery.TickOnceAsync(now.AddSeconds(50));
+    var waitingSteam=(await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0];
+    Check(launches==0&&waitingSteam.GetProperty("status").GetString()=="armed"&&
+        waitingSteam.GetProperty("evidence").GetString()=="RECOVERY_STEAM_EXTERNAL_BUSY"&&recovery.HasPendingRecovery(m.Id),
+        "external SteamCMD delays recovery without terminal review or launch");
+    externalSteamBusy=false;
+    await recovery.TickOnceAsync(now.AddSeconds(60));
     Check(launches==1&&!recovery.CanManagerUpdate(),"confirmed crash claims one start and blocks Manager handoff during readiness");
     // The historical Core launcher may clear only the submitted-mod draft
     // marker after proving ordered mod arguments. This must not disarm
@@ -537,13 +625,13 @@ await SteamPublicBuildParsingTests.RunAsync(root);
     stopped=false;fake.Exited=false;readyForRecovery=false;
     loader=new ProcessIdentity{Pid=52320,StartedUtc=launchedUtc,ExecutablePath="synthetic-loader"};
     child=new ProcessIdentity{Pid=52321,StartedUtc=launchedUtc,ExecutablePath="synthetic-asa"};
-    await recovery.TickOnceAsync(now.AddSeconds(50));
+    await recovery.TickOnceAsync(now.AddSeconds(60));
     Check(launches==1&&!recovery.CanManagerUpdate(),"new PID without readiness is not success");
     readyForRecovery=true;
-    await recovery.TickOnceAsync(now.AddSeconds(60));
+    await recovery.TickOnceAsync(now.AddSeconds(70));
     Check(launches==1&&recovery.CanManagerUpdate(),"verified new family rearms and releases handoff without second Start");
     stopped=true;fake.Exited=true;
-    await recovery.TickOnceAsync(now.AddSeconds(70));await recovery.TickOnceAsync(now.AddSeconds(80));await recovery.TickOnceAsync(now.AddSeconds(90));
+    await recovery.TickOnceAsync(now.AddSeconds(80));await recovery.TickOnceAsync(now.AddSeconds(90));await recovery.TickOnceAsync(now.AddSeconds(100));
     Check(launches==1&&(await Call(recovery.HandleAsync,"recovery.status")).GetProperty("data").GetProperty("maps")[0].GetProperty("evidence").GetString()=="RECOVERY_COOLDOWN_NO_CRASH_LOOP","repeated crash cannot bypass 30-minute limit after verified recovery");
     // Separate exact epoch and retained stop intent suppress a manual stop
     // even when the process exits with a crash-style code.

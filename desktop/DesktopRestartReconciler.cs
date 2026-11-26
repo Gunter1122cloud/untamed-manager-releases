@@ -14,6 +14,31 @@ namespace UntamedDesktop;
 // Steam, INI, world or shared Store operation is performed.
 internal static class DesktopRestartReconciler
 {
+    // A normal lifecycle request may trigger the same reconciliation that
+    // the periodic native supervisor performs. No extra user-facing
+    // recovery request, no automatic replay of the prior operation.
+    internal static Guid? RequestedPreviewMap(string? method,string raw)
+    {
+        if(method is not ("servers.freshStartPreview" or "servers.gracefulStopPreview" or
+            "servers.restartPreview" or "historical.activeStartPreview" or
+            "historical.gracefulStopPreview" or "historical.restartPreview"))return null;
+        if(raw.Length is <2 or >3072)return null;
+        try
+        {
+            using var doc=JsonDocument.Parse(raw);
+            var request=doc.RootElement;
+            if(request.ValueKind!=JsonValueKind.Object||
+               !request.TryGetProperty("id",out var requestId)||requestId.ValueKind!=JsonValueKind.String||
+               !Guid.TryParse(requestId.GetString(),out var id)||id==Guid.Empty||
+               !request.TryGetProperty("method",out var route)||route.ValueKind!=JsonValueKind.String||
+               route.GetString()!=method||
+               !request.TryGetProperty("mapId",out var map)||map.ValueKind!=JsonValueKind.String||
+               !Guid.TryParse(map.GetString(),out var mapId)||mapId==Guid.Empty)return null;
+            return mapId;
+        }
+        catch(JsonException){return null;}
+    }
+
     internal sealed record Witness(ProcessIdentity Asa,ProcessIdentity? Loader,string Source);
     private static bool Same(ProcessIdentity? a,ProcessIdentity? b)=>
         a==null?b==null:b!=null&&a.Pid==b.Pid&&a.StartedUtc==b.StartedUtc&&

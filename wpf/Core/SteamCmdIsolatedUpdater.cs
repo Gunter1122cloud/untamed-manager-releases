@@ -161,11 +161,7 @@ public static class SteamCmdIsolatedUpdater
             RedirectStandardOutput=true,RedirectStandardError=true,
             RedirectStandardInput=false
         };
-        foreach(var arg in new[]{"+force_install_dir",install,"+login","anonymous",
-                  "+app_update","2430930","validate","+quit"})
-            psi.ArgumentList.Add(arg);
-        foreach(string variable in new[]{"STEAM_USERNAME","STEAM_PASSWORD","MYSQL_PWD",
-            "MARIADB_PWD","UNTAMED_RCON_PASSWORD"})psi.Environment.Remove(variable);
+        SteamCmdInvocation.Configure(psi,SteamCmdInvocation.UpdateArguments(install),fixture);
 
         cancellationToken.ThrowIfCancellationRequested();
         operation.MarkMutationStarted();

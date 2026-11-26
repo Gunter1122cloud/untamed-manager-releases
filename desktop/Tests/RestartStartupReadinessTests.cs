@@ -162,6 +162,42 @@ internal static class RestartStartupReadinessTests
             CancellationToken.None);
         Check(lateApiLog.Ready(true)&&attempts==2,
             "late current-run API log readiness is observed without dispatching another Start");
+        // A non-completing asynchronous probe must not outlive the
+        // restart's overall readiness budget, even if it ignores its token.
+        var hanging=new TaskCompletionSource<RestartStartupProof>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            bool expired=false;
+            try
+            {
+                await RestartStartupReadiness.WaitAsync(_=>hanging.Task,true,
+                    TimeSpan.FromMilliseconds(100),TimeSpan.FromMilliseconds(1),
+                    CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch(TimeoutException ex) when(ex.Message=="UM-RESTART-READINESS-TIMEOUT")
+            {expired=true;}
+            Check(expired&&!hanging.Task.IsCompleted,
+                "stalled readiness probe releases restart wait on its deadline");
+            using var cancelled=new CancellationTokenSource();
+            var waiting=RestartStartupReadiness.WaitAsync(_=>hanging.Task,true,
+                TimeSpan.FromSeconds(10),TimeSpan.FromMilliseconds(1),cancelled.Token);
+            cancelled.Cancel();
+            bool cancelledByCaller=false;
+            try{await waiting.WaitAsync(TimeSpan.FromSeconds(5));}
+            catch(OperationCanceledException){cancelledByCaller=true;}
+            Check(cancelledByCaller,"caller cancellation interrupts stalled readiness probe");
+        }
+        finally{hanging.TrySetResult(Proof(true,true,true,true,true,true));}
+        attempts=0;
+        var timedOut=await RestartStartupReadiness.WaitAsync(_=>
+        {
+            attempts++;
+            return Task.FromResult(pidOnly);
+        },true,TimeSpan.FromMilliseconds(250),TimeSpan.FromSeconds(1),CancellationToken.None);
+        Check(!timedOut.Ready(true)&&timedOut.Reason=="UM-RESTART-READINESS-TIMEOUT"&&attempts==1,
+            "timeout retains last incomplete process proof without reporting ready");
+
         attempts=0;
         var earlyExit=await RestartStartupReadiness.WaitAsync(_=>
         {

@@ -1,6 +1,30 @@
+// Portions adapted from DiFuks/ark-manager (MIT), commit
+// 63ab649f12efdebd036a8474d8aa1cb676fc5aae.
+// Copyright (c) 2026 Dmitry Fuks
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace UntamedManager.Core;
 
@@ -8,6 +32,37 @@ public sealed record ObservedProcess(int Pid, int ParentPid, DateTimeOffset Star
     string ExecutablePath, string Arguments);
 public static class ProcessFamily
 {
+    // Adapted from DiFuks/ark-manager ServerManager.WaitForExitAsync
+    // (63ab649f12efdebd036a8474d8aa1cb676fc5aae, MIT).
+    // The caller owns the deadline. Unlike a PID-only check, an absent
+    // member of a draining Loader/ASA family is not a replacement.
+    internal static async Task WaitForOwnedExitAsync(
+        Func<ProcessCheck> observeStopped,Func<ProcessCheck>? observeLive,
+        ProcessIdentity expectedAsa,ProcessIdentity? expectedLoader,
+        Func<ProcessIdentity?,ProcessIdentity?,bool> same,
+        CancellationToken ct,TimeSpan? pollInterval=null)
+    {
+        void RejectReplacement(ProcessCheck check)
+        {
+            if((check.Identity!=null&&!same(check.Identity,expectedAsa))||
+               (check.LoaderIdentity!=null&&
+                (expectedLoader==null||!same(check.LoaderIdentity,expectedLoader))))
+                throw new InvalidOperationException("UM-ASA-STOP-REPLACEMENT-FAMILY");
+        }
+        while(true)
+        {
+            ct.ThrowIfCancellationRequested();
+            var check=observeStopped();
+            ct.ThrowIfCancellationRequested();
+            RejectReplacement(check);
+            if(check.ConfirmedStopped&&!check.Running&&
+               check.Identity==null&&check.LoaderIdentity==null)
+                return;
+            if(observeLive!=null)RejectReplacement(observeLive());
+            await Task.Delay(pollInterval??TimeSpan.FromMilliseconds(300),ct);
+        }
+    }
+
     // Read-only classifier shared by actual Windows inspection and tests.
     // A configured-but-unused API Loader cannot prevent direct ASA from
     // being recognized. Conversely a previously verified Loader child
