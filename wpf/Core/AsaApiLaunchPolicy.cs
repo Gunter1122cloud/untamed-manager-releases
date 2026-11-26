@@ -1,10 +1,14 @@
 using System;
 using System.IO;
+using System.Linq;
 
 namespace UntamedManager.Core;
 
 public sealed record AsaApiLaunchPlan(bool UseApi,string ExecutablePath,
-    string Arguments,string Evidence);
+    string Arguments,string Evidence)
+{
+    internal string BinaryFingerprint {get;init;}="";
+}
 
 // Immutable launch selection. The persisted opt-in, not a nonempty legacy
 // loader path, selects the executable. Production launches remain denied by
@@ -41,10 +45,15 @@ public static class AsaApiLaunchPolicy
             throw new InvalidDataException("Az ASA API indításához map/port indítási argumentumok szükségesek");
         if(!File.Exists(server))
             throw new FileNotFoundException("Az ASA szerver EXE hiányzik",server);
-        var inspection=AsaApiInspector.Inspect(root);
-        if(!inspection.Complete)
-            throw new InvalidOperationException("Az ASA API PE64, config vagy Plugins előfeltétele nem teljesül");
+        // Port of Cerious AASM resolveServerLaunch (MIT, Jared Kirchgatter,
+        // ark-server-paths.utils.ts:38-51): select the local executable,
+        // not plugin/config diagnostic status. Retain Obsidian's explicit
+        // per-map opt-in and existing PE64 binary integrity check.
+        var binaries=AsaApiInspector.InspectLaunchBinaries(root);
+        if(binaries.Any(x=>!x.Present||!x.ValidPe64||x.Sha256==null))
+            throw new InvalidOperationException("Az ASA API Loader vagy Core DLL hiányzik, illetve érvénytelen");
         return new(true,expectedLoader,map.Arguments,
-            "Verified local file layout only; actual API/module initialization unproven");
+            "Verified local loader and core binaries; API initializes its own configuration and plugins")
+            {BinaryFingerprint=string.Join(":",binaries.Select(x=>x.Sha256))};
     }
 }
