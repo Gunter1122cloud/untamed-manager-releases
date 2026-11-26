@@ -82,6 +82,42 @@ using(var cancelledSave=new CancellationTokenSource())
     Check(cancellationPreserved&&fallbackChecks==1,"cancelled operation does not permit DoExit fallback");
 }
 
+// Shared production shutdown observer: an exiting Loader is not a
+// replacement; an unknown or partially observed family is not stopped.
+{
+    var child=new ProcessIdentity{Pid=90101,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath="fixture-asa"};
+    var loader=new ProcessIdentity{Pid=90100,StartedUtc=child.StartedUtc.AddSeconds(-1),ExecutablePath="fixture-loader"};
+    bool SameFixture(ProcessIdentity? x,ProcessIdentity? y)=>x!=null&&y!=null&&
+        x.Pid==y.Pid&&x.StartedUtc==y.StartedUtc&&x.ExecutablePath==y.ExecutablePath;
+    var samples=new Queue<ProcessCheck>(new[]{
+        new ProcessCheck(true,"loader exited first",child,false),
+        new ProcessCheck(false,"unknown",null,false),
+        new ProcessCheck(false,"fully stopped",null,true)});
+    await ProcessFamily.WaitForOwnedExitAsync(()=>samples.Dequeue(),null,
+        child,loader,SameFixture,CancellationToken.None,TimeSpan.FromMilliseconds(1));
+    Check(samples.Count==0,"shared stop waits for confirmed absence, not just Loader exit");
+    bool replacementDenied=false;
+    try
+    {
+        await ProcessFamily.WaitForOwnedExitAsync(
+            ()=>new ProcessCheck(false,"unknown",null,false),
+            ()=>new ProcessCheck(true,"replacement Loader",child,false,
+                new ProcessIdentity{Pid=loader.Pid,StartedUtc=loader.StartedUtc.AddSeconds(1),ExecutablePath=loader.ExecutablePath}),
+            child,loader,SameFixture,CancellationToken.None);
+    }
+    catch(InvalidOperationException ex) when(ex.Message=="UM-ASA-STOP-REPLACEMENT-FAMILY")
+    {replacementDenied=true;}
+    Check(replacementDenied,"shared stop rejects a reused Loader PID with new epoch");
+    using var cancellation=new CancellationTokenSource();
+    var waiting=ProcessFamily.WaitForOwnedExitAsync(
+        ()=>new ProcessCheck(false,"uncertain",null,false),null,
+        child,loader,SameFixture,cancellation.Token);
+    cancellation.Cancel();
+    bool cancelled=false;
+    try{await waiting;}catch(OperationCanceledException){cancelled=true;}
+    Check(cancelled,"unknown process state stays cancellable, not falsely stopped");
+}
+
 // A reconciled Stop receipt must override terminal error history, but not
 // an active worker or an unresolved durable Stop.
 Check(!DesktopFreshAsaStopBridge.PreferTrackedStop("needsOperator",AsaStopPhase.Completed)&&
